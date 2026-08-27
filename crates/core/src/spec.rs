@@ -54,6 +54,8 @@ pub enum SpecError {
     MissingState { kind: String, key: String },
     #[error("durum anahtarı `{key}` tip uyumsuz: beklenen {expected}, bulunan {found}")]
     StateTypeMismatch { key: String, expected: String, found: String },
+    #[error("spec en az bir stage içermeli")]
+    EmptyStages,
 }
 
 impl AlgorithmSpec {
@@ -68,6 +70,9 @@ impl AlgorithmSpec {
     }
 
     pub fn validate(&self, reg: &Registry, space: &SearchSpace) -> Result<(), SpecError> {
+        if self.stages.is_empty() {
+            return Err(SpecError::EmptyStages);
+        }
         // Tüm bileşenleri kur, metaları topla
         let mut metas: Vec<ComponentMeta> = vec![
             reg.build_initializer(&self.init.kind, &self.init.params)?.meta(),
@@ -232,5 +237,13 @@ mod tests {
         let mut s = spec("vel-init");
         s.stages[0].generator.kind = "yok".into();
         assert!(matches!(s.validate(&registry(), &space), Err(SpecError::Component(_))));
+    }
+
+    #[test]
+    fn empty_stages_rejected() {
+        let space = SearchSpace::new(vec![Block::Float { lo: 0.0, hi: 1.0, n: 2 }]).unwrap();
+        let mut s = spec("vel-init");
+        s.stages.clear();
+        assert!(matches!(s.validate(&registry(), &space), Err(SpecError::EmptyStages)));
     }
 }
