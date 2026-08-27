@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/components", "crates/problems", "crates/bench"]
+members = ["crates/core", "crates/components", "crates/problems", "crates/bench", "py-sezgi"]
 
 [workspace.package]
 version = "0.1.0"

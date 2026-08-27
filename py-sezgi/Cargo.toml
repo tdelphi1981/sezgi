@@ -1,0 +1,17 @@
+[package]
+name = "py-sezgi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "_sezgi"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }
+serde_json = "1"
+sezgi-core = { path = "../crates/core" }
+sezgi-components = { path = "../crates/components" }
+sezgi-problems = { path = "../crates/problems" }
+sezgi-bench = { path = "../crates/bench" }
