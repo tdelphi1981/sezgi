@@ -1,0 +1,12 @@
+[package]
+name = "sezgi-problems"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sezgi-core = { path = "../core" }
+thiserror = "2"
+
+[dev-dependencies]
+sezgi-components = { path = "../components" }

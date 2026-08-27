@@ -126,6 +126,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sezgi-problems"
+version = "0.1.0"
+dependencies = [
+ "sezgi-components",
+ "sezgi-core",
+ "thiserror",
+]
+
+[[package]]
 name = "syn"
 version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
