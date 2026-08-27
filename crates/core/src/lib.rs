@@ -4,3 +4,4 @@ pub mod dist;
 pub mod state;
 pub mod problem;
 pub mod component;
+pub mod spec;
