@@ -1,0 +1,34 @@
+use sezgi_core::dist::Distribution;
+use sezgi_core::spec::*;
+
+fn comp(kind: &str, params: serde_json::Value) -> ComponentSpec {
+    ComponentSpec { kind: kind.into(), params }
+}
+
+pub fn de_rand_1(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "de/rand/1/bin".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/de", serde_json::json!(
+                {"strategy": "rand1", "f": 0.5, "cr": 0.9})),
+            replacer: comp("replace/one-to-one-greedy", serde_json::json!({})),
+        }],
+        termination: TerminationSpec { budget, target: None },
+    }
+}
+
+pub fn es_mu_plus_lambda(pop_size: usize, budget: u64, dist: Distribution) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "es/mu+lambda".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/step", serde_json::json!(
+                {"dist": serde_json::to_value(&dist).unwrap(), "rate": 1.0})),
+            replacer: comp("replace/mu-plus-lambda", serde_json::json!({})),
+        }],
+        termination: TerminationSpec { budget, target: None },
+    }
+}
