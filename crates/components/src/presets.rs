@@ -32,3 +32,17 @@ pub fn es_mu_plus_lambda(pop_size: usize, budget: u64, dist: Distribution) -> Al
         termination: TerminationSpec { budget, target: None },
     }
 }
+
+pub fn ga_real(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "ga/real-sbx".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/ga-real", serde_json::json!(
+                {"tournament_k": 2, "pc": 0.9, "eta_c": 15.0, "eta_m": 20.0})),
+            replacer: comp("replace/mu-plus-lambda", serde_json::json!({})),
+        }],
+        termination: TerminationSpec { budget, target: None },
+    }
+}

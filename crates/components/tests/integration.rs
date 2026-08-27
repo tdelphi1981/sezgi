@@ -29,3 +29,12 @@ fn es_with_cauchy_beats_init() {
     let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
     assert!(r.best_f < 0.1, "ES ilerlemeli: {}", r.best_f);
 }
+
+#[test]
+fn ga_converges_on_shifted_sphere_5d() {
+    let p = SphereShifted::new(vec![1.5, -0.5, 2.0, -3.0, 0.25], -5.0, 5.0);
+    let spec = presets::ga_real(50, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    assert!(r.best_f < 1e-3, "GA yakınsamalı: {}", r.best_f);
+}
