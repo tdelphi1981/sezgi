@@ -1,5 +1,7 @@
 import json
 import os
+import pathlib
+import struct
 import sezgi
 
 
@@ -51,3 +53,17 @@ def test_log_dir_writes_ioh(tmp_path):
     dat = tmp_path / "de" / "data_f1_Sphere" / "IOHprofiler_f1_DIM5.dat"
     assert dat.exists()
     assert dat.read_text().splitlines()[0] == '"evaluations" "raw_y"'
+
+
+def test_cross_language_determinism():
+    golden = json.loads(
+        (pathlib.Path(__file__).parents[2] / "tests" / "golden"
+         / "de_bbob_f1_seed42.json").read_text())
+    gp = golden["problem"]
+    p = sezgi.bbob(fid=gp["fid"], dim=gp["dim"], instance=gp["instance"])
+    spec = sezgi.presets.de_rand_1(20, 2000)
+    r = sezgi.solve(spec, p, master_seed=golden["master_seed"],
+                    run_id=golden["run_id"])
+    got_bits = format(struct.unpack("<Q", struct.pack("<d", r["best_f"]))[0], "016x")
+    assert got_bits == golden["best_f_bits"], \
+        "Python yörüngesi Rust altın değerinden saptı"
