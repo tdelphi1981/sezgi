@@ -30,6 +30,7 @@ impl DeGenerator {
 
 impl Generator for DeGenerator {
     fn generate(&self, pop: &Population, ctx: &mut Ctx) -> Vec<Genotype> {
+        assert!(pop.len() >= 4, "gen/de en az 4 bireylik popülasyon gerektirir (pop_size={})", pop.len());
         let n = pop.len();
         let best = pop.best_index().unwrap_or(0);
         (0..n).map(|i| {
@@ -73,6 +74,9 @@ pub fn register(reg: &mut Registry) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sezgi_core::problem::{Problem, SphereShifted, Evaluator};
+    use sezgi_core::rng::RngStream;
+    use sezgi_core::state::Blackboard;
 
     #[test]
     fn params_parse_and_validate() {
@@ -81,5 +85,31 @@ mod tests {
         assert!(matches!(g.strategy, DeStrategy::Best1));
         assert!(DeGenerator::from_params(&serde_json::json!({"f": -1.0})).is_err());
         assert!(DeGenerator::from_params(&serde_json::json!({"cr": 2.0})).is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "en az 4 bireylik")]
+    fn small_population_panics() {
+        use sezgi_core::problem::Population;
+
+        let p = SphereShifted::new(vec![0.0], -5.0, 5.0);
+        let space = p.space();
+        let mut evaluator = Evaluator::new(&p, 100);
+        let mut rng = RngStream::from_master(42, &[]);
+        let mut bb = Blackboard::new();
+        let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
+
+        // Create 3-individual population to trigger panic
+        let pop = Population {
+            individuals: vec![
+                Genotype { blocks: vec![BlockValues::Float(vec![0.0])] },
+                Genotype { blocks: vec![BlockValues::Float(vec![0.0])] },
+                Genotype { blocks: vec![BlockValues::Float(vec![0.0])] },
+            ],
+            fitness: vec![0.0; 3],
+        };
+
+        let gen = DeGenerator::from_params(&serde_json::json!({})).unwrap();
+        let _ = gen.generate(&pop, &mut ctx);
     }
 }
