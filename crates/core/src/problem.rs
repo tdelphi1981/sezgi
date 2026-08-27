@@ -54,6 +54,8 @@ impl<'a> Evaluator<'a> {
             return Err(BudgetExhausted { used: self.used, budget: self.budget, requested: req });
         }
         let fs = self.problem.evaluate_batch(pop);
+        assert_eq!(fs.len(), pop.len(),
+            "Problem::evaluate_batch yanlış uzunluk döndürdü: {} != {}", fs.len(), pop.len());
         for &f in &fs {
             self.used += 1;
             let best = match self.best {
@@ -146,5 +148,23 @@ mod tests {
             fitness: vec![5.0, 0.0],
         };
         assert_eq!(pop.best_index(), Some(1));
+    }
+
+    struct MisbehavingProblem { space: SearchSpace }
+    impl Problem for MisbehavingProblem {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
+            // Kasıtlı olarak yanlış uzunlukta sonuç döndürür (bir eksik).
+            pop.iter().skip(1).map(|_| 0.0).collect()
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "yanlış uzunluk")]
+    fn evaluate_panics_on_wrong_batch_length() {
+        let space = SearchSpace::new(vec![Block::Float { lo: -1.0, hi: 1.0, n: 1 }]).unwrap();
+        let p = MisbehavingProblem { space };
+        let mut ev = Evaluator::new(&p, 10);
+        let _ = ev.evaluate(&[g(&[0.0, 0.0]), g(&[0.0, 0.0])]);
     }
 }

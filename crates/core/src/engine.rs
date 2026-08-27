@@ -60,6 +60,7 @@ impl Engine {
 
         // RNG akış yolu sözleşmesi — manifest bu yolları kaydeder (Task 16)
         let mut init_rng = RngStream::from_master(cfg.master_seed, &[cfg.run_id, 0]);
+        // NOT: 500+ stage'de replacer yoluyla çakışır (2+2*499=1000); motor yolu ileride ayrılacaksa ofseti büyüt.
         let mut boundary_rng = RngStream::from_master(cfg.master_seed, &[cfg.run_id, 1000]);
         let mut stage_rngs: Vec<(RngStream, RngStream)> = (0..self.stages.len()).map(|i| (
             RngStream::from_master(cfg.master_seed, &[cfg.run_id, 1 + 2 * i as u64]),
@@ -78,6 +79,20 @@ impl Engine {
             Err(_) => return Err(EngineError::EmptyPopulation), // bütçe < pop_size
         };
         let mut pop = Population { individuals, fitness };
+
+        // Küresel en iyi: popülasyon değiştirici elitist olmasa bile
+        // şimdiye kadar değerlendirilen en iyi (fitness, genotip) çiftini izler.
+        let mut global_best: Option<(f64, Genotype)> = None;
+        let update_global_best = |gb: &mut Option<(f64, Genotype)>, xs: &[Genotype], fs: &[f64]| {
+            for (g, &f) in xs.iter().zip(fs) {
+                let better = match gb {
+                    Some((bf, _)) => f.total_cmp(bf) == std::cmp::Ordering::Less,
+                    None => true,
+                };
+                if better { *gb = Some((f, g.clone())); }
+            }
+        };
+        update_global_best(&mut global_best, &pop.individuals, &pop.fitness);
 
         let reached = |eval: &Evaluator| -> bool {
             matches!((self.target, eval.best_so_far()),
@@ -101,6 +116,7 @@ impl Engine {
                     Ok(f) => f,
                     Err(_) => break 'outer, // bütçe doldu: temiz çıkış
                 };
+                update_global_best(&mut global_best, &offspring, &off_fit);
                 {
                     let (_, rr) = &mut stage_rngs[si];
                     let mut ctx = Ctx { space, rng: rr, bb: &mut bb,
@@ -112,10 +128,10 @@ impl Engine {
             iterations += 1;
         }
 
-        let bi = pop.best_index().expect("popülasyon boş olamaz");
+        let (best_f, best_x) = global_best.expect("en az ilklendirme değerlendirilmiş olmalı");
         Ok(RunResult {
-            best_f: pop.fitness[bi],
-            best_x: pop.individuals[bi].clone(),
+            best_f,
+            best_x,
             evals_used: eval.used(),
             iterations,
         })
@@ -126,7 +142,7 @@ impl Engine {
 mod tests {
     use super::*;
     use crate::component::*;
-    use crate::problem::{Population, SphereShifted};
+    use crate::problem::{EvalObserver, Population, SphereShifted};
     use crate::space::{Block, BlockValues, Genotype, SearchSpace};
     use crate::spec::*;
 
@@ -243,5 +259,57 @@ mod tests {
         let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
         let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
         assert!(r.best_f < 5.0, "500 değerlendirmede sphere'de makul ilerleme: {}", r.best_f);
+    }
+
+    /// Elitist OLMAYAN bir replacer: gelen yavruları koşulsuz kabul eder
+    /// (popülasyon geriye gidebilir — PSO gibi). Motor yine de şimdiye kadar
+    /// görülen en iyiyi (best_so_far) doğru şekilde döndürmeli.
+    struct Unconditional;
+    impl Replacer for Unconditional {
+        fn replace(&self, pop: &mut Population, off_i: Vec<Genotype>,
+                   off_fit: Vec<f64>, _c: &mut Ctx) {
+            pop.individuals = off_i;
+            pop.fitness = off_fit;
+        }
+        fn meta(&self) -> ComponentMeta {
+            ComponentMeta { kind: "unconditional", supported_blocks: SupportedBlocks::All,
+                requires: vec![], provides: vec![] }
+        }
+    }
+
+    #[test]
+    fn non_elitist_replacer_keeps_global_best() {
+        let mut reg = Registry::new();
+        reg.register_initializer("u-init", |_| Ok(Box::new(UInit)));
+        reg.register_generator("resample", |_| Ok(Box::new(Resample)));
+        reg.register_replacer("unconditional", |_| Ok(Box::new(Unconditional)));
+        reg.register_boundary("no-b", |_| Ok(Box::new(NoB)));
+        let spec = AlgorithmSpec {
+            name: "koşulsuz-arama".into(), pop_size: 10,
+            init: ComponentSpec { kind: "u-init".into(), params: serde_json::json!({}) },
+            boundary: ComponentSpec { kind: "no-b".into(), params: serde_json::json!({}) },
+            stages: vec![StageSpec {
+                generator: ComponentSpec { kind: "resample".into(), params: serde_json::json!({}) },
+                replacer: ComponentSpec { kind: "unconditional".into(), params: serde_json::json!({}) },
+            }],
+            termination: TerminationSpec { budget: 500, target: None },
+        };
+        let p = SphereShifted::new(vec![1.0, -2.0], -5.0, 5.0);
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+
+        struct MinObserver(std::sync::Arc<std::sync::Mutex<f64>>);
+        impl EvalObserver for MinObserver {
+            fn on_eval(&mut self, _eval_index: u64, _f: f64, best_so_far: f64) {
+                let mut m = self.0.lock().unwrap();
+                if best_so_far < *m { *m = best_so_far; }
+            }
+        }
+        let observed_min = std::sync::Arc::new(std::sync::Mutex::new(f64::INFINITY));
+        let obs = MinObserver(observed_min.clone());
+
+        let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, Some(Box::new(obs))).unwrap();
+        let observed_min = *observed_min.lock().unwrap();
+        assert_eq!(r.best_f, observed_min,
+            "koşulsuz (elitist olmayan) replacer altında motor küresel en iyiyi kaybetmemeli");
     }
 }

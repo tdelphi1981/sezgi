@@ -88,6 +88,10 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
             } else { run(p, None)? }
         }
         Inner::Callable { f, space } => {
+            if log_dir.is_some() {
+                return Err(PyValueError::new_err(
+                    "log_dir yalnız yerleşik (bbob) problemlerde destekleniyor"));
+            }
             let cp = CallableProblem { f, space };
             // GIL callback sırasında yeniden alınır; çağıran thread'de koşuyoruz
             run(&cp, None)?

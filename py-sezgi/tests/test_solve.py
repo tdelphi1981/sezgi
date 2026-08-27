@@ -1,8 +1,8 @@
 import json
-import os
 import pathlib
 import struct
 import sezgi
+import pytest
 
 
 def test_preset_is_dict_with_stages():
@@ -53,6 +53,27 @@ def test_log_dir_writes_ioh(tmp_path):
     dat = tmp_path / "de" / "data_f1_Sphere" / "IOHprofiler_f1_DIM5.dat"
     assert dat.exists()
     assert dat.read_text().splitlines()[0] == '"evaluations" "raw_y"'
+
+
+def test_callable_wrong_length_raises():
+    def bad_sphere(xs):
+        # Kasıtlı olarak eksik uzunlukta liste döndürür.
+        return [sum((v - 1.0) ** 2 for v in x) for x in xs][:-1]
+
+    p = sezgi.from_callable(bad_sphere, lo=-5.0, hi=5.0, dim=3)
+    spec = sezgi.presets.de_rand_1(pop_size=10, budget=500)
+    with pytest.raises(BaseException):
+        sezgi.solve(spec, p, master_seed=1)
+
+
+def test_callable_log_dir_raises(tmp_path):
+    def sphere(xs):
+        return [sum((v - 1.0) ** 2 for v in x) for x in xs]
+
+    p = sezgi.from_callable(sphere, lo=-5.0, hi=5.0, dim=3)
+    spec = sezgi.presets.de_rand_1(pop_size=10, budget=500)
+    with pytest.raises(ValueError, match="log_dir yalnız yerleşik"):
+        sezgi.solve(spec, p, master_seed=1, log_dir=str(tmp_path))
 
 
 def test_cross_language_determinism():

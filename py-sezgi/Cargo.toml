@@ -15,3 +15,6 @@ sezgi-core = { path = "../crates/core" }
 sezgi-components = { path = "../crates/components" }
 sezgi-problems = { path = "../crates/problems" }
 sezgi-bench = { path = "../crates/bench" }
+
+[build-dependencies]
+pyo3-build-config = "0.23"
