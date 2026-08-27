@@ -46,3 +46,17 @@ pub fn ga_real(pop_size: usize, budget: u64) -> AlgorithmSpec {
         termination: TerminationSpec { budget, target: None },
     }
 }
+
+pub fn pso(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "pso/clerc-kennedy".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/pso", serde_json::json!(
+                {"w": 0.7298, "c1": 1.49618, "c2": 1.49618})),
+            replacer: comp("replace/pso-commit", serde_json::json!({})),
+        }],
+        termination: TerminationSpec { budget, target: None },
+    }
+}

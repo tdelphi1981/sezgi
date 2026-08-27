@@ -38,3 +38,20 @@ fn ga_converges_on_shifted_sphere_5d() {
     let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
     assert!(r.best_f < 1e-3, "GA yakınsamalı: {}", r.best_f);
 }
+
+#[test]
+fn pso_converges_on_shifted_sphere_5d() {
+    let p = SphereShifted::new(vec![1.5, -0.5, 2.0, -3.0, 0.25], -5.0, 5.0);
+    let spec = presets::pso(40, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    assert!(r.best_f < 1e-4, "PSO yakınsamalı: {}", r.best_f);
+}
+
+#[test]
+fn pso_commit_without_generator_is_rejected() {
+    let p = SphereShifted::new(vec![1.0], -5.0, 5.0);
+    let mut spec = presets::de_rand_1(10, 100);
+    spec.stages[0].replacer.kind = "replace/pso-commit".into();
+    assert!(Engine::from_spec(&spec, &registry(), p.space()).is_err());
+}

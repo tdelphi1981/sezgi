@@ -4,6 +4,7 @@ pub mod replace;
 pub mod step;
 pub mod de;
 pub mod ga;
+pub mod pso;
 pub mod presets;
 
 use sezgi_core::component::Registry;
@@ -15,4 +16,5 @@ pub fn register_builtins(reg: &mut Registry) {
     step::register(reg);
     de::register(reg);
     ga::register(reg);
+    pso::register(reg);
 }
