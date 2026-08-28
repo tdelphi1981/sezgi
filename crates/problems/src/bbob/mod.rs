@@ -6,6 +6,7 @@ use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 
 pub const BBOB_SEED_BASE: u64 = 0x5EC1;
+pub const IMPLEMENTED_FIDS: &[u32] = &[1, 2, 3, 8];
 
 #[derive(Debug, thiserror::Error)]
 pub enum BbobError {
@@ -15,11 +16,36 @@ pub enum BbobError {
     BadDim,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum XOptPolicy {
+    Uniform44,
+    BoundaryPm5,
+    ScaledPattern { scale: f64 },
+}
+
+fn needs_r(fid: u32) -> bool {
+    !matches!(fid, 1 | 5 | 20)
+}
+
+fn needs_q(fid: u32) -> bool {
+    matches!(fid, 6 | 7 | 13 | 15 | 16 | 17 | 18 | 23 | 24)
+}
+
+fn x_opt_policy(fid: u32) -> XOptPolicy {
+    match fid {
+        5 => XOptPolicy::BoundaryPm5,
+        20 => XOptPolicy::ScaledPattern { scale: 4.2096874633 / 2.0 },
+        24 => XOptPolicy::ScaledPattern { scale: 2.5 / 2.0 },
+        _ => XOptPolicy::Uniform44,
+    }
+}
+
 pub struct BbobProblem {
     fid: u32,
     x_opt: Vec<f64>,
     f_opt: f64,
     rot: Option<Vec<Vec<f64>>>,
+    rot2: Option<Vec<Vec<f64>>>,
     space: SearchSpace,
     pub instance: u32,
 }
@@ -27,18 +53,33 @@ pub struct BbobProblem {
 impl BbobProblem {
     pub fn new(fid: u32, dim: usize, instance: u32) -> Result<Self, BbobError> {
         if dim < 2 { return Err(BbobError::BadDim); }
-        if ![1, 2, 3, 8].contains(&fid) { return Err(BbobError::NotImplemented(fid)); }
+        if fid < 1 || fid > 24 { return Err(BbobError::NotImplemented(fid)); }
+
         let mut rng = RngStream::from_master(BBOB_SEED_BASE + fid as u64,
                                              &[instance as u64]);
-        let x_opt: Vec<f64> = (0..dim).map(|_| -4.0 + 8.0 * rng.next_f64()).collect();
-        let f_opt = -200.0 + 400.0 * rng.next_f64();
-        let rot = match fid {
-            2 | 3 | 8 => Some(transform::rotation_matrix(dim, rng.next_u64())),
-            _ => None,
+
+        // Drawing order (CRITICAL): [x_opt d draws][f_opt 1 draw][R seed if needed][Q seed if needed]
+        let x_opt: Vec<f64> = match x_opt_policy(fid) {
+            XOptPolicy::Uniform44 =>
+                (0..dim).map(|_| -4.0 + 8.0 * rng.next_f64()).collect(),
+            XOptPolicy::BoundaryPm5 =>
+                (0..dim).map(|_| if rng.next_f64() < 0.5 { -5.0 } else { 5.0 }).collect(),
+            XOptPolicy::ScaledPattern { scale } =>
+                (0..dim).map(|_| if rng.next_f64() < 0.5 { -scale } else { scale }).collect(),
         };
+        let f_opt = -200.0 + 400.0 * rng.next_f64();
+        let rot = needs_r(fid).then(|| transform::rotation_matrix(dim, rng.next_u64()));
+        let rot2 = needs_q(fid).then(|| transform::rotation_matrix(dim, rng.next_u64()));
+
         let space = SearchSpace::new(vec![Block::Float { lo: -5.0, hi: 5.0, n: dim }])
             .expect("sabit sınırlar geçerli");
-        Ok(Self { fid, x_opt, f_opt, rot, space, instance })
+
+        // Check if fid is implemented
+        if !IMPLEMENTED_FIDS.contains(&fid) {
+            return Err(BbobError::NotImplemented(fid));
+        }
+
+        Ok(Self { fid, x_opt, f_opt, rot, rot2, space, instance })
     }
 
     pub fn x_opt(&self) -> &[f64] { &self.x_opt }
@@ -132,6 +173,20 @@ mod tests {
                 let expect = if i == j { 1.0 } else { 0.0 };
                 assert!((dot - expect).abs() < 1e-9);
             }
+        }
+    }
+
+    #[test]
+    fn m1_fids_instance_values_pinned() {
+        // Bu değerler bu testin İLK koşusunda mevcut koddan alınıp sabitlenir (PIN-ME
+        // prosedürü, T17/M1 ile aynı): her fid için instance=1, dim=5,
+        // x=[0.5,-1.0,2.0,0.0,-3.0] noktasında f değeri bit'leri.
+        let probe = g(vec![0.5, -1.0, 2.0, 0.0, -3.0]);
+        for (fid, expected_hex) in [(1u32, "c05a1069cca05d30"), (2, "414d7d483f2ad056"), (3, "c03b12604f3ed308"), (8, "40d41e5080f1a8d2")] {
+            let p = BbobProblem::new(fid, 5, 1).unwrap();
+            let f = p.evaluate_batch(std::slice::from_ref(&probe))[0];
+            let got = format!("{:016x}", f.to_bits());
+            assert_eq!(got, expected_hex, "fid {fid}: M1 davranışı drift etti!");
         }
     }
 }
