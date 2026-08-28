@@ -9,6 +9,7 @@ pub mod sa;
 pub mod resample;
 pub mod shade;
 pub mod presets;
+pub mod linalg;
 
 use sezgi_core::component::Registry;
 
