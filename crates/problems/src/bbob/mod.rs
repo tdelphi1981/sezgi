@@ -6,11 +6,11 @@ use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 
 pub const BBOB_SEED_BASE: u64 = 0x5EC1;
-pub const IMPLEMENTED_FIDS: &[u32] = &[1, 2, 3, 4, 5, 8];
+pub const IMPLEMENTED_FIDS: &[u32] = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 #[derive(Debug, thiserror::Error)]
 pub enum BbobError {
-    #[error("fid {0} bu sürümde yok (M1: 1,2,3,8)")]
+    #[error("fid {0} henüz implemente edilmedi")]
     NotImplemented(u32),
     #[error("dim >= 2 olmalı")]
     BadDim,
@@ -38,6 +38,18 @@ fn x_opt_policy(fid: u32) -> XOptPolicy {
         24 => XOptPolicy::ScaledPattern { scale: 2.5 / 2.0 },
         _ => XOptPolicy::Uniform44,
     }
+}
+
+fn shift(xs: &[f64], x_opt: &[f64]) -> Vec<f64> {
+    xs.iter().zip(x_opt).map(|(x, o)| x - o).collect()
+}
+
+/// z = Q·Λ^10·R·(x - x_opt) — f6/f13 tarzı boru hattı
+fn apply2(p: &BbobProblem, xs: &[f64]) -> Vec<f64> {
+    let s = shift(xs, &p.x_opt);
+    let r = transform::apply(p.rot.as_ref().unwrap(), &s);
+    let l = transform::lambda_alpha(&r, 10.0);
+    transform::apply(p.rot2.as_ref().unwrap(), &l)
 }
 
 pub struct BbobProblem {
@@ -87,7 +99,7 @@ impl BbobProblem {
     pub fn fid(&self) -> u32 { self.fid }
     pub fn name(&self) -> &'static str {
         match self.fid { 1 => "Sphere", 2 => "Ellipsoidal", 3 => "Rastrigin", 4 => "BucheRastrigin",
-                         5 => "LinearSlope", 8 => "Rosenbrock", _ => unreachable!() }
+                         5 => "LinearSlope", 6 => "AttractiveSector", 7 => "StepEllipsoidal", 8 => "Rosenbrock", 9 => "RosenbrockRotated", _ => unreachable!() }
     }
 }
 
@@ -122,6 +134,26 @@ impl Problem for BbobProblem {
                     functions::buche_rastrigin(&transform::t_osz(&shifted)) + 100.0 * transform::f_pen(xs)
                 }
                 5 => functions::linear_slope(xs, &self.x_opt),
+                6 => {
+                    let z = apply2(self, xs);
+                    functions::attractive_sector(&z, &self.x_opt)
+                }
+                7 => {
+                    let shifted = shift(xs, &self.x_opt);
+                    let zhat = transform::lambda_alpha(&transform::apply(self.rot.as_ref().unwrap(), &shifted), 10.0);
+                    let ztilde: Vec<f64> = zhat.iter().map(|&v| {
+                        if v.abs() > 0.5 { (0.5 + v).floor() } else { (0.5 + 10.0 * v).floor() / 10.0 }
+                    }).collect();
+                    let z = transform::apply(self.rot2.as_ref().unwrap(), &ztilde);
+                    functions::step_ellipsoidal(zhat[0], &z) + transform::f_pen(xs)
+                }
+                9 => {
+                    let shifted = shift(xs, &self.x_opt);
+                    let scale = 1f64.max((xs.len() as f64).sqrt() / 8.0);
+                    let z: Vec<f64> = transform::apply(self.rot.as_ref().unwrap(), &shifted)
+                        .iter().map(|v| scale * v + 1.0).collect();
+                    functions::rosenbrock(&z)
+                }
                 _ => unreachable!(),
             };
             raw + self.f_opt
@@ -217,5 +249,30 @@ mod tests {
     fn f5_optimum_on_boundary() {
         let p = BbobProblem::new(5, 6, 2).unwrap();
         assert!(p.x_opt().iter().all(|&x| x == 5.0 || x == -5.0));
+    }
+
+    #[test]
+    fn f6_f7_f9_optimum_and_determinism() {
+        for fid in [6u32, 7, 9] {
+            let p = BbobProblem::new(fid, 5, 1).unwrap();
+            let at_opt = p.evaluate_batch(&[g(p.x_opt().to_vec())])[0];
+            assert!((at_opt - p.f_opt()).abs() < 1e-6, "fid {fid}: {}", at_opt - p.f_opt());
+            let mut x = p.x_opt().to_vec();
+            x[1] += 1.0;
+            assert!(p.evaluate_batch(&[g(x)])[0] > p.f_opt(), "fid {fid}");
+            let p2 = BbobProblem::new(fid, 5, 1).unwrap();
+            assert_eq!(p.x_opt(), p2.x_opt(), "fid {fid} instance determinizmi");
+        }
+    }
+
+    #[test]
+    fn f7_has_plateaus() {
+        // Step-ellipsoidal: optimumdan yeterince uzak iki yakın nokta aynı f'i vermeli
+        let p = BbobProblem::new(7, 5, 1).unwrap();
+        let mut a = p.x_opt().to_vec(); a[0] += 2.0;
+        let mut b = a.clone(); b[0] += 1e-4;
+        let fa = p.evaluate_batch(&[g(a)])[0];
+        let fb = p.evaluate_batch(&[g(b)])[0];
+        assert_eq!(fa, fb, "basamak platosu bekleniyordu");
     }
 }

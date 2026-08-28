@@ -41,3 +41,25 @@ pub fn linear_slope(x: &[f64], x_opt: &[f64]) -> f64 {
         5.0 * s.abs() - s * z
     }).sum()
 }
+
+/// f6: Attractive Sector
+/// Boru hattı: z = Q·Λ^10·R·(x - x_opt)
+/// Çekirdek: s_i = 100 eğer z_i·x_opt_i > 0, değilse 1
+pub fn attractive_sector(z: &[f64], x_opt: &[f64]) -> f64 {
+    let s: f64 = z.iter().zip(x_opt).map(|(&zi, &oi)| {
+        let si = if zi * oi > 0.0 { 100.0 } else { 1.0 };
+        (si * zi).powi(2)
+    }).sum();
+    // t_osz skaler hali: tek elemanlı dilim üzerinden
+    crate::bbob::transform::t_osz(&[s])[0].powf(0.9)
+}
+
+/// f7: Step Ellipsoidal
+/// zhat0: ilk Λ^10 bileşeni, z: Q·ztilde sonrası
+pub fn step_ellipsoidal(zhat0: f64, z: &[f64]) -> f64 {
+    let d = z.len() as f64;
+    let ell: f64 = z.iter().enumerate()
+        .map(|(i, &zi)| 10f64.powf(2.0 * i as f64 / (d - 1.0).max(1.0)) * zi * zi)
+        .sum();
+    0.1 * (zhat0.abs() / 1e4).max(ell)
+}
