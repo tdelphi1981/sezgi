@@ -14,8 +14,10 @@ pub fn de_rand_1(pop_size: usize, budget: u64) -> AlgorithmSpec {
             generator: comp("gen/de", serde_json::json!(
                 {"strategy": "rand1", "f": 0.5, "cr": 0.9})),
             replacer: comp("replace/one-to-one-greedy", serde_json::json!({})),
+            adapter: None,
         }],
         termination: TerminationSpec { budget, target: None },
+        restart: None,
     }
 }
 
@@ -28,8 +30,10 @@ pub fn de_best_1(pop_size: usize, budget: u64) -> AlgorithmSpec {
             generator: comp("gen/de", serde_json::json!(
                 {"strategy": "best1", "f": 0.5, "cr": 0.9})),
             replacer: comp("replace/one-to-one-greedy", serde_json::json!({})),
+            adapter: None,
         }],
         termination: TerminationSpec { budget, target: None },
+        restart: None,
     }
 }
 
@@ -42,8 +46,10 @@ pub fn es_mu_plus_lambda(pop_size: usize, budget: u64, dist: Distribution) -> Al
             generator: comp("gen/step", serde_json::json!(
                 {"dist": serde_json::to_value(&dist).unwrap(), "rate": 1.0})),
             replacer: comp("replace/mu-plus-lambda", serde_json::json!({})),
+            adapter: None,
         }],
         termination: TerminationSpec { budget, target: None },
+        restart: None,
     }
 }
 
@@ -56,8 +62,10 @@ pub fn ga_real(pop_size: usize, budget: u64) -> AlgorithmSpec {
             generator: comp("gen/ga-real", serde_json::json!(
                 {"tournament_k": 2, "pc": 0.9, "eta_c": 15.0, "eta_m": 20.0})),
             replacer: comp("replace/mu-plus-lambda", serde_json::json!({})),
+            adapter: None,
         }],
         termination: TerminationSpec { budget, target: None },
+        restart: None,
     }
 }
 
@@ -70,7 +78,9 @@ pub fn pso(pop_size: usize, budget: u64) -> AlgorithmSpec {
             generator: comp("gen/pso", serde_json::json!(
                 {"w": 0.7298, "c1": 1.49618, "c2": 1.49618})),
             replacer: comp("replace/pso-commit", serde_json::json!({})),
+            adapter: None,
         }],
         termination: TerminationSpec { budget, target: None },
+        restart: None,
     }
 }

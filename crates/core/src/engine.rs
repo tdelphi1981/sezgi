@@ -1,4 +1,6 @@
-use crate::component::{BoundaryHandler, Ctx, Generator, Initializer, Registry, Replacer};
+use crate::component::{
+    Adapter, BoundaryHandler, Ctx, Generator, Initializer, Registry, Replacer, Restart,
+};
 use crate::problem::{EvalObserver, Evaluator, Population, Problem};
 use crate::rng::RngStream;
 use crate::space::{Genotype, SearchSpace};
@@ -9,6 +11,8 @@ pub struct Engine {
     init: Box<dyn Initializer>,
     boundary: Box<dyn BoundaryHandler>,
     stages: Vec<(Box<dyn Generator>, Box<dyn Replacer>)>,
+    adapters: Vec<Option<Box<dyn Adapter>>>,
+    restart: Option<Box<dyn Restart>>,
     pop_size: usize,
     budget: u64,
     target: Option<f64>,
@@ -46,6 +50,15 @@ impl Engine {
                 reg.build_generator(&st.generator.kind, &st.generator.params)?,
                 reg.build_replacer(&st.replacer.kind, &st.replacer.params)?,
             ))).collect::<Result<_, SpecError>>()?,
+            adapters: spec.stages.iter().map(|st| {
+                st.adapter.as_ref()
+                    .map(|a| reg.build_adapter(&a.kind, &a.params))
+                    .transpose()
+                    .map_err(SpecError::from)
+            }).collect::<Result<_, SpecError>>()?,
+            restart: spec.restart.as_ref()
+                .map(|r| reg.build_restart(&r.kind, &r.params))
+                .transpose()?,
             pop_size: spec.pop_size,
             budget: spec.termination.budget,
             target: spec.termination.target,
@@ -68,6 +81,14 @@ impl Engine {
             RngStream::from_master(cfg.master_seed, &[cfg.run_id, 1 + 2 * i as u64]),
             RngStream::from_master(cfg.master_seed, &[cfg.run_id, 2 + 2 * i as u64]),
         )).collect();
+        // Adapter streams: one per stage, path [run_id, 1_000_000 + stage_index].
+        let mut adapter_rngs: Vec<RngStream> = (0..self.stages.len()).map(|i|
+            RngStream::from_master(cfg.master_seed, &[cfg.run_id, 1_000_000 + i as u64])
+        ).collect();
+        // Restart stream: path [run_id, 2_000_000]; successive restarts derive
+        // a distinct child via restart_rng.split(restart_count).
+        let mut restart_rng = RngStream::from_master(cfg.master_seed, &[cfg.run_id, 2_000_000]);
+        let mut restart_count: u64 = 0;
 
         // Initialization
         let individuals = {
@@ -128,8 +149,57 @@ impl Engine {
                                         eval: &mut eval, iteration: iterations };
                     rep.replace(&mut pop, offspring, off_fit, &mut ctx);
                 }
+                if let Some(adapter) = &self.adapters[si] {
+                    let mut ctx = Ctx { space, rng: &mut adapter_rngs[si], bb: &mut bb,
+                                        eval: &mut eval, iteration: iterations };
+                    adapter.adapt(&mut pop, &mut ctx);
+                }
                 if reached(&eval) { break 'outer; }
             }
+
+            if let Some(restart) = &self.restart {
+                let directive = {
+                    let mut ctx = Ctx { space, rng: &mut restart_rng, bb: &mut bb,
+                                        eval: &mut eval, iteration: iterations };
+                    restart.check(&pop, &mut ctx)
+                };
+                if let Some(directive) = directive {
+                    // Preserve the restart component's own declared state
+                    // across the blackboard clear.
+                    let provide_keys: Vec<String> =
+                        restart.meta().provides.iter().map(|r| r.key.clone()).collect();
+                    let mut preserved = Vec::with_capacity(provide_keys.len());
+                    for k in &provide_keys {
+                        if let Some(v) = bb.take_raw(k) { preserved.push((k.clone(), v)); }
+                    }
+                    bb = Blackboard::new();
+                    for (k, v) in preserved { bb.put_raw(&k, v); }
+
+                    let new_size = if directive.new_pop_size == 0 {
+                        pop.len()
+                    } else {
+                        directive.new_pop_size
+                    };
+                    let mut reinit_rng = restart_rng.split(restart_count);
+                    restart_count += 1;
+
+                    let individuals = {
+                        let mut ctx = Ctx { space, rng: &mut reinit_rng, bb: &mut bb,
+                                            eval: &mut eval, iteration: iterations };
+                        self.init.initialize(new_size, &mut ctx)
+                    };
+                    if individuals.is_empty() { return Err(EngineError::EmptyPopulation); }
+                    match eval.evaluate(&individuals) {
+                        Ok(fitness) => {
+                            update_global_best(&mut global_best, &individuals, &fitness);
+                            pop = Population { individuals, fitness };
+                        }
+                        Err(_) => break 'outer, // budget exhausted: clean exit, global best kept
+                    }
+                    if reached(&eval) { break 'outer; }
+                }
+            }
+
             iterations += 1;
         }
 
@@ -150,6 +220,7 @@ mod tests {
     use crate::problem::{EvalObserver, Population, SphereShifted};
     use crate::space::{Block, BlockValues, Genotype, SearchSpace};
     use crate::spec::*;
+    use crate::state::StateReq;
 
     fn uniform_sample(space: &SearchSpace, rng: &mut crate::rng::RngStream) -> Genotype {
         let blocks = space.blocks().iter().map(|b| match *b {
@@ -215,8 +286,10 @@ mod tests {
             stages: vec![StageSpec {
                 generator: ComponentSpec { kind: "resample".into(), params: serde_json::json!({}) },
                 replacer: ComponentSpec { kind: "greedy".into(), params: serde_json::json!({}) },
+                adapter: None,
             }],
             termination: TerminationSpec { budget: 500, target: None },
+            restart: None,
         };
         (reg, spec, SphereShifted::new(vec![1.0, -2.0], -5.0, 5.0))
     }
@@ -296,8 +369,10 @@ mod tests {
             stages: vec![StageSpec {
                 generator: ComponentSpec { kind: "resample".into(), params: serde_json::json!({}) },
                 replacer: ComponentSpec { kind: "unconditional".into(), params: serde_json::json!({}) },
+                adapter: None,
             }],
             termination: TerminationSpec { budget: 500, target: None },
+            restart: None,
         };
         let p = SphereShifted::new(vec![1.0, -2.0], -5.0, 5.0);
         let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
@@ -326,5 +401,196 @@ mod tests {
         let err = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap_err();
         assert!(matches!(err, EngineError::BudgetSmallerThanPopulation { budget: 5, pop_size: 10 }),
             "should return a distinct error when the budget is smaller than the population, got: {:?}", err);
+    }
+
+    // ---- Adapter / Restart engine extension tests (M2b Task 4) ----
+
+    /// Absence of `adapter`/`restart` in the spec must be byte-identical to
+    /// today's behavior: a serde round-trip through JSON (where the fields
+    /// are omitted via skip_serializing_if) must produce the same run.
+    #[test]
+    fn absent_adapter_and_restart_change_nothing() {
+        let (reg, spec, p) = setup();
+        let e1 = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        let r1 = e1.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+
+        let json = spec.to_json();
+        assert!(!json.contains("\"adapter\""),
+            "adapter field must be omitted from JSON when absent (skip_serializing_if)");
+        assert!(!json.contains("\"restart\""),
+            "restart field must be omitted from JSON when absent (skip_serializing_if)");
+        let spec2 = AlgorithmSpec::from_json(&json).unwrap();
+        assert_eq!(spec2.stages[0].adapter, None);
+        assert_eq!(spec2.restart, None);
+
+        let e2 = Engine::from_spec(&spec2, &reg, p.space()).unwrap();
+        let r2 = e2.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+
+        assert_eq!(r1.best_f, r2.best_f);
+        assert_eq!(r1.best_x, r2.best_x);
+        assert_eq!(r1.evals_used, r2.evals_used);
+        assert_eq!(r1.iterations, r2.iterations);
+    }
+
+    struct CountAdapter(std::sync::Arc<std::sync::atomic::AtomicU64>);
+    impl Adapter for CountAdapter {
+        fn adapt(&self, _pop: &mut Population, ctx: &mut Ctx) {
+            let new_val = match ctx.bb.get_mut::<u64>("adapt_count") {
+                Some(c) => { *c += 1; *c }
+                None => { ctx.bb.insert("adapt_count", 1u64); 1 }
+            };
+            self.0.store(new_val, std::sync::atomic::Ordering::SeqCst);
+        }
+        fn meta(&self) -> ComponentMeta {
+            ComponentMeta { kind: "count-adapter", supported_blocks: SupportedBlocks::All,
+                requires: vec![], provides: vec![StateReq::of::<u64>("adapt_count")] }
+        }
+    }
+
+    #[test]
+    fn adapter_runs_after_replacer() {
+        let (mut reg, mut spec, p) = setup();
+        let counter = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        {
+            let counter = counter.clone();
+            reg.register_adapter("count-adapter", move |_| {
+                Ok(Box::new(CountAdapter(counter.clone())) as Box<dyn Adapter>)
+            });
+        }
+        spec.stages[0].adapter = Some(ComponentSpec { kind: "count-adapter".into(), params: serde_json::json!({}) });
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+        assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), r.iterations,
+            "the adapter must run exactly once per iteration, after the replacer");
+    }
+
+    struct FireAt3 { new_pop_size: usize }
+    impl Restart for FireAt3 {
+        fn check(&self, _pop: &Population, ctx: &mut Ctx) -> Option<RestartDirective> {
+            if ctx.iteration == 3 { Some(RestartDirective { new_pop_size: self.new_pop_size }) } else { None }
+        }
+        fn meta(&self) -> ComponentMeta {
+            ComponentMeta { kind: "fire-at-3", supported_blocks: SupportedBlocks::All,
+                requires: vec![], provides: vec![] }
+        }
+    }
+
+    struct SizeProbe(std::sync::Arc<std::sync::Mutex<usize>>);
+    impl Adapter for SizeProbe {
+        fn adapt(&self, pop: &mut Population, _ctx: &mut Ctx) {
+            *self.0.lock().unwrap() = pop.len();
+        }
+        fn meta(&self) -> ComponentMeta {
+            ComponentMeta { kind: "size-probe", supported_blocks: SupportedBlocks::All,
+                requires: vec![], provides: vec![] }
+        }
+    }
+
+    #[test]
+    fn restart_reinitializes_at_new_size() {
+        let (mut reg, mut spec, p) = setup();
+        reg.register_restart("fire-at-3", |_| Ok(Box::new(FireAt3 { new_pop_size: 7 }) as Box<dyn Restart>));
+        spec.restart = Some(ComponentSpec { kind: "fire-at-3".into(), params: serde_json::json!({}) });
+
+        // Baseline: the same spec/seed, but with the budget capped exactly at
+        // the eval count reached right before the restart's re-init fires
+        // (10 init + 4 stage passes * 10 = 50). Since the adapter/restart
+        // streams are independent of the generator/replacer/boundary streams,
+        // this baseline's global best is bit-identical to the full run's
+        // global best at the moment restart fires — i.e. "the best seen
+        // before the restart".
+        let mut baseline_spec = spec.clone();
+        baseline_spec.termination.budget = 50;
+        let e_baseline = Engine::from_spec(&baseline_spec, &reg, p.space()).unwrap();
+        let r_baseline = e_baseline.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+
+        let probe = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+        {
+            let probe = probe.clone();
+            reg.register_adapter("size-probe", move |_| Ok(Box::new(SizeProbe(probe.clone())) as Box<dyn Adapter>));
+        }
+        spec.stages[0].adapter = Some(ComponentSpec { kind: "size-probe".into(), params: serde_json::json!({}) });
+        spec.termination.budget = 500;
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+
+        assert_eq!(*probe.lock().unwrap(), 7,
+            "population size must be 7 after the restart fires");
+        assert!(r.best_f <= r_baseline.best_f,
+            "global best after restart ({}) must be at least as good as before it ({})",
+            r.best_f, r_baseline.best_f);
+    }
+
+    #[test]
+    fn restart_budget_exhaustion_is_clean() {
+        let (mut reg, mut spec, p) = setup();
+        // A directive requesting a huge population, fired when only a
+        // handful of evaluations remain: the engine must return Ok with the
+        // pre-restart global best rather than erroring.
+        reg.register_restart("fire-at-3-huge", |_| Ok(Box::new(FireAt3 { new_pop_size: 10_000 }) as Box<dyn Restart>));
+        spec.restart = Some(ComponentSpec { kind: "fire-at-3-huge".into(), params: serde_json::json!({}) });
+        spec.termination.budget = 55; // 10 init + 4*10 stage evals = 50, leaves only 5 spare
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+        assert_eq!(r.evals_used, 50,
+            "the failed restart re-init batch must not be partially evaluated");
+    }
+
+    struct EveryTwoIters {
+        fires: std::sync::Arc<std::sync::atomic::AtomicU64>,
+        observed: std::sync::Arc<std::sync::Mutex<Vec<u64>>>,
+    }
+    impl Restart for EveryTwoIters {
+        fn check(&self, pop: &Population, ctx: &mut Ctx) -> Option<RestartDirective> {
+            let count = match ctx.bb.get_mut::<u64>("restart_counter") {
+                Some(c) => { *c += 1; *c }
+                None => { ctx.bb.insert("restart_counter", 1u64); 1 }
+            };
+            self.observed.lock().unwrap().push(count);
+            if ctx.iteration > 0 && ctx.iteration % 2 == 0 {
+                self.fires.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Some(RestartDirective { new_pop_size: pop.len() })
+            } else {
+                None
+            }
+        }
+        fn meta(&self) -> ComponentMeta {
+            ComponentMeta { kind: "every-two-iters", supported_blocks: SupportedBlocks::All,
+                requires: vec![], provides: vec![StateReq::of::<u64>("restart_counter")] }
+        }
+    }
+
+    /// Controller ruling (plan T12): when a restart fires, the engine clears
+    /// the blackboard but preserves the restart component's own declared
+    /// state (its `meta().provides` keys). This test's restart component
+    /// increments a bb-resident counter on every `check` call, every single
+    /// iteration of the whole run — a sequence that can only stay strictly
+    /// increasing (never resetting to 1) if that counter survives every
+    /// clear-and-restore cycle across repeated restarts.
+    #[test]
+    fn restart_state_survives_clear() {
+        let (mut reg, mut spec, p) = setup();
+        let fires = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        {
+            let fires = fires.clone();
+            let observed = observed.clone();
+            reg.register_restart("every-two-iters", move |_| {
+                Ok(Box::new(EveryTwoIters { fires: fires.clone(), observed: observed.clone() }) as Box<dyn Restart>)
+            });
+        }
+        spec.restart = Some(ComponentSpec { kind: "every-two-iters".into(), params: serde_json::json!({}) });
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+        assert!(r.iterations > 4, "test needs enough iterations for multiple restarts to be meaningful");
+
+        let fire_count = fires.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(fire_count > 1, "restart should have fired more than once, got {}", fire_count);
+
+        let seen = observed.lock().unwrap();
+        for w in seen.windows(2) {
+            assert_eq!(w[1], w[0] + 1,
+                "restart_counter must survive the blackboard clear across restarts, got sequence {:?}", *seen);
+        }
     }
 }

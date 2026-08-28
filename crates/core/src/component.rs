@@ -55,6 +55,28 @@ pub trait BoundaryHandler: Send + Sync {
     fn meta(&self) -> ComponentMeta;
 }
 
+pub trait Adapter: Send + Sync {
+    /// Runs after the stage's replacer, once per iteration. May mutate the
+    /// population (e.g. L-SHADE shrinking) and blackboard state.
+    fn adapt(&self, pop: &mut Population, ctx: &mut Ctx);
+    fn meta(&self) -> ComponentMeta;
+}
+
+/// What a restart component asks the engine to do.
+///
+/// `new_pop_size == 0` means "keep the current population size" — the engine
+/// re-initializes at the population's current size rather than treating 0 as
+/// a literal (and invalid) target size.
+pub struct RestartDirective {
+    pub new_pop_size: usize,
+}
+
+pub trait Restart: Send + Sync {
+    /// Checked once per iteration, after all stages. Some(_) = restart now.
+    fn check(&self, pop: &Population, ctx: &mut Ctx) -> Option<RestartDirective>;
+    fn meta(&self) -> ComponentMeta;
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ComponentError {
     #[error("unknown component kind: {0}")]
@@ -71,6 +93,8 @@ pub struct Registry {
     generators: HashMap<String, Factory<dyn Generator>>,
     replacers: HashMap<String, Factory<dyn Replacer>>,
     boundaries: HashMap<String, Factory<dyn BoundaryHandler>>,
+    adapters: HashMap<String, Factory<dyn Adapter>>,
+    restarts: HashMap<String, Factory<dyn Restart>>,
 }
 
 macro_rules! reg_family {
@@ -119,6 +143,8 @@ impl Registry {
         boundaries,
         BoundaryHandler
     );
+    reg_family!(register_adapter, build_adapter, adapters, Adapter);
+    reg_family!(register_restart, build_restart, restarts, Restart);
 }
 
 #[cfg(test)]

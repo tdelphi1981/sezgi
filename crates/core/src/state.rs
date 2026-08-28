@@ -35,6 +35,18 @@ impl Blackboard {
     }
 
     pub fn contains(&self, key: &str) -> bool { self.slots.contains_key(key) }
+
+    /// Removes and returns the raw boxed value for `key`, without knowing its
+    /// concrete type. Used by the engine to snapshot a restart component's
+    /// declared state across a blackboard clear.
+    pub fn take_raw(&mut self, key: &str) -> Option<Box<dyn Any + Send>> {
+        self.slots.remove(key)
+    }
+
+    /// Re-inserts a previously taken raw boxed value under `key`.
+    pub fn put_raw(&mut self, key: &str, value: Box<dyn Any + Send>) {
+        self.slots.insert(key.to_string(), value);
+    }
 }
 
 #[cfg(test)]

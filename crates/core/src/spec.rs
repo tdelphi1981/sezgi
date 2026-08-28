@@ -23,6 +23,8 @@ pub struct ComponentSpec {
 pub struct StageSpec {
     pub generator: ComponentSpec,
     pub replacer: ComponentSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<ComponentSpec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -40,6 +42,8 @@ pub struct AlgorithmSpec {
     pub boundary: ComponentSpec,
     pub stages: Vec<StageSpec>,
     pub termination: TerminationSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart: Option<ComponentSpec>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -81,6 +85,12 @@ impl AlgorithmSpec {
         for st in &self.stages {
             metas.push(reg.build_generator(&st.generator.kind, &st.generator.params)?.meta());
             metas.push(reg.build_replacer(&st.replacer.kind, &st.replacer.params)?.meta());
+            if let Some(a) = &st.adapter {
+                metas.push(reg.build_adapter(&a.kind, &a.params)?.meta());
+            }
+        }
+        if let Some(r) = &self.restart {
+            metas.push(reg.build_restart(&r.kind, &r.params)?.meta());
         }
         // (2) block support
         for m in &metas {
@@ -175,8 +185,10 @@ mod tests {
             stages: vec![StageSpec {
                 generator: ComponentSpec { kind: "float-only".into(), params: serde_json::json!({}) },
                 replacer: ComponentSpec { kind: "noop".into(), params: serde_json::json!({}) },
+                adapter: None,
             }],
             termination: TerminationSpec { budget: 100, target: None },
+            restart: None,
         }
     }
 
