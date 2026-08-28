@@ -156,7 +156,7 @@ mod tests {
     fn empty_run_skipped_not_null() {
         let tmp = tempfile::tempdir().unwrap();
         let mut lg = IohLogger::new(tmp.path(), "a", "s", 1, "Sphere", 3);
-        { let _o = lg.start_run(1); }                    // hiç on_eval yok
+        { let _o = lg.start_run(1); }                    // no on_eval calls at all
         { let mut o = lg.start_run(2); o.on_eval(1, 5.0, 5.0); }
         let fin = lg.finish().unwrap();
         assert_eq!(fin.skipped_empty_runs, 1);
@@ -165,10 +165,10 @@ mod tests {
         let runs = meta["scenarios"][0]["runs"].as_array().unwrap();
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0]["instance"], 2);
-        assert!(runs[0]["best"]["y"].is_f64(), "null sızıntısı olmamalı");
+        assert!(runs[0]["best"]["y"].is_f64(), "should not leak a null");
         let dat = std::fs::read_to_string(
             tmp.path().join("a/data_f1_Sphere/IOHprofiler_f1_DIM3.dat")).unwrap();
-        assert_eq!(dat.matches("\"evaluations\"").count(), 1, "boş koşuya başlık yazılmamalı");
+        assert_eq!(dat.matches("\"evaluations\"").count(), 1, "no header should be written for an empty run");
     }
 
     #[test]

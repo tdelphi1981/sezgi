@@ -16,10 +16,10 @@ fn golden_de_bbob_f1_seed42() {
         include_str!("../../../tests/golden/de_bbob_f1_seed42.json")).unwrap();
     let expected = golden["best_f_bits"].as_str().unwrap();
     let got = format!("{:016x}", r.best_f.to_bits());
-    // İlk koşuda dosyadaki değer "PIN-ME" ise: bu testi --nocapture ile koştur,
-    // yazdırılan değeri JSON'a işle, testi tekrar koştur. Sonrasında değer sabittir.
+    // If the value in the file is still "PIN-ME" on the first run: run this test with
+    // --nocapture, write the printed value into the JSON, then re-run. The value is fixed after that.
     if expected == "PIN-ME" {
-        panic!("altın değeri sabitle: best_f_bits = {got}");
+        panic!("pin the golden value: best_f_bits = {got}");
     }
-    assert_eq!(got, expected, "Rust yörüngesi altın değerden saptı");
+    assert_eq!(got, expected, "Rust trajectory drifted from the golden value");
 }

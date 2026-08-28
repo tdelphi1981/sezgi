@@ -35,31 +35,31 @@ impl Distribution {
     pub fn validate(&self) -> Result<(), String> {
         let err = |m: String| Err(m);
         let fin = |name: &str, v: f64| if v.is_finite() { Ok(()) }
-            else { Err(format!("{name} sonlu olmalı: {v}")) };
+            else { Err(format!("{name} must be finite: {v}")) };
         match *self {
             Distribution::Uniform => Ok(()),
             Distribution::Gaussian { mean, sigma } => {
                 fin("mean", mean)?; fin("sigma", sigma)?;
-                if sigma < 0.0 { return err(format!("sigma >= 0 olmalı: {sigma}")); } Ok(())
+                if sigma < 0.0 { return err(format!("sigma must be >= 0: {sigma}")); } Ok(())
             }
             Distribution::Cauchy { loc, scale } | Distribution::Laplace { loc, scale } => {
                 fin("loc", loc)?; fin("scale", scale)?;
-                if scale <= 0.0 { return err(format!("scale > 0 olmalı: {scale}")); } Ok(())
+                if scale <= 0.0 { return err(format!("scale must be > 0: {scale}")); } Ok(())
             }
             Distribution::Levy { alpha } => {
                 fin("alpha", alpha)?;
                 if !(0.0 < alpha && alpha <= 2.0) {
-                    return err(format!("alpha (0,2] aralığında olmalı: {alpha}")); } Ok(())
+                    return err(format!("alpha must be in (0,2]: {alpha}")); } Ok(())
             }
             Distribution::StudentT { nu } => {
                 fin("nu", nu)?;
-                if nu <= 0.0 { return err(format!("nu > 0 olmalı: {nu}")); } Ok(())
+                if nu <= 0.0 { return err(format!("nu must be > 0: {nu}")); } Ok(())
             }
         }
     }
 }
 
-/// Polar Box–Muller (Marsaglia). SABİT — değişiklik semver'e işlenir.
+/// Polar Box–Muller (Marsaglia). FIXED — any change is a semver event.
 fn gauss_polar(rng: &mut RngStream) -> f64 {
     loop {
         let u = 2.0 * rng.next_f64() - 1.0;
@@ -71,10 +71,10 @@ fn gauss_polar(rng: &mut RngStream) -> f64 {
     }
 }
 
-/// Mantegna (1994) Lévy adım üreteci; 0 < alpha <= 2.
+/// Mantegna (1994) Lévy step generator; 0 < alpha <= 2.
 fn levy_mantegna(rng: &mut RngStream, alpha: f64) -> f64 {
     fn gamma(x: f64) -> f64 {
-        // Lanczos g=7, n=9 sabit katsayılar
+        // Lanczos g=7, n=9 fixed coefficients
         const G: [f64; 9] = [
             0.99999999999980993, 676.5203681218851, -1259.1392167224028,
             771.32342877765313, -176.61502916214059, 12.507343278686905,
@@ -100,15 +100,15 @@ fn levy_mantegna(rng: &mut RngStream, alpha: f64) -> f64 {
     u / v.powf(1.0 / alpha)
 }
 
-/// Student-t: t = Z / sqrt(ChiSq(nu)/nu); ChiSq, Gaussian karelerinin
-/// toplamı yerine Marsaglia–Tsang gamma örnekleyicisiyle (sabit).
+/// Student-t: t = Z / sqrt(ChiSq(nu)/nu); ChiSq is drawn via the
+/// Marsaglia–Tsang gamma sampler rather than a sum of squared Gaussians (fixed).
 fn student_t(rng: &mut RngStream, nu: f64) -> f64 {
     let z = gauss_polar(rng);
     let chi2 = 2.0 * gamma_mt(rng, nu / 2.0);
     z / (chi2 / nu).sqrt()
 }
 
-/// Marsaglia–Tsang (2000) gamma(shape, scale=1); shape >= 1 dalı + boost.
+/// Marsaglia–Tsang (2000) gamma(shape, scale=1); shape >= 1 branch + boost.
 fn gamma_mt(rng: &mut RngStream, shape: f64) -> f64 {
     if shape < 1.0 {
         let u = rng.next_f64();

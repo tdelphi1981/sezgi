@@ -3,7 +3,7 @@ use sezgi_core::problem::Population;
 use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype};
 
-/// SBX: tek gen çifti için iki evlat (Deb & Agrawal 1995).
+/// SBX: two children for a single gene pair (Deb & Agrawal 1995).
 pub fn sbx_pair(p1: f64, p2: f64, eta: f64, rng: &mut RngStream) -> (f64, f64) {
     let u = rng.next_f64();
     let beta = if u <= 0.5 {
@@ -15,7 +15,7 @@ pub fn sbx_pair(p1: f64, p2: f64, eta: f64, rng: &mut RngStream) -> (f64, f64) {
      0.5 * ((1.0 - beta) * p1 + (1.0 + beta) * p2))
 }
 
-/// Polinom mutasyon, sınır-farkındalıklı (Deb & Goyal 1996).
+/// Polynomial mutation, boundary-aware (Deb & Goyal 1996).
 pub fn polynomial_mutate(x: f64, lo: f64, hi: f64, eta: f64, rng: &mut RngStream) -> f64 {
     let u = rng.next_f64();
     let d = hi - lo;
@@ -49,8 +49,8 @@ impl GaRealGenerator {
             eta_c: p.get("eta_c").and_then(|v| v.as_f64()).unwrap_or(15.0),
             eta_m: p.get("eta_m").and_then(|v| v.as_f64()).unwrap_or(20.0),
         };
-        if g.tournament_k == 0 { return Err(err("tournament_k >= 1 olmalı".into())); }
-        if !(0.0..=1.0).contains(&g.pc) { return Err(err(format!("pc [0,1] dışında: {}", g.pc))); }
+        if g.tournament_k == 0 { return Err(err("tournament_k must be >= 1".into())); }
+        if !(0.0..=1.0).contains(&g.pc) { return Err(err(format!("pc outside [0,1]: {}", g.pc))); }
         Ok(g)
     }
 

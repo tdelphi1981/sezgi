@@ -38,17 +38,17 @@ pub struct RunManifest {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ManifestError {
-    #[error("ayrıştırma: {0}")]
+    #[error("parse: {0}")]
     Parse(String),
-    #[error("problem kurulamadı: {0}")]
+    #[error("could not build problem: {0}")]
     Problem(String),
-    #[error("motor: {0}")]
+    #[error("engine: {0}")]
     Engine(String),
 }
 
 impl RunManifest {
     pub fn to_toml(&self) -> String {
-        toml::to_string_pretty(self).expect("manifest serileştirilemedi")
+        toml::to_string_pretty(self).expect("manifest could not be serialized")
     }
     pub fn from_toml(s: &str) -> Result<Self, ManifestError> {
         toml::from_str(s).map_err(|e| ManifestError::Parse(e.to_string()))
@@ -107,7 +107,7 @@ mod tests {
         let (_res, m) = run_with_manifest(&spec, pref, &reg(),
             RunConfig { master_seed: 42, run_id: 0 }).unwrap();
         let m2 = RunManifest::from_toml(&m.to_toml()).unwrap();
-        assert!(verify(&m2, &reg()).unwrap(), "yeniden koşu bit-uyumlu olmalı");
+        assert!(verify(&m2, &reg()).unwrap(), "re-run should be bit-identical");
     }
 
     #[test]

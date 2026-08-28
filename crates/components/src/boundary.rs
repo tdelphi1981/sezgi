@@ -11,7 +11,7 @@ impl BoundaryHandler for Clamp {
                     xs.iter_mut().for_each(|x| *x = x.clamp(*lo, *hi)),
                 (Block::Int { lo, hi, .. }, BlockValues::Int(xs)) =>
                     xs.iter_mut().for_each(|x| *x = (*x).clamp(*lo, *hi)),
-                _ => {} // cat/perm/bin: yapısal olarak sınır dışına çıkamaz
+                _ => {} // cat/perm/bin: structurally cannot go out of bounds
             }
         }
     }

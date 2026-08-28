@@ -59,20 +59,20 @@ mod tests {
     fn pop() -> Population {
         Population { individuals: vec![g(1.0), g(2.0)], fitness: vec![10.0, 20.0] }
     }
-    // Not: Ctx'siz saf mantık testi için replace mantığı ayrı fonksiyona alınır:
-    // one_to_one(pop, off_i, off_f) ve mu_plus_lambda(pop, off_i, off_f)
+    // Note: the replace logic is factored into standalone functions so it can be
+    // tested as pure logic without a Ctx: one_to_one(pop, off_i, off_f) and mu_plus_lambda(pop, off_i, off_f)
 
     #[test]
     fn one_to_one_keeps_better_parent() {
         let mut p = pop();
         one_to_one(&mut p, vec![g(9.0), g(8.0)], vec![15.0, 5.0]);
-        assert_eq!(p.fitness, vec![10.0, 5.0]); // 0: ebeveyn kaldı, 1: evlat geçti
+        assert_eq!(p.fitness, vec![10.0, 5.0]); // 0: parent stayed, 1: offspring won
     }
 
     #[test]
     fn mu_plus_lambda_takes_global_best() {
         let mut p = pop();
         mu_plus_lambda(&mut p, vec![g(9.0), g(8.0)], vec![5.0, 30.0]);
-        assert_eq!(p.fitness, vec![5.0, 10.0]); // birleşikten en iyi 2
+        assert_eq!(p.fitness, vec![5.0, 10.0]); // best 2 of the combined pool
     }
 }

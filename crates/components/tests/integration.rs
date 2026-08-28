@@ -17,7 +17,7 @@ fn de_converges_on_shifted_sphere_10d() {
     let spec = presets::de_rand_1(50, 20_000);
     let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
     let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
-    assert!(r.best_f < 1e-6, "DE 20k değerlendirmede yakınsamalı: {}", r.best_f);
+    assert!(r.best_f < 1e-6, "DE should converge in 20k evaluations: {}", r.best_f);
 }
 
 #[test]
@@ -27,7 +27,7 @@ fn es_with_cauchy_beats_init() {
         20, 5_000, Distribution::Cauchy { loc: 0.0, scale: 0.1 });
     let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
     let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
-    assert!(r.best_f < 0.1, "ES ilerlemeli: {}", r.best_f);
+    assert!(r.best_f < 0.1, "ES should make progress: {}", r.best_f);
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn ga_converges_on_shifted_sphere_5d() {
     let spec = presets::ga_real(50, 20_000);
     let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
     let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
-    assert!(r.best_f < 1e-3, "GA yakınsamalı: {}", r.best_f);
+    assert!(r.best_f < 1e-3, "GA should converge: {}", r.best_f);
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn pso_converges_on_shifted_sphere_5d() {
     let spec = presets::pso(40, 20_000);
     let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
     let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
-    assert!(r.best_f < 1e-4, "PSO yakınsamalı: {}", r.best_f);
+    assert!(r.best_f < 1e-4, "PSO should converge: {}", r.best_f);
 }
 
 #[test]

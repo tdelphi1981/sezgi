@@ -29,9 +29,9 @@ pub struct RunResult {
 pub enum EngineError {
     #[error(transparent)]
     Spec(#[from] SpecError),
-    #[error("başlatıcı boş popülasyon üretti")]
+    #[error("initializer produced an empty population")]
     EmptyPopulation,
-    #[error("bütçe ({budget}) popülasyondan ({pop_size}) küçük")]
+    #[error("budget ({budget}) is smaller than population size ({pop_size})")]
     BudgetSmallerThanPopulation { budget: u64, pop_size: usize },
 }
 
@@ -60,16 +60,16 @@ impl Engine {
         let mut bb = Blackboard::new();
         let mut iterations = 0u64;
 
-        // RNG akış yolu sözleşmesi — manifest bu yolları kaydeder (Task 16)
+        // RNG stream path contract — the manifest records these paths (Task 16)
         let mut init_rng = RngStream::from_master(cfg.master_seed, &[cfg.run_id, 0]);
-        // NOT: 500+ stage'de replacer yoluyla çakışır (2+2*499=1000); motor yolu ileride ayrılacaksa ofseti büyüt.
+        // NOTE: collides with the replacer path at 500+ stages (2+2*499=1000); widen the offset if the engine path space is split further.
         let mut boundary_rng = RngStream::from_master(cfg.master_seed, &[cfg.run_id, 1000]);
         let mut stage_rngs: Vec<(RngStream, RngStream)> = (0..self.stages.len()).map(|i| (
             RngStream::from_master(cfg.master_seed, &[cfg.run_id, 1 + 2 * i as u64]),
             RngStream::from_master(cfg.master_seed, &[cfg.run_id, 2 + 2 * i as u64]),
         )).collect();
 
-        // İlklendirme
+        // Initialization
         let individuals = {
             let mut ctx = Ctx { space, rng: &mut init_rng, bb: &mut bb,
                                 eval: &mut eval, iteration: 0 };
@@ -85,8 +85,8 @@ impl Engine {
         };
         let mut pop = Population { individuals, fitness };
 
-        // Küresel en iyi: popülasyon değiştirici elitist olmasa bile
-        // şimdiye kadar değerlendirilen en iyi (fitness, genotip) çiftini izler.
+        // Global best: tracks the best (fitness, genotype) pair evaluated so far,
+        // even if the population replacer is not elitist.
         let mut global_best: Option<(f64, Genotype)> = None;
         let update_global_best = |gb: &mut Option<(f64, Genotype)>, xs: &[Genotype], fs: &[f64]| {
             for (g, &f) in xs.iter().zip(fs) {
@@ -119,7 +119,7 @@ impl Engine {
                 }
                 let off_fit = match eval.evaluate(&offspring) {
                     Ok(f) => f,
-                    Err(_) => break 'outer, // bütçe doldu: temiz çıkış
+                    Err(_) => break 'outer, // budget exhausted: clean exit
                 };
                 update_global_best(&mut global_best, &offspring, &off_fit);
                 {
@@ -133,7 +133,7 @@ impl Engine {
             iterations += 1;
         }
 
-        let (best_f, best_x) = global_best.expect("en az ilklendirme değerlendirilmiş olmalı");
+        let (best_f, best_x) = global_best.expect("at least the initialization should have been evaluated");
         Ok(RunResult {
             best_f,
             best_x,
@@ -155,7 +155,7 @@ mod tests {
         let blocks = space.blocks().iter().map(|b| match *b {
             Block::Float { lo, hi, n } =>
                 BlockValues::Float((0..n).map(|_| lo + (hi - lo) * rng.next_f64()).collect()),
-            _ => unreachable!("bu test yalnız float kullanır"),
+            _ => unreachable!("this test only uses float"),
         }).collect();
         Genotype { blocks }
     }
@@ -209,7 +209,7 @@ mod tests {
         reg.register_replacer("greedy", |_| Ok(Box::new(Greedy)));
         reg.register_boundary("no-b", |_| Ok(Box::new(NoB)));
         let spec = AlgorithmSpec {
-            name: "rastgele-arama".into(), pop_size: 10,
+            name: "random-search".into(), pop_size: 10,
             init: ComponentSpec { kind: "u-init".into(), params: serde_json::json!({}) },
             boundary: ComponentSpec { kind: "no-b".into(), params: serde_json::json!({}) },
             stages: vec![StageSpec {
@@ -227,7 +227,7 @@ mod tests {
         let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
         let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
         assert!(r.evals_used <= 500);
-        assert!(r.evals_used >= 500 - spec.pop_size as u64, "bütçenin tamamına yakınını kullanmalı");
+        assert!(r.evals_used >= 500 - spec.pop_size as u64, "should use close to the full budget");
     }
 
     #[test]
@@ -252,10 +252,10 @@ mod tests {
     #[test]
     fn target_stops_early() {
         let (reg, mut spec, p) = setup();
-        spec.termination.target = Some(1e9); // her değer hedefi sağlar
+        spec.termination.target = Some(1e9); // every value satisfies the target
         let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
         let r = e.run(&p, RunConfig { master_seed: 7, run_id: 0 }, None).unwrap();
-        assert_eq!(r.evals_used, spec.pop_size as u64, "init sonrası durmalı");
+        assert_eq!(r.evals_used, spec.pop_size as u64, "should stop right after init");
     }
 
     #[test]
@@ -263,12 +263,12 @@ mod tests {
         let (reg, spec, p) = setup();
         let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
         let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
-        assert!(r.best_f < 5.0, "500 değerlendirmede sphere'de makul ilerleme: {}", r.best_f);
+        assert!(r.best_f < 5.0, "reasonable progress on sphere in 500 evaluations: {}", r.best_f);
     }
 
-    /// Elitist OLMAYAN bir replacer: gelen yavruları koşulsuz kabul eder
-    /// (popülasyon geriye gidebilir — PSO gibi). Motor yine de şimdiye kadar
-    /// görülen en iyiyi (best_so_far) doğru şekilde döndürmeli.
+    /// A NON-elitist replacer: accepts incoming offspring unconditionally
+    /// (the population can regress — like PSO). The engine must still
+    /// correctly return the best seen so far (best_so_far).
     struct Unconditional;
     impl Replacer for Unconditional {
         fn replace(&self, pop: &mut Population, off_i: Vec<Genotype>,
@@ -290,7 +290,7 @@ mod tests {
         reg.register_replacer("unconditional", |_| Ok(Box::new(Unconditional)));
         reg.register_boundary("no-b", |_| Ok(Box::new(NoB)));
         let spec = AlgorithmSpec {
-            name: "koşulsuz-arama".into(), pop_size: 10,
+            name: "unconditional-search".into(), pop_size: 10,
             init: ComponentSpec { kind: "u-init".into(), params: serde_json::json!({}) },
             boundary: ComponentSpec { kind: "no-b".into(), params: serde_json::json!({}) },
             stages: vec![StageSpec {
@@ -315,16 +315,16 @@ mod tests {
         let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, Some(Box::new(obs))).unwrap();
         let observed_min = *observed_min.lock().unwrap();
         assert_eq!(r.best_f, observed_min,
-            "koşulsuz (elitist olmayan) replacer altında motor küresel en iyiyi kaybetmemeli");
+            "the engine must not lose the global best under an unconditional (non-elitist) replacer");
     }
 
     #[test]
     fn budget_smaller_than_pop_is_clear_error() {
         let (reg, mut spec, p) = setup();
-        spec.termination.budget = 5; // pop_size=10'dan küçük
+        spec.termination.budget = 5; // smaller than pop_size=10
         let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
         let err = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap_err();
         assert!(matches!(err, EngineError::BudgetSmallerThanPopulation { budget: 5, pop_size: 10 }),
-            "bütçe popülasyondan küçük olduğunda ayrı hata döndermeli, aldı: {:?}", err);
+            "should return a distinct error when the budget is smaller than the population, got: {:?}", err);
     }
 }

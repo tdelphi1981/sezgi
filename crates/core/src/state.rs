@@ -6,7 +6,7 @@ pub struct Blackboard {
     slots: HashMap<String, Box<dyn Any + Send>>,
 }
 
-/// Bileşenlerin durum beyanı (Task 6'daki Component trait'i kullanır).
+/// A component's state declaration (used by the Component trait from Task 6).
 #[derive(Debug, Clone, PartialEq)]
 pub struct StateReq {
     pub key: String,

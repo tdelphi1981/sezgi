@@ -63,7 +63,7 @@ impl Generator for PsoGenerator {
 pub struct PsoCommit;
 impl Replacer for PsoCommit {
     fn replace(&self, pop: &mut Population, oi: Vec<Genotype>, of: Vec<f64>, ctx: &mut Ctx) {
-        // pbest güncelle
+        // update pbest
         let new_pos: Vec<Vec<f64>> = oi.iter().map(|g| floats(g).clone()).collect();
         {
             let pf = ctx.bb.get::<Vec<f64>>("pso_pbest_f").unwrap().clone();
@@ -76,7 +76,7 @@ impl Replacer for PsoCommit {
                 if of[i] < pf[i] { pf[i] = of[i]; }
             }
         }
-        // konumlar koşulsuz geçer
+        // positions carry over unconditionally
         pop.individuals = oi;
         pop.fitness = of;
     }

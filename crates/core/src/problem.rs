@@ -23,7 +23,7 @@ impl Population {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("bütçe tükendi: {used}/{budget}, istenen ek {requested}")]
+#[error("budget exhausted: {used}/{budget}, requested {requested} more")]
 pub struct BudgetExhausted { pub used: u64, pub budget: u64, pub requested: u64 }
 
 pub trait EvalObserver: Send {
@@ -33,7 +33,7 @@ pub trait EvalObserver: Send {
 pub struct Evaluator<'a> {
     problem: &'a dyn Problem,
     budget: u64,
-    used: u64,                    // pub DEĞİL: dışarıdan artırılamaz
+    used: u64,                    // NOT pub: cannot be incremented from outside
     best: Option<f64>,
     observer: Option<Box<dyn EvalObserver>>,
 }
@@ -55,7 +55,7 @@ impl<'a> Evaluator<'a> {
         }
         let fs = self.problem.evaluate_batch(pop);
         assert_eq!(fs.len(), pop.len(),
-            "Problem::evaluate_batch yanlış uzunluk döndürdü: {} != {}", fs.len(), pop.len());
+            "Problem::evaluate_batch returned wrong length: {} != {}", fs.len(), pop.len());
         for &f in &fs {
             self.used += 1;
             let best = match self.best {
@@ -69,7 +69,7 @@ impl<'a> Evaluator<'a> {
     }
 }
 
-/// Test/tanı problemi: optimum `shift` noktasında (merkezde değil).
+/// Test/diagnostic problem: the optimum is at the `shift` point (not the center).
 pub struct SphereShifted { shift: Vec<f64>, space: SearchSpace }
 
 impl SphereShifted {
@@ -124,7 +124,7 @@ mod tests {
         let p = sphere();
         let mut ev = Evaluator::new(&p, 1);
         assert!(ev.evaluate(&[g(&[0.0, 0.0]), g(&[0.0, 0.0])]).is_err());
-        assert_eq!(ev.used(), 0, "bütçeyi aşan toplu istek hiç değerlendirilmez");
+        assert_eq!(ev.used(), 0, "a batch request exceeding the budget is not evaluated at all");
     }
 
     #[test]
@@ -154,13 +154,13 @@ mod tests {
     impl Problem for MisbehavingProblem {
         fn space(&self) -> &SearchSpace { &self.space }
         fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
-            // Kasıtlı olarak yanlış uzunlukta sonuç döndürür (bir eksik).
+            // Deliberately returns a result of the wrong length (one short).
             pop.iter().skip(1).map(|_| 0.0).collect()
         }
     }
 
     #[test]
-    #[should_panic(expected = "yanlış uzunluk")]
+    #[should_panic(expected = "wrong length")]
     fn evaluate_panics_on_wrong_batch_length() {
         let space = SearchSpace::new(vec![Block::Float { lo: -1.0, hi: 1.0, n: 1 }]).unwrap();
         let p = MisbehavingProblem { space };

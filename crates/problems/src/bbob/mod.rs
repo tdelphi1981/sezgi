@@ -1,7 +1,7 @@
-//! sezgi-bbob: BBOB fonksiyon TANIMLARINI izleyen yeniden implementasyon —
-//! COCO instance'larıyla sayısal birebirlik HEDEFLENMEZ (kendi RNG/instance
-//! modelimiz). Bilinen sadeleştirmeler ilgili fonksiyonların yorumlarında
-//! "sezgi-bbob sadeleştirmesi" etiketiyle işaretlidir.
+//! sezgi-bbob: a reimplementation that follows the BBOB function DEFINITIONS —
+//! numerical bit-for-bit agreement with COCO instances is NOT a goal (we use our
+//! own RNG/instance model). Known simplifications are marked in the relevant
+//! functions' comments with the "sezgi-bbob simplification" tag.
 
 pub mod functions;
 pub mod transform;
@@ -22,9 +22,9 @@ pub struct GallagherData {
 
 #[derive(Debug, thiserror::Error)]
 pub enum BbobError {
-    #[error("fid {0} henüz implemente edilmedi")]
+    #[error("fid {0} is not implemented yet")]
     NotImplemented(u32),
-    #[error("dim >= 2 olmalı")]
+    #[error("dim must be >= 2")]
     BadDim,
 }
 
@@ -56,7 +56,7 @@ fn shift(xs: &[f64], x_opt: &[f64]) -> Vec<f64> {
     xs.iter().zip(x_opt).map(|(x, o)| x - o).collect()
 }
 
-/// z = Q·Λ^10·R·(x - x_opt) — f6/f13 tarzı boru hattı
+/// z = Q·Λ^10·R·(x - x_opt) — the f6/f13-style pipeline
 fn apply2(p: &BbobProblem, xs: &[f64]) -> Vec<f64> {
     let s = shift(xs, &p.x_opt);
     let r = transform::apply(p.rot.as_ref().unwrap(), &s);
@@ -96,8 +96,8 @@ impl BbobProblem {
         let rot = needs_r(fid).then(|| transform::rotation_matrix(dim, rng.next_u64()));
         let rot2 = needs_q(fid).then(|| transform::rotation_matrix(dim, rng.next_u64()));
 
-        // Gallagher tepe verileri (fid 21/22 için)
-        // sezgi-bbob sadeleştirmesi: alpha'lar permütasyonlu sabit küme yerine 1000^(2u) rastgele; C matrisleri köşegen (Λ^alpha), tepe-başına rotasyon yok.
+        // Gallagher peak data (for fid 21/22)
+        // sezgi-bbob simplification: alphas are drawn as 1000^(2u) at random instead of a permuted fixed set; C matrices are diagonal (Λ^alpha), no per-peak rotation.
         let gallagher = matches!(fid, 21 | 22).then(|| {
             let p = if fid == 21 { 101usize } else { 21 };
             let mut peaks = Vec::with_capacity(p);
@@ -113,7 +113,7 @@ impl BbobProblem {
         });
 
         let space = SearchSpace::new(vec![Block::Float { lo: -5.0, hi: 5.0, n: dim }])
-            .expect("sabit sınırlar geçerli");
+            .expect("fixed bounds are valid");
 
         Ok(Self { fid, x_opt, f_opt, rot, rot2, gallagher, space, instance })
     }
@@ -149,7 +149,7 @@ impl Problem for BbobProblem {
                         2 => functions::ellipsoidal(&z),
                         3 => functions::rastrigin(&z),
                         8 => {
-                            // optimumda z=0 → w=1 kaydırması
+                            // z=0 at the optimum → shift to w=1
                             let w: Vec<f64> = z.iter().map(|v| v + 1.0).collect();
                             functions::rosenbrock(&w)
                         }
@@ -190,7 +190,7 @@ impl Problem for BbobProblem {
                     functions::discus(&z)
                 }
                 12 => {
-                    // sezgi-bbob sadeleştirmesi: kanonik BBOB'daki ikinci bağımsız rotasyon yerine aynı R iki kez uygulanır.
+                    // sezgi-bbob simplification: same R applied twice instead of the canonical second independent rotation.
                     let r1 = transform::apply(self.rot.as_ref().unwrap(), &shift(xs, &self.x_opt));
                     let z = transform::apply(self.rot.as_ref().unwrap(), &transform::t_asy(&r1, 0.5));
                     functions::bent_cigar(&z)
@@ -224,7 +224,7 @@ impl Problem for BbobProblem {
                     functions::griewank_rosenbrock(&z)
                 }
                 20 => {
-                    // sezgi-bbob sadeleştirmesi: kanonik BBOB Schwefel'in varyant formülü; Λ^10 köşegen ölçek, rotasyonsuz.
+                    // sezgi-bbob simplification: a variant formula of the canonical BBOB Schwefel; Λ^10 diagonal scaling, no rotation.
                     let d = xs.len();
                     let xhat: Vec<f64> = xs.iter().zip(&self.x_opt).map(|(x, o)| 2.0 * o.signum() * x).collect();
                     let two_abs: Vec<f64> = self.x_opt.iter().map(|o| 2.0 * o.abs()).collect();
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn x_opt_not_at_center() {
         let p = BbobProblem::new(1, 10, 1).unwrap();
-        assert!(p.x_opt().iter().any(|&x| x.abs() > 1e-3), "optimum merkezde olmamalı");
+        assert!(p.x_opt().iter().any(|&x| x.abs() > 1e-3), "the optimum should not be at the center");
     }
 
     #[test]
@@ -342,15 +342,15 @@ mod tests {
 
     #[test]
     fn m1_fids_instance_values_pinned() {
-        // Bu değerler bu testin İLK koşusunda mevcut koddan alınıp sabitlenir (PIN-ME
-        // prosedürü, T17/M1 ile aynı): her fid için instance=1, dim=5,
-        // x=[0.5,-1.0,2.0,0.0,-3.0] noktasında f değeri bit'leri.
+        // These values are taken from the existing code and pinned on the FIRST run of
+        // this test (same PIN-ME procedure as T17/M1): the f value's bits at
+        // instance=1, dim=5, x=[0.5,-1.0,2.0,0.0,-3.0] for each fid.
         let probe = g(vec![0.5, -1.0, 2.0, 0.0, -3.0]);
         for (fid, expected_hex) in [(1u32, "c05a1069cca05d30"), (2, "414d7d483f2ad056"), (3, "c03b12604f3ed308"), (8, "40d41e5080f1a8d2")] {
             let p = BbobProblem::new(fid, 5, 1).unwrap();
             let f = p.evaluate_batch(std::slice::from_ref(&probe))[0];
             let got = format!("{:016x}", f.to_bits());
-            assert_eq!(got, expected_hex, "fid {fid}: M1 davranışı drift etti!");
+            assert_eq!(got, expected_hex, "fid {fid}: M1 behavior drifted!");
         }
     }
 
@@ -361,9 +361,9 @@ mod tests {
             let at_opt = p.evaluate_batch(&[g(p.x_opt().to_vec())])[0];
             assert!((at_opt - p.f_opt()).abs() < 1e-6, "fid {fid}: {at_opt} != {}", p.f_opt());
             let mut x = p.x_opt().to_vec();
-            x[0] = (x[0] - 0.7).clamp(-5.0, 5.0); // f5'te sınırdan içeri it
+            x[0] = (x[0] - 0.7).clamp(-5.0, 5.0); // for f5, push inward from the boundary
             if x == p.x_opt() { x[0] += 0.7; }
-            assert!(p.evaluate_batch(&[g(x)])[0] > p.f_opt(), "fid {fid}: optimum-dışı daha iyi çıktı");
+            assert!(p.evaluate_batch(&[g(x)])[0] > p.f_opt(), "fid {fid}: off-optimum came out better");
         }
     }
 
@@ -383,19 +383,19 @@ mod tests {
             x[1] += 1.0;
             assert!(p.evaluate_batch(&[g(x)])[0] > p.f_opt(), "fid {fid}");
             let p2 = BbobProblem::new(fid, 5, 1).unwrap();
-            assert_eq!(p.x_opt(), p2.x_opt(), "fid {fid} instance determinizmi");
+            assert_eq!(p.x_opt(), p2.x_opt(), "fid {fid} instance determinism");
         }
     }
 
     #[test]
     fn f7_has_plateaus() {
-        // Step-ellipsoidal: optimumdan yeterince uzak iki yakın nokta aynı f'i vermeli
+        // Step-ellipsoidal: two nearby points far enough from the optimum should give the same f
         let p = BbobProblem::new(7, 5, 1).unwrap();
         let mut a = p.x_opt().to_vec(); a[0] += 2.0;
         let mut b = a.clone(); b[0] += 1e-4;
         let fa = p.evaluate_batch(&[g(a)])[0];
         let fb = p.evaluate_batch(&[g(b)])[0];
-        assert_eq!(fa, fb, "basamak platosu bekleniyordu");
+        assert_eq!(fa, fb, "expected a step plateau");
     }
 
     #[test]
@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn discus_and_cigar_axis_asymmetry() {
-        // saf çekirdek testi: discus'ta ilk eksen 1e6 kat ağır, cigar'da tersi
+        // pure core test: discus has the first axis 1e6x heavier, cigar is the reverse
         assert!(functions::discus(&[1.0, 0.0]) > functions::discus(&[0.0, 1.0]) * 1e5);
         assert!(functions::bent_cigar(&[0.0, 1.0]) > functions::bent_cigar(&[1.0, 0.0]) * 1e5);
     }
@@ -422,7 +422,7 @@ mod tests {
         for fid in 15u32..=19 {
             let p = BbobProblem::new(fid, 5, 1).unwrap();
             let at_opt = p.evaluate_batch(&[g(p.x_opt().to_vec())])[0];
-            assert!((at_opt - p.f_opt()).abs() < 1e-6, "fid {fid}: fark {}", at_opt - p.f_opt());
+            assert!((at_opt - p.f_opt()).abs() < 1e-6, "fid {fid}: diff {}", at_opt - p.f_opt());
             let mut x = p.x_opt().to_vec();
             x[0] += 0.9; x[3] -= 0.4;
             assert!(p.evaluate_batch(&[g(x)])[0] > p.f_opt(), "fid {fid}");
@@ -445,7 +445,7 @@ mod tests {
         for fid in 20u32..=24 {
             let p = BbobProblem::new(fid, 5, 1).unwrap();
             let at_opt = p.evaluate_batch(&[g(p.x_opt().to_vec())])[0];
-            assert!((at_opt - p.f_opt()).abs() < 1e-6, "fid {fid}: fark {}", at_opt - p.f_opt());
+            assert!((at_opt - p.f_opt()).abs() < 1e-6, "fid {fid}: diff {}", at_opt - p.f_opt());
 
             // Off-optimum probe: perturb x[0] by ±0.5 and verify worse value
             let mut x_probe = p.x_opt().to_vec();
@@ -454,14 +454,14 @@ mod tests {
                 x_probe[0] = (x_probe[0] - 0.5).clamp(-5.0, 5.0);
             }
             let f_probe = p.evaluate_batch(&[g(x_probe)])[0];
-            assert!(f_probe > p.f_opt(), "fid {fid}: optimum-dışı ({f_probe}) should be worse than optimum ({}, f_opt={})", f_probe, p.f_opt());
+            assert!(f_probe > p.f_opt(), "fid {fid}: off-optimum ({f_probe}) should be worse than optimum ({}, f_opt={})", f_probe, p.f_opt());
         }
     }
 
     #[test]
     fn gallagher_first_peak_dominates() {
         let p = BbobProblem::new(21, 5, 1).unwrap();
-        // optimumdan uzakta değer f_opt+10²'ye (t_osz olmadan kaba sınır) yaklaşmalı ama altında kalmalı
+        // far from the optimum the value should approach f_opt+10² (a rough bound without t_osz) but stay below it
         let far = g(vec![4.9; 5]);
         let f_far = p.evaluate_batch(&[far])[0];
         assert!(f_far > p.f_opt());

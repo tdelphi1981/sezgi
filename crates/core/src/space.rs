@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SpaceError {
-    #[error("geçersiz sınır: blok {index}: lo={lo} >= hi={hi}")]
+    #[error("invalid bounds: block {index}: lo={lo} >= hi={hi}")]
     InvalidBounds { index: usize, lo: f64, hi: f64 },
-    #[error("geçersiz genotip: {reason}")]
+    #[error("invalid genotype: {reason}")]
     InvalidGenotype { reason: String },
 }
 
@@ -59,7 +59,7 @@ impl SearchSpace {
     pub fn validate(&self, g: &Genotype) -> Result<(), SpaceError> {
         let err = |reason: String| Err(SpaceError::InvalidGenotype { reason });
         if g.blocks.len() != self.blocks.len() {
-            return err(format!("blok sayısı {} != {}", g.blocks.len(), self.blocks.len()));
+            return err(format!("block count {} != {}", g.blocks.len(), self.blocks.len()));
         }
         for (i, (b, v)) in self.blocks.iter().zip(&g.blocks).enumerate() {
             let ok = match (b, v) {
@@ -79,7 +79,7 @@ impl SearchSpace {
                 (Block::Binary { n }, BlockValues::Bin(xs)) => xs.len() == *n,
                 _ => false,
             };
-            if !ok { return err(format!("blok {i} tip/değer uyumsuz")); }
+            if !ok { return err(format!("block {i} type/value mismatch")); }
         }
         Ok(())
     }
@@ -112,7 +112,7 @@ mod tests {
         let s = mixed_space();
         let bad = Genotype { blocks: vec![
             BlockValues::Float(vec![0.0, 0.0, 0.0]),
-            BlockValues::Perm(vec![0, 0, 2, 3]), // 0 tekrarı: permütasyon değil
+            BlockValues::Perm(vec![0, 0, 2, 3]), // repeated 0: not a permutation
         ]};
         assert!(matches!(s.validate(&bad), Err(SpaceError::InvalidGenotype { .. })));
     }

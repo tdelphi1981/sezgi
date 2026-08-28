@@ -1,4 +1,4 @@
-/// SplitMix64: tohum karıştırma + akış türetme (Steele ve ark. 2014).
+/// SplitMix64: seed mixing + stream derivation (Steele et al. 2014).
 fn splitmix64(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9E3779B97F4A7C15);
     let mut z = *state;
@@ -7,13 +7,13 @@ fn splitmix64(state: &mut u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// xoshiro256++ (Blackman & Vigna 2019) — elle implementasyon, sabit.
+/// xoshiro256++ (Blackman & Vigna 2019) — hand-written implementation, fixed.
 #[derive(Debug, Clone)]
 pub struct RngStream { s: [u64; 4], master: u64, path_digest: u64 }
 
 impl RngStream {
     pub fn from_master(master: u64, path: &[u64]) -> Self {
-        // path'i SplitMix64 ile katlayarak tek digest'e indir
+        // fold the path down to a single digest via SplitMix64
         let mut digest = master;
         for &p in path {
             let mut st = digest ^ p.wrapping_mul(0x9E3779B97F4A7C15);
@@ -43,12 +43,12 @@ impl RngStream {
         result
     }
 
-    /// [0,1) — 53-bit hassasiyet.
+    /// [0,1) — 53-bit precision.
     pub fn next_f64(&mut self) -> f64 {
         (self.next_u64() >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
     }
 
-    /// [0, n) tam sayı — reddetmeli (modulo yanlılığı yok).
+    /// [0, n) integer — rejection sampling (no modulo bias).
     pub fn next_below(&mut self, n: u64) -> u64 {
         assert!(n > 0);
         let zone = u64::MAX - (u64::MAX % n);
@@ -94,7 +94,7 @@ mod tests {
         }
     }
 
-    // Altın değer: implementasyon kazara değişirse bu test kırılır (spec §6).
+    // Golden value: this test breaks if the implementation changes accidentally (spec §6).
     #[test]
     fn golden_values_pinned() {
         let mut r = RngStream::from_master(123, &[1, 2]);

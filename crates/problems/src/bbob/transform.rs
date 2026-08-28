@@ -1,7 +1,7 @@
 use sezgi_core::rng::RngStream;
 use sezgi_core::dist::Distribution;
 
-/// Gauss matrisinin Gram–Schmidt ortogonalleştirmesi → rastgele döndürme.
+/// Gram–Schmidt orthogonalization of a Gaussian matrix → a random rotation.
 pub fn rotation_matrix(d: usize, seed: u64) -> Vec<Vec<f64>> {
     let mut rng = RngStream::from_master(seed, &[0]);
     let gauss = Distribution::Gaussian { mean: 0.0, sigma: 1.0 };
@@ -14,8 +14,8 @@ pub fn rotation_matrix(d: usize, seed: u64) -> Vec<Vec<f64>> {
         let norm: f64 = m[i].iter().map(|x| x * x).sum::<f64>().sqrt();
         for k in 0..d { m[i][k] /= norm; }
     }
-    // satır vektörleri ortonormal; R[k][i] erişimi için transpoze saklamaya gerek yok,
-    // apply() satır-vektör konvansiyonunu kullanır
+    // row vectors are orthonormal; no need to store a transpose for R[k][i] access,
+    // apply() uses the row-vector convention
     m
 }
 
@@ -61,15 +61,15 @@ mod tests {
         assert_eq!(t_osz(&[0.0]), vec![0.0]);
         let y = t_osz(&[1.0, -1.0]);
         assert!(y[0] > 0.0 && y[1] < 0.0);
-        // x=1: xhat=0 → sin terimleri 0 → exp(0)=1
+        // x=1: xhat=0 → sin terms are 0 → exp(0)=1
         assert!((y[0] - 1.0).abs() < 1e-12);
     }
 
     #[test]
     fn t_asy_only_bends_positive() {
         let y = t_asy(&[-2.0, 2.0], 0.5);
-        assert_eq!(y[0], -2.0);          // negatif dokunulmaz
-        assert!(y[1] > 2.0);             // pozitif büker (üs > 1)
+        assert_eq!(y[0], -2.0);          // negative untouched
+        assert!(y[1] > 2.0);             // positive bends (exponent > 1)
     }
 
     #[test]

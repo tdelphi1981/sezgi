@@ -3,9 +3,9 @@ use sezgi_core::dist::Distribution;
 use sezgi_core::problem::Population;
 use sezgi_core::space::{BlockValues, Genotype};
 
-/// Dağılım-parametreli adım mutasyonu: her float geni `rate` olasılıkla
-/// x + dist.sample() olarak günceller. Gaussian → klasik ES mutasyonu,
-/// Cauchy → hızlı ES, Levy → Lévy uçuşu (spec §6).
+/// Distribution-parameterized step mutation: with probability `rate`, each
+/// float gene is updated as x + dist.sample(). Gaussian → classic ES mutation,
+/// Cauchy → fast ES, Levy → Lévy flight (spec §6).
 pub struct StepMutation { pub dist: Distribution, pub rate: f64 }
 
 impl StepMutation {
@@ -19,7 +19,7 @@ impl StepMutation {
         dist.validate().map_err(|reason| err(reason))?;
         let rate = p.get("rate").and_then(|v| v.as_f64()).unwrap_or(1.0);
         if !(0.0..=1.0).contains(&rate) {
-            return Err(err(format!("rate [0,1] dışında: {rate}")));
+            return Err(err(format!("rate outside [0,1]: {rate}")));
         }
         Ok(Self { dist, rate })
     }

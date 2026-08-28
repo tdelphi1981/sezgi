@@ -44,17 +44,17 @@ pub struct AlgorithmSpec {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SpecError {
-    #[error("spec ayrıştırma hatası: {0}")]
+    #[error("spec parse error: {0}")]
     Parse(String),
     #[error(transparent)]
     Component(#[from] ComponentError),
-    #[error("bileşen `{kind}` `{block}` blok tipini desteklemiyor")]
+    #[error("component `{kind}` does not support block type `{block}`")]
     UnsupportedBlock { kind: String, block: String },
-    #[error("bileşen `{kind}` `{key}` durum anahtarını istiyor ama hiçbir bileşen sağlamıyor")]
+    #[error("component `{kind}` requires state key `{key}` but no component provides it")]
     MissingState { kind: String, key: String },
-    #[error("durum anahtarı `{key}` tip uyumsuz: beklenen {expected}, bulunan {found}")]
+    #[error("state key `{key}` type mismatch: expected {expected}, found {found}")]
     StateTypeMismatch { key: String, expected: String, found: String },
-    #[error("spec en az bir stage içermeli")]
+    #[error("spec must contain at least one stage")]
     EmptyStages,
 }
 
@@ -66,14 +66,14 @@ impl AlgorithmSpec {
         serde_json::from_str(src).map_err(|e| SpecError::Parse(e.to_string()))
     }
     pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).expect("spec serileştirilemedi")
+        serde_json::to_string_pretty(self).expect("spec could not be serialized")
     }
 
     pub fn validate(&self, reg: &Registry, space: &SearchSpace) -> Result<(), SpecError> {
         if self.stages.is_empty() {
             return Err(SpecError::EmptyStages);
         }
-        // Tüm bileşenleri kur, metaları topla
+        // Build all components, collect their metas
         let mut metas: Vec<ComponentMeta> = vec![
             reg.build_initializer(&self.init.kind, &self.init.params)?.meta(),
             reg.build_boundary(&self.boundary.kind, &self.boundary.params)?.meta(),
@@ -82,7 +82,7 @@ impl AlgorithmSpec {
             metas.push(reg.build_generator(&st.generator.kind, &st.generator.params)?.meta());
             metas.push(reg.build_replacer(&st.replacer.kind, &st.replacer.params)?.meta());
         }
-        // (2) blok desteği
+        // (2) block support
         for m in &metas {
             for b in space.blocks() {
                 let tag = block_tag(b);
@@ -93,7 +93,7 @@ impl AlgorithmSpec {
                 }
             }
         }
-        // (3) durum beyanları
+        // (3) state declarations
         let provides: Vec<_> = metas.iter().flat_map(|m| m.provides.clone()).collect();
         for m in &metas {
             for req in &m.requires {
@@ -122,7 +122,7 @@ mod tests {
     use crate::space::{Block, Genotype, SearchSpace};
     use crate::state::StateReq;
 
-    // Test bileşenleri: perm desteklemeyen jeneratör + durum beyanlı çift
+    // Test components: a generator that doesn't support perm + a pair with state declarations
     struct FloatOnlyGen;
     impl Generator for FloatOnlyGen {
         fn generate(&self, _p: &crate::problem::Population, _c: &mut Ctx) -> Vec<Genotype> { vec![] }
@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn toml_roundtrip() {
         let toml_src = r#"
-            name = "l-shade-benzeri"
+            name = "l-shade-like"
             pop_size = 20
             init = { kind = "vel-init" }
             boundary = { kind = "noop-b" }
@@ -196,7 +196,7 @@ mod tests {
         let s = AlgorithmSpec::from_toml(toml_src).unwrap();
         assert_eq!(s.stages[0].generator.params["f"], serde_json::json!(0.5));
         let s2 = AlgorithmSpec::from_json(&s.to_json()).unwrap();
-        assert_eq!(s2.name, "l-shade-benzeri");
+        assert_eq!(s2.name, "l-shade-like");
     }
 
     #[test]
@@ -214,8 +214,8 @@ mod tests {
 
     #[test]
     fn missing_state_rejected() {
-        // init "vel-init" yerine velocity SAĞLAMAYAN bir bileşen kullanılırsa
-        // float-only'nin requires'ı karşılanamaz
+        // If a component that does NOT provide velocity is used instead of the
+        // "vel-init" initializer, float-only's requires cannot be satisfied
         let mut r = registry();
         struct PlainInit;
         impl Initializer for PlainInit {

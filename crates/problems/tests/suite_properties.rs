@@ -10,17 +10,17 @@ fn all_24_functions_complete_suite_properties() {
         for dim in [2usize, 5, 10] {
             let p = BbobProblem::new(fid, dim, 1)
                 .unwrap_or_else(|e| panic!("fid {fid} dim {dim}: {e}"));
-            // 1) optimum erişimi
+            // 1) reaching the optimum
             let at_opt = p.evaluate_batch(&[g(p.x_opt().to_vec())])[0];
             assert!((at_opt - p.f_opt()).abs() < 1e-6, "fid {fid} dim {dim}: {}", at_opt - p.f_opt());
-            // 2) optimum asla tam merkezde değil
-            assert!(p.x_opt().iter().any(|&x| x.abs() > 1e-3), "fid {fid}: merkez optimum!");
-            // 3) instance determinizmi + farklılığı
+            // 2) the optimum is never exactly at the center
+            assert!(p.x_opt().iter().any(|&x| x.abs() > 1e-3), "fid {fid}: optimum at center!");
+            // 3) instance determinism + distinctness
             let p_same = BbobProblem::new(fid, dim, 1).unwrap();
             let p_diff = BbobProblem::new(fid, dim, 2).unwrap();
             assert_eq!(p.x_opt(), p_same.x_opt());
-            assert_ne!(p.x_opt(), p_diff.x_opt(), "fid {fid}: instance'lar aynı");
-            // 4) sonlu değerler (NaN/Inf sızıntısı yok)
+            assert_ne!(p.x_opt(), p_diff.x_opt(), "fid {fid}: instances are identical");
+            // 4) finite values (no NaN/Inf leakage)
             let f = p.evaluate_batch(&[g(vec![1.234; dim]), g(vec![-4.9; dim])]);
             assert!(f.iter().all(|v| v.is_finite()), "fid {fid} dim {dim}: {f:?}");
         }
@@ -39,6 +39,6 @@ fn de_smoke_on_new_fids() {
         let e = Engine::from_spec(&presets::de_rand_1(30, 6_000), &reg, p.space()).unwrap();
         let r = e.run(&p, RunConfig { master_seed: 7, run_id: 0 }, None).unwrap();
         assert!(r.best_f.is_finite() && r.best_f - p.f_opt() < 1e3,
-                "fid {fid}: DE anlamlı ilerleme kaydedemedi ({})", r.best_f - p.f_opt());
+                "fid {fid}: DE failed to make meaningful progress ({})", r.best_f - p.f_opt());
     }
 }

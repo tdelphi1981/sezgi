@@ -14,12 +14,12 @@ impl DeGenerator {
         let strategy = match p.get("strategy").and_then(|v| v.as_str()).unwrap_or("rand1") {
             "rand1" => DeStrategy::Rand1,
             "best1" => DeStrategy::Best1,
-            s => return Err(err(format!("bilinmeyen strateji: {s}"))),
+            s => return Err(err(format!("unknown strategy: {s}"))),
         };
         let f = p.get("f").and_then(|v| v.as_f64()).unwrap_or(0.5);
         let cr = p.get("cr").and_then(|v| v.as_f64()).unwrap_or(0.9);
-        if !(0.0..=2.0).contains(&f) { return Err(err(format!("f [0,2] dışında: {f}"))); }
-        if !(0.0..=1.0).contains(&cr) { return Err(err(format!("cr [0,1] dışında: {cr}"))); }
+        if !(0.0..=2.0).contains(&f) { return Err(err(format!("f outside [0,2]: {f}"))); }
+        if !(0.0..=1.0).contains(&cr) { return Err(err(format!("cr outside [0,1]: {cr}"))); }
         Ok(Self { strategy, f, cr })
     }
 
@@ -30,11 +30,11 @@ impl DeGenerator {
 
 impl Generator for DeGenerator {
     fn generate(&self, pop: &Population, ctx: &mut Ctx) -> Vec<Genotype> {
-        assert!(pop.len() >= 4, "gen/de en az 4 bireylik popülasyon gerektirir (pop_size={})", pop.len());
+        assert!(pop.len() >= 4, "gen/de requires a population of at least 4 (pop_size={})", pop.len());
         let n = pop.len();
         let best = pop.best_index().unwrap_or(0);
         (0..n).map(|i| {
-            // birbirinden ve i'den farklı üç indeks
+            // three indices distinct from each other and from i
             let mut pick_distinct = |excluded: &[usize]| loop {
                 let r = ctx.rng.next_below(n as u64) as usize;
                 if r != i && !excluded.contains(&r) { break r; }
@@ -88,7 +88,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "en az 4 bireylik")]
+    #[should_panic(expected = "at least 4")]
     fn small_population_panics() {
         use sezgi_core::problem::Population;
 

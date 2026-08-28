@@ -54,7 +54,7 @@ mod tests {
             Block::Permutation { n: 5 },
             Block::Binary { n: 3 },
         ]).unwrap();
-        let p = SphereShifted::new(vec![0.5], -5.0, 5.0); // eval kullanılmıyor, Ctx dolgusu
+        let p = SphereShifted::new(vec![0.5], -5.0, 5.0); // eval is unused, just fills out Ctx
         let mut eval = Evaluator::new(&p, 10);
         let mut rng = RngStream::from_master(1, &[0]);
         let mut bb = Blackboard::new();

@@ -16,25 +16,25 @@ pub fn rastrigin(z: &[f64]) -> f64 {
 }
 
 pub fn rosenbrock(z: &[f64]) -> f64 {
-    // BBOB f8 konvansiyonu: optimumda z = 1 vektörü olacak şekilde kaydırılmış çağrılır
+    // BBOB f8 convention: called shifted so that z = the all-ones vector at the optimum
     z.windows(2).map(|w| 100.0 * (w[0] * w[0] - w[1]).powi(2) + (w[0] - 1.0).powi(2)).sum()
 }
 
-/// f4 çekirdeği: z = t_osz(x - x_opt) SONRASI çağrılır. s_i: tek indeksli
-/// ve pozitif bileşenlere 10x ölçek; taban ölçek 10^(0.5·i/(d-1)).
+/// f4 core: called AFTER z = t_osz(x - x_opt). s_i: 10x scale on odd-indexed
+/// and positive components; base scale 10^(0.5·i/(d-1)).
 pub fn buche_rastrigin(z: &[f64]) -> f64 {
     let d = z.len() as f64;
     let s: Vec<f64> = z.iter().enumerate().map(|(i, &zi)| {
         let base = 10f64.powf(0.5 * i as f64 / (d - 1.0).max(1.0));
-        let extra = if i % 2 == 0 && zi > 0.0 { 10.0 } else { 1.0 }; // BBOB: tek (1-tabanlı) indeks
+        let extra = if i % 2 == 0 && zi > 0.0 { 10.0 } else { 1.0 }; // BBOB: odd (1-based) index
         base * extra * zi
     }).collect();
     10.0 * (d - s.iter().map(|v| (2.0 * std::f64::consts::PI * v).cos()).sum::<f64>())
         + s.iter().map(|v| v * v).sum::<f64>()
 }
 
-/// f5: kaydırmasız, ham x. s_i = sign(x_opt_i)·10^(i/(d-1));
-/// z_i = x_i eğer x_opt_i·x_i < 25, değilse x_opt_i (plato).
+/// f5: unshifted, raw x. s_i = sign(x_opt_i)·10^(i/(d-1));
+/// z_i = x_i if x_opt_i·x_i < 25, otherwise x_opt_i (plateau).
 pub fn linear_slope(x: &[f64], x_opt: &[f64]) -> f64 {
     let d = x.len() as f64;
     x.iter().zip(x_opt).enumerate().map(|(i, (&xi, &oi))| {
@@ -45,19 +45,19 @@ pub fn linear_slope(x: &[f64], x_opt: &[f64]) -> f64 {
 }
 
 /// f6: Attractive Sector
-/// Boru hattı: z = Q·Λ^10·R·(x - x_opt)
-/// Çekirdek: s_i = 100 eğer z_i·x_opt_i > 0, değilse 1
+/// Pipeline: z = Q·Λ^10·R·(x - x_opt)
+/// Core: s_i = 100 if z_i·x_opt_i > 0, otherwise 1
 pub fn attractive_sector(z: &[f64], x_opt: &[f64]) -> f64 {
     let s: f64 = z.iter().zip(x_opt).map(|(&zi, &oi)| {
         let si = if zi * oi > 0.0 { 100.0 } else { 1.0 };
         (si * zi).powi(2)
     }).sum();
-    // t_osz skaler hali: tek elemanlı dilim üzerinden
+    // scalar form of t_osz: via a single-element slice
     crate::bbob::transform::t_osz(&[s])[0].powf(0.9)
 }
 
 /// f7: Step Ellipsoidal
-/// zhat0: ilk Λ^10 bileşeni, z: Q·ztilde sonrası
+/// zhat0: the first Λ^10 component, z: after Q·ztilde
 pub fn step_ellipsoidal(zhat0: f64, z: &[f64]) -> f64 {
     let d = z.len() as f64;
     let ell: f64 = z.iter().enumerate()
@@ -66,12 +66,12 @@ pub fn step_ellipsoidal(zhat0: f64, z: &[f64]) -> f64 {
     0.1 * (zhat0.abs() / 1e4).max(ell)
 }
 
-/// f11: Discus — ilk eksen 1e6 kat ağır
+/// f11: Discus — the first axis is 1e6x heavier
 pub fn discus(z: &[f64]) -> f64 {
     1e6 * z[0] * z[0] + z[1..].iter().map(|v| v * v).sum::<f64>()
 }
 
-/// f12: Bent Cigar — diğer eksenler 1e6 kat ağır
+/// f12: Bent Cigar — the other axes are 1e6x heavier
 pub fn bent_cigar(z: &[f64]) -> f64 {
     z[0] * z[0] + 1e6 * z[1..].iter().map(|v| v * v).sum::<f64>()
 }
@@ -81,7 +81,7 @@ pub fn sharp_ridge(z: &[f64]) -> f64 {
     z[0] * z[0] + 100.0 * z[1..].iter().map(|v| v * v).sum::<f64>().sqrt()
 }
 
-/// f14: Different Powers — i'ye göre artan üsler
+/// f14: Different Powers — exponents increasing with i
 pub fn different_powers(z: &[f64]) -> f64 {
     let d = z.len() as f64;
     z.iter().enumerate()
@@ -89,10 +89,10 @@ pub fn different_powers(z: &[f64]) -> f64 {
         .sum::<f64>().sqrt()
 }
 
-/// f16: Weierstrass — 12 terimli Fourier serisi, ortalama-tabanlı
+/// f16: Weierstrass — 12-term Fourier series, mean-based
 pub fn weierstrass(z: &[f64]) -> f64 {
     let d = z.len() as f64;
-    // f0 = Σ_{k=0..11} (1/2^k)·cos(2π·3^k·0.5) — sabit
+    // f0 = Σ_{k=0..11} (1/2^k)·cos(2π·3^k·0.5) — constant
     let f0: f64 = (0..12)
         .map(|k| 0.5f64.powi(k) * (2.0 * PI * 3f64.powi(k) * 0.5).cos())
         .sum();
@@ -103,7 +103,7 @@ pub fn weierstrass(z: &[f64]) -> f64 {
     10.0 * (mean - f0).powi(3)
 }
 
-/// f17/f18: Schaffers F7 — pencere-tabanlı aritmetik orta
+/// f17/f18: Schaffers F7 — window-based arithmetic mean
 pub fn schaffers_f7(z: &[f64]) -> f64 {
     let m = (z.len() - 1) as f64;
     let mean: f64 = z.windows(2).map(|w| {
@@ -113,7 +113,7 @@ pub fn schaffers_f7(z: &[f64]) -> f64 {
     mean * mean
 }
 
-/// f19: Griewank-Rosenbrock — kombinasyon
+/// f19: Griewank-Rosenbrock — combination
 pub fn griewank_rosenbrock(z: &[f64]) -> f64 {
     let m = (z.len() - 1) as f64;
     let sum: f64 = z.windows(2).map(|w| {

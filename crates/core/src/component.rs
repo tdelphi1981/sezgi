@@ -57,9 +57,9 @@ pub trait BoundaryHandler: Send + Sync {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ComponentError {
-    #[error("bilinmeyen bileşen türü: {0}")]
+    #[error("unknown component kind: {0}")]
     UnknownKind(String),
-    #[error("geçersiz parametre ({kind}): {reason}")]
+    #[error("invalid parameter ({kind}): {reason}")]
     InvalidParams { kind: String, reason: String },
 }
 
