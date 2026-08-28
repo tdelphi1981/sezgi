@@ -3,6 +3,7 @@ use sezgi_core::component::Registry;
 use sezgi_core::dist::Distribution;
 use sezgi_core::engine::{Engine, RunConfig};
 use sezgi_core::problem::{Problem, SphereShifted};
+use sezgi_problems::BbobProblem;
 
 fn registry() -> Registry {
     let mut r = Registry::new();
@@ -84,4 +85,32 @@ fn random_search_improves_but_modestly() {
     // Deterministic achieved best_f ≈ 1.467 at seed 42 (bound anchored to this run; plan's 1.0 was an unrealistic guess).
     assert!(r.best_f < 2.0, "random-search should stay bounded: {}", r.best_f);
     assert!(r.best_f > 1e-6, "random-search should not converge like DE: {}", r.best_f);
+}
+
+#[test]
+fn jde_converges_on_shifted_sphere() {
+    let shift: Vec<f64> = (0..10).map(|i| 0.7 * i as f64 - 3.0).collect();
+    let p = SphereShifted::new(shift, -5.0, 5.0);
+    let spec = presets::jde(40, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    assert!(r.best_f < 1e-6, "jDE should converge in 20k evaluations: {}", r.best_f);
+}
+
+#[test]
+fn jde_beats_or_matches_de_on_rastrigin() {
+    let p = BbobProblem::new(3, 5, 1).unwrap();
+    let reg = registry();
+
+    let jde_spec = presets::jde(40, 20_000);
+    let e_jde = Engine::from_spec(&jde_spec, &reg, Problem::space(&p)).unwrap();
+    let r_jde = e_jde.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+
+    let de_spec = presets::de_rand_1(40, 20_000);
+    let e_de = Engine::from_spec(&de_spec, &reg, Problem::space(&p)).unwrap();
+    let r_de = e_de.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+
+    assert!(r_jde.best_f <= r_de.best_f + 1e-9,
+        "jDE ({}) should beat or match de/rand/1 ({}) on BBOB f3 (Rastrigin), dim 5, instance 1",
+        r_jde.best_f, r_de.best_f);
 }

@@ -37,6 +37,22 @@ pub fn de_best_1(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+pub fn jde(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "de/jde".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/de-jde", serde_json::json!(
+                {"f_lower": 0.1, "f_upper": 0.9, "tau1": 0.1, "tau2": 0.1})),
+            replacer: comp("replace/one-to-one-greedy", serde_json::json!({})),
+            adapter: Some(comp("adapter/jde-commit", serde_json::json!({}))),
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn es_mu_plus_lambda(pop_size: usize, budget: u64, dist: Distribution) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "es/mu+lambda".into(), pop_size,
