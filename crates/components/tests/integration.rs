@@ -166,3 +166,35 @@ fn lshade_near_optimum_on_rotated_rastrigin() {
     assert!(gap < 1.5,
         "L-SHADE should land near the optimum on rotated Rastrigin f15: gap={}", gap);
 }
+
+// ---- CMA-ES (M2b Task 11) ----
+
+#[test]
+fn cmaes_solves_sphere() {
+    let shift: Vec<f64> = (0..10).map(|i| 0.7 * i as f64 - 3.0).collect();
+    let p = SphereShifted::new(shift, -5.0, 5.0);
+    let spec = presets::cmaes(10, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    assert!(r.best_f < 1e-9, "CMA-ES should converge tightly on the sphere in 20k evaluations: {}", r.best_f);
+}
+
+#[test]
+fn cmaes_solves_rotated_ellipsoid() {
+    let p = BbobProblem::new(10, 10, 1).unwrap();
+    let spec = presets::cmaes(10, 30_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    assert!(gap < 1e-6, "CMA-ES should solve the rotated ellipsoid (f10) tightly: gap={}", gap);
+}
+
+#[test]
+fn cmaes_solves_bent_cigar() {
+    let p = BbobProblem::new(12, 10, 1).unwrap();
+    let spec = presets::cmaes(10, 30_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    assert!(gap < 1e-4, "CMA-ES should solve bent cigar (f12): gap={}", gap);
+}

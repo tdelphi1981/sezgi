@@ -10,6 +10,7 @@ pub mod resample;
 pub mod shade;
 pub mod presets;
 pub mod linalg;
+pub mod cma;
 
 use sezgi_core::component::Registry;
 
@@ -24,4 +25,5 @@ pub fn register_builtins(reg: &mut Registry) {
     sa::register(reg);
     resample::register(reg);
     shade::register(reg);
+    cma::register(reg);
 }

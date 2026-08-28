@@ -151,6 +151,26 @@ pub fn lshade(dim: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// (μ/μ_w,λ)-CMA-ES (Hansen's tutorial form, positive-weights variant — see
+/// `cma.rs`'s module doc for the two documented sezgi simplifications).
+/// `pop_size` is λ; the caller picks it (sezgi does not auto-derive it from
+/// `dim`). A common guideline (Hansen's default) is
+/// `λ = 4 + ⌊3·ln(dim)⌋`.
+pub fn cmaes(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "cma-es".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/cma", serde_json::json!({})),
+            replacer: comp("replace/cma-update", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn random_search(pop_size: usize, budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "random-search".into(),
