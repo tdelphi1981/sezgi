@@ -137,3 +137,32 @@ fn shade_near_optimum_on_rastrigin() {
     assert!(gap < 1.5,
         "SHADE should land within one Rastrigin local basin of the optimum: gap={}", gap);
 }
+
+#[test]
+fn lshade_converges_on_shifted_sphere() {
+    let shift: Vec<f64> = (0..10).map(|i| 0.7 * i as f64 - 3.0).collect();
+    let p = SphereShifted::new(shift, -5.0, 5.0);
+    let spec = presets::lshade(10, 30_000);
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    assert!(r.best_f < 1e-8, "L-SHADE should converge in 30k evaluations: {}", r.best_f);
+}
+
+#[test]
+fn lshade_near_optimum_on_rotated_rastrigin() {
+    let p = BbobProblem::new(15, 5, 1).unwrap();
+    let spec = presets::lshade(5, 30_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Deterministic achieved gap ≈ 0.99656 at seed 42 on BBOB f15 (rotated
+    // Rastrigin, dim 5, instance 1 — a genuinely hard multimodal landscape).
+    // Rounded up to the next 0.5 (1.0) leaves only ~0.003 headroom, so the
+    // bound is bumped one more 0.5 step to 1.5 (headroom ≈0.50), matching the
+    // convention used for shade_near_optimum_on_rastrigin above. Single-seed
+    // comparative claims (l-shade vs shade/de) were ruled out as
+    // statistically meaningless per the M2b controller ruling;
+    // cross-algorithm comparison arrives with M2c's statistics module.
+    assert!(gap < 1.5,
+        "L-SHADE should land near the optimum on rotated Rastrigin f15: gap={}", gap);
+}

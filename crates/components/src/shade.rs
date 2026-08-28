@@ -287,10 +287,143 @@ impl Adapter for ShadeHistoryAdapter {
     }
 }
 
+/// L-SHADE's linear population size reduction (Tanabe & Fukunaga 2014 eq. 10).
+/// Target size shrinks linearly with evaluation budget consumed:
+/// `n_t = round(n_init + (n_min − n_init) · used/budget)`. While
+/// `pop.len() > max(n_t, n_min)`, the WORST individual (max fitness; ties
+/// broken toward the *highest* index — pinned) is removed one at a time.
+///
+/// Afterward, `shade_archive` is truncated to `pop.len()` by the same
+/// uniformly-random eviction as `replace/shade` (via `ctx.rng` — the only RNG
+/// this adapter consumes), and the `shade_f` / `shade_cr` / `shade_fit_prev`
+/// per-generation scratch vectors (when present) are truncated to
+/// `pop.len()` so a stale tail never outlives the individuals it described.
+///
+/// SHADE-specific in M2b: `meta().requires` names the `shade_*` keys, so this
+/// adapter can only be composed into a spec alongside `gen/de-shade` (which
+/// provides them). A generic, algorithm-agnostic LPSR would drop that
+/// requirement, but that's out of scope here.
+pub struct LpsrAdapter { pub n_init: usize, pub n_min: usize }
+
+impl LpsrAdapter {
+    pub fn from_params(p: &serde_json::Value) -> Result<Self, ComponentError> {
+        let err = |reason: String| ComponentError::InvalidParams {
+            kind: "adapter/lpsr".into(), reason };
+        let n_init = p.get("n_init").and_then(|v| v.as_u64())
+            .ok_or_else(|| err("n_init is required".into()))? as usize;
+        let n_min = p.get("n_min").and_then(|v| v.as_u64()).unwrap_or(4) as usize;
+        if n_min < 1 { return Err(err(format!("n_min must be >= 1: {n_min}"))); }
+        if n_init < n_min {
+            return Err(err(format!("n_init ({n_init}) must be >= n_min ({n_min})")));
+        }
+        Ok(Self { n_init, n_min })
+    }
+
+    fn target_size(&self, ctx: &Ctx) -> usize {
+        let used = ctx.eval.used() as f64;
+        let budget = ctx.eval.budget() as f64;
+        let frac = if budget > 0.0 { used / budget } else { 1.0 };
+        let n_t = self.n_init as f64 + (self.n_min as f64 - self.n_init as f64) * frac;
+        (n_t.round().max(0.0) as usize).max(self.n_min)
+    }
+}
+
+impl Adapter for LpsrAdapter {
+    fn adapt(&self, pop: &mut Population, ctx: &mut Ctx) {
+        let target = self.target_size(ctx);
+
+        while pop.len() > target {
+            // Worst = max fitness; ties broken toward the highest index —
+            // scanning forward and accepting `>=` naturally lands on the
+            // last (highest-index) tied candidate.
+            let mut worst = 0;
+            for i in 1..pop.len() {
+                if pop.fitness[i].total_cmp(&pop.fitness[worst]) != std::cmp::Ordering::Less {
+                    worst = i;
+                }
+            }
+            pop.individuals.remove(worst);
+            pop.fitness.remove(worst);
+        }
+
+        if let Some(archive) = ctx.bb.get_mut::<Vec<Genotype>>("shade_archive") {
+            while archive.len() > pop.len() {
+                let idx = ctx.rng.next_below(archive.len() as u64) as usize;
+                archive.remove(idx);
+            }
+        }
+        for key in ["shade_f", "shade_cr", "shade_fit_prev"] {
+            if let Some(v) = ctx.bb.get_mut::<Vec<f64>>(key) {
+                if v.len() > pop.len() { v.truncate(pop.len()); }
+            }
+        }
+    }
+    fn meta(&self) -> ComponentMeta {
+        ComponentMeta { kind: "adapter/lpsr",
+            supported_blocks: SupportedBlocks::All,
+            requires: vec![
+                StateReq::of::<Vec<Genotype>>("shade_archive"),
+                StateReq::of::<Vec<f64>>("shade_f"),
+                StateReq::of::<Vec<f64>>("shade_cr"),
+                StateReq::of::<Vec<f64>>("shade_fit_prev"),
+            ],
+            provides: vec![] }
+    }
+}
+
+/// Composite adapter for `presets::lshade`: a stage has exactly one adapter
+/// slot, but L-SHADE needs both the success-history update
+/// (`adapter/shade-history`) and the population-size reduction
+/// (`adapter/lpsr`) to run each iteration, history first (LPSR's truncation
+/// of `shade_f`/`shade_cr`/`shade_fit_prev` must happen *after* the history
+/// update has already consumed `shade_sf`/`shade_scr`/`shade_dw`, though the
+/// two don't actually share state — order is pinned for clarity and to match
+/// the paper's Algorithm 1: memory update, then population resizing).
+///
+/// A generic adapter-chain component is YAGNI for M2b (only this one
+/// algorithm needs it); this composite is a documented, hard-coded
+/// alternative.
+pub struct ShadeLshadeAdapter { history: ShadeHistoryAdapter, lpsr: LpsrAdapter }
+
+impl ShadeLshadeAdapter {
+    pub fn from_params(p: &serde_json::Value) -> Result<Self, ComponentError> {
+        // `h` is accepted (per the union param contract) but unused: the
+        // history adapter has no parameters of its own — the memory size is
+        // fixed by `gen/de-shade`'s `h` at generation time.
+        Ok(Self { history: ShadeHistoryAdapter, lpsr: LpsrAdapter::from_params(p)? })
+    }
+}
+
+impl Adapter for ShadeLshadeAdapter {
+    fn adapt(&self, pop: &mut Population, ctx: &mut Ctx) {
+        self.history.adapt(pop, ctx);
+        self.lpsr.adapt(pop, ctx);
+    }
+    fn meta(&self) -> ComponentMeta {
+        ComponentMeta { kind: "adapter/shade-lshade",
+            supported_blocks: SupportedBlocks::All,
+            requires: vec![
+                StateReq::of::<Vec<f64>>("shade_mf"),
+                StateReq::of::<Vec<f64>>("shade_mcr"),
+                StateReq::of::<usize>("shade_k"),
+                StateReq::of::<Vec<f64>>("shade_sf"),
+                StateReq::of::<Vec<f64>>("shade_scr"),
+                StateReq::of::<Vec<f64>>("shade_dw"),
+                StateReq::of::<Vec<Genotype>>("shade_archive"),
+                StateReq::of::<Vec<f64>>("shade_f"),
+                StateReq::of::<Vec<f64>>("shade_cr"),
+                StateReq::of::<Vec<f64>>("shade_fit_prev"),
+            ],
+            provides: vec![] }
+    }
+}
+
 pub fn register(reg: &mut Registry) {
     reg.register_generator("gen/de-shade", |p| Ok(Box::new(ShadeGenerator::from_params(p)?)));
     reg.register_replacer("replace/shade", |_| Ok(Box::new(ShadeReplacer)));
     reg.register_adapter("adapter/shade-history", |_| Ok(Box::new(ShadeHistoryAdapter)));
+    reg.register_adapter("adapter/lpsr", |p| Ok(Box::new(LpsrAdapter::from_params(p)?)));
+    reg.register_adapter("adapter/shade-lshade", |p| Ok(Box::new(ShadeLshadeAdapter::from_params(p)?)));
 }
 
 #[cfg(test)]
@@ -417,5 +550,89 @@ mod tests {
 
         let final_len = bb.get::<Vec<Genotype>>("shade_archive").unwrap().len();
         assert_eq!(final_len, n, "archive should saturate at pop.len() after repeated replacements");
+    }
+
+    fn f(x: f64) -> Genotype { Genotype { blocks: vec![BlockValues::Float(vec![x])] } }
+
+    #[test]
+    fn lpsr_params_validate() {
+        let a = LpsrAdapter::from_params(&serde_json::json!({"n_init": 20})).unwrap();
+        assert_eq!((a.n_init, a.n_min), (20, 4), "n_min should default to 4");
+
+        let a = LpsrAdapter::from_params(&serde_json::json!({"n_init": 20, "n_min": 5})).unwrap();
+        assert_eq!((a.n_init, a.n_min), (20, 5));
+
+        assert!(LpsrAdapter::from_params(&serde_json::json!({})).is_err(), "n_init is required");
+        assert!(LpsrAdapter::from_params(&serde_json::json!({"n_init": 3, "n_min": 4})).is_err(),
+            "n_init must be >= n_min");
+        assert!(LpsrAdapter::from_params(&serde_json::json!({"n_init": 5, "n_min": 0})).is_err(),
+            "n_min must be >= 1");
+    }
+
+    /// n_init=20, n_min=4, used=90, budget=100 ⇒
+    /// n_t = round(20 + (4-20)·0.9) = round(5.6) = 6, target = max(6,4) = 6.
+    #[test]
+    fn lpsr_shrinks_toward_min() {
+        let p = SphereShifted::new(vec![0.0], -5.0, 5.0);
+        let space = p.space();
+        let mut evaluator = Evaluator::new(&p, 100);
+        let mut rng = RngStream::from_master(1, &[]);
+        let mut bb = Blackboard::new();
+
+        let n0 = 20usize;
+        let mut pop = Population {
+            individuals: (0..n0).map(|i| f(i as f64)).collect(),
+            fitness: (0..n0).map(|i| i as f64).collect(), // distinct, index 0 is best
+        };
+
+        // Drive used to 90 with a single dummy batch (budget headroom: 100).
+        evaluator.evaluate(&vec![f(0.0); 90]).unwrap();
+        assert_eq!(evaluator.used(), 90);
+
+        let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
+        let adapter = LpsrAdapter { n_init: n0, n_min: 4 };
+        adapter.adapt(&mut pop, &mut ctx);
+
+        assert_eq!(pop.len(), 6, "n_t = round(20 + (4-20)*90/100) = 6");
+        // Survivors must be exactly the 6 best (lowest-fitness) individuals —
+        // the worst 14 (highest fitness) were removed.
+        let mut survivors = pop.fitness.clone();
+        survivors.sort_by(|a, b| a.total_cmp(b));
+        assert_eq!(survivors, vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn lpsr_truncates_archive_and_scratch() {
+        let p = SphereShifted::new(vec![0.0], -5.0, 5.0);
+        let space = p.space();
+        let mut evaluator = Evaluator::new(&p, 100);
+        let mut rng = RngStream::from_master(7, &[]);
+        let mut bb = Blackboard::new();
+
+        let n0 = 10usize;
+        let mut pop = Population {
+            individuals: (0..n0).map(|i| f(i as f64)).collect(),
+            fitness: (0..n0).map(|i| i as f64).collect(),
+        };
+        // Oversized archive/scratch relative to the post-shrink population.
+        bb.insert("shade_archive", (0..15).map(|i| f(i as f64)).collect::<Vec<_>>());
+        bb.insert("shade_f", vec![0.5f64; n0]);
+        bb.insert("shade_cr", vec![0.9f64; n0]);
+        bb.insert("shade_fit_prev", (0..n0).map(|i| i as f64).collect::<Vec<_>>());
+
+        // used == budget -> target collapses fully to n_min.
+        evaluator.evaluate(&vec![f(0.0); 100]).unwrap();
+
+        let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
+        let adapter = LpsrAdapter { n_init: n0, n_min: 4 };
+        adapter.adapt(&mut pop, &mut ctx);
+
+        assert_eq!(pop.len(), 4, "used==budget should collapse to n_min");
+        let archive_len = ctx.bb.get::<Vec<Genotype>>("shade_archive").unwrap().len();
+        assert!(archive_len <= pop.len(),
+            "archive must be truncated to pop.len(): {archive_len} > {}", pop.len());
+        assert_eq!(ctx.bb.get::<Vec<f64>>("shade_f").unwrap().len(), pop.len());
+        assert_eq!(ctx.bb.get::<Vec<f64>>("shade_cr").unwrap().len(), pop.len());
+        assert_eq!(ctx.bb.get::<Vec<f64>>("shade_fit_prev").unwrap().len(), pop.len());
     }
 }

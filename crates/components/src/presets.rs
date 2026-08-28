@@ -134,6 +134,23 @@ pub fn shade(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+pub fn lshade(dim: usize, budget: u64) -> AlgorithmSpec {
+    let pop_size = 18 * dim;
+    AlgorithmSpec {
+        name: "de/l-shade".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/de-shade", serde_json::json!({"h": 6, "p": 0.11})),
+            replacer: comp("replace/shade", serde_json::json!({})),
+            adapter: Some(comp("adapter/shade-lshade", serde_json::json!(
+                {"n_init": pop_size, "n_min": 4}))),
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn random_search(pop_size: usize, budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "random-search".into(),
