@@ -57,6 +57,19 @@ Dürüstlük notu (örneklerin başına yazılacak): ask/tell varyantı kendi RN
 
 Zamanlama: Python örnekleri M2 sonu (deney koşturucu gerektirir), R örnekleri R ön yüzüyle, üçlü karşılaştırma M3'te metafor ön ayarlarıyla tamamlanır.
 
+## M2a tamamlandı (2026-08-28, main'e merge: d057700)
+
+**Teslim:** sezgi-bbob 24/24 fonksiyon (T_osz/T_asy/Λ/f_pen dönüşümleri, fid-politikalı x_opt, Q rotasyonu, Gallagher verileri, 24×3 süit özellik testleri, M1 drift bit-pinleri) + IOH best.y=null koruması (IohFinish) + dağılım parametre doğrulaması + numpy callback + PyErr köprüsü + allow_threads + BudgetSmallerThanPopulation ayrımı. 12 commit, final tüm-dal incelemesi temiz, Rust hatasız + pytest 9/9, altınlar bit-uyumlu.
+
+**M2a ruling'leri:**
+1. needs_q/needs_r tabloları plandan düzeltildi (Q: {6,7,13,15,16,17,18,23,24}; R: fid ∉ {1,5,20}) — dispatch'lerin kullanmadığı çekimler kaldırıldı.
+2. "cocoex çapraz doğrulama" → analitik altın/özellik testleri (M1'in COCO-birebir-değil ruling'iyle tutarlı); sapmalar kodda "sezgi-bbob sadeleştirmesi" etiketiyle belgelendi (f12 çift-R, f20 varyant formül, f21/22 rastgele alpha + köşegen C).
+3. Panik-hook stderr gürültüsü bilinçli kabul (global hook takası süreç-geneli/yarışlı — kodda NOT yorumu).
+4. "Zero-copy" girişte kopyalı (from_vec2), dönüşte zero-copy — kod yorumu dürüst, aksiyon yok.
+5. needs_r(4) düzeltmesi (f4 R çekimi kullanılmıyor) M2b'ye ertelendi — instance-akışı kararı yayın öncesi 24-fid bit-pin tablosuyla birlikte tek seferde.
+
+**M2b backlog'una eklenenler:** 24-fid bit-pin tablosu; needs_r(4) kararı; skipped_empty_runs'ın Python'a yüzeylenmesi; eski dispatch kollarının shift() helper'ına geçirilmesi; Levy/StudentT/Laplace istatistiksel testleri.
+
 ## Okulda devam ederken
 
 - Depo temiz, her şey `main`'de. Python ortamı: `cd py-sezgi && python -m venv .venv && .venv/bin/pip install maturin pytest && .venv/bin/maturin develop --release && .venv/bin/python -m pytest tests/ -v` (venv commit'li değil, okulda yeniden kurulur).
