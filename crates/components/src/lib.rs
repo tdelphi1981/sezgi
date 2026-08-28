@@ -7,6 +7,7 @@ pub mod ga;
 pub mod pso;
 pub mod sa;
 pub mod resample;
+pub mod shade;
 pub mod presets;
 
 use sezgi_core::component::Registry;
@@ -21,4 +22,5 @@ pub fn register_builtins(reg: &mut Registry) {
     pso::register(reg);
     sa::register(reg);
     resample::register(reg);
+    shade::register(reg);
 }

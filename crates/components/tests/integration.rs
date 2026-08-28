@@ -111,3 +111,29 @@ fn jde_near_optimum_on_rastrigin() {
     assert!(gap < 2.0,
         "jDE should land within one Rastrigin local basin of the optimum: gap={}", gap);
 }
+
+#[test]
+fn shade_converges_on_shifted_sphere() {
+    let shift: Vec<f64> = (0..10).map(|i| 0.7 * i as f64 - 3.0).collect();
+    let p = SphereShifted::new(shift, -5.0, 5.0);
+    let spec = presets::shade(50, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    assert!(r.best_f < 1e-8, "SHADE should converge in 20k evaluations: {}", r.best_f);
+}
+
+#[test]
+fn shade_near_optimum_on_rastrigin() {
+    let p = BbobProblem::new(3, 5, 1).unwrap();
+    let spec = presets::shade(50, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Deterministic achieved gap ≈ 1.014 at seed 42 (BBOB f3 transforms stretch basin
+    // spacing; bound anchored to this run, rounded up to the next 0.5 with headroom).
+    // Single-seed comparative claims (shade vs de) were ruled out as statistically
+    // meaningless per the M2b Task 7 controller ruling; cross-algorithm comparison
+    // arrives with M2c's statistics module.
+    assert!(gap < 1.5,
+        "SHADE should land within one Rastrigin local basin of the optimum: gap={}", gap);
+}
