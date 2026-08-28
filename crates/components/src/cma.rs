@@ -9,7 +9,9 @@ use sezgi_core::state::StateReq;
 /// "Completely Derandomized Self-Adaptation in Evolution Strategies", plus
 /// Hansen's 2016 tutorial for the exact constant formulas used here).
 ///
-/// **Two documented sezgi simplifications vs. "full"/active CMA-ES:**
+/// **Four documented sezgi deviations from textbook CMA-ES** (two algorithmic
+/// simplifications, two added numerical/boundary guards — full reasoning at
+/// each site's own doc comment; this is just the inventory):
 /// 1. **Positive weights only.** The recombination/rank-μ weights `w_1..w_μ`
 ///    are all positive (computed only for the best `μ = ⌊λ/2⌋` offspring, per
 ///    the classic (μ/μ_w,λ) scheme) — no negative weights / active
@@ -22,6 +24,20 @@ use sezgi_core::state::StateReq;
 ///    Hansen's reference implementations do to amortize the O(d³) cost. Given
 ///    `eigh_jacobi`'s own O(d³) sweep cost, sezgi trades some CPU for a
 ///    simpler, always-consistent blackboard state.
+/// 3. **Mean-clamp + evolution-path reset (boundary-saturation guard).**
+///    After the mean update, `replace/cma-update` clamps `mean` into the
+///    search space bounds, and — only when that clamp actually fires —
+///    resets `ps`/`pc` to zero. Trajectory-neutral whenever the mean stays
+///    in-box (the common case); without it, under severe conditioning
+///    (BBOB-scale ~1e6) the mean can drift permanently outside the space and
+///    diverge (see `replace`'s doc comment for the full mechanism and the
+///    empirical evidence).
+/// 4. **Flat-fitness freeze.** If every offspring in a generation lands on
+///    bit-identical fitness (no selection signal at all — e.g. boundary
+///    repair saturated the whole batch to the same point), `mean`, `sigma`,
+///    `C`, `ps`, `pc`, and `gen` are all frozen for that round rather than
+///    adapted on noise; the population is still replaced unconditionally
+///    either way (see `replace`'s doc comment).
 ///
 /// **Blackboard state** (all owned by `gen/cma`; required by
 /// `replace/cma-update`):
