@@ -14,8 +14,10 @@ optimizasyon kütüphanesi. Tasarım: `docs/superpowers/specs/2026-08-27-sezgi-d
 
 Kendi probleminiz (toplu değerlendirme — popülasyon başına tek çağrı):
 
-    def f(xs):                      # xs: list[list[float]]
-        return [sum(v*v for v in x) for x in xs]
+    import numpy as np
+
+    def f(X):                       # X: np.ndarray (n, d) float64
+        return ((X - 1.0) ** 2).sum(axis=1)
 
     problem = sezgi.from_callable(f, lo=-5.0, hi=5.0, dim=10)
 
@@ -24,5 +26,4 @@ Kendi probleminiz (toplu değerlendirme — popülasyon başına tek çağrı):
     cargo test --workspace --release        # Rust testleri
     cd py-sezgi && maturin develop && pytest # Python testleri
 
-Durum: M1 (çekirdek + Python). M2: R ön yüzü + istatistik; M3: yanlılık
-taraması + çok-amaçlı. Lisans: MIT.
+Durum: M1 (çekirdek + Python). M2a (sezgi-bbob 24/24 BBOB fonksiyonu). M2: R ön yüzü + istatistik; M3: yanlılık taraması + çok-amaçlı. Lisans: MIT.

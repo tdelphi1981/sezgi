@@ -74,7 +74,7 @@ pub struct BbobProblem {
 impl BbobProblem {
     pub fn new(fid: u32, dim: usize, instance: u32) -> Result<Self, BbobError> {
         if dim < 2 { return Err(BbobError::BadDim); }
-        if fid < 1 || fid > 24 { return Err(BbobError::NotImplemented(fid)); }
+        if !(1..=24).contains(&fid) { return Err(BbobError::NotImplemented(fid)); }
 
         let mut rng = RngStream::from_master(BBOB_SEED_BASE + fid as u64,
                                              &[instance as u64]);
