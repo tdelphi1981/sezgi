@@ -1,4 +1,4 @@
-"""sezgi — Rust çekirdekli, bileşen-tabanlı meta-sezgisel optimizasyon."""
+"""sezgi — Rust-core, component-based metaheuristic optimization."""
 import json
 from types import SimpleNamespace
 
@@ -7,9 +7,9 @@ from sezgi import _sezgi
 
 
 def solve(spec, problem, master_seed=0, run_id=0, log_dir=None, algo_name=None):
-    """Bir algoritma spec'ini problem üzerinde koştur.
+    """Run an algorithm spec against a problem.
 
-    spec: dict (JSON-uyumlu algoritma spec'i) veya JSON dizgisi.
+    spec: dict (JSON-compatible algorithm spec) or a JSON string.
     """
     if isinstance(spec, dict):
         spec = json.dumps(spec)

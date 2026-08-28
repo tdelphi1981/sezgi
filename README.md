@@ -1,18 +1,18 @@
 # sezgi
 
-Rust çekirdekli, bileşen-tabanlı, Python ve R ön yüzlü meta-sezgisel
-optimizasyon kütüphanesi. Tasarım: `docs/superpowers/specs/2026-08-27-sezgi-design.md`.
+**sezgi** (Turkish for "intuition") is a Rust-core, component-based metaheuristic
+optimization library with Python and R frontends. Design doc: `docs/superpowers/specs/2026-08-27-sezgi-design.md`.
 
-## Hızlı başlangıç (Python)
+## Quickstart (Python)
 
     import sezgi
 
     problem = sezgi.bbob(fid=1, dim=10, instance=1)
     spec = sezgi.presets.de_rand_1(pop_size=50, budget=20_000)
     result = sezgi.solve(spec, problem, master_seed=42, log_dir="logs/")
-    print(result["best_f"])   # IOH-format günlük logs/ altında
+    print(result["best_f"])   # IOH-format log under logs/
 
-Kendi probleminiz (toplu değerlendirme — popülasyon başına tek çağrı):
+Your own problem (batch evaluation — a single call per population):
 
     import numpy as np
 
@@ -21,9 +21,11 @@ Kendi probleminiz (toplu değerlendirme — popülasyon başına tek çağrı):
 
     problem = sezgi.from_callable(f, lo=-5.0, hi=5.0, dim=10)
 
-## Geliştirme
+## Development
 
-    cargo test --workspace --release        # Rust testleri
-    cd py-sezgi && maturin develop && pytest # Python testleri
+    cargo test --workspace --release        # Rust tests
+    cd py-sezgi && maturin develop && pytest # Python tests
 
-Durum: M1 (çekirdek + Python). M2a (sezgi-bbob 24/24 BBOB fonksiyonu). M2: R ön yüzü + istatistik; M3: yanlılık taraması + çok-amaçlı. Lisans: MIT.
+Status: M1 (core + Python) done. M2a done: full 24/24 sezgi-bbob BBOB function
+suite. Next: M2b reference algorithms, M2c experiment runner + statistics,
+M2d R frontend. License: MIT.

@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "sezgi"
 version = "0.1.0"
-description = "Rust çekirdekli, bileşen-tabanlı meta-sezgisel optimizasyon"
+description = "Rust-core, component-based metaheuristic optimization library"
 license = { text = "MIT" }
 requires-python = ">=3.9"
 dependencies = ["numpy>=1.24"]

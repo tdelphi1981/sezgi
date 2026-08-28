@@ -33,7 +33,7 @@ def test_callable_problem():
     spec = sezgi.presets.de_rand_1(pop_size=10, budget=500)
     r = sezgi.solve(spec, p, master_seed=1)
     assert r["best_f"] < 0.5
-    assert all(c == 10 for c in calls), "değerlendirme popülasyon başına TEK çağrı olmalı"
+    assert all(c == 10 for c in calls), "evaluation must be a SINGLE call per population"
 
 
 def test_invalid_spec_raises_clear_error():
@@ -42,7 +42,7 @@ def test_invalid_spec_raises_clear_error():
     spec["stages"][0]["generator"]["kind"] = "yok/boyle"
     try:
         sezgi.solve(spec, p, master_seed=1)
-        assert False, "hata bekleniyordu"
+        assert False, "expected an error"
     except ValueError as e:
         assert "yok/boyle" in str(e)
 
@@ -58,22 +58,22 @@ def test_log_dir_writes_ioh(tmp_path):
 
 def test_callable_wrong_length_raises():
     def bad_sphere(X):
-        # Kasıtlı olarak eksik uzunlukta liste döndürür (list — ndarray değil).
+        # Deliberately returns a list of the wrong (too short) length (list — not ndarray).
         return [float(((row - 1.0) ** 2).sum()) for row in X][:-1]
 
     p = sezgi.from_callable(bad_sphere, lo=-5.0, hi=5.0, dim=3)
     spec = sezgi.presets.de_rand_1(pop_size=10, budget=500)
-    with pytest.raises(RuntimeError, match="yanlış uzunluk"):
+    with pytest.raises(RuntimeError, match="wrong length"):
         sezgi.solve(spec, p, master_seed=1)
 
 
 def test_callback_exception_propagates():
     def boom(X):
-        raise ValueError("kasıtlı")
+        raise ValueError("intentional")
 
     p = sezgi.from_callable(boom, lo=-5.0, hi=5.0, dim=3)
     spec = sezgi.presets.de_rand_1(pop_size=10, budget=500)
-    with pytest.raises(ValueError, match="kasıtlı"):
+    with pytest.raises(ValueError, match="intentional"):
         sezgi.solve(spec, p, master_seed=1)
 
 
@@ -83,7 +83,7 @@ def test_callable_log_dir_raises(tmp_path):
 
     p = sezgi.from_callable(sphere, lo=-5.0, hi=5.0, dim=3)
     spec = sezgi.presets.de_rand_1(pop_size=10, budget=500)
-    with pytest.raises(ValueError, match="log_dir yalnız yerleşik"):
+    with pytest.raises(ValueError, match="log_dir is only supported"):
         sezgi.solve(spec, p, master_seed=1, log_dir=str(tmp_path))
 
 
@@ -98,4 +98,4 @@ def test_cross_language_determinism():
                     run_id=golden["run_id"])
     got_bits = format(struct.unpack("<Q", struct.pack("<d", r["best_f"]))[0], "016x")
     assert got_bits == golden["best_f_bits"], \
-        "Python yörüngesi Rust altın değerinden saptı"
+        "Python trajectory diverged from the Rust golden value"
