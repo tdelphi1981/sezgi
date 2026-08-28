@@ -1,0 +1,7 @@
+{
+  "spec": "de_best_1(20, 2000)",
+  "problem": { "fid": 1, "dim": 5, "instance": 1 },
+  "master_seed": 42,
+  "run_id": 0,
+  "best_f_bits": "c05f7cc7bd2a2711"
+}

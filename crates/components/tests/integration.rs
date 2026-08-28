@@ -55,3 +55,12 @@ fn pso_commit_without_generator_is_rejected() {
     spec.stages[0].replacer.kind = "replace/pso-commit".into();
     assert!(Engine::from_spec(&spec, &registry(), p.space()).is_err());
 }
+
+#[test]
+fn de_best1_converges_on_shifted_sphere() {
+    let p = SphereShifted::new(vec![1.5, -0.5, 2.0, -3.0, 0.25], -5.0, 5.0);
+    let spec = presets::de_best_1(30, 10_000);
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    assert!(r.best_f < 1e-6, "DE Best1 should converge in 10k evaluations: {}", r.best_f);
+}

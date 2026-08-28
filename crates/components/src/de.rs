@@ -34,19 +34,27 @@ impl Generator for DeGenerator {
         let n = pop.len();
         let best = pop.best_index().unwrap_or(0);
         (0..n).map(|i| {
-            // three indices distinct from each other and from i
             let mut pick_distinct = |excluded: &[usize]| loop {
                 let r = ctx.rng.next_below(n as u64) as usize;
                 if r != i && !excluded.contains(&r) { break r; }
             };
-            let r1 = pick_distinct(&[]);
-            let r2 = pick_distinct(&[r1]);
-            let r3 = pick_distinct(&[r1, r2]);
 
-            let base = match self.strategy {
-                DeStrategy::Rand1 => Self::float_view(&pop.individuals[r1]),
-                DeStrategy::Best1 => Self::float_view(&pop.individuals[best]),
+            let (base, r2, r3) = match self.strategy {
+                DeStrategy::Rand1 => {
+                    // Draw three indices: r1, r2, r3 all distinct from each other and from i
+                    let r1 = pick_distinct(&[]);
+                    let r2 = pick_distinct(&[r1]);
+                    let r3 = pick_distinct(&[r1, r2]);
+                    (Self::float_view(&pop.individuals[r1]), r2, r3)
+                },
+                DeStrategy::Best1 => {
+                    // Draw two indices: r2, r3 distinct from each other, from i, and from best
+                    let r2 = pick_distinct(&[best]);
+                    let r3 = pick_distinct(&[best, r2]);
+                    (Self::float_view(&pop.individuals[best]), r2, r3)
+                },
             };
+
             let a = Self::float_view(&pop.individuals[r2]);
             let b = Self::float_view(&pop.individuals[r3]);
             let target = Self::float_view(&pop.individuals[i]);
@@ -111,5 +119,36 @@ mod tests {
 
         let gen = DeGenerator::from_params(&serde_json::json!({})).unwrap();
         let _ = gen.generate(&pop, &mut ctx);
+    }
+
+    #[test]
+    fn best1_draws_two_donors_distinct_from_best() {
+        use sezgi_core::problem::Population;
+
+        let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+        let space = p.space();
+        let mut evaluator = Evaluator::new(&p, 100);
+        let mut rng = RngStream::from_master(42, &[]);
+        let mut bb = Blackboard::new();
+        let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
+
+        // Create 6-individual population with known fitness so best is deterministic
+        let pop = Population {
+            individuals: vec![
+                Genotype { blocks: vec![BlockValues::Float(vec![0.0; 5])] },
+                Genotype { blocks: vec![BlockValues::Float(vec![1.0; 5])] },
+                Genotype { blocks: vec![BlockValues::Float(vec![2.0; 5])] },
+                Genotype { blocks: vec![BlockValues::Float(vec![3.0; 5])] },
+                Genotype { blocks: vec![BlockValues::Float(vec![4.0; 5])] },
+                Genotype { blocks: vec![BlockValues::Float(vec![5.0; 5])] },
+            ],
+            fitness: vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0],
+        };
+
+        let gen = DeGenerator::from_params(
+            &serde_json::json!({"strategy": "best1", "f": 0.5, "cr": 0.9})).unwrap();
+        let offspring = gen.generate(&pop, &mut ctx);
+        // Should not panic and should return pop-size offspring
+        assert_eq!(offspring.len(), pop.len());
     }
 }
