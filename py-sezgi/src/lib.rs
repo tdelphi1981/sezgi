@@ -83,7 +83,7 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
                     p.space().dim());
                 let obs = lg.start_run(p.instance);
                 let r = run(p, Some(Box::new(obs)))?;
-                lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                let _fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
                 r
             } else { run(p, None)? }
         }

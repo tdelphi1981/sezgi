@@ -12,6 +12,11 @@ struct RunData {
     best: Option<(u64, f64)>,
 }
 
+pub struct IohFinish {
+    pub meta_path: PathBuf,
+    pub skipped_empty_runs: usize,
+}
+
 pub struct IohLogger {
     root: PathBuf,
     algo: String,
@@ -55,7 +60,7 @@ impl IohLogger {
         IohRunObserver { data, prev_best: None }
     }
 
-    pub fn finish(self) -> std::io::Result<PathBuf> {
+    pub fn finish(self) -> std::io::Result<IohFinish> {
         let dir = self.root.join(&self.algo);
         let data_rel = format!("data_f{}_{}", self.fid, self.fname);
         let data_dir = dir.join(&data_rel);
@@ -64,14 +69,20 @@ impl IohLogger {
         let dat_name = format!("IOHprofiler_f{}_DIM{}.dat", self.fid, self.dim);
         let mut dat = std::fs::File::create(data_dir.join(&dat_name))?;
         let mut runs_json = vec![];
+        let mut skipped_empty_runs = 0;
         for run in &self.runs {
             let d = run.lock().unwrap();
+            // Skip runs that never saw an on_eval call
+            if d.best.is_none() {
+                skipped_empty_runs += 1;
+                continue;
+            }
             writeln!(dat, "\"evaluations\" \"raw_y\"")?;
             for (e, y) in &d.rows { writeln!(dat, "{e} {y}")?; }
             if let Some((e, y)) = d.last {
                 if d.rows.last() != Some(&(e, y)) { writeln!(dat, "{e} {y}")?; }
             }
-            let (be, by) = d.best.unwrap_or((0, f64::NAN));
+            let (be, by) = d.best.unwrap();
             runs_json.push(serde_json::json!({
                 "instance": d.instance, "evals": d.evals,
                 "best": {"evals": be, "y": by},
@@ -93,7 +104,7 @@ impl IohLogger {
         });
         let meta_path = dir.join(format!("IOHprofiler_f{}_{}.json", self.fid, self.fname));
         std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
-        Ok(meta_path)
+        Ok(IohFinish { meta_path, skipped_empty_runs })
     }
 }
 
@@ -114,9 +125,9 @@ mod tests {
             obs.on_eval(3, 4.0, 4.0);    // improvement → row
             obs.on_eval(4, 6.0, 4.0);    // final eval → always written
         }
-        let meta_path = lg.finish().unwrap();
+        let fin = lg.finish().unwrap();
         let meta: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(&meta_path).unwrap()).unwrap();
+            &std::fs::read_to_string(&fin.meta_path).unwrap()).unwrap();
         assert_eq!(meta["function_id"], 1);
         assert_eq!(meta["scenarios"][0]["runs"][0]["best"]["y"], 4.0);
 
@@ -139,5 +150,36 @@ mod tests {
         let dat = std::fs::read_to_string(
             tmp.path().join("a/data_f3_Rastrigin/IOHprofiler_f3_DIM2.dat")).unwrap();
         assert_eq!(dat.matches("\"evaluations\"").count(), 2, "one header per run");
+    }
+
+    #[test]
+    fn empty_run_skipped_not_null() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut lg = IohLogger::new(tmp.path(), "a", "s", 1, "Sphere", 3);
+        { let _o = lg.start_run(1); }                    // hiç on_eval yok
+        { let mut o = lg.start_run(2); o.on_eval(1, 5.0, 5.0); }
+        let fin = lg.finish().unwrap();
+        assert_eq!(fin.skipped_empty_runs, 1);
+        let meta: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&fin.meta_path).unwrap()).unwrap();
+        let runs = meta["scenarios"][0]["runs"].as_array().unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0]["instance"], 2);
+        assert!(runs[0]["best"]["y"].is_f64(), "null sızıntısı olmamalı");
+        let dat = std::fs::read_to_string(
+            tmp.path().join("a/data_f1_Sphere/IOHprofiler_f1_DIM3.dat")).unwrap();
+        assert_eq!(dat.matches("\"evaluations\"").count(), 1, "boş koşuya başlık yazılmamalı");
+    }
+
+    #[test]
+    fn all_empty_runs_still_writes_valid_meta() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut lg = IohLogger::new(tmp.path(), "a", "s", 1, "Sphere", 3);
+        { let _o = lg.start_run(1); }
+        let fin = lg.finish().unwrap();
+        assert_eq!(fin.skipped_empty_runs, 1);
+        let meta: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&fin.meta_path).unwrap()).unwrap();
+        assert_eq!(meta["scenarios"][0]["runs"].as_array().unwrap().len(), 0);
     }
 }
