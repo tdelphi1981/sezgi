@@ -24,9 +24,10 @@ def test_bbob_solve_deterministic():
 def test_callable_problem():
     calls = []
 
-    def sphere(xs):
-        calls.append(len(xs))
-        return [sum((v - 1.0) ** 2 for v in x) for x in xs]
+    def sphere(X):
+        assert X.shape == (10, 3)
+        calls.append(X.shape[0])
+        return ((X - 1.0) ** 2).sum(axis=1)
 
     p = sezgi.from_callable(sphere, lo=-5.0, hi=5.0, dim=3)
     spec = sezgi.presets.de_rand_1(pop_size=10, budget=500)
@@ -56,13 +57,23 @@ def test_log_dir_writes_ioh(tmp_path):
 
 
 def test_callable_wrong_length_raises():
-    def bad_sphere(xs):
-        # Kasıtlı olarak eksik uzunlukta liste döndürür.
-        return [sum((v - 1.0) ** 2 for v in x) for x in xs][:-1]
+    def bad_sphere(X):
+        # Kasıtlı olarak eksik uzunlukta liste döndürür (list — ndarray değil).
+        return [float(((row - 1.0) ** 2).sum()) for row in X][:-1]
 
     p = sezgi.from_callable(bad_sphere, lo=-5.0, hi=5.0, dim=3)
     spec = sezgi.presets.de_rand_1(pop_size=10, budget=500)
-    with pytest.raises(BaseException):
+    with pytest.raises(RuntimeError, match="yanlış uzunluk"):
+        sezgi.solve(spec, p, master_seed=1)
+
+
+def test_callback_exception_propagates():
+    def boom(X):
+        raise ValueError("kasıtlı")
+
+    p = sezgi.from_callable(boom, lo=-5.0, hi=5.0, dim=3)
+    spec = sezgi.presets.de_rand_1(pop_size=10, budget=500)
+    with pytest.raises(ValueError, match="kasıtlı"):
         sezgi.solve(spec, p, master_seed=1)
 
 

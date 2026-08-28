@@ -1,4 +1,5 @@
-use pyo3::exceptions::PyValueError;
+use numpy::{PyArray2, PyReadonlyArray1};
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use sezgi_bench::IohLogger;
@@ -9,6 +10,7 @@ use sezgi_core::problem::Problem;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 use sezgi_core::spec::AlgorithmSpec;
 use sezgi_problems::BbobProblem;
+use std::panic::{self, AssertUnwindSafe};
 
 enum Inner {
     Bbob(BbobProblem),
@@ -24,19 +26,62 @@ impl Problem for CallableProblem<'_> {
     fn space(&self) -> &SearchSpace { self.space }
     fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
         Python::with_gil(|py| {
-            let xs: Vec<Vec<f64>> = pop.iter().map(|g| match &g.blocks[0] {
+            let rows: Vec<Vec<f64>> = pop.iter().map(|g| match &g.blocks[0] {
                 BlockValues::Float(v) => v.clone(),
                 _ => vec![],
             }).collect();
-            let out = self.f.call1(py, (xs,)).expect("python callback hatası");
-            out.extract::<Vec<f64>>(py).expect("callback list[float] döndürmeli")
+            // Popülasyon TEK bir (n, d) float64 numpy dizisine yazılır; kopya
+            // yalnız Rust->numpy sınırında (zero-copy dönüş: PyReadonlyArray1).
+            let arr = match PyArray2::from_vec2(py, &rows) {
+                Ok(a) => a,
+                Err(e) => panic::panic_any(PyValueError::new_err(
+                    format!("popülasyon numpy dizisine dönüştürülemedi: {e}"))),
+            };
+            let out = match self.f.call1(py, (arr,)) {
+                Ok(o) => o,
+                // Callback içindeki Python istisnası burada panic olarak
+                // fırlatılır; `solve` içindeki catch_unwind onu downcast
+                // edip orijinal istisna olarak çağırana geri döndürür.
+                Err(e) => panic::panic_any(e),
+            };
+            let bound = out.bind(py);
+            if let Ok(ro) = bound.extract::<PyReadonlyArray1<f64>>() {
+                ro.as_array().iter().copied().collect()
+            } else {
+                match bound.extract::<Vec<f64>>() {
+                    Ok(v) => v,
+                    Err(e) => panic::panic_any(e),
+                }
+            }
         })
     }
 }
 
-// Not: `Python::with_gil` + `Py<PyAny>` Send+Sync gereksinimini karşılar;
-// callback istisnaları M1'de panic→PyErr olarak yüzer, temiz istisna
-// köprüsü (PyErr saklama) M2 iyileştirmesi.
+/// GIL'i koşu boyunca bırakır (`py.allow_threads`) ve koşuyu `catch_unwind`
+/// ile sarar: callback'ten `panic_any(PyErr)` ile fırlatılan istisna
+/// yakalanıp orijinal haliyle geri döndürülür; core'un uzunluk assert'i gibi
+/// başka bir panik ise mesajıyla `PyRuntimeError`'a çevrilir. Böylece hiçbir
+/// panik `PanicException` olarak Python'a sızmaz.
+fn run_with_bridge<F, T>(py: Python<'_>, f: F) -> PyResult<T>
+where
+    F: FnOnce() -> PyResult<T> + Send,
+    T: Send,
+{
+    match py.allow_threads(|| panic::catch_unwind(AssertUnwindSafe(f))) {
+        Ok(inner) => inner,
+        Err(payload) => match payload.downcast::<PyErr>() {
+            Ok(pyerr) => Err(*pyerr),
+            Err(payload) => {
+                let msg = payload
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "bilinmeyen panik".to_string());
+                Err(PyRuntimeError::new_err(msg))
+            }
+        },
+    }
+}
 
 #[pyfunction]
 fn bbob(fid: u32, dim: usize, instance: u32) -> PyResult<PyProblem> {
@@ -82,10 +127,11 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
                     "sezgi-bbob", p.fid(), p.name(),
                     p.space().dim());
                 let obs = lg.start_run(p.instance);
-                let r = run(p, Some(Box::new(obs)))?;
+                // Logger observer Rust-yerli (GIL gerekmez); koşu boyunca GIL bırakılır.
+                let r = run_with_bridge(py, || run(p, Some(Box::new(obs))))?;
                 let _fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
                 r
-            } else { run(p, None)? }
+            } else { run_with_bridge(py, || run(p, None))? }
         }
         Inner::Callable { f, space } => {
             if log_dir.is_some() {
@@ -93,8 +139,9 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
                     "log_dir yalnız yerleşik (bbob) problemlerde destekleniyor"));
             }
             let cp = CallableProblem { f, space };
-            // GIL callback sırasında yeniden alınır; çağıran thread'de koşuyoruz
-            run(&cp, None)?
+            // GIL koşu boyunca bırakılır; callback her batch'te Python::with_gil
+            // ile yeniden alır (standart PyO3 deseni).
+            run_with_bridge(py, || run(&cp, None))?
         }
     };
 
