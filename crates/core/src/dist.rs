@@ -31,6 +31,32 @@ impl Distribution {
     pub fn sample_n(&self, rng: &mut RngStream, n: usize) -> Vec<f64> {
         (0..n).map(|_| self.sample(rng)).collect()
     }
+
+    pub fn validate(&self) -> Result<(), String> {
+        let err = |m: String| Err(m);
+        let fin = |name: &str, v: f64| if v.is_finite() { Ok(()) }
+            else { Err(format!("{name} sonlu olmalı: {v}")) };
+        match *self {
+            Distribution::Uniform => Ok(()),
+            Distribution::Gaussian { mean, sigma } => {
+                fin("mean", mean)?; fin("sigma", sigma)?;
+                if sigma < 0.0 { return err(format!("sigma >= 0 olmalı: {sigma}")); } Ok(())
+            }
+            Distribution::Cauchy { loc, scale } | Distribution::Laplace { loc, scale } => {
+                fin("loc", loc)?; fin("scale", scale)?;
+                if scale <= 0.0 { return err(format!("scale > 0 olmalı: {scale}")); } Ok(())
+            }
+            Distribution::Levy { alpha } => {
+                fin("alpha", alpha)?;
+                if !(0.0 < alpha && alpha <= 2.0) {
+                    return err(format!("alpha (0,2] aralığında olmalı: {alpha}")); } Ok(())
+            }
+            Distribution::StudentT { nu } => {
+                fin("nu", nu)?;
+                if nu <= 0.0 { return err(format!("nu > 0 olmalı: {nu}")); } Ok(())
+            }
+        }
+    }
 }
 
 /// Polar Box–Muller (Marsaglia). SABİT — değişiklik semver'e işlenir.
@@ -146,5 +172,18 @@ mod tests {
         let j = serde_json::to_string(&d).unwrap();
         assert_eq!(j, r#"{"kind":"levy","alpha":1.5}"#);
         assert_eq!(serde_json::from_str::<Distribution>(&j).unwrap(), d);
+    }
+
+    #[test]
+    fn validate_rules() {
+        assert!(Distribution::Uniform.validate().is_ok());
+        assert!(Distribution::Gaussian { mean: 0.0, sigma: 1.0 }.validate().is_ok());
+        assert!(Distribution::Gaussian { mean: 0.0, sigma: -0.1 }.validate().is_err());
+        assert!(Distribution::Levy { alpha: 1.5 }.validate().is_ok());
+        assert!(Distribution::Levy { alpha: 0.0 }.validate().is_err());
+        assert!(Distribution::Levy { alpha: 2.1 }.validate().is_err());
+        assert!(Distribution::StudentT { nu: -1.0 }.validate().is_err());
+        assert!(Distribution::Cauchy { loc: 0.0, scale: 0.0 }.validate().is_err());
+        assert!(Distribution::Laplace { loc: 0.0, scale: f64::NAN }.validate().is_err());
     }
 }

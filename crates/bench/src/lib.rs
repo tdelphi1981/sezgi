@@ -1,4 +1,4 @@
 pub mod ioh;
-pub use ioh::{IohLogger, IohRunObserver};
+pub use ioh::{IohFinish, IohLogger, IohRunObserver};
 
 pub mod manifest;

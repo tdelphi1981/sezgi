@@ -16,6 +16,7 @@ impl StepMutation {
             p.get("dist").cloned()
              .unwrap_or(serde_json::json!({"kind": "gaussian", "mean": 0.0, "sigma": 0.1})))
             .map_err(|e| err(e.to_string()))?;
+        dist.validate().map_err(|reason| err(reason))?;
         let rate = p.get("rate").and_then(|v| v.as_f64()).unwrap_or(1.0);
         if !(0.0..=1.0).contains(&rate) {
             return Err(err(format!("rate [0,1] dışında: {rate}")));
@@ -70,5 +71,12 @@ mod tests {
     fn bad_params_are_component_error() {
         let p = serde_json::json!({"dist": {"kind": "yok"}});
         assert!(StepMutation::from_params(&p).is_err());
+    }
+
+    #[test]
+    fn invalid_dist_params_rejected_at_parse() {
+        let p = serde_json::json!({"dist": {"kind": "levy", "alpha": 3.0}});
+        assert!(matches!(StepMutation::from_params(&p),
+            Err(sezgi_core::component::ComponentError::InvalidParams { .. })));
     }
 }
