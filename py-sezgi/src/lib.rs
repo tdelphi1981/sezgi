@@ -28,7 +28,7 @@ impl Problem for CallableProblem<'_> {
         Python::with_gil(|py| {
             let rows: Vec<Vec<f64>> = pop.iter().map(|g| match &g.blocks[0] {
                 BlockValues::Float(v) => v.clone(),
-                _ => vec![],
+                _ => unreachable!("from_callable yalnız Float uzay kurar"),
             }).collect();
             // Popülasyon TEK bir (n, d) float64 numpy dizisine yazılır; kopya
             // yalnız Rust->numpy sınırında (zero-copy dönüş: PyReadonlyArray1).
@@ -67,6 +67,8 @@ where
     F: FnOnce() -> PyResult<T> + Send,
     T: Send,
 {
+    // NOT: Panic stderr çıktısını bastırmak için global panic-hook takas
+    // yapma — process-global ve concurrent solve altında race condition'a tabidir.
     match py.allow_threads(|| panic::catch_unwind(AssertUnwindSafe(f))) {
         Ok(inner) => inner,
         Err(payload) => match payload.downcast::<PyErr>() {

@@ -31,6 +31,8 @@ pub enum EngineError {
     Spec(#[from] SpecError),
     #[error("başlatıcı boş popülasyon üretti")]
     EmptyPopulation,
+    #[error("bütçe ({budget}) popülasyondan ({pop_size}) küçük")]
+    BudgetSmallerThanPopulation { budget: u64, pop_size: usize },
 }
 
 impl Engine {
@@ -76,7 +78,10 @@ impl Engine {
         if individuals.is_empty() { return Err(EngineError::EmptyPopulation); }
         let fitness = match eval.evaluate(&individuals) {
             Ok(f) => f,
-            Err(_) => return Err(EngineError::EmptyPopulation), // bütçe < pop_size
+            Err(_) => return Err(EngineError::BudgetSmallerThanPopulation {
+                budget: self.budget,
+                pop_size: self.pop_size,
+            }),
         };
         let mut pop = Population { individuals, fitness };
 
@@ -311,5 +316,15 @@ mod tests {
         let observed_min = *observed_min.lock().unwrap();
         assert_eq!(r.best_f, observed_min,
             "koşulsuz (elitist olmayan) replacer altında motor küresel en iyiyi kaybetmemeli");
+    }
+
+    #[test]
+    fn budget_smaller_than_pop_is_clear_error() {
+        let (reg, mut spec, p) = setup();
+        spec.termination.budget = 5; // pop_size=10'dan küçük
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        let err = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap_err();
+        assert!(matches!(err, EngineError::BudgetSmallerThanPopulation { budget: 5, pop_size: 10 }),
+            "bütçe popülasyondan küçük olduğunda ayrı hata döndermeli, aldı: {:?}", err);
     }
 }
