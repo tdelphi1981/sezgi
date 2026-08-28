@@ -6,7 +6,7 @@ use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 
 pub const BBOB_SEED_BASE: u64 = 0x5EC1;
-pub const IMPLEMENTED_FIDS: &[u32] = &[1, 2, 3, 8];
+pub const IMPLEMENTED_FIDS: &[u32] = &[1, 2, 3, 4, 5, 8];
 
 #[derive(Debug, thiserror::Error)]
 pub enum BbobError {
@@ -86,8 +86,8 @@ impl BbobProblem {
     pub fn f_opt(&self) -> f64 { self.f_opt }
     pub fn fid(&self) -> u32 { self.fid }
     pub fn name(&self) -> &'static str {
-        match self.fid { 1 => "Sphere", 2 => "Ellipsoidal", 3 => "Rastrigin",
-                         8 => "Rosenbrock", _ => unreachable!() }
+        match self.fid { 1 => "Sphere", 2 => "Ellipsoidal", 3 => "Rastrigin", 4 => "BucheRastrigin",
+                         5 => "LinearSlope", 8 => "Rosenbrock", _ => unreachable!() }
     }
 }
 
@@ -98,20 +98,30 @@ impl Problem for BbobProblem {
     fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
         pop.iter().map(|g| {
             let BlockValues::Float(xs) = &g.blocks[0] else { return f64::INFINITY };
-            let shifted: Vec<f64> = xs.iter().zip(&self.x_opt).map(|(x, o)| x - o).collect();
-            let z = match &self.rot {
-                Some(r) => transform::apply(r, &shifted),
-                None => shifted,
-            };
             let raw = match self.fid {
-                1 => functions::sphere(&z),
-                2 => functions::ellipsoidal(&z),
-                3 => functions::rastrigin(&z),
-                8 => {
-                    // optimumda z=0 → w=1 kaydırması
-                    let w: Vec<f64> = z.iter().map(|v| v + 1.0).collect();
-                    functions::rosenbrock(&w)
+                1 | 2 | 3 | 8 => {
+                    let shifted: Vec<f64> = xs.iter().zip(&self.x_opt).map(|(x, o)| x - o).collect();
+                    let z = match &self.rot {
+                        Some(r) => transform::apply(r, &shifted),
+                        None => shifted,
+                    };
+                    match self.fid {
+                        1 => functions::sphere(&z),
+                        2 => functions::ellipsoidal(&z),
+                        3 => functions::rastrigin(&z),
+                        8 => {
+                            // optimumda z=0 → w=1 kaydırması
+                            let w: Vec<f64> = z.iter().map(|v| v + 1.0).collect();
+                            functions::rosenbrock(&w)
+                        }
+                        _ => unreachable!(),
+                    }
                 }
+                4 => {
+                    let shifted: Vec<f64> = xs.iter().zip(&self.x_opt).map(|(x, o)| x - o).collect();
+                    functions::buche_rastrigin(&transform::t_osz(&shifted)) + 100.0 * transform::f_pen(xs)
+                }
+                5 => functions::linear_slope(xs, &self.x_opt),
                 _ => unreachable!(),
             };
             raw + self.f_opt
@@ -188,5 +198,24 @@ mod tests {
             let got = format!("{:016x}", f.to_bits());
             assert_eq!(got, expected_hex, "fid {fid}: M1 davranışı drift etti!");
         }
+    }
+
+    #[test]
+    fn f4_f5_optimum_attained_and_offcenter_worse() {
+        for fid in [4u32, 5] {
+            let p = BbobProblem::new(fid, 5, 1).unwrap();
+            let at_opt = p.evaluate_batch(&[g(p.x_opt().to_vec())])[0];
+            assert!((at_opt - p.f_opt()).abs() < 1e-6, "fid {fid}: {at_opt} != {}", p.f_opt());
+            let mut x = p.x_opt().to_vec();
+            x[0] = (x[0] - 0.7).clamp(-5.0, 5.0); // f5'te sınırdan içeri it
+            if x == p.x_opt() { x[0] += 0.7; }
+            assert!(p.evaluate_batch(&[g(x)])[0] > p.f_opt(), "fid {fid}: optimum-dışı daha iyi çıktı");
+        }
+    }
+
+    #[test]
+    fn f5_optimum_on_boundary() {
+        let p = BbobProblem::new(5, 6, 2).unwrap();
+        assert!(p.x_opt().iter().all(|&x| x == 5.0 || x == -5.0));
     }
 }
