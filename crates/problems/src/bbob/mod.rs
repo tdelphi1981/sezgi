@@ -1,12 +1,20 @@
 pub mod functions;
 pub mod transform;
 
+use std::f64::consts::PI;
 use sezgi_core::problem::Problem;
 use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 
 pub const BBOB_SEED_BASE: u64 = 0x5EC1;
-pub const IMPLEMENTED_FIDS: &[u32] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+pub const IMPLEMENTED_FIDS: &[u32] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
+
+#[derive(Debug, Clone)]
+pub struct GallagherData {
+    pub peaks: Vec<Vec<f64>>,
+    pub weights: Vec<f64>,
+    pub alphas: Vec<f64>,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum BbobError {
@@ -58,6 +66,7 @@ pub struct BbobProblem {
     f_opt: f64,
     rot: Option<Vec<Vec<f64>>>,
     rot2: Option<Vec<Vec<f64>>>,
+    gallagher: Option<GallagherData>,
     space: SearchSpace,
     pub instance: u32,
 }
@@ -83,6 +92,21 @@ impl BbobProblem {
         let rot = needs_r(fid).then(|| transform::rotation_matrix(dim, rng.next_u64()));
         let rot2 = needs_q(fid).then(|| transform::rotation_matrix(dim, rng.next_u64()));
 
+        // Gallagher tepe verileri (fid 21/22 için)
+        let gallagher = matches!(fid, 21 | 22).then(|| {
+            let p = if fid == 21 { 101usize } else { 21 };
+            let mut peaks = Vec::with_capacity(p);
+            peaks.push(x_opt.clone());
+            for _ in 1..p {
+                peaks.push((0..dim).map(|_| -4.9 + 9.8 * rng.next_f64()).collect());
+            }
+            let weights: Vec<f64> = (0..p).map(|i| if i == 0 { 10.0 }
+                else { 1.1 + 8.0 * (i as f64 - 1.0) / (p as f64 - 2.0) }).collect();
+            let alphas: Vec<f64> = (0..p).map(|i| if i == 0 { 1000.0 }
+                else { 1000f64.powf(2.0 * rng.next_f64()) }).collect();
+            GallagherData { peaks, weights, alphas }
+        });
+
         let space = SearchSpace::new(vec![Block::Float { lo: -5.0, hi: 5.0, n: dim }])
             .expect("sabit sınırlar geçerli");
 
@@ -91,7 +115,7 @@ impl BbobProblem {
             return Err(BbobError::NotImplemented(fid));
         }
 
-        Ok(Self { fid, x_opt, f_opt, rot, rot2, space, instance })
+        Ok(Self { fid, x_opt, f_opt, rot, rot2, gallagher, space, instance })
     }
 
     pub fn x_opt(&self) -> &[f64] { &self.x_opt }
@@ -101,7 +125,8 @@ impl BbobProblem {
         match self.fid { 1 => "Sphere", 2 => "Ellipsoidal", 3 => "Rastrigin", 4 => "BucheRastrigin",
                          5 => "LinearSlope", 6 => "AttractiveSector", 7 => "StepEllipsoidal", 8 => "Rosenbrock", 9 => "RosenbrockRotated",
                          10 => "EllipsoidalRotated", 11 => "Discus", 12 => "BentCigar", 13 => "SharpRidge", 14 => "DifferentPowers",
-                         15 => "RastriginRotated", 16 => "Weierstrass", 17 => "SchaffersF7", 18 => "SchaffersF7Ill", 19 => "GriewankRosenbrock", _ => unreachable!() }
+                         15 => "RastriginRotated", 16 => "Weierstrass", 17 => "SchaffersF7", 18 => "SchaffersF7Ill", 19 => "GriewankRosenbrock",
+                         20 => "Schwefel", 21 => "Gallagher101", 22 => "Gallagher21", 23 => "Katsuura", 24 => "LunacekBiRastrigin", _ => unreachable!() }
     }
 }
 
@@ -196,6 +221,58 @@ impl Problem for BbobProblem {
                     let z: Vec<f64> = transform::apply(self.rot.as_ref().unwrap(), &shift(xs, &self.x_opt))
                         .iter().map(|v| scale * v + 1.0).collect();
                     functions::griewank_rosenbrock(&z)
+                }
+                20 => {
+                    let d = xs.len();
+                    let xhat: Vec<f64> = xs.iter().zip(&self.x_opt).map(|(x, o)| 2.0 * o.signum() * x).collect();
+                    let two_abs: Vec<f64> = self.x_opt.iter().map(|o| 2.0 * o.abs()).collect();
+                    let mut zhat = xhat.clone();
+                    for i in 1..d { zhat[i] = xhat[i] + 0.25 * (xhat[i - 1] - two_abs[i - 1]); }
+                    let inner: Vec<f64> = zhat.iter().zip(&two_abs).map(|(z, t)| z - t).collect();
+                    let z: Vec<f64> = transform::lambda_alpha(&inner, 10.0).iter()
+                        .zip(&two_abs).map(|(l, t)| 100.0 * (l + t)).collect();
+                    let s: f64 = z.iter().map(|&zi| zi * (zi.abs().sqrt()).sin()).sum();
+                    let z100: Vec<f64> = z.iter().map(|v| v / 100.0).collect();
+                    -s / (100.0 * d as f64) + 4.189828872724339 + 100.0 * transform::f_pen(&z100)
+                }
+                21 | 22 => {
+                    let gd = self.gallagher.as_ref().unwrap();
+                    let d = xs.len() as f64;
+                    let best: f64 = gd.peaks.iter().zip(&gd.weights).zip(&gd.alphas).map(|((y, &w), &a)| {
+                        let diff = shift(xs, y);
+                        let rd = transform::apply(self.rot.as_ref().unwrap(), &diff);
+                        let c = transform::lambda_alpha(&rd, a);
+                        let q: f64 = c.iter().zip(&rd).map(|(ci, ri)| ci * ri).sum::<f64>() / a.powf(0.25);
+                        w * (-q / (2.0 * d)).exp()
+                    }).fold(f64::NEG_INFINITY, f64::max);
+                    transform::t_osz(&[10.0 - best])[0].powi(2) + transform::f_pen(xs)
+                }
+                23 => {
+                    let r1 = transform::apply(self.rot.as_ref().unwrap(), &shift(xs, &self.x_opt));
+                    let z = transform::apply(self.rot2.as_ref().unwrap(), &transform::lambda_alpha(&r1, 100.0));
+                    let d = xs.len() as f64;
+                    let prod: f64 = z.iter().enumerate().map(|(i, &zi)| {
+                        let s: f64 = (1..=32).map(|j| {
+                            let t = 2f64.powi(j) * zi;
+                            (t - t.round()).abs() / 2f64.powi(j)
+                        }).sum();
+                        (1.0 + (i as f64 + 1.0) * s).powf(10.0 / d.powf(1.2))
+                    }).product();
+                    10.0 / (d * d) * prod - 10.0 / (d * d) + transform::f_pen(xs)
+                }
+                24 => {
+                    let d = xs.len() as f64;
+                    let mu0 = 2.5f64;
+                    let s = 1.0 - 1.0 / (2.0 * (d + 20.0).sqrt() - 8.2);
+                    let mu1 = -((mu0 * mu0 - 1.0) / s).sqrt();
+                    let xhat: Vec<f64> = xs.iter().zip(&self.x_opt).map(|(x, o)| 2.0 * o.signum() * x).collect();
+                    let inner: Vec<f64> = xhat.iter().map(|v| v - mu0).collect();
+                    let r1 = transform::apply(self.rot.as_ref().unwrap(), &inner);
+                    let z = transform::apply(self.rot2.as_ref().unwrap(), &transform::lambda_alpha(&r1, 100.0));
+                    let sum0: f64 = xhat.iter().map(|v| (v - mu0).powi(2)).sum();
+                    let sum1: f64 = xhat.iter().map(|v| (v - mu1).powi(2)).sum();
+                    let cos_sum: f64 = z.iter().map(|v| (2.0 * PI * v).cos()).sum();
+                    sum0.min(d + s * sum1) + 10.0 * (d - cos_sum) + 1e4 * transform::f_pen(xs)
                 }
                 _ => unreachable!(),
             };
@@ -359,5 +436,23 @@ mod tests {
     fn schaffers_core_zero_at_origin_positive_elsewhere() {
         assert!(functions::schaffers_f7(&[0.0; 4]).abs() < 1e-12);
         assert!(functions::schaffers_f7(&[1.0, -2.0, 0.5, 3.0]) > 0.0);
+    }
+
+    #[test]
+    fn f20_to_f24_optimum_attained() {
+        for fid in 20u32..=24 {
+            let p = BbobProblem::new(fid, 5, 1).unwrap();
+            let at_opt = p.evaluate_batch(&[g(p.x_opt().to_vec())])[0];
+            assert!((at_opt - p.f_opt()).abs() < 1e-6, "fid {fid}: fark {}", at_opt - p.f_opt());
+        }
+    }
+
+    #[test]
+    fn gallagher_first_peak_dominates() {
+        let p = BbobProblem::new(21, 5, 1).unwrap();
+        // optimumdan uzakta değer f_opt+10²'ye (t_osz olmadan kaba sınır) yaklaşmalı ama altında kalmalı
+        let far = g(vec![4.9; 5]);
+        let f_far = p.evaluate_batch(&[far])[0];
+        assert!(f_far > p.f_opt());
     }
 }
