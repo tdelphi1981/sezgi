@@ -1,30 +1,35 @@
 use sezgi_core::component::*;
-use sezgi_core::space::{Block, BlockValues, Genotype};
+use sezgi_core::rng::RngStream;
+use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
+
+pub fn sample_uniform(space: &SearchSpace, rng: &mut RngStream) -> Genotype {
+    Genotype {
+        blocks: space.blocks().iter().map(|b| match *b {
+            Block::Float { lo, hi, n } => BlockValues::Float(
+                (0..n).map(|_| lo + (hi - lo) * rng.next_f64()).collect()),
+            Block::Int { lo, hi, n } => BlockValues::Int(
+                (0..n).map(|_| lo + rng.next_below((hi - lo + 1) as u64) as i64).collect()),
+            Block::Categorical { k, n } => BlockValues::Cat(
+                (0..n).map(|_| rng.next_below(k as u64) as u32).collect()),
+            Block::Permutation { n } => {
+                let mut xs: Vec<u32> = (0..n as u32).collect();
+                for i in (1..n).rev() {                      // Fisher–Yates
+                    let j = rng.next_below(i as u64 + 1) as usize;
+                    xs.swap(i, j);
+                }
+                BlockValues::Perm(xs)
+            }
+            Block::Binary { n } => BlockValues::Bin(
+                (0..n).map(|_| rng.next_f64() < 0.5).collect()),
+        }).collect(),
+    }
+}
 
 pub struct UniformInit;
 
 impl Initializer for UniformInit {
     fn initialize(&self, n: usize, ctx: &mut Ctx) -> Vec<Genotype> {
-        (0..n).map(|_| Genotype {
-            blocks: ctx.space.blocks().iter().map(|b| match *b {
-                Block::Float { lo, hi, n } => BlockValues::Float(
-                    (0..n).map(|_| lo + (hi - lo) * ctx.rng.next_f64()).collect()),
-                Block::Int { lo, hi, n } => BlockValues::Int(
-                    (0..n).map(|_| lo + ctx.rng.next_below((hi - lo + 1) as u64) as i64).collect()),
-                Block::Categorical { k, n } => BlockValues::Cat(
-                    (0..n).map(|_| ctx.rng.next_below(k as u64) as u32).collect()),
-                Block::Permutation { n } => {
-                    let mut xs: Vec<u32> = (0..n as u32).collect();
-                    for i in (1..n).rev() {                      // Fisher–Yates
-                        let j = ctx.rng.next_below(i as u64 + 1) as usize;
-                        xs.swap(i, j);
-                    }
-                    BlockValues::Perm(xs)
-                }
-                Block::Binary { n } => BlockValues::Bin(
-                    (0..n).map(|_| ctx.rng.next_f64() < 0.5).collect()),
-            }).collect(),
-        }).collect()
+        (0..n).map(|_| sample_uniform(ctx.space, ctx.rng)).collect()
     }
     fn meta(&self) -> ComponentMeta {
         ComponentMeta { kind: "init/uniform", supported_blocks: SupportedBlocks::All,

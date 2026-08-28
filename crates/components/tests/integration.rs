@@ -73,3 +73,14 @@ fn sa_improves_on_shifted_sphere() {
     let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
     assert!(r.best_f < 0.05, "SA should improve to < 0.05: {}", r.best_f);
 }
+
+#[test]
+fn random_search_improves_but_modestly() {
+    let p = SphereShifted::new(vec![1.5, -0.5, 2.0, -3.0, 0.25], -5.0, 5.0);
+    let spec = presets::random_search(20, 5_000);
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    assert!(r.best_f.is_finite(), "best_f must be finite: {}", r.best_f);
+    assert!(r.best_f < 2.0, "random-search should stay bounded: {}", r.best_f);
+    assert!(r.best_f > 1e-6, "random-search should not converge like DE: {}", r.best_f);
+}
