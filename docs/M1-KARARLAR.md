@@ -37,6 +37,19 @@ Plan/spec'in yanıtlamadığı yerlerde kontrolör olarak verdiğim kararlar. Ya
 - [ ] PsoCommit çift-geçiş/klon optimizasyonu; sınır kırpması sonrası hız sıfırlama seçeneği.
 - [ ] Küçükler: SearchSpace dejenere blok (k=0, n=0) reddi; negatif tournament_k'nin sessizce varsayılana düşmesi; `next_below`/`Clamp`/`gen-step` birim testleri; CallableProblem'da Float-dışı blok için `unreachable!`.
 
+## Örnek üçlemesi (kullanıcı onaylı, M2/M3 kapsamına girecek)
+
+`examples/` altında algoritma başına üç eş implementasyon (aday: GWO, WOA, GOA — PSO-ailesi şemaları):
+- **`<algo>_pure.py`** — saf Python ask/tell (aday üretimi NumPy'da; çekirdek yalnız değerlendirme+günlükleme+sayaç): "mevcut kodu taşımak kolay" kapısı.
+- **`<algo>_pure.R`** — aynısı saf R ask/tell.
+- **`<algo>_spec.py` / `<algo>_spec.R`** — ÖNERİLEN: bileşen spec'i (~15 satır konfigürasyon, tam Rust hızı, eşdeğerlik referansı yorumda).
+
+Getiriler: (1) üç varyantı deney koşturucuda koşturup "saf Python vs spec: ~Nx" hız tablosu → makale performans bölümü; (2) saf ve spec varyantların istatistiksel eşdeğerlik testi → spec çevirisinin doğrulaması; (3) "kendi algoritmanı yaz" dokümantasyonunun hazır basamağı.
+
+Dürüstlük notu (örneklerin başına yazılacak): ask/tell varyantı kendi RNG'sini (numpy/R) kullandığından spec varyantıyla bit-uyumlu DEĞİL, istatistiksel eşdeğer; bit-uyum garantisi yalnız çekirdek-içi yürütmede.
+
+Zamanlama: Python örnekleri M2 sonu (deney koşturucu gerektirir), R örnekleri R ön yüzüyle, üçlü karşılaştırma M3'te metafor ön ayarlarıyla tamamlanır.
+
 ## Okulda devam ederken
 
 - Depo temiz, her şey `main`'de. Python ortamı: `cd py-sezgi && python -m venv .venv && .venv/bin/pip install maturin pytest && .venv/bin/maturin develop --release && .venv/bin/python -m pytest tests/ -v` (venv commit'li değil, okulda yeniden kurulur).
