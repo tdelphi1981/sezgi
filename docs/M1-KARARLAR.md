@@ -39,7 +39,14 @@ Plan/spec'in yanıtlamadığı yerlerde kontrolör olarak verdiğim kararlar. Ya
 
 ## Örnek üçlemesi (kullanıcı onaylı, M2/M3 kapsamına girecek)
 
-`examples/` altında algoritma başına üç eş implementasyon (aday: GWO, WOA, GOA — PSO-ailesi şemaları):
+`examples/` altında algoritma başına üç eş implementasyon. Hedef katalog GENİŞ (~15 algoritma; kullanıcı özellikle geniş olmasını istedi) — her spec varyantı aynı zamanda M3'ün etiketli ön ayar kataloğuna girer ve yanlılık-taraması vitrininde koşulur:
+
+**Katalog (aile + bilinen eşdeğerlik/yanlılık referansıyla):**
+- PSO-ailesi şemaları: GWO (Grey Wolf), WOA (Whale), GOA (Grasshopper), MFO (Moth-Flame), SSA (Salp Swarm), ALO (Antlion), SCA (Sine-Cosine), FA (Firefly), BA (Bat) — Camacho-Villalón 2023 eşdeğerlik analizleri; birçoğu Kudela merkez-yanlılık listesinde.
+- Lévy-uçuşu vitrini (dağılım-parametreli bileşenler): CS (Cuckoo Search), FPA (Flower Pollination), HHO (Harris Hawks — Rajwar-Deep imza testinde güçlü yanlılık örneği).
+- ES/GA-eşdeğerleri: HS (Harmony Search ≡ ES özel hali, Weyland 2015), TLBO (Teaching-Learning), JAYA (parametresiz), ABC (Artificial Bee Colony), GSA (Gravitational Search).
+
+Öncelik sırası: GWO, WOA, HS, CS, GOA ilk dalga (M2 sonu Python); kalanlar M3'te ön ayarlarla birlikte. Her algoritma için:
 - **`<algo>_pure.py`** — saf Python ask/tell (aday üretimi NumPy'da; çekirdek yalnız değerlendirme+günlükleme+sayaç): "mevcut kodu taşımak kolay" kapısı.
 - **`<algo>_pure.R`** — aynısı saf R ask/tell.
 - **`<algo>_spec.py` / `<algo>_spec.R`** — ÖNERİLEN: bileşen spec'i (~15 satır konfigürasyon, tam Rust hızı, eşdeğerlik referansı yorumda).
