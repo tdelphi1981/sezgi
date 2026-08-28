@@ -98,19 +98,16 @@ fn jde_converges_on_shifted_sphere() {
 }
 
 #[test]
-fn jde_beats_or_matches_de_on_rastrigin() {
+fn jde_near_optimum_on_rastrigin() {
     let p = BbobProblem::new(3, 5, 1).unwrap();
-    let reg = registry();
-
-    let jde_spec = presets::jde(40, 20_000);
-    let e_jde = Engine::from_spec(&jde_spec, &reg, Problem::space(&p)).unwrap();
-    let r_jde = e_jde.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
-
-    let de_spec = presets::de_rand_1(40, 20_000);
-    let e_de = Engine::from_spec(&de_spec, &reg, Problem::space(&p)).unwrap();
-    let r_de = e_de.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
-
-    assert!(r_jde.best_f <= r_de.best_f + 1e-9,
-        "jDE ({}) should beat or match de/rand/1 ({}) on BBOB f3 (Rastrigin), dim 5, instance 1",
-        r_jde.best_f, r_de.best_f);
+    let spec = presets::jde(40, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Deterministic achieved gap ≈ 1.411 at seed 42 (BBOB f3 transforms stretch basin
+    // spacing; bound anchored with headroom to the next basin). Single-seed comparative
+    // claims (jde vs de) were ruled out as statistically meaningless; cross-algorithm
+    // comparison arrives with M2c's statistics module.
+    assert!(gap < 2.0,
+        "jDE should land within one Rastrigin local basin of the optimum: gap={}", gap);
 }
