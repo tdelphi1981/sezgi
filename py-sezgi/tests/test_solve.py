@@ -99,3 +99,17 @@ def test_cross_language_determinism():
     got_bits = format(struct.unpack("<Q", struct.pack("<d", r["best_f"]))[0], "016x")
     assert got_bits == golden["best_f_bits"], \
         "Python trajectory diverged from the Rust golden value"
+
+
+def test_log_dir_reports_skipped_runs(tmp_path):
+    p = sezgi.bbob(fid=1, dim=5, instance=1)
+    spec = sezgi.presets.de_rand_1(20, 1000)
+
+    # With log_dir: should report skipped_empty_runs
+    result_with_log = sezgi.solve(spec, p, master_seed=42, log_dir=str(tmp_path), algo_name="de")
+    assert "skipped_empty_runs" in result_with_log
+    assert result_with_log["skipped_empty_runs"] == 0
+
+    # Without log_dir: should NOT have skipped_empty_runs key
+    result_without_log = sezgi.solve(spec, p, master_seed=42)
+    assert "skipped_empty_runs" not in result_without_log

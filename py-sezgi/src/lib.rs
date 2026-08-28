@@ -122,7 +122,7 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
             .map_err(|e| PyValueError::new_err(e.to_string()))
     };
 
-    let result = match &problem.inner {
+    let (result, skipped_empty_runs_opt) = match &problem.inner {
         Inner::Bbob(p) => {
             if let Some(dir) = log_dir {
                 let name = algo_name.unwrap_or(&spec.name).to_string();
@@ -132,9 +132,9 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
                 let obs = lg.start_run(p.instance);
                 // Logger observer is Rust-native (no GIL needed); GIL is released for the run.
                 let r = run_with_bridge(py, || run(p, Some(Box::new(obs))))?;
-                let _fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
-                r
-            } else { run_with_bridge(py, || run(p, None))? }
+                let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                (r, Some(fin.skipped_empty_runs as u64))
+            } else { (run_with_bridge(py, || run(p, None))?, None) }
         }
         Inner::Callable { f, space } => {
             if log_dir.is_some() {
@@ -144,7 +144,7 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
             let cp = CallableProblem { f, space };
             // GIL is released for the run; the callback reacquires it each
             // batch via Python::with_gil (standard PyO3 pattern).
-            run_with_bridge(py, || run(&cp, None))?
+            (run_with_bridge(py, || run(&cp, None))?, None)
         }
     };
 
@@ -156,6 +156,9 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
     d.set_item("best_x", PyList::new(py, xs)?)?;
     d.set_item("evals_used", result.evals_used)?;
     d.set_item("iterations", result.iterations)?;
+    if let Some(skipped) = skipped_empty_runs_opt {
+        d.set_item("skipped_empty_runs", skipped)?;
+    }
     Ok(d.into())
 }
 

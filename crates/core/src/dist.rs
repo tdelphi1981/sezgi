@@ -186,4 +186,71 @@ mod tests {
         assert!(Distribution::Cauchy { loc: 0.0, scale: 0.0 }.validate().is_err());
         assert!(Distribution::Laplace { loc: 0.0, scale: f64::NAN }.validate().is_err());
     }
+
+    fn percentile(xs: &[f64], p: f64) -> f64 {
+        let mut sorted = xs.to_vec();
+        sorted.sort_by(f64::total_cmp);
+        let idx = ((sorted.len() as f64 - 1.0) * p).ceil() as usize;
+        sorted[idx.min(sorted.len() - 1)]
+    }
+
+    fn median(xs: &[f64]) -> f64 {
+        percentile(xs, 0.5)
+    }
+
+    fn mean_absolute_deviation(xs: &[f64], center: f64) -> f64 {
+        xs.iter().map(|x| (x - center).abs()).sum::<f64>() / xs.len() as f64
+    }
+
+    #[test]
+    fn levy_positive_heavy_tail() {
+        let mut r = RngStream::from_master(7, &[10]);
+        let d = Distribution::Levy { alpha: 1.5 };
+        let xs = d.sample_n(&mut r, 100_000);
+
+        // All samples must be finite
+        assert!(xs.iter().all(|x| x.is_finite()), "all samples must be finite");
+
+        // 99th percentile > 10x median of absolute values
+        let abs_xs: Vec<f64> = xs.iter().map(|x| x.abs()).collect();
+        let med_abs = median(&abs_xs);
+        let p99 = percentile(&abs_xs, 0.99);
+        assert!(p99 > 10.0 * med_abs,
+                "p99={p99} should exceed 10x median={med_abs}");
+    }
+
+    #[test]
+    fn student_t_symmetric_median() {
+        let mut r = RngStream::from_master(7, &[11]);
+        let d = Distribution::StudentT { nu: 3.0 };
+        let xs = d.sample_n(&mut r, 100_000);
+
+        // All samples must be finite
+        assert!(xs.iter().all(|x| x.is_finite()), "all samples must be finite");
+
+        // Median within ±0.05 of 0
+        let med = median(&xs);
+        assert!((med - 0.0).abs() < 0.05,
+                "median={med} should be within ±0.05 of 0");
+    }
+
+    #[test]
+    fn laplace_location_and_spread() {
+        let mut r = RngStream::from_master(7, &[12]);
+        let d = Distribution::Laplace { loc: 2.0, scale: 1.0 };
+        let xs = d.sample_n(&mut r, 100_000);
+
+        // All samples must be finite
+        assert!(xs.iter().all(|x| x.is_finite()), "all samples must be finite");
+
+        // Median within ±0.05 of 2.0
+        let med = median(&xs);
+        assert!((med - 2.0).abs() < 0.05,
+                "median={med} should be within ±0.05 of 2.0");
+
+        // Mean absolute deviation from loc within ±0.05 of 1.0 (Laplace scale)
+        let mad = mean_absolute_deviation(&xs, 2.0);
+        assert!((mad - 1.0).abs() < 0.05,
+                "MAD={mad} should be within ±0.05 of 1.0");
+    }
 }
