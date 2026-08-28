@@ -6,7 +6,7 @@ use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 
 pub const BBOB_SEED_BASE: u64 = 0x5EC1;
-pub const IMPLEMENTED_FIDS: &[u32] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+pub const IMPLEMENTED_FIDS: &[u32] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
 
 #[derive(Debug, thiserror::Error)]
 pub enum BbobError {
@@ -100,7 +100,8 @@ impl BbobProblem {
     pub fn name(&self) -> &'static str {
         match self.fid { 1 => "Sphere", 2 => "Ellipsoidal", 3 => "Rastrigin", 4 => "BucheRastrigin",
                          5 => "LinearSlope", 6 => "AttractiveSector", 7 => "StepEllipsoidal", 8 => "Rosenbrock", 9 => "RosenbrockRotated",
-                         10 => "EllipsoidalRotated", 11 => "Discus", 12 => "BentCigar", 13 => "SharpRidge", 14 => "DifferentPowers", _ => unreachable!() }
+                         10 => "EllipsoidalRotated", 11 => "Discus", 12 => "BentCigar", 13 => "SharpRidge", 14 => "DifferentPowers",
+                         15 => "RastriginRotated", 16 => "Weierstrass", 17 => "SchaffersF7", 18 => "SchaffersF7Ill", 19 => "GriewankRosenbrock", _ => unreachable!() }
     }
 }
 
@@ -170,6 +171,32 @@ impl Problem for BbobProblem {
                 }
                 13 => functions::sharp_ridge(&apply2(self, xs)),
                 14 => functions::different_powers(&transform::apply(self.rot.as_ref().unwrap(), &shift(xs, &self.x_opt))),
+                15 => {
+                    let r1 = transform::apply(self.rot.as_ref().unwrap(), &shift(xs, &self.x_opt));
+                    let a = transform::t_asy(&transform::t_osz(&r1), 0.2);
+                    let q = transform::apply(self.rot2.as_ref().unwrap(), &a);
+                    let z = transform::apply(self.rot.as_ref().unwrap(), &transform::lambda_alpha(&q, 10.0));
+                    functions::rastrigin(&z)
+                }
+                16 => {
+                    let r1 = transform::apply(self.rot.as_ref().unwrap(), &shift(xs, &self.x_opt));
+                    let q = transform::apply(self.rot2.as_ref().unwrap(), &transform::t_osz(&r1));
+                    let z = transform::apply(self.rot.as_ref().unwrap(), &transform::lambda_alpha(&q, 0.01));
+                    functions::weierstrass(&z) + 10.0 / xs.len() as f64 * transform::f_pen(xs)
+                }
+                17 | 18 => {
+                    let alpha = if self.fid == 17 { 10.0 } else { 1000.0 };
+                    let r1 = transform::apply(self.rot.as_ref().unwrap(), &shift(xs, &self.x_opt));
+                    let q = transform::apply(self.rot2.as_ref().unwrap(), &transform::t_asy(&r1, 0.5));
+                    let z = transform::lambda_alpha(&q, alpha);
+                    functions::schaffers_f7(&z) + 10.0 * transform::f_pen(xs)
+                }
+                19 => {
+                    let scale = 1f64.max((xs.len() as f64).sqrt() / 8.0);
+                    let z: Vec<f64> = transform::apply(self.rot.as_ref().unwrap(), &shift(xs, &self.x_opt))
+                        .iter().map(|v| scale * v + 1.0).collect();
+                    functions::griewank_rosenbrock(&z)
+                }
                 _ => unreachable!(),
             };
             raw + self.f_opt
@@ -309,5 +336,28 @@ mod tests {
         // saf çekirdek testi: discus'ta ilk eksen 1e6 kat ağır, cigar'da tersi
         assert!(functions::discus(&[1.0, 0.0]) > functions::discus(&[0.0, 1.0]) * 1e5);
         assert!(functions::bent_cigar(&[0.0, 1.0]) > functions::bent_cigar(&[1.0, 0.0]) * 1e5);
+    }
+
+    #[test]
+    fn f15_to_f19_optimum_attained() {
+        for fid in 15u32..=19 {
+            let p = BbobProblem::new(fid, 5, 1).unwrap();
+            let at_opt = p.evaluate_batch(&[g(p.x_opt().to_vec())])[0];
+            assert!((at_opt - p.f_opt()).abs() < 1e-6, "fid {fid}: fark {}", at_opt - p.f_opt());
+            let mut x = p.x_opt().to_vec();
+            x[0] += 0.9; x[3] -= 0.4;
+            assert!(p.evaluate_batch(&[g(x)])[0] > p.f_opt(), "fid {fid}");
+        }
+    }
+
+    #[test]
+    fn weierstrass_core_zero_at_origin() {
+        assert!(functions::weierstrass(&[0.0; 5]).abs() < 1e-9);
+    }
+
+    #[test]
+    fn schaffers_core_zero_at_origin_positive_elsewhere() {
+        assert!(functions::schaffers_f7(&[0.0; 4]).abs() < 1e-12);
+        assert!(functions::schaffers_f7(&[1.0, -2.0, 0.5, 3.0]) > 0.0);
     }
 }

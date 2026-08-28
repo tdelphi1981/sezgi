@@ -1,3 +1,5 @@
+use std::f64::consts::PI;
+
 pub fn sphere(z: &[f64]) -> f64 { z.iter().map(|x| x * x).sum() }
 
 pub fn ellipsoidal(z: &[f64]) -> f64 {
@@ -85,4 +87,38 @@ pub fn different_powers(z: &[f64]) -> f64 {
     z.iter().enumerate()
         .map(|(i, &zi)| zi.abs().powf(2.0 + 4.0 * i as f64 / (d - 1.0).max(1.0)))
         .sum::<f64>().sqrt()
+}
+
+/// f16: Weierstrass — 12 terimli Fourier serisi, ortalama-tabanlı
+pub fn weierstrass(z: &[f64]) -> f64 {
+    let d = z.len() as f64;
+    // f0 = Σ_{k=0..11} (1/2^k)·cos(2π·3^k·0.5) — sabit
+    let f0: f64 = (0..12)
+        .map(|k| 0.5f64.powi(k) * (2.0 * PI * 3f64.powi(k) * 0.5).cos())
+        .sum();
+    let mean: f64 = z.iter().map(|&zi| {
+        (0..12).map(|k| 0.5f64.powi(k) * (2.0 * PI * 3f64.powi(k) * (zi + 0.5)).cos())
+            .sum::<f64>()
+    }).sum::<f64>() / d;
+    10.0 * (mean - f0).powi(3)
+}
+
+/// f17/f18: Schaffers F7 — pencere-tabanlı aritmetik orta
+pub fn schaffers_f7(z: &[f64]) -> f64 {
+    let m = (z.len() - 1) as f64;
+    let mean: f64 = z.windows(2).map(|w| {
+        let s = (w[0] * w[0] + w[1] * w[1]).sqrt();
+        s.sqrt() + s.sqrt() * (50.0 * s.powf(0.2)).sin().powi(2)
+    }).sum::<f64>() / m;
+    mean * mean
+}
+
+/// f19: Griewank-Rosenbrock — kombinasyon
+pub fn griewank_rosenbrock(z: &[f64]) -> f64 {
+    let m = (z.len() - 1) as f64;
+    let sum: f64 = z.windows(2).map(|w| {
+        let s = 100.0 * (w[0] * w[0] - w[1]).powi(2) + (w[0] - 1.0).powi(2);
+        s / 4000.0 - s.cos()
+    }).sum();
+    10.0 / m * sum + 10.0
 }
