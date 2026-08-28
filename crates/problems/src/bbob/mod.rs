@@ -1,3 +1,8 @@
+//! sezgi-bbob: BBOB fonksiyon TANIMLARINI izleyen yeniden implementasyon —
+//! COCO instance'larıyla sayısal birebirlik HEDEFLENMEZ (kendi RNG/instance
+//! modelimiz). Bilinen sadeleştirmeler ilgili fonksiyonların yorumlarında
+//! "sezgi-bbob sadeleştirmesi" etiketiyle işaretlidir.
+
 pub mod functions;
 pub mod transform;
 
@@ -7,7 +12,6 @@ use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 
 pub const BBOB_SEED_BASE: u64 = 0x5EC1;
-pub const IMPLEMENTED_FIDS: &[u32] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
 
 #[derive(Debug, Clone)]
 pub struct GallagherData {
@@ -93,6 +97,7 @@ impl BbobProblem {
         let rot2 = needs_q(fid).then(|| transform::rotation_matrix(dim, rng.next_u64()));
 
         // Gallagher tepe verileri (fid 21/22 için)
+        // sezgi-bbob sadeleştirmesi: alpha'lar permütasyonlu sabit küme yerine 1000^(2u) rastgele; C matrisleri köşegen (Λ^alpha), tepe-başına rotasyon yok.
         let gallagher = matches!(fid, 21 | 22).then(|| {
             let p = if fid == 21 { 101usize } else { 21 };
             let mut peaks = Vec::with_capacity(p);
@@ -109,11 +114,6 @@ impl BbobProblem {
 
         let space = SearchSpace::new(vec![Block::Float { lo: -5.0, hi: 5.0, n: dim }])
             .expect("sabit sınırlar geçerli");
-
-        // Check if fid is implemented
-        if !IMPLEMENTED_FIDS.contains(&fid) {
-            return Err(BbobError::NotImplemented(fid));
-        }
 
         Ok(Self { fid, x_opt, f_opt, rot, rot2, gallagher, space, instance })
     }
@@ -190,6 +190,7 @@ impl Problem for BbobProblem {
                     functions::discus(&z)
                 }
                 12 => {
+                    // sezgi-bbob sadeleştirmesi: kanonik BBOB'daki ikinci bağımsız rotasyon yerine aynı R iki kez uygulanır.
                     let r1 = transform::apply(self.rot.as_ref().unwrap(), &shift(xs, &self.x_opt));
                     let z = transform::apply(self.rot.as_ref().unwrap(), &transform::t_asy(&r1, 0.5));
                     functions::bent_cigar(&z)
@@ -223,6 +224,7 @@ impl Problem for BbobProblem {
                     functions::griewank_rosenbrock(&z)
                 }
                 20 => {
+                    // sezgi-bbob sadeleştirmesi: kanonik BBOB Schwefel'in varyant formülü; Λ^10 köşegen ölçek, rotasyonsuz.
                     let d = xs.len();
                     let xhat: Vec<f64> = xs.iter().zip(&self.x_opt).map(|(x, o)| 2.0 * o.signum() * x).collect();
                     let two_abs: Vec<f64> = self.x_opt.iter().map(|o| 2.0 * o.abs()).collect();
@@ -444,6 +446,15 @@ mod tests {
             let p = BbobProblem::new(fid, 5, 1).unwrap();
             let at_opt = p.evaluate_batch(&[g(p.x_opt().to_vec())])[0];
             assert!((at_opt - p.f_opt()).abs() < 1e-6, "fid {fid}: fark {}", at_opt - p.f_opt());
+
+            // Off-optimum probe: perturb x[0] by ±0.5 and verify worse value
+            let mut x_probe = p.x_opt().to_vec();
+            x_probe[0] = (x_probe[0] + 0.5).clamp(-5.0, 5.0);
+            if x_probe[0] == p.x_opt()[0] {
+                x_probe[0] = (x_probe[0] - 0.5).clamp(-5.0, 5.0);
+            }
+            let f_probe = p.evaluate_batch(&[g(x_probe)])[0];
+            assert!(f_probe > p.f_opt(), "fid {fid}: optimum-dışı ({f_probe}) should be worse than optimum ({}, f_opt={})", f_probe, p.f_opt());
         }
     }
 
