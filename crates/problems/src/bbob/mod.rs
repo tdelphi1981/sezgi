@@ -36,7 +36,7 @@ enum XOptPolicy {
 }
 
 fn needs_r(fid: u32) -> bool {
-    !matches!(fid, 1 | 5 | 20)
+    !matches!(fid, 1 | 4 | 5 | 20)
 }
 
 fn needs_q(fid: u32) -> bool {
@@ -351,6 +351,28 @@ mod tests {
             let f = p.evaluate_batch(std::slice::from_ref(&probe))[0];
             let got = format!("{:016x}", f.to_bits());
             assert_eq!(got, expected_hex, "fid {fid}: M1 behavior drifted!");
+        }
+    }
+
+    #[test]
+    fn all_fids_instance_values_pinned() {
+        // All 24 BBOB functions: instance=1, dim=5, probe x=[0.5,-1.0,2.0,0.0,-3.0].
+        // These hex values freeze the instance stream against future refactors.
+        let probe = g(vec![0.5, -1.0, 2.0, 0.0, -3.0]);
+        let expected = [
+            // fid 1..=24
+            "c05a1069cca05d30", "414d7d483f2ad056", "c03b12604f3ed308", "40a545a7309c9755",
+            "40607335c8aef256", "40f743ba7e8bb236", "40746d5f43627b37", "40d41e5080f1a8d2",
+            "4103e765d446c8e1", "4173a9297a3b0679", "40ac2b30cfdd105a", "416377d9b7b67eea",
+            "4090c3e12c344d12", "406310739d351b0c", "407d4ee8344261cd", "c03a392ffc338080",
+            "406c208e87ed6518", "406f6f65180551a1", "40662f4941524515", "40f1145c37c4c1f8",
+            "405a384b7b1d61ee", "4056a1a3130da00e", "c057f3b723d68878", "40670626da36ea4c",
+        ];
+        for fid in 1u32..=24 {
+            let p = BbobProblem::new(fid, 5, 1).unwrap();
+            let f = p.evaluate_batch(std::slice::from_ref(&probe))[0];
+            let got = format!("{:016x}", f.to_bits());
+            assert_eq!(got, expected[(fid - 1) as usize], "fid {fid}: value drifted!");
         }
     }
 
