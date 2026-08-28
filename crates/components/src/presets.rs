@@ -171,6 +171,29 @@ pub fn cmaes(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// (μ/μ_w,λ)-CMA-ES with IPOP-style stagnation restarts (M2b Task 12):
+/// `λ = 4 + ⌊3·ln(dim)⌋` (Hansen's default, computed here rather than left to
+/// the caller, since `restart/stagnation`'s `Sizing::Ipop` scales from this
+/// starting population every time it fires). Same `gen/cma` +
+/// `replace/cma-update` stage as `cmaes`, plus `restart/stagnation` with
+/// `patience: 2000, sizing: "ipop", factor: 2.0, max_pop: 512`.
+pub fn cmaes_ipop(dim: usize, budget: u64) -> AlgorithmSpec {
+    let pop_size = 4 + (3.0 * (dim as f64).ln()).floor() as usize;
+    AlgorithmSpec {
+        name: "cma-es/ipop".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/cma", serde_json::json!({})),
+            replacer: comp("replace/cma-update", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: Some(comp("restart/stagnation", serde_json::json!(
+            {"patience": 2000, "sizing": "ipop", "factor": 2.0, "max_pop": 512}))),
+    }
+}
+
 pub fn random_search(pop_size: usize, budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "random-search".into(),

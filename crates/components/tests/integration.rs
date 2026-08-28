@@ -198,3 +198,34 @@ fn cmaes_solves_bent_cigar() {
     let gap = r.best_f - p.f_opt();
     assert!(gap < 1e-4, "CMA-ES should solve bent cigar (f12): gap={}", gap);
 }
+
+// ---- Stagnation restarts / IPOP (M2b Task 12) ----
+
+#[test]
+fn cmaes_ipop_escapes_multimodal() {
+    let p = BbobProblem::new(3, 5, 1).unwrap(); // BBOB f3: separable Rastrigin
+    let spec = presets::cmaes_ipop(5, 100_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let ipop_gap = r.best_f - p.f_opt();
+
+    // Ablation baseline: the same CMA-ES algorithm, same seed/budget, without
+    // restarts. pop_size = 4 + floor(3*ln(5)) = 8, matching cmaes_ipop's own
+    // internally-computed starting population. Same algorithm with/without
+    // restarts is an ablation, not a cross-algorithm claim.
+    let plain_spec = presets::cmaes(8, 100_000);
+    let e_plain = Engine::from_spec(&plain_spec, &registry(), Problem::space(&p)).unwrap();
+    let r_plain = e_plain.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let plain_gap = r_plain.best_f - p.f_opt();
+
+    assert!(ipop_gap <= plain_gap + 1e-9,
+        "IPOP restarts should not make CMA-ES worse on a multimodal landscape: ipop_gap={ipop_gap} plain_gap={plain_gap}");
+    // Deterministic achieved values at seed 42: ipop_gap ≈ 0.99496, plain_gap
+    // ≈ 14.47617 — plain CMA-ES stalls in a wrong Rastrigin basin (no restart
+    // mechanism to escape it) while IPOP's restarts let it recover and land
+    // near the optimum. Bound anchored to the ipop_gap run: rounding up to
+    // the next 0.5 (1.0) leaves only ~0.005 headroom, so per convention the
+    // bound is bumped one more 0.5 step to 1.5 (headroom ≈0.505).
+    assert!(ipop_gap < 1.5,
+        "CMA-ES/IPOP should land close to the Rastrigin optimum: ipop_gap={ipop_gap} plain_gap={plain_gap}");
+}
