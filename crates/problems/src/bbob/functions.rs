@@ -63,3 +63,26 @@ pub fn step_ellipsoidal(zhat0: f64, z: &[f64]) -> f64 {
         .sum();
     0.1 * (zhat0.abs() / 1e4).max(ell)
 }
+
+/// f11: Discus — ilk eksen 1e6 kat ağır
+pub fn discus(z: &[f64]) -> f64 {
+    1e6 * z[0] * z[0] + z[1..].iter().map(|v| v * v).sum::<f64>()
+}
+
+/// f12: Bent Cigar — diğer eksenler 1e6 kat ağır
+pub fn bent_cigar(z: &[f64]) -> f64 {
+    z[0] * z[0] + 1e6 * z[1..].iter().map(|v| v * v).sum::<f64>()
+}
+
+/// f13: Sharp Ridge
+pub fn sharp_ridge(z: &[f64]) -> f64 {
+    z[0] * z[0] + 100.0 * z[1..].iter().map(|v| v * v).sum::<f64>().sqrt()
+}
+
+/// f14: Different Powers — i'ye göre artan üsler
+pub fn different_powers(z: &[f64]) -> f64 {
+    let d = z.len() as f64;
+    z.iter().enumerate()
+        .map(|(i, &zi)| zi.abs().powf(2.0 + 4.0 * i as f64 / (d - 1.0).max(1.0)))
+        .sum::<f64>().sqrt()
+}

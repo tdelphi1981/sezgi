@@ -6,7 +6,7 @@ use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 
 pub const BBOB_SEED_BASE: u64 = 0x5EC1;
-pub const IMPLEMENTED_FIDS: &[u32] = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
+pub const IMPLEMENTED_FIDS: &[u32] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
 
 #[derive(Debug, thiserror::Error)]
 pub enum BbobError {
@@ -99,7 +99,8 @@ impl BbobProblem {
     pub fn fid(&self) -> u32 { self.fid }
     pub fn name(&self) -> &'static str {
         match self.fid { 1 => "Sphere", 2 => "Ellipsoidal", 3 => "Rastrigin", 4 => "BucheRastrigin",
-                         5 => "LinearSlope", 6 => "AttractiveSector", 7 => "StepEllipsoidal", 8 => "Rosenbrock", 9 => "RosenbrockRotated", _ => unreachable!() }
+                         5 => "LinearSlope", 6 => "AttractiveSector", 7 => "StepEllipsoidal", 8 => "Rosenbrock", 9 => "RosenbrockRotated",
+                         10 => "EllipsoidalRotated", 11 => "Discus", 12 => "BentCigar", 13 => "SharpRidge", 14 => "DifferentPowers", _ => unreachable!() }
     }
 }
 
@@ -154,6 +155,21 @@ impl Problem for BbobProblem {
                         .iter().map(|v| scale * v + 1.0).collect();
                     functions::rosenbrock(&z)
                 }
+                10 => {
+                    let z = transform::t_osz(&transform::apply(self.rot.as_ref().unwrap(), &shift(xs, &self.x_opt)));
+                    functions::ellipsoidal(&z)
+                }
+                11 => {
+                    let z = transform::t_osz(&transform::apply(self.rot.as_ref().unwrap(), &shift(xs, &self.x_opt)));
+                    functions::discus(&z)
+                }
+                12 => {
+                    let r1 = transform::apply(self.rot.as_ref().unwrap(), &shift(xs, &self.x_opt));
+                    let z = transform::apply(self.rot.as_ref().unwrap(), &transform::t_asy(&r1, 0.5));
+                    functions::bent_cigar(&z)
+                }
+                13 => functions::sharp_ridge(&apply2(self, xs)),
+                14 => functions::different_powers(&transform::apply(self.rot.as_ref().unwrap(), &shift(xs, &self.x_opt))),
                 _ => unreachable!(),
             };
             raw + self.f_opt
@@ -274,5 +290,24 @@ mod tests {
         let fa = p.evaluate_batch(&[g(a)])[0];
         let fb = p.evaluate_batch(&[g(b)])[0];
         assert_eq!(fa, fb, "basamak platosu bekleniyordu");
+    }
+
+    #[test]
+    fn f10_to_f14_optimum_and_conditioning() {
+        for fid in 10u32..=14 {
+            let p = BbobProblem::new(fid, 5, 3).unwrap();
+            let at_opt = p.evaluate_batch(&[g(p.x_opt().to_vec())])[0];
+            assert!((at_opt - p.f_opt()).abs() < 1e-6, "fid {fid}: {}", at_opt - p.f_opt());
+            let mut x = p.x_opt().to_vec();
+            x[2] -= 0.5;
+            assert!(p.evaluate_batch(&[g(x)])[0] > p.f_opt(), "fid {fid}");
+        }
+    }
+
+    #[test]
+    fn discus_and_cigar_axis_asymmetry() {
+        // saf çekirdek testi: discus'ta ilk eksen 1e6 kat ağır, cigar'da tersi
+        assert!(functions::discus(&[1.0, 0.0]) > functions::discus(&[0.0, 1.0]) * 1e5);
+        assert!(functions::bent_cigar(&[0.0, 1.0]) > functions::bent_cigar(&[1.0, 0.0]) * 1e5);
     }
 }
