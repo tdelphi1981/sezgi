@@ -226,13 +226,13 @@ mod tests {
         for i in 0..2 {
             dot1 += v1_actual[i] * v1_expected[i];
         }
-        assert!(dot1.abs() - 1.0 < tol, "v1 dot with expected: {}", dot1.abs());
+        assert!((dot1.abs() - 1.0).abs() < tol, "v1 dot with expected: {}", dot1.abs());
 
         let mut dot3 = 0.0;
         for i in 0..2 {
             dot3 += v3_actual[i] * v3_expected[i];
         }
-        assert!(dot3.abs() - 1.0 < tol, "v3 dot with expected: {}", dot3.abs());
+        assert!((dot3.abs() - 1.0).abs() < tol, "v3 dot with expected: {}", dot3.abs());
     }
 
     #[test]
