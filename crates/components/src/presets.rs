@@ -84,3 +84,21 @@ pub fn pso(pop_size: usize, budget: u64) -> AlgorithmSpec {
         restart: None,
     }
 }
+
+pub fn sa(budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "sa/metropolis-geometric".into(),
+        pop_size: 1,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/step", serde_json::json!(
+                {"dist": {"kind": "gaussian", "mean": 0.0, "sigma": 0.5}, "rate": 1.0})),
+            replacer: comp("replace/metropolis", serde_json::json!(
+                {"t0": 1.0, "alpha": 0.999})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}

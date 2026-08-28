@@ -64,3 +64,12 @@ fn de_best1_converges_on_shifted_sphere() {
     let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
     assert!(r.best_f < 1e-6, "DE Best1 should converge in 10k evaluations: {}", r.best_f);
 }
+
+#[test]
+fn sa_improves_on_shifted_sphere() {
+    let p = SphereShifted::new(vec![1.5, -0.5, 2.0, -3.0, 0.25], -5.0, 5.0);
+    let spec = presets::sa(20_000);
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    assert!(r.best_f < 0.05, "SA should improve to < 0.05: {}", r.best_f);
+}
