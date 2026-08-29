@@ -40,8 +40,20 @@
 //! [`read_ioh_root`] sees every dimension's scenario for that `(algo, fid)` —
 //! it simply iterates whatever `scenarios[]` entries a meta file contains,
 //! producing one [`IohScenario`] per entry.
+//!
+//! ## Records bridge (M2d Task 5)
+//!
+//! [`ioh_records`] is the read-side counterpart to
+//! [`crate::experiment::run_experiment_sequential`]/`_parallel`/`_logged`:
+//! it turns [`read_ioh_root`]'s `Vec<IohScenario>` back into
+//! `Vec<`[`crate::experiment::RunRecord`]`>`, so a paper package
+//! ([`crate::reporting::per_budget_packages`]) can be built purely from a
+//! disk archive, with no in-memory experiment run required. See its doc
+//! comment for the exact `best_f`/`evals_used` semantics and — important —
+//! the curtailed-view-vs-independent-run distinction for budgets smaller
+//! than a run's logged budget.
 
-use crate::experiment::ExperimentError;
+use crate::experiment::{ExperimentError, RunKey, RunRecord};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -231,6 +243,115 @@ pub fn read_ioh_root(root: &Path) -> Result<Vec<IohScenario>, ExperimentError> {
     Ok(scenarios)
 }
 
+// ---------------------------------------------------------------------
+// Records bridge (M2d Task 5): on-disk IOH archives -> paper packages
+// ---------------------------------------------------------------------
+
+/// Reconstructs [`RunRecord`]s from on-disk [`IohScenario`]s, for every
+/// `(run, budget)` pair — one record per run per requested budget — so the
+/// result feeds [`crate::reporting::results_matrix`]/
+/// [`crate::reporting::per_budget_packages`] UNCHANGED, exactly as if it had
+/// come from [`crate::experiment::run_experiment_sequential`] et al.
+///
+/// ## `best_f` semantics: best-so-far AT that budget
+///
+/// A run's [`IohRun::rows`] are improvement rows (plus the always-written
+/// final row) in file order — `evals` strictly increasing, `raw_y`
+/// non-increasing (each row only records a NEW best). For a requested
+/// `budget`, `best_f` is the `raw_y` of the LAST row with `evals <= budget`:
+/// because the sequence is monotone, that row's `raw_y` is not merely *a*
+/// value seen by that budget, it IS the best value seen by that budget — no
+/// later (higher-eval) row within the budget could have a smaller `raw_y`
+/// without having been recorded as an improvement row itself. It is an
+/// error — naming the run and the budget — for a run to have NO row with
+/// `evals <= budget` (the run's first recorded eval count already exceeds
+/// the budget, so no best-so-far value exists at that budget).
+///
+/// `evals_used = min(budget, run.evals)`: the run may have used fewer than
+/// `budget` evaluations in total (if it terminated early), in which case
+/// `evals_used` reports the run's actual eval count rather than overstating
+/// it as `budget`.
+///
+/// `f_opt` and `seed` are both taken from the run's meta and are REQUIRED —
+/// `None` (a legacy archive written via `IohLogger::start_run` rather than
+/// `start_run_with`) is an error naming the missing key, since `RunKey.seed`
+/// and `RunRecord.f_opt` are non-optional. [`ioh_records`] therefore only
+/// accepts SELF-CONTAINED archives (every run meta carries `seed`+`f_opt`).
+///
+/// ## Curtailed view vs. independent run — READ THIS before comparing
+/// ## against records from the live runner
+///
+/// For a budget EQUAL TO the run's actual logged budget, the reconstructed
+/// `best_f` is bit-identical to what the runner returned in memory (both
+/// are the same trajectory's final best-so-far value) — the disk round trip
+/// loses nothing.
+///
+/// For a budget SMALLER than the run's logged budget, `ioh_records` returns
+/// a CURTAILED VIEW: it truncates the SAME trajectory (the one recorded at
+/// the larger, actual budget) to the prefix visible by the smaller budget.
+/// This is semantically a DIFFERENT thing from what
+/// [`crate::experiment::enumerate`] produces for that smaller budget as an
+/// independent [`crate::experiment::PlannedRun`]: `budget` is part of
+/// [`RunKey`], but `run_id` is derived only from the seed's index in
+/// `ExperimentSpec::seeds` (see `enumerate`), NOT from budget — so the
+/// runner's smaller-budget run reuses the very same RNG stream, but as a
+/// SEPARATE `Engine::run` invocation whose `AlgorithmSpec::termination.budget`
+/// is set to the smaller value up front. For most presets this changes
+/// nothing beyond where the run stops (so the trajectories usually agree on
+/// their shared prefix) — but any budget-adaptive component (e.g. a mutation
+/// or population schedule that reads `termination.budget` to plan its
+/// trajectory over the FULL run, such as `lshade`'s population-shrinking
+/// schedule) can make the independent smaller-budget run diverge from the
+/// larger run's prefix. Curtailing a trajectory recorded at budget B to a
+/// view at budget b < B is therefore NOT guaranteed to equal — and must
+/// never be asserted equal to — an independent run planned at budget b from
+/// the start. Callers wanting the reconstructed curtailed view and the live
+/// runner's own smaller-budget records to match bit-for-bit are asserting
+/// something this function does not promise.
+pub fn ioh_records(scenarios: &[IohScenario], budgets: &[u64]) -> Result<Vec<RunRecord>, ExperimentError> {
+    let mut records = Vec::new();
+    for sc in scenarios {
+        for run in &sc.runs {
+            let run_label = format!("{}/f{}d{}i{}", sc.algo, sc.fid, sc.dim, run.instance);
+            let seed = run.seed.ok_or_else(|| ExperimentError::IohRead(format!(
+                "{run_label}: missing `seed` in meta (ioh_records requires self-contained \
+                 archives written by IohLogger::start_run_with)"
+            )))?;
+            let f_opt = run.f_opt.ok_or_else(|| ExperimentError::IohRead(format!(
+                "{run_label}/s{seed}: missing `f_opt` in meta (ioh_records requires \
+                 self-contained archives written by IohLogger::start_run_with)"
+            )))?;
+
+            for &budget in budgets {
+                let best_f = run.rows.iter()
+                    .rev()
+                    .find(|&&(evals, _)| evals <= budget)
+                    .map(|&(_, y)| y)
+                    .ok_or_else(|| ExperimentError::IohRead(format!(
+                        "{run_label}/s{seed}: no row with evals <= budget {budget} \
+                         (the run's first recorded eval count already exceeds this budget)"
+                    )))?;
+
+                records.push(RunRecord {
+                    key: RunKey {
+                        algo: sc.algo.clone(),
+                        fid: sc.fid,
+                        dim: sc.dim,
+                        instance: run.instance,
+                        seed,
+                        budget,
+                    },
+                    best_f,
+                    f_opt,
+                    evals_used: budget.min(run.evals),
+                    wall_secs: 0.0,
+                });
+            }
+        }
+    }
+    Ok(records)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,9 +360,11 @@ mod tests {
         run_experiment_logged,
     };
     use crate::ioh::IohLogger;
+    use crate::reporting::{Aggregate, per_budget_packages};
     use sezgi_components::register_builtins;
     use sezgi_core::component::Registry;
     use sezgi_core::problem::EvalObserver;
+    use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
     fn demo_spec() -> ExperimentSpec {
@@ -458,5 +581,161 @@ mod tests {
         assert_eq!(run0.seed, None);
         assert_eq!(run0.f_opt, None);
         assert_eq!(run0.rows, vec![(1, 5.0)]);
+    }
+
+    // -------------------------------------------------------------
+    // ioh_records (M2d Task 5)
+    // -------------------------------------------------------------
+
+    fn hand_scenario(rows: Vec<(u64, f64)>, evals: u64, seed: Option<u64>, f_opt: Option<f64>) -> IohScenario {
+        IohScenario {
+            algo: "de".into(),
+            suite: "sezgi-bbob".into(),
+            fid: 1,
+            fname: "Sphere".into(),
+            dim: 5,
+            runs: vec![IohRun { instance: 1, seed, f_opt, rows, evals }],
+        }
+    }
+
+    #[test]
+    fn mid_budget_selects_last_row_within_budget() {
+        // Rows at evals 1/3/10; budget 5 must pick the eval-3 value (the
+        // last row with evals <= 5), not the eval-1 or eval-10 value.
+        let sc = hand_scenario(vec![(1, 10.0), (3, 4.0), (10, 1.0)], 10, Some(42), Some(0.0));
+        let records = ioh_records(std::slice::from_ref(&sc), &[5]).unwrap();
+        assert_eq!(records.len(), 1);
+        let r = &records[0];
+        assert_eq!(r.best_f.to_bits(), 4.0f64.to_bits(), "must select the eval-3 row, not eval-1 or eval-10");
+        assert_eq!(r.evals_used, 5, "evals_used = min(budget, run.evals) = min(5, 10)");
+        assert_eq!(r.f_opt.to_bits(), 0.0f64.to_bits());
+        assert_eq!(r.key.seed, 42);
+        assert_eq!(r.key.budget, 5);
+    }
+
+    #[test]
+    fn budget_at_or_above_full_evals_selects_final_row() {
+        let sc = hand_scenario(vec![(1, 10.0), (3, 4.0), (10, 1.0)], 10, Some(42), Some(0.0));
+        let records = ioh_records(std::slice::from_ref(&sc), &[10, 999]).unwrap();
+        for r in &records {
+            assert_eq!(r.best_f.to_bits(), 1.0f64.to_bits());
+        }
+        assert_eq!(records[0].evals_used, 10, "min(10, 10)");
+        assert_eq!(records[1].evals_used, 10, "min(999, 10)");
+    }
+
+    #[test]
+    fn budget_below_first_row_errors_naming_run_and_budget() {
+        let sc = hand_scenario(vec![(5, 4.0), (10, 1.0)], 10, Some(42), Some(0.0));
+        let err = ioh_records(std::slice::from_ref(&sc), &[3]).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("de/f1d5i1"), "error must name the run: {msg}");
+        assert!(msg.contains('3'), "error must name the budget: {msg}");
+    }
+
+    #[test]
+    fn missing_seed_errors_mentioning_seed() {
+        let sc = hand_scenario(vec![(1, 4.0)], 1, None, Some(0.0));
+        let err = ioh_records(std::slice::from_ref(&sc), &[1]).unwrap_err();
+        assert!(err.to_string().contains("seed"), "error must mention the missing `seed` key: {err}");
+    }
+
+    #[test]
+    fn missing_f_opt_errors_mentioning_f_opt() {
+        let sc = hand_scenario(vec![(1, 4.0)], 1, Some(42), None);
+        let err = ioh_records(std::slice::from_ref(&sc), &[1]).unwrap_err();
+        assert!(err.to_string().contains("f_opt"), "error must mention the missing `f_opt` key: {err}");
+    }
+
+    /// The CORE test: a disk-log-driven paper package from a single-budget
+    /// experiment. `budgets = [500]` on the spec (a SINGLE budget) is
+    /// deliberate — see `ioh_records`'s doc comment on why a curtailed view
+    /// at a SMALLER budget must not be compared bit-for-bit against the
+    /// runner's own (independently planned) records at that smaller budget.
+    /// Here we only assert bit-identity at the run's actual, full budget
+    /// (500) — the disk round trip losing nothing — and separately exercise
+    /// the curtailed view at a smaller budget (200) purely to prove
+    /// `per_budget_packages` accepts it and produces a NaN-free package,
+    /// without asserting it equals anything from a live smaller-budget run.
+    #[test]
+    fn full_budget_disk_round_trip_is_bit_identical_and_feeds_paper_packages() {
+        let spec = ExperimentSpec {
+            name: "disk-package".into(),
+            seeds: vec![101, 202],
+            budgets: vec![500],
+            algorithms: vec![
+                AlgoEntry {
+                    name: "de".into(),
+                    source: AlgoSource::Preset { kind: "de_rand_1".into(), pop_size: Some(8) },
+                },
+                AlgoEntry {
+                    name: "rs".into(),
+                    source: AlgoSource::Preset { kind: "random_search".into(), pop_size: Some(8) },
+                },
+            ],
+            problems: vec![ProblemEntry {
+                suite: "bbob".into(), fid: 1, dim: 5, instances: vec![1, 2, 3, 4, 5],
+            }],
+        };
+
+        let tmp = tempfile::tempdir().unwrap();
+        let (runner_records, _finishes) = run_experiment_logged(&spec, tmp.path(), false, None).unwrap();
+        // 2 algos x 5 instances x 2 seeds x 1 budget
+        assert_eq!(runner_records.len(), 20);
+
+        let scenarios = read_ioh_root(tmp.path()).unwrap();
+        let disk_records = ioh_records(&scenarios, &[200, 500]).unwrap();
+        // 2 algos x 5 instances x 2 seeds x 2 queried budgets
+        assert_eq!(disk_records.len(), 40);
+
+        // Full-budget (500) records must be bit-identical to the runner's
+        // in-memory RunRecords — matched by key, since ioh_records' nested
+        // scenario/run/budget iteration order need not equal the runner's
+        // flat cartesian enumeration order.
+        let mut runner_by_key: HashMap<RunKey, (f64, u64)> = HashMap::new();
+        for r in &runner_records {
+            runner_by_key.insert(r.key.clone(), (r.best_f, r.evals_used));
+        }
+        assert_eq!(runner_by_key.len(), 20);
+
+        let full_budget_disk: Vec<&RunRecord> = disk_records.iter().filter(|r| r.key.budget == 500).collect();
+        assert_eq!(full_budget_disk.len(), 20);
+        for r in &full_budget_disk {
+            let (expected_best_f, expected_evals_used) = *runner_by_key.get(&r.key)
+                .unwrap_or_else(|| panic!("no runner record for key {}", r.key));
+            assert_eq!(
+                r.best_f.to_bits(), expected_best_f.to_bits(),
+                "disk round trip at the full budget must be bit-identical for {}: disk={} runner={}",
+                r.key, r.best_f, expected_best_f,
+            );
+            assert_eq!(
+                r.evals_used, expected_evals_used,
+                "evals_used at the full budget must match the runner's for {}", r.key,
+            );
+        }
+
+        // Curtailed 200-budget view: present, distinct records, no assertion
+        // that they match any independent smaller-budget run (there is none
+        // in this spec — see the doc comment above).
+        let curtailed: Vec<&RunRecord> = disk_records.iter().filter(|r| r.key.budget == 200).collect();
+        assert_eq!(curtailed.len(), 20);
+        for r in &curtailed {
+            assert_eq!(r.evals_used, 200, "evals_used = min(200, run.evals)");
+        }
+
+        let packages = per_budget_packages(&disk_records, 0.1, 200, 7, Aggregate::Mean).unwrap();
+        assert_eq!(packages.len(), 2, "one package per distinct queried budget");
+        assert_eq!(packages[0].0, 200);
+        assert_eq!(packages[1].0, 500);
+        for (budget, pkg) in &packages {
+            assert!(
+                !pkg.latex_summary.to_lowercase().contains("nan"),
+                "budget {budget}: latex_summary must be NaN-free: {}", pkg.latex_summary
+            );
+            assert!(
+                !pkg.latex_tests.to_lowercase().contains("nan"),
+                "budget {budget}: latex_tests must be NaN-free: {}", pkg.latex_tests
+            );
+        }
     }
 }
