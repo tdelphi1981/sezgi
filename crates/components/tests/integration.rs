@@ -790,3 +790,56 @@ fn tlbo_min_pop_2_enforced_by_spec_validation() {
         other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
     }
 }
+
+// ---- HHO / Harris Hawks Optimization (M2d-4 Task 9, the wave's most
+// complex multi-branch escape-energy tree, with in-generator evaluation for
+// the rapid-dive sub-branches) ----
+
+#[test]
+fn hho_is_a_single_stage_generational_spec() {
+    let spec = presets::hho(30, 2000);
+    assert_eq!(spec.stages.len(), 1);
+    assert_eq!(spec.stages[0].generator.kind, "gen/hho");
+    assert_eq!(spec.stages[0].replacer.kind, "replace/generational");
+}
+
+#[test]
+fn hho_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::hho(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop 30/budget 20k: below 0.5 (well within the
+    // wave's anchored-threshold convention -- HHO's escape-energy tree and
+    // rapid-dive greedy acceptance make steady progress on the separable,
+    // unimodal BBOB f1/Sphere; the internal dive-trial evaluations also
+    // consume part of the 20k budget, per this module's eval-accounting
+    // design, so fewer generations complete than a single-eval-per-hawk
+    // preset would get at the same budget). Anchored bound rounded up to
+    // the next 0.5 above the measured value (0.5), matching this wave's
+    // other anchored-threshold tests' bound; ample (>=0.3) headroom.
+    assert!(gap < 0.5,
+        "hho should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+#[test]
+fn hho_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::hho(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/hho") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/hho");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}

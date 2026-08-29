@@ -464,6 +464,34 @@ pub fn tlbo(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Harris Hawks Optimization (Heidari, Mirjalili, Faris, Aljarah, Mafarja &
+/// Chen 2019, *Future Generation Computer Systems*) -- a labeled metaphor
+/// preset (see `hho.rs`'s module doc for the full provenance extraction
+/// against the paper AUTHOR's own `HHO.m`, the wave's most complex
+/// multi-branch escape-energy tree, the hard/soft besiege mapping delta,
+/// the rapid-dive in-generator-evaluation design decision, and the
+/// mean(X)/random-hawk in-place semantics). Uniform init, `boundary/clamp`
+/// (same as every other preset in this crate), `replace/generational`
+/// (finding 10 -- the source's own exploration/besiege-without-dive
+/// branches overwrite unconditionally; the dive branches' accept/reject is
+/// resolved entirely inside `gen/hho` itself). `pop_size` is the hawk
+/// count; canonical is 30 per the source's own demo. `min_pop = 2`,
+/// enforced via `AlgorithmSpec::validate`.
+pub fn hho(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "hho".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/hho", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),

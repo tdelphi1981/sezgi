@@ -333,6 +333,25 @@ NULL
   .Call(savvy_sz_preset_harmony_search__impl, `pop_size`, `budget`)
 }
 
+#' Builds a Harris Hawks Optimization spec (Heidari, Mirjalili, Faris,
+#' Aljarah, Mafarja & Chen 2019, Future Generation Computer Systems -- a
+#' labeled metaphor preset, and the wave's most structurally complex one: a
+#' multi-branch escape-energy tree whose progressive rapid-dive
+#' sub-branches evaluate mid-`generate()`. See
+#' `crates/components/src/hho.rs`'s module doc for the full provenance
+#' extraction against the paper author's own `HHO.m`, the hard/soft
+#' besiege mapping delta, the mean(X)/random-hawk in-place semantics, and
+#' the prominent in-generator-evaluation eval-accounting design decision)
+#' as JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (hawk count). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_hho` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_hho__impl, `pop_size`, `budget`)
+}
+
 #' Builds a JAYA spec (Rao 2016 -- a labeled metaphor preset, see
 #' `crates/components/src/jaya.rs`'s module doc for the tier note,
 #' citation, the primary-paper-verified worked-example reproduction, the

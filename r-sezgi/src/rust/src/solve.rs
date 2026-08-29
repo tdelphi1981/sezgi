@@ -330,6 +330,27 @@ fn sz_preset_tlbo(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds a Harris Hawks Optimization spec (Heidari, Mirjalili, Faris,
+/// Aljarah, Mafarja & Chen 2019, Future Generation Computer Systems -- a
+/// labeled metaphor preset, and the wave's most structurally complex one: a
+/// multi-branch escape-energy tree whose progressive rapid-dive
+/// sub-branches evaluate mid-`generate()`. See
+/// `crates/components/src/hho.rs`'s module doc for the full provenance
+/// extraction against the paper author's own `HHO.m`, the hard/soft
+/// besiege mapping delta, the mean(X)/random-hawk in-place semantics, and
+/// the prominent in-generator-evaluation eval-accounting design decision)
+/// as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (hawk count). Canonical is 30.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_hho(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::hho(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
 /// Builds a simulated annealing (Metropolis, geometric cooling) algorithm
 /// spec as JSON, ready to pass to `sz_solve_bbob()`.
 ///

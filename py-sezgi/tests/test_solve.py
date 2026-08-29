@@ -121,6 +121,16 @@ def test_preset_tlbo_is_dict_with_two_stages():
     assert spec["stages"][1]["replacer"]["kind"] == "replace/one-to-one-greedy"
 
 
+def test_preset_hho_is_dict_with_stages():
+    """M2d-4 Task 9: sezgi.presets.hho() parses as JSON with the expected
+    shape (single-stage, generational replacer -- see hho.rs's module doc
+    for the eval-accounting design behind the internal rapid-dive evaluations)."""
+    spec = sezgi.presets.hho(pop_size=30, budget=2000)
+    assert spec["pop_size"] == 30
+    assert spec["stages"][0]["generator"]["kind"] == "gen/hho"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/generational"
+
+
 def test_bbob_solve_deterministic():
     p = sezgi.bbob(fid=1, dim=5, instance=1)
     spec = sezgi.presets.de_rand_1(pop_size=20, budget=2000)
@@ -234,6 +244,7 @@ def test_all_presets_solve_smoke():
         "bat": sezgi.presets.bat(pop_size=30, budget=budget),
         "fpa": sezgi.presets.fpa(pop_size=25, budget=budget),
         "tlbo": sezgi.presets.tlbo(pop_size=30, budget=budget),
+        "hho": sezgi.presets.hho(pop_size=30, budget=budget),
         "jde": sezgi.presets.jde(pop_size=20, budget=budget),
         "shade": sezgi.presets.shade(pop_size=20, budget=budget),
         "lshade": sezgi.presets.lshade(dim=dim, budget=budget),
