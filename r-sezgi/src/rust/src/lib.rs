@@ -1,5 +1,6 @@
 use savvy::savvy;
 
+mod experiment;
 mod solve;
 
 /// Version of the underlying sezgi Rust core.

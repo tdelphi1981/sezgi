@@ -45,6 +45,28 @@ NULL
   .Call(savvy_sezgi_version__impl)
 }
 
+#' Builds a (mu/mu_w,lambda)-CMA-ES algorithm spec as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (lambda).
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_cmaes` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_cmaes__impl, `pop_size`, `budget`)
+}
+
+#' Builds a CMA-ES with IPOP-style stagnation restarts algorithm spec as
+#' JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param dim Problem dimension (determines the initial population size).
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_cmaes_ipop` <- function(`dim`, `budget`) {
+  .Call(savvy_sz_preset_cmaes_ipop__impl, `dim`, `budget`)
+}
+
 #' Builds a DE/best/1/bin algorithm spec (uniform init, clamp boundary,
 #' one-to-one-greedy replacement) as JSON, ready to pass to
 #' `sz_solve_bbob()`.
@@ -67,6 +89,116 @@ NULL
 #' @export
 `sz_preset_de_rand_1` <- function(`pop_size`, `budget`) {
   .Call(savvy_sz_preset_de_rand_1__impl, `pop_size`, `budget`)
+}
+
+#' Builds a real-coded GA (SBX crossover, polynomial mutation) algorithm spec
+#' as JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_ga_real` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_ga_real__impl, `pop_size`, `budget`)
+}
+
+#' Builds a jDE algorithm spec (self-adaptive F/CR DE) as JSON, ready to pass
+#' to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_jde` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_jde__impl, `pop_size`, `budget`)
+}
+
+#' Builds an L-SHADE algorithm spec (population linearly reduced from
+#' `18 * dim`) as JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param dim Problem dimension (determines the initial population size).
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_lshade` <- function(`dim`, `budget`) {
+  .Call(savvy_sz_preset_lshade__impl, `dim`, `budget`)
+}
+
+#' Builds a Nelder-Mead simplex algorithm spec as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param dim Problem dimension (population size is fixed to `dim + 1`).
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_nelder_mead` <- function(`dim`, `budget`) {
+  .Call(savvy_sz_preset_nelder_mead__impl, `dim`, `budget`)
+}
+
+#' Builds a PSO (Clerc-Kennedy constriction) algorithm spec as JSON, ready to
+#' pass to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (swarm size).
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_pso` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_pso__impl, `pop_size`, `budget`)
+}
+
+#' Builds a random search algorithm spec as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (resampled uniformly each generation).
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_random_search` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_random_search__impl, `pop_size`, `budget`)
+}
+
+#' Builds a simulated annealing (Metropolis, geometric cooling) algorithm
+#' spec as JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_sa` <- function(`budget`) {
+  .Call(savvy_sz_preset_sa__impl, `budget`)
+}
+
+#' Builds a SHADE algorithm spec as JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_shade` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_shade__impl, `pop_size`, `budget`)
+}
+
+#' Runs an [`ExperimentSpec`] (parsed from `spec_toml`) and returns its
+#' `RunRecord`s as a data.frame. This mirrors py-sezgi's `run_experiment`
+#' exactly (see `py-sezgi/src/lib.rs`): `journal=None` runs via
+#' `run_experiment_parallel`/`run_experiment_sequential` (chosen by
+#' `parallel`); `journal=Some(path)` runs via `run_experiment_with_checkpoint`,
+#' which resumes from -- and appends to -- an existing journal file at
+#' `path`.
+#'
+#' This is the raw savvy-generated binding; the public R entry point with
+#' R-native defaults (`parallel = TRUE`) is the hand-written wrapper
+#' `sz_run_experiment()` in `R/experiment.R`, which calls this function.
+#'
+#' @param spec_toml Experiment spec as TOML.
+#' @param parallel Whether to run in parallel via rayon.
+#' @param journal Optional path to a checkpoint journal file.
+#' @param threads Optional rayon thread-pool size. `usize` is not a
+#'   supported savvy scalar arg type, so this comes in as `i32` and is cast;
+#'   negative values are rejected explicitly (savvy has no unsigned integer
+#'   scalar type to enforce this at the signature level).
+#' @returns A data.frame with one row per run.
+`sz_run_experiment_raw` <- function(`spec_toml`, `parallel`, `journal` = NULL, `threads` = NULL) {
+  .Call(savvy_sz_run_experiment_raw__impl, `spec_toml`, `parallel`, `journal`, `threads`)
 }
 
 #' Runs an algorithm spec on a BBOB problem and returns the result.

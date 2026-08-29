@@ -1,4 +1,15 @@
 SEXP savvy_sezgi_version__ffi(void);
+SEXP savvy_sz_preset_cmaes__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_preset_cmaes_ipop__ffi(SEXP c_arg__dim, SEXP c_arg__budget);
 SEXP savvy_sz_preset_de_best_1__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_de_rand_1__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_preset_ga_real__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_preset_jde__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_preset_lshade__ffi(SEXP c_arg__dim, SEXP c_arg__budget);
+SEXP savvy_sz_preset_nelder_mead__ffi(SEXP c_arg__dim, SEXP c_arg__budget);
+SEXP savvy_sz_preset_pso__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_preset_random_search__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_preset_sa__ffi(SEXP c_arg__budget);
+SEXP savvy_sz_preset_shade__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_run_experiment_raw__ffi(SEXP c_arg__spec_toml, SEXP c_arg__parallel, SEXP c_arg__journal, SEXP c_arg__threads);
 SEXP savvy_sz_solve_bbob__ffi(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__master_seed, SEXP c_arg__run_id);

@@ -35,6 +35,134 @@ fn sz_preset_de_best_1(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds a jDE algorithm spec (self-adaptive F/CR DE) as JSON, ready to pass
+/// to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_jde(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::jde(pop_size as usize, budget as u64).to_json();
+    json.try_into()
+}
+
+/// Builds a real-coded GA (SBX crossover, polynomial mutation) algorithm spec
+/// as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_ga_real(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::ga_real(pop_size as usize, budget as u64).to_json();
+    json.try_into()
+}
+
+/// Builds a PSO (Clerc-Kennedy constriction) algorithm spec as JSON, ready to
+/// pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (swarm size).
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_pso(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::pso(pop_size as usize, budget as u64).to_json();
+    json.try_into()
+}
+
+/// Builds a simulated annealing (Metropolis, geometric cooling) algorithm
+/// spec as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_sa(budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::sa(budget as u64).to_json();
+    json.try_into()
+}
+
+/// Builds a SHADE algorithm spec as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_shade(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::shade(pop_size as usize, budget as u64).to_json();
+    json.try_into()
+}
+
+/// Builds an L-SHADE algorithm spec (population linearly reduced from
+/// `18 * dim`) as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param dim Problem dimension (determines the initial population size).
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_lshade(dim: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::lshade(dim as usize, budget as u64).to_json();
+    json.try_into()
+}
+
+/// Builds a (mu/mu_w,lambda)-CMA-ES algorithm spec as JSON, ready to pass to
+/// `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (lambda).
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_cmaes(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::cmaes(pop_size as usize, budget as u64).to_json();
+    json.try_into()
+}
+
+/// Builds a CMA-ES with IPOP-style stagnation restarts algorithm spec as
+/// JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param dim Problem dimension (determines the initial population size).
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_cmaes_ipop(dim: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::cmaes_ipop(dim as usize, budget as u64).to_json();
+    json.try_into()
+}
+
+/// Builds a Nelder-Mead simplex algorithm spec as JSON, ready to pass to
+/// `sz_solve_bbob()`.
+///
+/// @param dim Problem dimension (population size is fixed to `dim + 1`).
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_nelder_mead(dim: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::nelder_mead(dim as usize, budget as u64).to_json();
+    json.try_into()
+}
+
+/// Builds a random search algorithm spec as JSON, ready to pass to
+/// `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (resampled uniformly each generation).
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_random_search(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::random_search(pop_size as usize, budget as u64).to_json();
+    json.try_into()
+}
+
 fn registry() -> Registry {
     let mut r = Registry::new();
     register_builtins(&mut r);
