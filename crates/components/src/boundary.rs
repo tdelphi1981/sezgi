@@ -16,8 +16,7 @@ impl BoundaryHandler for Clamp {
         }
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "boundary/clamp", supported_blocks: SupportedBlocks::All,
-            requires: vec![], provides: vec![] }
+        ComponentMeta::new("boundary/clamp", SupportedBlocks::All)
     }
 }
 

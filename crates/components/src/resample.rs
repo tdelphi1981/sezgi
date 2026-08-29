@@ -10,9 +10,7 @@ impl Generator for UniformResampleGenerator {
         (0..pop.len()).map(|_| sample_uniform(ctx.space, ctx.rng)).collect()
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "gen/uniform-resample",
-            supported_blocks: SupportedBlocks::All,
-            requires: vec![], provides: vec![] }
+        ComponentMeta::new("gen/uniform-resample", SupportedBlocks::All)
     }
 }
 

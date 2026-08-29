@@ -152,10 +152,8 @@ impl Generator for ShadeGenerator {
         offspring
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "gen/de-shade",
-            supported_blocks: SupportedBlocks::Only(vec!["float"]),
-            requires: vec![],
-            provides: vec![
+        ComponentMeta::new("gen/de-shade", SupportedBlocks::Only(vec!["float"]))
+            .with_provides(vec![
                 StateReq::of::<Vec<f64>>("shade_mf"),
                 StateReq::of::<Vec<f64>>("shade_mcr"),
                 StateReq::of::<usize>("shade_k"),
@@ -163,7 +161,8 @@ impl Generator for ShadeGenerator {
                 StateReq::of::<Vec<f64>>("shade_f"),
                 StateReq::of::<Vec<f64>>("shade_cr"),
                 StateReq::of::<Vec<f64>>("shade_fit_prev"),
-            ] }
+            ])
+            .with_min_pop(4)
     }
 }
 
@@ -213,19 +212,18 @@ impl Replacer for ShadeReplacer {
         ctx.bb.insert("shade_dw", dw);
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "replace/shade",
-            supported_blocks: SupportedBlocks::All,
-            requires: vec![
+        ComponentMeta::new("replace/shade", SupportedBlocks::All)
+            .with_requires(vec![
                 StateReq::of::<Vec<f64>>("shade_f"),
                 StateReq::of::<Vec<f64>>("shade_cr"),
                 StateReq::of::<Vec<f64>>("shade_fit_prev"),
                 StateReq::of::<Vec<Genotype>>("shade_archive"),
-            ],
-            provides: vec![
+            ])
+            .with_provides(vec![
                 StateReq::of::<Vec<f64>>("shade_sf"),
                 StateReq::of::<Vec<f64>>("shade_scr"),
                 StateReq::of::<Vec<f64>>("shade_dw"),
-            ] }
+            ])
     }
 }
 
@@ -273,17 +271,15 @@ impl Adapter for ShadeHistoryAdapter {
         ctx.bb.insert("shade_dw", Vec::<f64>::new());
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "adapter/shade-history",
-            supported_blocks: SupportedBlocks::All,
-            requires: vec![
+        ComponentMeta::new("adapter/shade-history", SupportedBlocks::All)
+            .with_requires(vec![
                 StateReq::of::<Vec<f64>>("shade_mf"),
                 StateReq::of::<Vec<f64>>("shade_mcr"),
                 StateReq::of::<usize>("shade_k"),
                 StateReq::of::<Vec<f64>>("shade_sf"),
                 StateReq::of::<Vec<f64>>("shade_scr"),
                 StateReq::of::<Vec<f64>>("shade_dw"),
-            ],
-            provides: vec![] }
+            ])
     }
 }
 
@@ -359,15 +355,13 @@ impl Adapter for LpsrAdapter {
         }
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "adapter/lpsr",
-            supported_blocks: SupportedBlocks::All,
-            requires: vec![
+        ComponentMeta::new("adapter/lpsr", SupportedBlocks::All)
+            .with_requires(vec![
                 StateReq::of::<Vec<Genotype>>("shade_archive"),
                 StateReq::of::<Vec<f64>>("shade_f"),
                 StateReq::of::<Vec<f64>>("shade_cr"),
                 StateReq::of::<Vec<f64>>("shade_fit_prev"),
-            ],
-            provides: vec![] }
+            ])
     }
 }
 
@@ -400,9 +394,8 @@ impl Adapter for ShadeLshadeAdapter {
         self.lpsr.adapt(pop, ctx);
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "adapter/shade-lshade",
-            supported_blocks: SupportedBlocks::All,
-            requires: vec![
+        ComponentMeta::new("adapter/shade-lshade", SupportedBlocks::All)
+            .with_requires(vec![
                 StateReq::of::<Vec<f64>>("shade_mf"),
                 StateReq::of::<Vec<f64>>("shade_mcr"),
                 StateReq::of::<usize>("shade_k"),
@@ -413,8 +406,7 @@ impl Adapter for ShadeLshadeAdapter {
                 StateReq::of::<Vec<f64>>("shade_f"),
                 StateReq::of::<Vec<f64>>("shade_cr"),
                 StateReq::of::<Vec<f64>>("shade_fit_prev"),
-            ],
-            provides: vec![] }
+            ])
     }
 }
 

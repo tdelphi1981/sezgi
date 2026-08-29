@@ -190,17 +190,20 @@ impl Generator for NmGenerator {
         }
     }
 
+    /// `pop_size` here must equal `dim + 1` (the population IS the simplex);
+    /// that's dimension-dependent and can't be expressed as a fixed
+    /// `min_pop` constant, so `min_pop` stays at the `ComponentMeta::new`
+    /// default of 1 and the exact requirement is enforced only by the
+    /// runtime assert in `generate` (see `nm_asserts_simplex_size` below).
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "gen/nelder-mead",
-            supported_blocks: SupportedBlocks::Only(vec!["float"]),
-            requires: vec![],
-            provides: vec![
+        ComponentMeta::new("gen/nelder-mead", SupportedBlocks::Only(vec!["float"]))
+            .with_provides(vec![
                 StateReq::of::<u8>("nm_phase"),
                 StateReq::of::<Vec<f64>>("nm_centroid"),
                 StateReq::of::<Vec<f64>>("nm_reflected"),
                 StateReq::of::<f64>("nm_reflected_f"),
                 StateReq::of::<usize>("nm_worst_idx"),
-            ] }
+            ])
     }
 }
 
@@ -342,16 +345,14 @@ impl Replacer for NmReplacer {
     }
 
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "replace/nelder-mead",
-            supported_blocks: SupportedBlocks::Only(vec!["float"]),
-            requires: vec![
+        ComponentMeta::new("replace/nelder-mead", SupportedBlocks::Only(vec!["float"]))
+            .with_requires(vec![
                 StateReq::of::<u8>("nm_phase"),
                 StateReq::of::<Vec<f64>>("nm_centroid"),
                 StateReq::of::<Vec<f64>>("nm_reflected"),
                 StateReq::of::<f64>("nm_reflected_f"),
                 StateReq::of::<usize>("nm_worst_idx"),
-            ],
-            provides: vec![] }
+            ])
     }
 }
 

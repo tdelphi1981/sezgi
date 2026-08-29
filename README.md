@@ -50,4 +50,4 @@ sezgi M2b ships 13 reference algorithm presets (with Rust function names):
 | Nelder–Mead Simplex | `presets::nelder_mead` |
 | Random Search (baseline) | `presets::random_search` |
 
-Python bindings currently expose `de_rand_1`, `ga_real` and `pso`; the remaining presets reach Python in M2c.
+Python bindings currently expose every preset above except `es_mu_plus_lambda` (its `Distribution` argument crosses the FFI boundary awkwardly; deferred to M2d).

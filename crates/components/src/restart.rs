@@ -170,16 +170,12 @@ impl Restart for StagnationRestart {
     }
 
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta {
-            kind: "restart/stagnation",
-            supported_blocks: SupportedBlocks::All,
-            requires: vec![],
-            provides: vec![
+        ComponentMeta::new("restart/stagnation", SupportedBlocks::All)
+            .with_provides(vec![
                 StateReq::of::<f64>("restart_last_best"),
                 StateReq::of::<u64>("restart_last_improve_eval"),
                 StateReq::of::<u64>("restart_count"),
-            ],
-        }
+            ])
     }
 }
 

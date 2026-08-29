@@ -70,9 +70,7 @@ impl Generator for DeGenerator {
         }).collect()
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "gen/de",
-            supported_blocks: SupportedBlocks::Only(vec!["float"]),
-            requires: vec![], provides: vec![] }
+        ComponentMeta::new("gen/de", SupportedBlocks::Only(vec!["float"])).with_min_pop(4)
     }
 }
 
@@ -196,16 +194,15 @@ impl Generator for JdeGenerator {
         offspring
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "gen/de-jde",
-            supported_blocks: SupportedBlocks::Only(vec!["float"]),
-            requires: vec![],
-            provides: vec![
+        ComponentMeta::new("gen/de-jde", SupportedBlocks::Only(vec!["float"]))
+            .with_provides(vec![
                 StateReq::of::<Vec<f64>>("jde_f"),
                 StateReq::of::<Vec<f64>>("jde_cr"),
                 StateReq::of::<Vec<f64>>("jde_f_prev"),
                 StateReq::of::<Vec<f64>>("jde_cr_prev"),
                 StateReq::of::<Vec<f64>>("jde_fit_prev"),
-            ] }
+            ])
+            .with_min_pop(4)
     }
 }
 
@@ -247,16 +244,14 @@ impl Adapter for JdeCommitAdapter {
         }
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "adapter/jde-commit",
-            supported_blocks: SupportedBlocks::All,
-            requires: vec![
+        ComponentMeta::new("adapter/jde-commit", SupportedBlocks::All)
+            .with_requires(vec![
                 StateReq::of::<Vec<f64>>("jde_f"),
                 StateReq::of::<Vec<f64>>("jde_cr"),
                 StateReq::of::<Vec<f64>>("jde_f_prev"),
                 StateReq::of::<Vec<f64>>("jde_cr_prev"),
                 StateReq::of::<Vec<f64>>("jde_fit_prev"),
-            ],
-            provides: vec![] }
+            ])
     }
 }
 

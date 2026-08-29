@@ -42,9 +42,7 @@ impl Generator for StepMutation {
         }).collect()
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "gen/step",
-            supported_blocks: SupportedBlocks::Only(vec!["float"]),
-            requires: vec![], provides: vec![] }
+        ComponentMeta::new("gen/step", SupportedBlocks::Only(vec!["float"]))
     }
 }
 

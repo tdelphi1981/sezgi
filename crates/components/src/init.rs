@@ -32,8 +32,7 @@ impl Initializer for UniformInit {
         (0..n).map(|_| sample_uniform(ctx.space, ctx.rng)).collect()
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "init/uniform", supported_blocks: SupportedBlocks::All,
-            requires: vec![], provides: vec![] }
+        ComponentMeta::new("init/uniform", SupportedBlocks::All)
     }
 }
 

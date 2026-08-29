@@ -165,12 +165,44 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
 #[pyfunction] fn preset_de_rand_1(pop_size: usize, budget: u64) -> String {
     presets::de_rand_1(pop_size, budget).to_json()
 }
+#[pyfunction] fn preset_de_best_1(pop_size: usize, budget: u64) -> String {
+    presets::de_best_1(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_jde(pop_size: usize, budget: u64) -> String {
+    presets::jde(pop_size, budget).to_json()
+}
 #[pyfunction] fn preset_ga_real(pop_size: usize, budget: u64) -> String {
     presets::ga_real(pop_size, budget).to_json()
 }
 #[pyfunction] fn preset_pso(pop_size: usize, budget: u64) -> String {
     presets::pso(pop_size, budget).to_json()
 }
+#[pyfunction] fn preset_sa(budget: u64) -> String {
+    presets::sa(budget).to_json()
+}
+#[pyfunction] fn preset_shade(pop_size: usize, budget: u64) -> String {
+    presets::shade(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_lshade(dim: usize, budget: u64) -> String {
+    presets::lshade(dim, budget).to_json()
+}
+#[pyfunction] fn preset_cmaes(pop_size: usize, budget: u64) -> String {
+    presets::cmaes(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_cmaes_ipop(dim: usize, budget: u64) -> String {
+    presets::cmaes_ipop(dim, budget).to_json()
+}
+#[pyfunction] fn preset_nelder_mead(dim: usize, budget: u64) -> String {
+    presets::nelder_mead(dim, budget).to_json()
+}
+#[pyfunction] fn preset_random_search(pop_size: usize, budget: u64) -> String {
+    presets::random_search(pop_size, budget).to_json()
+}
+// preset_es_mu_plus_lambda is intentionally NOT exposed here: its Rust
+// signature takes a `Distribution` (an enum with nested params, e.g.
+// gaussian mean/sigma), which does not have a clean pyfunction argument
+// mapping. Bridging it (accepting a JSON-encoded dist, or a richer PyO3
+// type) is deferred to M2d.
 
 #[pymodule]
 fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -179,7 +211,16 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(from_callable, m)?)?;
     m.add_function(wrap_pyfunction!(solve, m)?)?;
     m.add_function(wrap_pyfunction!(preset_de_rand_1, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_de_best_1, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_jde, m)?)?;
     m.add_function(wrap_pyfunction!(preset_ga_real, m)?)?;
     m.add_function(wrap_pyfunction!(preset_pso, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_sa, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_shade, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_lshade, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_cmaes, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_cmaes_ipop, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_nelder_mead, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_random_search, m)?)?;
     Ok(())
 }
