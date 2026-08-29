@@ -26,6 +26,26 @@ Your own problem (batch evaluation — a single call per population):
     cargo test --workspace --release        # Rust tests
     cd py-sezgi && maturin develop && pytest # Python tests
 
-Status: M1 (core + Python) done. M2a done: full 24/24 sezgi-bbob BBOB function
-suite. Next: M2b reference algorithms, M2c experiment runner + statistics,
-M2d R frontend. License: MIT.
+## Status
+
+M2b (reference algorithms) **complete** — 13 algorithm presets delivered; Adapter + Restart engine families; 24-fid BBOB pins; Best1 dead-draw fix. Next: M2c (experiment runner + statistics), M2d (R frontend + examples). License: MIT.
+
+## Algorithms
+
+sezgi M2b ships 13 reference algorithm presets (with Rust function names):
+
+| Algorithm | Preset Function |
+|-----------|-----------------|
+| Differential Evolution (rand/1) | `presets::de_rand_1` |
+| Differential Evolution (best/1) | `presets::de_best_1` |
+| jDE (self-adaptive DE) | `presets::jde` |
+| SHADE | `presets::shade` |
+| L-SHADE | `presets::lshade` |
+| CMA-ES | `presets::cmaes` |
+| CMA-ES with IPOP restarts | `presets::cmaes_ipop` |
+| Particle Swarm Optimization | `presets::pso` |
+| Genetic Algorithm (real-coded) | `presets::ga_real` |
+| (μ+λ)-Evolution Strategy | `presets::es_mu_plus_lambda` |
+| Simulated Annealing | `presets::sa` |
+| Nelder–Mead Simplex | `presets::nelder_mead` |
+| Random Search (baseline) | `presets::random_search` |
