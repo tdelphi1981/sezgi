@@ -72,11 +72,23 @@ matrix)` triple for one budget (e.g. to feed a custom analysis).
 Pass `log_dir=` to `run_experiment` to also write an IOH-profiler-format
 log tree (readable directly by IOHinspector/IOHanalyzer) alongside the
 in-memory records, then read anytime-performance curves, export a
-COCO/BBOB archive, or reconstruct records straight off disk:
+COCO/BBOB archive, or reconstruct records straight off disk.
+
+IOH logging supports only a SINGLE budget: the on-disk archive records no
+budget, so it cannot tell apart two runs of the same `(instance, seed)`
+logged at different budgets. `run_experiment(..., log_dir=...)` (and the
+`log_dir` pass-through on the checkpoint path) raises `ValueError` naming
+"multiple budgets" if `spec_toml` declares more than one. Log at the single
+largest budget you need instead, and derive any smaller budgets on read via
+`read_ioh_records`:
 
     import sezgi
 
-    records = sezgi.run_experiment(spec_toml, log_dir="logs/", parallel=False)
+    # Multi-budget specs (like `spec_toml` above) can't be logged directly --
+    # log at the largest budget only, then derive [1000, 5000] on read.
+    single_budget_toml = spec_toml.replace("budgets = [1000, 5000]", "budgets = [5000]")
+
+    records = sezgi.run_experiment(single_budget_toml, log_dir="logs/", parallel=False)
 
     # ECDF (anytime performance) curves, one per algorithm by default.
     curves = sezgi.ecdf("logs/")
@@ -87,8 +99,9 @@ COCO/BBOB archive, or reconstruct records straight off disk:
     written = sezgi.coco_export("logs/", "coco_out/")
 
     # Reconstruct RunRecords directly from the on-disk archive -- no
-    # in-memory `records` object required -- at whichever budgets you like.
-    disk_records = sezgi.read_ioh_records("logs/", [2000])
+    # in-memory `records` object required -- deriving BOTH original budgets
+    # from the single largest-budget archive that was actually logged.
+    disk_records = sezgi.read_ioh_records("logs/", [1000, 5000])
 
     # Same record-dict shape run_experiment returns, so it feeds straight
     # into per_budget_packages (or results_matrix) unchanged.

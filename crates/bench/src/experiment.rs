@@ -221,6 +221,10 @@ pub enum ExperimentError {
     IohRead(String),
     #[error("COCO export error: {0}")]
     CocoExport(String),
+    #[error("IOH logging with multiple budgets is not supported: the archive cannot \
+             distinguish runs by budget. Log at the single largest budget and derive \
+             smaller budgets on read (ioh_records curtailed views).")]
+    MultiBudgetLogging,
 }
 
 const VALID_PRESET_KINDS: &[&str] = &[
@@ -548,6 +552,19 @@ pub fn run_experiment_parallel(
 /// `on_eval` calls the engine was already going to make), so the returned
 /// `RunRecord`s are bit-identical to [`run_experiment_sequential`]'s for the
 /// same `spec`.
+///
+/// `spec.budgets.len() > 1` is rejected up front with
+/// [`ExperimentError::MultiBudgetLogging`]: the IOH archive records no
+/// budget, so the budget-200 and budget-400 runs of the same
+/// `(instance, seed)` would land as indistinguishable runs in one scenario,
+/// and a later `ioh_records` read would return duplicate keys with
+/// conflicting `best_f`, silently pooled by `results_matrix`. Log at the
+/// single largest budget and derive smaller budgets on read instead (see
+/// [`crate::ioh_read::ioh_records`]'s curtailed-view semantics).
+///
+/// A mid-run error drops every [`IohLogger`] without calling `finish()` on
+/// it, so no partial IOH tree is ever written for a run that didn't
+/// complete — this is intentional, not an oversight.
 pub fn run_experiment_logged(
     spec: &ExperimentSpec,
     log_dir: &Path,
@@ -555,6 +572,10 @@ pub fn run_experiment_logged(
     threads: Option<usize>,
 ) -> Result<(Vec<RunRecord>, Vec<IohFinish>), ExperimentError> {
     use rayon::prelude::*;
+
+    if spec.budgets.len() > 1 {
+        return Err(ExperimentError::MultiBudgetLogging);
+    }
 
     let planned = enumerate(spec)?;
 
@@ -983,5 +1004,37 @@ mod tests {
             assert!(f_opt.is_finite(), "f_opt must be finite");
             assert_eq!(f_opt, expected_f_opt, "f_opt must equal BbobProblem::f_opt() for fid 1, dim 5, instance 1");
         }
+    }
+
+    /// CONTROLLER RULING: a multi-budget spec logged via
+    /// `run_experiment_logged` must be rejected up front — the IOH archive
+    /// cannot distinguish runs by budget, so budget-200 and budget-400 runs
+    /// of the same (instance, seed) would land as indistinguishable runs in
+    /// one scenario.
+    #[test]
+    fn run_experiment_logged_rejects_multiple_budgets() {
+        let mut spec = parallel_test_spec();
+        spec.budgets = vec![300, 600];
+
+        let tmp = tempfile::tempdir().unwrap();
+        let err = run_experiment_logged(&spec, tmp.path(), false, None).unwrap_err();
+        assert!(matches!(err, ExperimentError::MultiBudgetLogging), "got {err:?}");
+        assert!(
+            err.to_string().contains("multiple budgets"),
+            "error message must mention 'multiple budgets', got: {err}"
+        );
+    }
+
+    #[test]
+    fn run_experiment_logged_single_budget_still_works() {
+        // Regression guard alongside the multi-budget rejection above: a
+        // single-budget spec must still log successfully.
+        let spec = parallel_test_spec();
+        assert_eq!(spec.budgets.len(), 1);
+
+        let tmp = tempfile::tempdir().unwrap();
+        let (records, finishes) = run_experiment_logged(&spec, tmp.path(), false, None).unwrap();
+        assert_eq!(records.len(), 8);
+        assert!(!finishes.is_empty());
     }
 }

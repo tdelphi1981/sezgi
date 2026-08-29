@@ -94,6 +94,17 @@ impl IohLogger {
     /// must already agree with this logger's — a mismatch (e.g. two
     /// different algorithms writing into the same `(fid, fname)` meta
     /// path) is an error rather than a silent clobber.
+    ///
+    /// The merge above is an UNLOCKED read-modify-write on the meta file (no
+    /// file lock, no atomic rename): it reads `meta_path`, computes the
+    /// merged `scenarios[]` in memory, and overwrites the file. This is safe
+    /// for one process writing to a given `log_dir` (all `finish()` calls
+    /// happen sequentially, after every run has completed — see
+    /// `run_experiment_logged`), but NOT for multiple processes sharing the
+    /// same `log_dir` concurrently: two processes racing to merge into the
+    /// same `(algo, fid)` meta file can each read the file before the
+    /// other's write lands, and the loser's write silently drops the
+    /// winner's scenario. Keep one process per `log_dir`.
     pub fn finish(self) -> std::io::Result<IohFinish> {
         let dir = self.root.join(&self.algo);
         let data_rel = format!("data_f{}_{}", self.fid, self.fname);

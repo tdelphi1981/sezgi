@@ -132,6 +132,18 @@ def test_read_ioh_records_curtailed_view_present_and_evals_used_capped(tmp_path)
         assert r["evals_used"] == 200
 
 
+def test_run_experiment_rejects_multiple_budgets_with_log_dir(tmp_path):
+    """CONTROLLER RULING (final review wave): the IOH archive records no
+    budget, so run_experiment(..., log_dir=...) must reject a multi-budget
+    spec up front rather than silently pooling conflicting best_f values
+    under duplicate (instance, seed) keys."""
+    spec_toml = tiny_experiment_toml(budgets="[200, 400]")
+    log_dir = str(tmp_path / "logs")
+
+    with pytest.raises(ValueError, match="multiple budgets"):
+        sezgi.run_experiment(spec_toml, log_dir=log_dir, parallel=False)
+
+
 # ---------------------------------------------------------------------
 # ecdf
 # ---------------------------------------------------------------------
@@ -143,6 +155,7 @@ def test_ecdf_per_algo_monotone_and_in_unit_interval(tmp_path):
     curves = sezgi.ecdf(log_dir)
     assert isinstance(curves, list)
     assert len(curves) == 1
+    assert isinstance(curves[0], tuple), "per_algo pairs must be tuples, per the docstring"
     algo, curve = curves[0]
     assert algo == "de"
     assert set(curve.keys()) == {"evals", "proportion"}

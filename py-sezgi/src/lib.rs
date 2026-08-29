@@ -312,9 +312,9 @@ fn ecdf(py: Python<'_>, log_root: &str, targets: Option<Vec<f64>>, per_algo: boo
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let out = PyList::empty(py);
         for (algo, curve) in &curves {
-            let row = PyList::empty(py);
-            row.append(algo)?;
-            row.append(ecdf_curve_to_dict(py, curve)?)?;
+            // Tuple, not a 2-element list, per the docstring ("a list of
+            // `(algo, curve_dict)` pairs").
+            let row = (algo.clone(), ecdf_curve_to_dict(py, curve)?);
             out.append(row)?;
         }
         Ok(out.into_any().unbind())

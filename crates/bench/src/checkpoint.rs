@@ -196,6 +196,14 @@ pub fn run_experiment_with_checkpoint(
     use rayon::prelude::*;
     use sezgi_core::component::Registry;
 
+    // Same restriction as `run_experiment_logged`: the IOH archive records
+    // no budget, so a multi-budget spec logged here would produce
+    // indistinguishable runs per (instance, seed) — see
+    // `ExperimentError::MultiBudgetLogging`'s doc comment.
+    if log_dir.is_some() && spec.budgets.len() > 1 {
+        return Err(ExperimentError::MultiBudgetLogging);
+    }
+
     let hash_str = spec_hash(spec);
 
     // Load existing journal or create new one.
@@ -922,6 +930,43 @@ mod tests {
             loaded.f_opt.to_bits(),
             "RunRecord f_opt JSON round-trip lost precision"
         );
+    }
+
+    /// CONTROLLER RULING: `run_experiment_with_checkpoint` must reject a
+    /// multi-budget spec when `log_dir` is `Some`, for the same reason as
+    /// `run_experiment_logged` — see that function's doc comment.
+    #[test]
+    fn checkpoint_rejects_multiple_budgets_with_log_dir() {
+        let dir = TempDir::new().unwrap();
+        let journal_path = dir.path().join("journal.jsonl");
+        let log_dir = dir.path().join("logs");
+
+        let mut spec = demo_spec();
+        spec.budgets = vec![300, 600];
+
+        let err = run_experiment_with_checkpoint(
+            &spec, &journal_path, false, None, Some(&log_dir),
+        ).unwrap_err();
+        assert!(matches!(err, ExperimentError::MultiBudgetLogging), "got {err:?}");
+        assert!(
+            err.to_string().contains("multiple budgets"),
+            "error message must mention 'multiple budgets', got: {err}"
+        );
+        assert!(!journal_path.exists(), "no journal must be created when the guard rejects the spec");
+    }
+
+    #[test]
+    fn checkpoint_allows_multiple_budgets_without_log_dir() {
+        // The restriction is specific to log_dir: a multi-budget spec must
+        // still run fine through the checkpoint path when not logging.
+        let dir = TempDir::new().unwrap();
+        let journal_path = dir.path().join("journal.jsonl");
+
+        let mut spec = demo_spec();
+        spec.budgets = vec![300, 600];
+
+        let result = run_experiment_with_checkpoint(&spec, &journal_path, false, None, None);
+        assert!(result.is_ok(), "multi-budget spec without log_dir must still succeed");
     }
 
     #[test]

@@ -97,6 +97,17 @@ test_that("a curtailed-budget view is present with evals capped at the budget", 
   expect_true(all(curtailed$evals == 200))
 })
 
+test_that("sz_run_experiment rejects a multi-budget spec when log_dir is given", {
+  # CONTROLLER RULING (final review wave): the IOH archive records no
+  # budget, so a multi-budget spec logged via log_dir would produce
+  # indistinguishable runs per (instance, seed).
+  log_dir <- file.path(tempfile(), "logs")
+  expect_error(
+    sz_run_experiment(tiny_experiment_toml(budgets = "[200, 400]"), log_dir = log_dir, parallel = FALSE),
+    regexp = "multiple budgets"
+  )
+})
+
 # ---------------------------------------------------------------------
 # sz_ecdf
 # ---------------------------------------------------------------------
