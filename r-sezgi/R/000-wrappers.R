@@ -45,4 +45,31 @@ NULL
   .Call(savvy_sezgi_version__impl)
 }
 
+#' Builds a DE/rand/1/bin algorithm spec (uniform init, clamp boundary,
+#' one-to-one-greedy replacement) as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_de_rand_1` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_de_rand_1__impl, `pop_size`, `budget`)
+}
+
+#' Runs an algorithm spec on a BBOB problem and returns the result.
+#'
+#' @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_de_rand_1()`).
+#' @param fid BBOB function id (>= 1).
+#' @param dim Problem dimension (>= 1).
+#' @param instance BBOB instance id (>= 1).
+#' @param master_seed Master RNG seed.
+#' @param run_id Run id (mixed into the seed for independent replicate streams).
+#' @returns A named list with `best_f` (double), `evals` (double), and
+#'   `best_x` (double vector).
+#' @export
+`sz_solve_bbob` <- function(`spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`) {
+  .Call(savvy_sz_solve_bbob__impl, `spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`)
+}
+
 

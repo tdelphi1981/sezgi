@@ -3,4 +3,6 @@
 S3method("$<-",savvy_sezgi__sealed)
 S3method("[[<-",savvy_sezgi__sealed)
 export(sezgi_version)
+export(sz_preset_de_rand_1)
+export(sz_solve_bbob)
 useDynLib(sezgi, .registration = TRUE)

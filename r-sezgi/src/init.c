@@ -44,9 +44,21 @@ SEXP savvy_sezgi_version__impl(void) {
     return handle_result(res);
 }
 
+SEXP savvy_sz_preset_de_rand_1__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_de_rand_1__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_solve_bbob__impl(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
+    SEXP res = savvy_sz_solve_bbob__ffi(c_arg__spec_json, c_arg__fid, c_arg__dim, c_arg__instance, c_arg__master_seed, c_arg__run_id);
+    return handle_result(res);
+}
+
 
 static const R_CallMethodDef CallEntries[] = {
     {"savvy_sezgi_version__impl", (DL_FUNC) &savvy_sezgi_version__impl, 0},
+    {"savvy_sz_preset_de_rand_1__impl", (DL_FUNC) &savvy_sz_preset_de_rand_1__impl, 2},
+    {"savvy_sz_solve_bbob__impl", (DL_FUNC) &savvy_sz_solve_bbob__impl, 6},
     {NULL, NULL, 0}
 };
 

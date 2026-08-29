@@ -1,5 +1,7 @@
 use savvy::savvy;
 
+mod solve;
+
 /// Version of the underlying sezgi Rust core.
 ///
 /// @returns A character scalar with the crate version string.
