@@ -17,7 +17,7 @@ def solve(spec, problem, master_seed=0, run_id=0, log_dir=None, algo_name=None):
                         log_dir=log_dir, algo_name=algo_name)
 
 
-def run_experiment(spec_toml, journal=None, parallel=True, threads=None):
+def run_experiment(spec_toml, journal=None, parallel=True, threads=None, log_dir=None):
     """Run an [`ExperimentSpec`] (parsed from TOML) and return its run
     records as a list of dicts with keys: algo, fid, dim, instance, seed,
     budget, best_f, f_opt, gap, evals_used, wall_secs.
@@ -32,9 +32,57 @@ def run_experiment(spec_toml, journal=None, parallel=True, threads=None):
         completes). Both modes produce bit-identical results.
     threads: thread pool size for the parallel executor; None uses rayon's
         global pool.
+    log_dir: optional directory to also write an IOH-profiler-format log
+        tree to. Only runs this call actually EXECUTES are logged -- a run
+        resumed from an existing `journal` was executed in a prior process
+        and is never re-logged, so the on-disk IOH tree does not grow on
+        resume. Read back with `read_ioh_records`/`ecdf`/`coco_export`.
     """
     return _sezgi.run_experiment(spec_toml, journal=journal, parallel=parallel,
-                                 threads=threads)
+                                 threads=threads, log_dir=log_dir)
+
+
+def read_ioh_records(log_root, budgets):
+    """Reconstruct run records from an on-disk IOH archive at `log_root`
+    (as written by `run_experiment(..., log_dir=...)` or
+    `solve(..., log_dir=...)`), one record per (run, budget) pair.
+
+    log_root: root directory of the IOH archive.
+    budgets: list of evaluation budgets to reconstruct a best-so-far value
+        at (see `sezgi_bench::ioh_records`'s doc comment for the exact
+        `best_f`/`evals_used` semantics, and the curtailed-view-vs-
+        independent-run distinction for a budget smaller than a run's
+        logged budget).
+
+    Returns the SAME record-dict shape `run_experiment` returns, so
+    `results_matrix`/`per_budget_packages` accept it unchanged.
+    """
+    return _sezgi.read_ioh_records(log_root, budgets)
+
+
+def ecdf(log_root, targets=None, per_algo=True):
+    """ECDF (anytime performance) curve(s) over an on-disk IOH archive.
+
+    log_root: root directory of the IOH archive.
+    targets: precision targets; None uses the COCO-convention 51-value
+        default target set (10^(2 - 0.2*k) for k = 0..=50).
+    per_algo: if True (default), returns a list of `(algo, curve)` pairs,
+        one per distinct algorithm in the archive, in first-appearance
+        order; if False, returns a single pooled curve over every scenario.
+
+    Each curve is a dict `{"evals": [...], "proportion": [...]}`: `evals`
+    ascending, `proportion` in [0, 1] and monotonically nondecreasing.
+    """
+    return _sezgi.ecdf(log_root, targets=targets, per_algo=per_algo)
+
+
+def coco_export(log_root, out_dir):
+    """Export an on-disk IOH archive at `log_root` as a COCO/BBOB "old
+    format" archive rooted at `out_dir`, so it can be post-processed with
+    `cocopp`. Returns the list of written file paths (as strings), sorted
+    for determinism.
+    """
+    return _sezgi.coco_export(log_root, out_dir)
 
 
 def results_matrix(records, budget, aggregate="mean"):
@@ -124,6 +172,10 @@ def _bayesian_signed_rank(a, b, rope=0.0, samples=20000, seed=1):
     return _sezgi.stats_bayesian_signed_rank(a, b, rope=rope, samples=samples, seed=seed)
 
 
+def _bayesian_plackett_luce(rankings, samples=2000, burn_in=500, seed=1):
+    return _sezgi.stats_bayesian_plackett_luce(rankings, samples=samples, burn_in=burn_in, seed=seed)
+
+
 # Statistics namespace: mirrors crates/stats's public functions. Accepts
 # Python lists (list of lists for matrices) or numpy arrays.
 #
@@ -139,8 +191,9 @@ stats = SimpleNamespace(
     cliffs_magnitude=_sezgi.stats_cliffs_magnitude,
     bayesian_signed_rank=_bayesian_signed_rank,
     plackett_luce=_sezgi.stats_plackett_luce,
+    bayesian_plackett_luce=_bayesian_plackett_luce,
     paper_package=_paper_package,
 )
 
 __all__ = ["Problem", "bbob", "from_callable", "solve", "run_experiment", "presets", "stats",
-           "results_matrix", "per_budget_packages"]
+           "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf", "coco_export"]
