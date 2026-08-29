@@ -22,6 +22,7 @@ pub mod sca;
 pub mod jaya;
 pub mod mfo;
 pub mod ssa;
+pub mod fa;
 
 use sezgi_core::component::Registry;
 
@@ -48,4 +49,5 @@ pub fn register_builtins(reg: &mut Registry) {
     jaya::register(reg);
     mfo::register(reg);
     ssa::register(reg);
+    fa::register(reg);
 }

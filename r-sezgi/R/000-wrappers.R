@@ -233,6 +233,22 @@ NULL
   .Call(savvy_sz_preset_es_mu_plus_lambda_raw__impl, `pop_size`, `budget`, `dist`, `mean`, `sigma`, `loc`, `scale`, `alpha`, `nu`)
 }
 
+#' Builds a Firefly Algorithm (Yang, X.-S., *Nature-Inspired Metaheuristic
+#' Algorithms*, 2nd ed., Luniver Press, 2010 -- a labeled metaphor preset,
+#' see `crates/components/src/fa.rs`'s module doc for the tier note,
+#' citation, the verified `fa_ndim.m`/`ffa_move.m` loop structure, the
+#' floored attractiveness formula, the closed-form `alpha` decay, and the
+#' hybrid in-place-self/live-distance/frozen-target double-loop semantics)
+#' spec as JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (number of fireflies). Canonical is 25.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_firefly` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_firefly__impl, `pop_size`, `budget`)
+}
+
 #' Builds a real-coded GA (SBX crossover, polynomial mutation) algorithm spec
 #' as JSON, ready to pass to `sz_solve_bbob()`.
 #'

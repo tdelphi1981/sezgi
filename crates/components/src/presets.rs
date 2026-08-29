@@ -335,6 +335,36 @@ pub fn ssa(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Firefly Algorithm (Yang, X.-S., *Nature-Inspired Metaheuristic
+/// Algorithms*, 2nd ed., Luniver Press, 2010) -- a labeled metaphor preset
+/// (see `fa.rs`'s module doc for the full provenance extraction, the
+/// verified `fa_ndim.m`/`ffa_move.m` loop structure, the floored
+/// attractiveness formula and its non-vanishing `gamma -> infinity` limit,
+/// the closed-form `alpha` decay, and the hybrid in-place-self/live-
+/// distance/frozen-target double-loop semantics). Uniform init,
+/// `boundary/clamp` (same as `gwo`/`woa`/`sca`/`jaya`/`mfo`/`ssa`),
+/// generational replacement (`replace/generational`, reused as-is --
+/// `fa_ndim.m`'s own reference loop overwrites the whole population every
+/// generation with no per-firefly fitness-improvement test). `pop_size` is
+/// the number of fireflies; canonical is 25 per this wave's convention (the
+/// source's own demo uses 20). `min_pop = 2`, enforced via
+/// `AlgorithmSpec::validate`. `O(pop_size^2 * dim)` per generation -- see
+/// `fa.rs`'s "Cost note".
+pub fn firefly(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "firefly".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/fa", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),

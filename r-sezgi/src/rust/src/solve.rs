@@ -253,6 +253,24 @@ fn sz_preset_ssa(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds a Firefly Algorithm (Yang, X.-S., *Nature-Inspired Metaheuristic
+/// Algorithms*, 2nd ed., Luniver Press, 2010 -- a labeled metaphor preset,
+/// see `crates/components/src/fa.rs`'s module doc for the tier note,
+/// citation, the verified `fa_ndim.m`/`ffa_move.m` loop structure, the
+/// floored attractiveness formula, the closed-form `alpha` decay, and the
+/// hybrid in-place-self/live-distance/frozen-target double-loop semantics)
+/// spec as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (number of fireflies). Canonical is 25.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_firefly(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::firefly(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
 /// Builds a simulated annealing (Metropolis, geometric cooling) algorithm
 /// spec as JSON, ready to pass to `sz_solve_bbob()`.
 ///

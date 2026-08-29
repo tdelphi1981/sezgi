@@ -164,6 +164,7 @@ presets = SimpleNamespace(
     jaya=_preset(_sezgi.preset_jaya),
     mfo=_preset(_sezgi.preset_mfo),
     ssa=_preset(_sezgi.preset_ssa),
+    firefly=_preset(_sezgi.preset_firefly),
     sa=_preset(_sezgi.preset_sa),
     random_search=_preset(_sezgi.preset_random_search),
     nelder_mead=_preset(_sezgi.preset_nelder_mead),

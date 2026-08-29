@@ -608,3 +608,43 @@ fn ssa_min_pop_2_enforced_by_spec_validation() {
         other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
     }
 }
+
+// ---- FA / Firefly Algorithm (M2d-4 Task 5) ----
+
+#[test]
+fn firefly_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::firefly(25, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop 25/budget 20k: ~5.92e-8 (the pairwise
+    // brighter-attracts-dimmer mechanism converges tightly on the
+    // separable, unimodal BBOB f1/Sphere well within 20k evaluations).
+    // Anchored bound rounded up to the next 0.5 above the measured value
+    // (0.5), matching this wave's other anchored-threshold tests' bound;
+    // ample (>=0.3) headroom.
+    assert!(gap < 0.5,
+        "firefly should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+#[test]
+fn firefly_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::firefly(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/fa") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/fa");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
