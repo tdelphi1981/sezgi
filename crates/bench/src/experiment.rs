@@ -24,6 +24,7 @@
 //! | `pso`                 | required                            | no |
 //! | `gwo`                 | required                            | no |
 //! | `woa`                 | required                            | no |
+//! | `harmony_search`      | required                            | no |
 //! | `shade`               | required                            | no |
 //! | `cmaes`               | required                            | no |
 //! | `random_search`       | required                            | no |
@@ -235,7 +236,7 @@ pub enum ExperimentError {
 
 const VALID_PRESET_KINDS: &[&str] = &[
     "de_rand_1", "de_best_1", "jde", "es_mu_plus_lambda", "ga_real", "pso", "gwo", "woa",
-    "shade", "cmaes", "random_search", "lshade", "cmaes_ipop", "nelder_mead", "sa",
+    "harmony_search", "shade", "cmaes", "random_search", "lshade", "cmaes_ipop", "nelder_mead", "sa",
 ];
 
 fn require_pop_size(kind: &str, pop_size: Option<usize>) -> Result<usize, ExperimentError> {
@@ -257,6 +258,7 @@ fn build_preset(kind: &str, pop_size: Option<usize>, dim: usize, budget: u64)
         "pso" => presets::pso(require_pop_size(kind, pop_size)?, budget),
         "gwo" => presets::gwo(require_pop_size(kind, pop_size)?, budget),
         "woa" => presets::woa(require_pop_size(kind, pop_size)?, budget),
+        "harmony_search" => presets::harmony_search(require_pop_size(kind, pop_size)?, budget),
         "shade" => presets::shade(require_pop_size(kind, pop_size)?, budget),
         "cmaes" => presets::cmaes(require_pop_size(kind, pop_size)?, budget),
         "random_search" => presets::random_search(require_pop_size(kind, pop_size)?, budget),

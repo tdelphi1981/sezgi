@@ -330,3 +330,31 @@ fn woa_min_pop_2_enforced_by_spec_validation() {
         other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
     }
 }
+
+// ---- Harmony Search (M2d-3 Task 7) ----
+
+#[test]
+fn harmony_search_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::harmony_search(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Deterministic achieved gap at seed 42: gap ~= 0.0000002829 (HS
+    // converges tightly on the separable, unimodal BBOB f1/Sphere in 20k
+    // evaluations, despite generating only one new harmony per generation).
+    // Anchored bound rounded up to the next 0.5 (0.5), giving ample
+    // (>=0.3) headroom, per convention (see gwo_solves_bbob_f1_dim5 above).
+    assert!(gap < 0.5,
+        "Harmony Search should land close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap}");
+}
+
+#[test]
+fn harmony_search_min_pop_1_validates_fine() {
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::harmony_search(1, 500); // min_pop = 1: smallest legal pop_size
+    assert!(spec.validate(&registry(), p.space()).is_ok(),
+        "harmony_search preset must validate fine at pop_size=1 (min_pop=1)");
+    let e = Engine::from_spec(&spec, &registry(), p.space());
+    assert!(e.is_ok(), "harmony_search preset must build an Engine fine at pop_size=1");
+}

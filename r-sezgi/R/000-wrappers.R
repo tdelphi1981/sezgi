@@ -240,6 +240,19 @@ NULL
   .Call(savvy_sz_preset_gwo__impl, `pop_size`, `budget`)
 }
 
+#' Builds a Harmony Search algorithm spec (Geem, Kim & Loganathan 2001 -- a
+#' labeled metaphor preset, see `crates/components/src/hs.rs`'s module doc
+#' for the tier note and citations) as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (Harmony Memory Size, HMS). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_harmony_search` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_harmony_search__impl, `pop_size`, `budget`)
+}
+
 #' Builds a jDE algorithm spec (self-adaptive F/CR DE) as JSON, ready to pass
 #' to `sz_solve_bbob()`.
 #'

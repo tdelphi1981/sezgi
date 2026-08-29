@@ -146,6 +146,31 @@ pub fn woa(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Harmony Search (Geem, Kim & Loganathan 2001) -- a labeled metaphor
+/// preset (see `hs.rs`'s module doc for the tier note, citations and pinned
+/// draw order). Uniform init, `boundary/clamp` (same as `gwo`/`woa` --
+/// pitch adjustment can push a coordinate outside `[lo, hi]`),
+/// `replace/worst-if-better` (added for this task -- see `replace.rs`'s doc
+/// comment for why neither existing replacer kind fits an in-place
+/// worst-replacement contract). `pop_size` is HMS (Harmony Memory Size);
+/// canonical is 30 per the source paper. `min_pop = 1` (memory
+/// consideration degenerates gracefully with a single harmony), enforced
+/// via `AlgorithmSpec::validate`.
+pub fn harmony_search(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "harmony".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/hs", serde_json::json!({})),
+            replacer: comp("replace/worst-if-better", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),
