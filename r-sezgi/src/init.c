@@ -114,6 +114,41 @@ SEXP savvy_sz_solve_bbob__impl(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_ar
     return handle_result(res);
 }
 
+SEXP savvy_sz_stats_bayesian_signed_rank_raw__impl(SEXP c_arg__a, SEXP c_arg__b, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__seed) {
+    SEXP res = savvy_sz_stats_bayesian_signed_rank_raw__ffi(c_arg__a, c_arg__b, c_arg__rope, c_arg__samples, c_arg__seed);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_stats_cliffs_delta__impl(SEXP c_arg__a, SEXP c_arg__b) {
+    SEXP res = savvy_sz_stats_cliffs_delta__ffi(c_arg__a, c_arg__b);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_stats_cliffs_magnitude__impl(SEXP c_arg__delta) {
+    SEXP res = savvy_sz_stats_cliffs_magnitude__ffi(c_arg__delta);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_stats_friedman__impl(SEXP c_arg__m) {
+    SEXP res = savvy_sz_stats_friedman__ffi(c_arg__m);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_stats_paper_package_raw__impl(SEXP c_arg__algo_names, SEXP c_arg__problem_names, SEXP c_arg__m, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__seed) {
+    SEXP res = savvy_sz_stats_paper_package_raw__ffi(c_arg__algo_names, c_arg__problem_names, c_arg__m, c_arg__rope, c_arg__samples, c_arg__seed);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_stats_plackett_luce__impl(SEXP c_arg__rankings) {
+    SEXP res = savvy_sz_stats_plackett_luce__ffi(c_arg__rankings);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_stats_wilcoxon__impl(SEXP c_arg__a, SEXP c_arg__b) {
+    SEXP res = savvy_sz_stats_wilcoxon__ffi(c_arg__a, c_arg__b);
+    return handle_result(res);
+}
+
 
 static const R_CallMethodDef CallEntries[] = {
     {"savvy_sezgi_version__impl", (DL_FUNC) &savvy_sezgi_version__impl, 0},
@@ -131,6 +166,13 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_preset_shade__impl", (DL_FUNC) &savvy_sz_preset_shade__impl, 2},
     {"savvy_sz_run_experiment_raw__impl", (DL_FUNC) &savvy_sz_run_experiment_raw__impl, 4},
     {"savvy_sz_solve_bbob__impl", (DL_FUNC) &savvy_sz_solve_bbob__impl, 6},
+    {"savvy_sz_stats_bayesian_signed_rank_raw__impl", (DL_FUNC) &savvy_sz_stats_bayesian_signed_rank_raw__impl, 5},
+    {"savvy_sz_stats_cliffs_delta__impl", (DL_FUNC) &savvy_sz_stats_cliffs_delta__impl, 2},
+    {"savvy_sz_stats_cliffs_magnitude__impl", (DL_FUNC) &savvy_sz_stats_cliffs_magnitude__impl, 1},
+    {"savvy_sz_stats_friedman__impl", (DL_FUNC) &savvy_sz_stats_friedman__impl, 1},
+    {"savvy_sz_stats_paper_package_raw__impl", (DL_FUNC) &savvy_sz_stats_paper_package_raw__impl, 6},
+    {"savvy_sz_stats_plackett_luce__impl", (DL_FUNC) &savvy_sz_stats_plackett_luce__impl, 1},
+    {"savvy_sz_stats_wilcoxon__impl", (DL_FUNC) &savvy_sz_stats_wilcoxon__impl, 2},
     {NULL, NULL, 0}
 };
 

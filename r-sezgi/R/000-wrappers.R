@@ -216,4 +216,124 @@ NULL
   .Call(savvy_sz_solve_bbob__impl, `spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`)
 }
 
+#' Bayesian signed-rank test with a region of practical equivalence (ROPE)
+#' (Dirichlet-weighted Monte Carlo; see `sezgi_stats::bayesian_signed_rank`).
+#'
+#' This is the raw savvy-generated binding (required args only; savvy has no
+#' way to express a non-`NULL` default for a required argument in the
+#' generated signature). The public R entry point with R-native defaults is
+#' the hand-written wrapper `sz_stats_bayesian_signed_rank()` in
+#' `R/stats.R`, which calls this function.
+#'
+#' @param a Numeric vector.
+#' @param b Numeric vector, same length as `a`.
+#' @param rope Region of practical equivalence half-width (>= 0).
+#' @param samples Number of Monte Carlo samples. Passed to R as a double
+#'   (savvy has no unsigned integer scalar arg type) and cast to `u64`
+#'   after checking it is non-negative and finite.
+#' @param seed Master RNG seed, passed through unchanged (`u64` via `f64`
+#'   cast) — the same `(a, b, rope, samples, seed)` always produces a
+#'   bit-identical result, since R calls the exact same seeded Rust core as
+#'   Python and Rust.
+#' @returns A named list with `p_left`, `p_rope`, `p_right` (mirrors
+#'   py-sezgi's `stats_bayesian_signed_rank()` dict keys exactly).
+`sz_stats_bayesian_signed_rank_raw` <- function(`a`, `b`, `rope`, `samples`, `seed`) {
+  .Call(savvy_sz_stats_bayesian_signed_rank_raw__impl, `a`, `b`, `rope`, `samples`, `seed`)
+}
+
+#' Cliff's delta effect size for two independent (unpaired) samples.
+#'
+#' @param a Numeric vector.
+#' @param b Numeric vector.
+#' @returns A numeric scalar in `[-1, 1]`.
+#' @export
+`sz_stats_cliffs_delta` <- function(`a`, `b`) {
+  .Call(savvy_sz_stats_cliffs_delta__impl, `a`, `b`)
+}
+
+#' Qualitative magnitude label for a Cliff's delta value (Romano et al. 2006
+#' thresholds).
+#'
+#' @param delta A Cliff's delta value (as returned by
+#'   `sz_stats_cliffs_delta()`).
+#' @returns A character scalar: one of `"negligible"`, `"small"`,
+#'   `"medium"`, `"large"`.
+#' @export
+`sz_stats_cliffs_magnitude` <- function(`delta`) {
+  .Call(savvy_sz_stats_cliffs_magnitude__impl, `delta`)
+}
+
+#' Runs the Friedman test on a results matrix.
+#'
+#' @param m A numeric matrix, rows = problems, columns = algorithms, lower
+#'   is better (e.g. built with `rbind()` or `matrix()`).
+#' @returns A named list with `statistic`, `p_value`, `mean_ranks` (mirrors
+#'   py-sezgi's `stats_friedman()` dict keys exactly).
+#' @export
+`sz_stats_friedman` <- function(`m`) {
+  .Call(savvy_sz_stats_friedman__impl, `m`)
+}
+
+#' Computes a comprehensive statistical analysis package for algorithm
+#' comparison (Friedman, Nemenyi CD, pairwise Wilcoxon+Holm, Cliff's delta,
+#' Bayesian signed-rank, Plackett-Luce, and LaTeX tables; see
+#' `sezgi_stats::paper_package`).
+#'
+#' This is the raw savvy-generated binding (required args only; savvy has no
+#' way to express a non-`NULL` default for a required argument in the
+#' generated signature). The public R entry point with R-native defaults is
+#' the hand-written wrapper `sz_stats_paper_package()` in `R/stats.R`, which
+#' calls this function.
+#'
+#' @param algo_names Character vector of algorithm names.
+#' @param problem_names Character vector of problem names.
+#' @param m A numeric matrix, rows = problems (`length(problem_names)`),
+#'   columns = algorithms (`length(algo_names)`), lower is better.
+#' @param rope Region of practical equivalence half-width (>= 0) for the
+#'   Bayesian signed-rank test.
+#' @param samples Number of Monte Carlo samples per pair for the Bayesian
+#'   signed-rank test (double, cast to `u64`; see
+#'   `sz_stats_bayesian_signed_rank_raw()`).
+#' @param seed Master RNG seed (double, cast to `u64`); per-pair seeds are
+#'   `seed + pair_index` (wrapping), matching `sezgi_stats::paper_package`.
+#' @returns A named list with `friedman` (nested list: `statistic`,
+#'   `p_value`, `mean_ranks`), `nemenyi_cd`, `pairwise_wilcoxon_holm` (list
+#'   of length-3 numeric vectors `c(i, j, adjusted_p)`, 0-based algorithm
+#'   indices, i < j), `cliffs` (list of length-3 numeric vectors `c(i, j,
+#'   delta)`), `bayes` (list of 3-element lists `list(i, j, bayes_result)`
+#'   where `bayes_result` has `p_left`/`p_rope`/`p_right`),
+#'   `plackett_luce` (nested list: `worths`, `p_best`, `iterations`),
+#'   `latex_summary`, `latex_tests` (mirrors py-sezgi's
+#'   `stats_paper_package()` dict keys exactly).
+`sz_stats_paper_package_raw` <- function(`algo_names`, `problem_names`, `m`, `rope`, `samples`, `seed`) {
+  .Call(savvy_sz_stats_paper_package_raw__impl, `algo_names`, `problem_names`, `m`, `rope`, `samples`, `seed`)
+}
+
+#' Plackett-Luce maximum-likelihood ranking (Hunter 2004 MM algorithm; see
+#' `sezgi_stats::plackett_luce`).
+#'
+#' @param rankings A `list` of integer (or integer-valued numeric) vectors,
+#'   each a full ranking of the same `k` items as **1-based item ids**
+#'   (R's natural indexing; e.g. `list(c(1, 2, 3), c(2, 1, 3))` for k = 3
+#'   items, best first). Converted to 0-based indices before calling the
+#'   Rust core, which expects a permutation of `0..k`.
+#' @returns A named list with `worths`, `p_best`, `iterations` (mirrors
+#'   py-sezgi's `stats_plackett_luce()` dict keys exactly).
+#' @export
+`sz_stats_plackett_luce` <- function(`rankings`) {
+  .Call(savvy_sz_stats_plackett_luce__impl, `rankings`)
+}
+
+#' Wilcoxon signed-rank test for two paired samples (Pratt zero-handling and
+#' tie correction; see `sezgi_stats::wilcoxon_signed_rank`).
+#'
+#' @param a Numeric vector.
+#' @param b Numeric vector, same length as `a`.
+#' @returns A named list with `w_statistic`, `z`, `p_value`, `n_effective`
+#'   (mirrors py-sezgi's `stats_wilcoxon()` dict keys exactly).
+#' @export
+`sz_stats_wilcoxon` <- function(`a`, `b`) {
+  .Call(savvy_sz_stats_wilcoxon__impl, `a`, `b`)
+}
+
 

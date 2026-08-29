@@ -2,6 +2,7 @@ use savvy::savvy;
 
 mod experiment;
 mod solve;
+mod stats;
 
 /// Version of the underlying sezgi Rust core.
 ///
