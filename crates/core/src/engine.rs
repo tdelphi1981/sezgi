@@ -157,6 +157,26 @@ impl Engine {
                 if reached(&eval) { break 'outer; }
             }
 
+            // An adapter above may have evaluated brand-new individuals via
+            // `ctx.eval.evaluate(..)` and written them straight into `pop`
+            // without going through this loop's own generator-stage
+            // `eval.evaluate(&offspring)` call -- the only path
+            // `update_global_best` was previously wired to (M2d-3 Task 8's
+            // `adapter/abandon-worst-fraction` is the first such adapter;
+            // see `sezgi_components::cs`'s module doc). Scan `pop` here,
+            // once per generation (after all of this generation's stages
+            // and their adapters have run), so any such adapter-introduced
+            // improvement is not lost from `global_best` (and hence from
+            // `RunResult::best_f`/`best_x`). For every adapter that never
+            // evaluates (all of them, prior to Task 8) this is a proven
+            // no-op: every entry in `pop` was already fed through
+            // `update_global_best` either by this same generation's
+            // stage-evaluate call above, or (for individuals surviving from
+            // an earlier generation) by that earlier generation's own scan
+            // right here -- so nothing in `pop` can ever compare better
+            // than the already-recorded `global_best`.
+            update_global_best(&mut global_best, &pop.individuals, &pop.fitness);
+
             if let Some(restart) = &self.restart {
                 let directive = {
                     let mut ctx = Ctx { space, rng: &mut restart_rng, bb: &mut bb,
@@ -457,6 +477,59 @@ mod tests {
         let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
         assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), r.iterations,
             "the adapter must run exactly once per iteration, after the replacer");
+    }
+
+    /// Evaluates a fixed point and writes it directly into `pop`, bypassing
+    /// the stage's own generator-evaluate path entirely -- the same shape as
+    /// `sezgi_components::cs::AbandonWorstFraction` (M2d-3 Task 8), which
+    /// evaluates re-randomized nests via `ctx.eval.evaluate(..)` and installs
+    /// them into `pop` directly, never through `offspring`/`off_fit`.
+    struct PlantOptimum { shift: Vec<f64> }
+    impl Adapter for PlantOptimum {
+        fn adapt(&self, pop: &mut Population, ctx: &mut Ctx) {
+            let g = Genotype { blocks: vec![BlockValues::Float(self.shift.clone())] };
+            if let Ok(fitness) = ctx.eval.evaluate(std::slice::from_ref(&g)) {
+                pop.individuals[0] = g;
+                pop.fitness[0] = fitness[0];
+            }
+        }
+        fn meta(&self) -> ComponentMeta {
+            ComponentMeta::new("plant-optimum", SupportedBlocks::All)
+        }
+    }
+
+    /// Regression test (M2d-3 Task 8, fix round 1): an adapter that
+    /// evaluates and installs a BRAND NEW individual into `pop` (never
+    /// through the stage's own `eval.evaluate(&offspring)` call) must still
+    /// have that individual's fitness/genotype captured by `global_best`,
+    /// and therefore reflected in `RunResult::best_f`/`best_x`. `setup()`'s
+    /// problem is `SphereShifted` with optimum at `shift = [1.0, -2.0]`
+    /// (f = 0.0 there); `resample`/uniform-init sample continuously over
+    /// `[-5,5]`, so an exact-bit hit on the optimum by chance is
+    /// vanishingly improbable -- the adapter-planted point is, with
+    /// overwhelming probability, the unique run-wide best. Before the
+    /// engine.rs fix in this round, `Engine::run`'s `global_best` only
+    /// updated from the generator stage's own `eval.evaluate(&offspring)`
+    /// call and from `Restart` re-init, so this adapter-issued evaluate was
+    /// invisible to it and `best_f` would NOT be exactly `0.0`.
+    #[test]
+    fn adapter_evaluated_individual_is_captured_in_global_best() {
+        let (mut reg, mut spec, p) = setup();
+        let shift = vec![1.0, -2.0];
+        {
+            let shift = shift.clone();
+            reg.register_adapter("plant-optimum", move |_| {
+                Ok(Box::new(PlantOptimum { shift: shift.clone() }) as Box<dyn Adapter>)
+            });
+        }
+        spec.stages[0].adapter = Some(ComponentSpec { kind: "plant-optimum".into(), params: serde_json::json!({}) });
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+
+        assert_eq!(r.best_f, 0.0,
+            "the adapter-planted exact optimum must be captured as RunResult::best_f");
+        let BlockValues::Float(xs) = &r.best_x.blocks[0] else { panic!("expected a float block") };
+        assert_eq!(xs, &shift, "RunResult::best_x must be the adapter-planted point");
     }
 
     struct FireAt3 { new_pop_size: usize }

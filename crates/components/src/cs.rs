@@ -195,19 +195,25 @@ pub fn abandon_order(fitness: &[f64], pa: f64) -> Vec<usize> {
 /// the existing adapters (`adapter/jde-commit`, `adapter/shade-history`,
 /// `adapter/lpsr`) only read `ctx.eval.used()`/`budget()` or mutate
 /// `ctx.bb`, never introduce brand-new unevaluated individuals into `pop`.
-/// Known, documented limitation inherited from `Engine::run`'s existing
-/// architecture (not fixed by this task): `Engine::run`'s own `global_best`
-/// bookkeeping (used for `RunResult::best_f`/`best_x`) is only updated right
-/// after the GENERATOR stage's own `eval.evaluate(&offspring)` call and
-/// after a `Restart`'s re-init evaluate — an adapter-issued `evaluate` call
-/// is invisible to it. `ctx.eval.best_so_far()` DOES still see it (the
-/// `Evaluator` tracks its own best across ALL `evaluate` calls, regardless
-/// of caller), but a re-randomized nest that happens to be the single best
-/// point of the entire run, and is never subsequently matched or improved
-/// upon by a later generator-stage evaluation, would not surface in
-/// `RunResult`. In practice this is low-impact: abandoned nests are drawn
-/// from the CURRENT worst fraction and replaced with UNIFORM noise, so they
-/// only rarely improve on the population's best, let alone the run's best.
+///
+/// **Historical note / now-fixed** (M2d-3 Task 8, fix round 1): this
+/// adapter originally exposed a gap in `Engine::run`'s `global_best`
+/// bookkeeping (used for `RunResult::best_f`/`best_x`) — it was only
+/// updated right after the GENERATOR stage's own
+/// `eval.evaluate(&offspring)` call and after a `Restart`'s re-init
+/// evaluate, so an adapter-issued `evaluate` call (like this one) was
+/// invisible to it: a re-randomized nest that happened to be the single
+/// best point of the entire run, and was never subsequently matched or
+/// improved upon by a later generator-stage evaluation, would not have
+/// surfaced in `RunResult`. `Engine::run` now scans `pop` once per
+/// generation, right after that generation's stages (and their adapters)
+/// have all run, and feeds it through the same `update_global_best` used
+/// everywhere else — see `engine.rs`'s doc comment at that scan site for
+/// the fix and its class-general, proven-no-op-for-every-prior-preset
+/// rationale. `RunResult::best_f`/`best_x` now correctly reflect any
+/// adapter-evaluated individual, including this one's. (`crates/core/src/
+/// engine.rs`'s `engine::tests::adapter_evaluated_individual_is_captured_
+/// in_global_best` is the regression test.)
 pub struct AbandonWorstFraction;
 
 impl AbandonWorstFraction {
