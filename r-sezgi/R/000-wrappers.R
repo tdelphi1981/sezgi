@@ -350,6 +350,20 @@ NULL
   .Call(savvy_sz_preset_sa__impl, `budget`)
 }
 
+#' Builds a Sine Cosine Algorithm spec (Mirjalili 2016 -- a labeled
+#' metaphor preset, see `crates/components/src/sca.rs`'s module doc for the
+#' tier note, citation, the `SCA.m`-verified pinned draw order and the
+#' mealpy-`OriginalSCA` replacer delta) as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (number of search agents). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_sca` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_sca__impl, `pop_size`, `budget`)
+}
+
 #' Builds a SHADE algorithm spec as JSON, ready to pass to `sz_solve_bbob()`.
 #'
 #' @param pop_size Population size.

@@ -19,6 +19,7 @@ SEXP savvy_sz_preset_nelder_mead__ffi(SEXP c_arg__dim, SEXP c_arg__budget);
 SEXP savvy_sz_preset_pso__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_random_search__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_sa__ffi(SEXP c_arg__budget);
+SEXP savvy_sz_preset_sca__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_shade__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_woa__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_read_ioh_records__ffi(SEXP c_arg__log_root, SEXP c_arg__budgets);

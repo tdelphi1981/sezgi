@@ -230,6 +230,31 @@ pub fn goa(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Sine Cosine Algorithm (Mirjalili 2016) -- a labeled metaphor preset (see
+/// `sca.rs`'s module doc for the tier note, citation, verified-against-
+/// `SCA.m` pinned draw order and the mealpy-`OriginalSCA` replacer delta).
+/// Uniform init, `boundary/clamp` (same as `gwo`/`woa`/`goa`), unconditional
+/// generational replacement (`replace/generational`, GWO's kind, reused as
+/// -- `SCA.m`'s own reference loop overwrites every agent's position every
+/// iteration with no per-agent fitness-improvement test). `pop_size` is the
+/// number of search agents; canonical is 30 per the source paper. `min_pop
+/// = 2` (needs a best-so-far distinct from `i` for the update to be
+/// meaningful), enforced via `AlgorithmSpec::validate`.
+pub fn sca(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "sca".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/sca", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),
