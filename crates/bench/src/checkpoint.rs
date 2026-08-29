@@ -578,21 +578,26 @@ mod tests {
         assert_eq!(lines_after_first, lines_after_second, "journal should not grow on resume of completed experiment");
 
         // Content equality (excluding wall_secs which legitimately differs).
-        // NOTE: JSON decimal→f64 conversion is not bit-exact due to rounding during binary conversion.
-        // We compare with a small ULP-based epsilon to account for JSON deserialization rounding.
+        // Note: JSON roundtrip for f64 values can lose 1 ULP precision due to decimal→binary conversion.
+        // We allow ±1 ULP tolerance to account for this constraint.
         assert_eq!(result1.len(), result2.len(), "record counts must match");
         for (i, (r1, r2)) in result1.iter().zip(result2.iter()).enumerate() {
-            assert_eq!(r1.key, r2.key, "record {i}: key must match");
+            assert_eq!(
+                r1.key.to_string(),
+                r2.key.to_string(),
+                "record {}: key mismatch: result1={} vs result2={}",
+                i, r1.key, r2.key
+            );
             // Allow ±1 ULP due to JSON decimal→binary conversion
             assert!(
                 (r1.best_f - r2.best_f).abs() <= f64::EPSILON * r1.best_f.abs().max(1.0),
-                "record {i}: best_f must match (r1={}, r2={})", r1.best_f, r2.best_f
+                "record {}: best_f must match (r1={}, r2={})", i, r1.best_f, r2.best_f
             );
             assert!(
                 (r1.f_opt - r2.f_opt).abs() <= f64::EPSILON * r1.f_opt.abs().max(1.0),
-                "record {i}: f_opt must match (r1={}, r2={})", r1.f_opt, r2.f_opt
+                "record {}: f_opt must match (r1={}, r2={})", i, r1.f_opt, r2.f_opt
             );
-            assert_eq!(r1.evals_used, r2.evals_used, "record {i}: evals_used must match");
+            assert_eq!(r1.evals_used, r2.evals_used, "record {}: evals_used must match", i);
         }
     }
 
@@ -654,21 +659,27 @@ mod tests {
         // Verify total record count
         assert_eq!(resume_result.len(), full_count, "resume should produce same total record count");
 
-        // Content equality: compare with epsilon tolerance for JSON decimal→f64 rounding.
-        // Enumeration-order comparison proves journal merge order is correct.
+        // Content equality: enumeration-order comparison proves journal merge order is correct.
+        // Note: JSON roundtrip for f64 values can lose 1 ULP precision due to decimal→binary conversion.
+        // We allow ±1 ULP tolerance to account for this constraint.
         assert_eq!(full_result.len(), resume_result.len(), "record counts must match");
         for (i, (full_r, resume_r)) in full_result.iter().zip(resume_result.iter()).enumerate() {
-            assert_eq!(full_r.key, resume_r.key, "record {i}: key must match (enumeration order)");
+            assert_eq!(
+                full_r.key.to_string(),
+                resume_r.key.to_string(),
+                "record {}: key mismatch: full={} vs resume={}",
+                i, full_r.key, resume_r.key
+            );
             // Allow ±1 ULP due to JSON decimal→binary conversion
             assert!(
                 (full_r.best_f - resume_r.best_f).abs() <= f64::EPSILON * full_r.best_f.abs().max(1.0),
-                "record {i}: best_f must match (full={}, resume={})", full_r.best_f, resume_r.best_f
+                "record {}: best_f must match (full={}, resume={})", i, full_r.best_f, resume_r.best_f
             );
             assert!(
                 (full_r.f_opt - resume_r.f_opt).abs() <= f64::EPSILON * full_r.f_opt.abs().max(1.0),
-                "record {i}: f_opt must match (full={}, resume={})", full_r.f_opt, resume_r.f_opt
+                "record {}: f_opt must match (full={}, resume={})", i, full_r.f_opt, resume_r.f_opt
             );
-            assert_eq!(full_r.evals_used, resume_r.evals_used, "record {i}: evals_used must match");
+            assert_eq!(full_r.evals_used, resume_r.evals_used, "record {}: evals_used must match", i);
         }
     }
 
