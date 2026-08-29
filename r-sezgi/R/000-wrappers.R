@@ -322,6 +322,20 @@ NULL
   .Call(savvy_sz_preset_lshade__impl, `dim`, `budget`)
 }
 
+#' Builds an MFO (Moth-Flame Optimization; Mirjalili 2015 -- a labeled
+#' metaphor preset, see `crates/components/src/mfo.rs`'s module doc for the
+#' tier note, citation, the verified `MFO.m` loop structure, the two subtle
+#' draw/index deltas found vs the plan's sketch, and the blackboard
+#' flame-memory design) spec as JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (number of search agents). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_mfo` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_mfo__impl, `pop_size`, `budget`)
+}
+
 #' Builds a Nelder-Mead simplex algorithm spec as JSON, ready to pass to
 #' `sz_solve_bbob()`.
 #'

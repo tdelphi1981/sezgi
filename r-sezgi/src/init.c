@@ -129,6 +129,11 @@ SEXP savvy_sz_preset_lshade__impl(SEXP c_arg__dim, SEXP c_arg__budget) {
     return handle_result(res);
 }
 
+SEXP savvy_sz_preset_mfo__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_mfo__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_preset_nelder_mead__impl(SEXP c_arg__dim, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_nelder_mead__ffi(c_arg__dim, c_arg__budget);
     return handle_result(res);
@@ -274,6 +279,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_preset_jaya__impl", (DL_FUNC) &savvy_sz_preset_jaya__impl, 2},
     {"savvy_sz_preset_jde__impl", (DL_FUNC) &savvy_sz_preset_jde__impl, 2},
     {"savvy_sz_preset_lshade__impl", (DL_FUNC) &savvy_sz_preset_lshade__impl, 2},
+    {"savvy_sz_preset_mfo__impl", (DL_FUNC) &savvy_sz_preset_mfo__impl, 2},
     {"savvy_sz_preset_nelder_mead__impl", (DL_FUNC) &savvy_sz_preset_nelder_mead__impl, 2},
     {"savvy_sz_preset_pso__impl", (DL_FUNC) &savvy_sz_preset_pso__impl, 2},
     {"savvy_sz_preset_random_search__impl", (DL_FUNC) &savvy_sz_preset_random_search__impl, 2},

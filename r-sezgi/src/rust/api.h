@@ -16,6 +16,7 @@ SEXP savvy_sz_preset_harmony_search__ffi(SEXP c_arg__pop_size, SEXP c_arg__budge
 SEXP savvy_sz_preset_jaya__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_jde__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_lshade__ffi(SEXP c_arg__dim, SEXP c_arg__budget);
+SEXP savvy_sz_preset_mfo__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_nelder_mead__ffi(SEXP c_arg__dim, SEXP c_arg__budget);
 SEXP savvy_sz_preset_pso__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_random_search__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);

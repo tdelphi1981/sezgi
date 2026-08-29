@@ -68,6 +68,15 @@ def test_preset_jaya_is_dict_with_stages():
     assert spec["stages"][0]["replacer"]["kind"] == "replace/one-to-one-greedy"
 
 
+def test_preset_mfo_is_dict_with_stages():
+    """M2d-4 Task 3: sezgi.presets.mfo() parses as JSON with the expected shape."""
+    spec = sezgi.presets.mfo(pop_size=30, budget=2000)
+    assert spec["pop_size"] == 30
+    assert spec["stages"][0]["generator"]["kind"] == "gen/mfo"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/generational"
+    assert spec["stages"][0]["adapter"]["kind"] == "adapter/mfo-flame-update"
+
+
 def test_bbob_solve_deterministic():
     p = sezgi.bbob(fid=1, dim=5, instance=1)
     spec = sezgi.presets.de_rand_1(pop_size=20, budget=2000)
@@ -175,6 +184,7 @@ def test_all_presets_solve_smoke():
         "goa": sezgi.presets.goa(pop_size=30, budget=budget),
         "sca": sezgi.presets.sca(pop_size=30, budget=budget),
         "jaya": sezgi.presets.jaya(pop_size=30, budget=budget),
+        "mfo": sezgi.presets.mfo(pop_size=30, budget=budget),
         "jde": sezgi.presets.jde(pop_size=20, budget=budget),
         "shade": sezgi.presets.shade(pop_size=20, budget=budget),
         "lshade": sezgi.presets.lshade(dim=dim, budget=budget),

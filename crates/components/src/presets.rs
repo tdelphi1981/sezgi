@@ -282,6 +282,32 @@ pub fn jaya(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Moth-Flame Optimization (Mirjalili 2015) -- a labeled metaphor preset
+/// (see `mfo.rs`'s module doc for the full provenance extraction, the
+/// verified `MFO.m` loop structure, the two subtle draw/index deltas found
+/// vs the plan's sketch, and the blackboard flame-memory design). Uniform
+/// init, `boundary/clamp` (same as `gwo`/`woa`/`sca`/`jaya`), `gen/mfo`
+/// paired with `adapter/mfo-flame-update` (the flame memory's canonical
+/// owner -- merge-sort-truncate each generation, per `MFO.m`), generational
+/// replacement (`replace/generational`, reused as-is -- the flames, not the
+/// moth population, carry the elitism). `pop_size` is the number of search
+/// agents; canonical is 30 per the source paper. `min_pop = 2`, enforced
+/// via `AlgorithmSpec::validate`.
+pub fn mfo(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "mfo".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/mfo", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: Some(comp("adapter/mfo-flame-update", serde_json::json!({}))),
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),

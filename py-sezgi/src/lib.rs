@@ -771,6 +771,9 @@ fn per_budget_packages(
 #[pyfunction] fn preset_jaya(pop_size: usize, budget: u64) -> String {
     presets::jaya(pop_size, budget).to_json()
 }
+#[pyfunction] fn preset_mfo(pop_size: usize, budget: u64) -> String {
+    presets::mfo(pop_size, budget).to_json()
+}
 #[pyfunction] fn preset_sa(budget: u64) -> String {
     presets::sa(budget).to_json()
 }
@@ -870,6 +873,7 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(preset_goa, m)?)?;
     m.add_function(wrap_pyfunction!(preset_sca, m)?)?;
     m.add_function(wrap_pyfunction!(preset_jaya, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_mfo, m)?)?;
     m.add_function(wrap_pyfunction!(preset_sa, m)?)?;
     m.add_function(wrap_pyfunction!(preset_shade, m)?)?;
     m.add_function(wrap_pyfunction!(preset_lshade, m)?)?;
