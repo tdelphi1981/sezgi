@@ -104,8 +104,7 @@ def test_cross_language_determinism():
 def test_all_presets_solve_smoke():
     """M2c Task 1: every newly-exposed preset bridge solves bbob f1 (dim 5)
     with a small budget without error, and produces a finite, actually-used
-    result. `es_mu_plus_lambda` is intentionally excluded (not bridged; see
-    __init__.py's presets docstring)."""
+    result."""
     dim = 5
     p = sezgi.bbob(fid=1, dim=dim, instance=1)
     budget = 2000
@@ -120,6 +119,7 @@ def test_all_presets_solve_smoke():
         "sa": sezgi.presets.sa(budget=budget),
         "random_search": sezgi.presets.random_search(pop_size=20, budget=budget),
         "nelder_mead": sezgi.presets.nelder_mead(dim=dim, budget=budget),
+        "es_mu_plus_lambda": sezgi.presets.es_mu_plus_lambda(pop_size=20, budget=budget),
     }
 
     for name, spec in specs.items():
@@ -142,3 +142,22 @@ def test_log_dir_reports_skipped_runs(tmp_path):
     # Without log_dir: should NOT have skipped_empty_runs key
     result_without_log = sezgi.solve(spec, p, master_seed=42)
     assert "skipped_empty_runs" not in result_without_log
+
+
+def test_es_mu_plus_lambda_default_dist_solves():
+    """M2d-1 Task 7: the default (gaussian) es_mu_plus_lambda preset parses
+    as JSON and solves bbob f1 without error."""
+    spec = sezgi.presets.es_mu_plus_lambda(pop_size=10, budget=500)
+    assert spec["name"] == "es/mu+lambda"
+    assert spec["stages"][0]["generator"]["kind"] == "gen/step"
+    assert spec["stages"][0]["generator"]["dist"]["kind"] == "gaussian"
+
+    p = sezgi.bbob(fid=1, dim=5, instance=1)
+    r = sezgi.solve(spec, p, master_seed=1)
+    assert r["evals_used"] > 0
+    assert r["best_f"] == r["best_f"]  # not NaN
+
+
+def test_es_mu_plus_lambda_unknown_dist_raises():
+    with pytest.raises(ValueError, match="unknown distribution"):
+        sezgi.presets.es_mu_plus_lambda(10, 500, dist="banana")

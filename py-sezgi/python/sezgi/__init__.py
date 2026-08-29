@@ -37,16 +37,68 @@ def run_experiment(spec_toml, journal=None, parallel=True, threads=None):
                                  threads=threads)
 
 
+def results_matrix(records, budget, aggregate="mean"):
+    """Build a `sezgi.stats.paper_package`-shaped results matrix for one
+    `budget` from `run_experiment`'s record dicts.
+
+    records: list of dicts as returned by `run_experiment` (or any list of
+        dicts with the same fields: algo, fid, dim, instance, seed, budget,
+        best_f, f_opt, evals_used).
+    budget: only records with this budget are used.
+    aggregate: how to combine a (problem, algorithm) cell's per-seed gaps
+        (`best_f - f_opt`) into one number: "mean" or "median".
+
+    Returns (algo_names, problem_labels, matrix): `matrix[i][j]` is the
+    aggregated gap of `algo_names[j]` on `problem_labels[i]`. Problem labels
+    are `f{fid}d{dim}i{instance}`; both lists are ordered by first
+    appearance in `records`. Raises ValueError if a (problem, algorithm)
+    pair present for one algorithm/problem is missing for another at this
+    budget (an incomplete experiment) -- see
+    `sezgi_bench::reporting::results_matrix`.
+    """
+    return _sezgi.results_matrix(records, budget, aggregate=aggregate)
+
+
+def per_budget_packages(records, rope=0.0, samples=20000, seed=1, aggregate="mean"):
+    """Build one `sezgi.stats.paper_package` PER DISTINCT BUDGET present in
+    `records`, in ascending budget order.
+
+    Piotrowski et al. (2025) show algorithm rankings on benchmark
+    comparisons can flip depending on which evaluation budget is examined,
+    so this makes multi-budget reporting the default rather than a single,
+    arbitrarily-chosen budget's report: compare algorithms per budget, never
+    pooled across budgets.
+
+    records: list of dicts as returned by `run_experiment`.
+    rope, samples, seed: forwarded to the Bayesian signed-rank test inside
+        each budget's paper_package (same as `sezgi.stats.paper_package`).
+    aggregate: "mean" or "median" -- see `results_matrix`.
+
+    Returns a list of `[budget, package_dict]` pairs; each `package_dict`
+    has exactly the shape `sezgi.stats.paper_package` returns.
+    """
+    return _sezgi.per_budget_packages(records, rope=rope, samples=samples, seed=seed,
+                                      aggregate=aggregate)
+
+
 def _preset(fn):
     def wrapper(*args, **kwargs):
         return json.loads(fn(*args, **kwargs))
     return wrapper
 
 
-# All presets from crates/components/src/presets.rs are exposed here except
-# `es_mu_plus_lambda`: its Rust signature takes a `Distribution` (an enum
-# with nested params), which doesn't have a clean pyfunction argument
-# mapping. Bridging it is deferred to M2d.
+# All presets from crates/components/src/presets.rs are exposed here.
+#
+# es_mu_plus_lambda takes the mutation distribution as a `dist` string plus
+# its (flattened, all-distributions-superimposed) params, parsed on the Rust
+# side by `parse_distribution` in py-sezgi/src/lib.rs:
+#   dist="uniform"                    -> no extra params
+#   dist="gaussian", mean=0.0, sigma=0.5
+#   dist="cauchy",   loc=0.0,  scale=1.0
+#   dist="levy",     alpha=1.5
+#   dist="student_t", nu=3.0
+#   dist="laplace",  loc=0.0,  scale=1.0
+# An unrecognized `dist` raises ValueError ("unknown distribution ...").
 presets = SimpleNamespace(
     de_rand_1=_preset(_sezgi.preset_de_rand_1),
     de_best_1=_preset(_sezgi.preset_de_best_1),
@@ -60,6 +112,7 @@ presets = SimpleNamespace(
     nelder_mead=_preset(_sezgi.preset_nelder_mead),
     cmaes=_preset(_sezgi.preset_cmaes),
     cmaes_ipop=_preset(_sezgi.preset_cmaes_ipop),
+    es_mu_plus_lambda=_preset(_sezgi.preset_es_mu_plus_lambda),
 )
 
 def _paper_package(algo_names, problem_names, results, rope=0.0, samples=20000, seed=1):
@@ -73,6 +126,12 @@ def _bayesian_signed_rank(a, b, rope=0.0, samples=20000, seed=1):
 
 # Statistics namespace: mirrors crates/stats's public functions. Accepts
 # Python lists (list of lists for matrices) or numpy arrays.
+#
+# stats.wilcoxon(a, b) returns a dict with keys w_statistic, z, p_value,
+# n_effective, and method ("exact" or "normal_approx"). "exact" is used when
+# n_effective <= 25 and there are no zero differences or tied |d| ranks; the
+# exact p-value formula is semver-pinned (see
+# crates/stats/src/pairwise.rs::wilcoxon_signed_rank doc comment).
 stats = SimpleNamespace(
     friedman=_sezgi.stats_friedman,
     wilcoxon=_sezgi.stats_wilcoxon,
@@ -83,4 +142,5 @@ stats = SimpleNamespace(
     paper_package=_paper_package,
 )
 
-__all__ = ["Problem", "bbob", "from_callable", "solve", "run_experiment", "presets", "stats"]
+__all__ = ["Problem", "bbob", "from_callable", "solve", "run_experiment", "presets", "stats",
+           "results_matrix", "per_budget_packages"]

@@ -206,7 +206,7 @@ pub enum ExperimentError {
     JournalLoad(String),
     #[error("journal write error: {0}")]
     JournalWrite(String),
-    #[error("experiment spec has changed: expected hash {expected}, got {got}")]
+    #[error("experiment spec has changed: expected hash {expected}, got {got} (note: since M2d the spec hash is computed over the canonical form; journals from M2c with formatting-only differences must be regenerated)")]
     ExperimentHashMismatch { expected: String, got: String },
     #[error("missing run record for algorithm `{algo}` on problem `{problem}` at budget {budget} (incomplete experiment)")]
     MissingCell { algo: String, problem: String, budget: u64 },

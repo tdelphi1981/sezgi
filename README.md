@@ -48,51 +48,87 @@ Run multiple algorithms across multiple problems, seeds, and budgets with a TOML
     """
     
     # Run experiment (TOML grid × seeds × budgets × instances)
-    results = sezgi.run_experiment(spec_toml, parallel=True)
-    
-    # Statistics for ONE budget at a time: filter records first, then
-    # aggregate the mean gap per (instance, algorithm) cell. The Wilcoxon
-    # tests inside paper_package need at least 5 problem rows, hence
-    # 5 instances above.
-    budget = 5000
-    records = [r for r in results if r["budget"] == budget]
-    instances = sorted(set(r["instance"] for r in records))
-    algos = ["de", "cmaes"]
-    results_matrix = [
-        [
-            sum(r["gap"] for r in records 
-                if r["instance"] == inst and r["algo"] == algo) 
-            / sum(1 for r in records 
-                if r["instance"] == inst and r["algo"] == algo)
-            for algo in algos
-        ]
-        for inst in instances
-    ]
-    
-    # Generate statistical summary with LaTeX tables
-    pkg = sezgi.stats.paper_package(
-        algo_names=["DE", "CMA-ES"],
-        problem_names=[f"instance_{i}" for i in instances],
-        results=results_matrix,
-        rope=0.01,
-        samples=10000,
-        seed=42
-    )
-    
-    print(pkg["latex_summary"])  # Friedman ranks + pairwise Wilcoxon–Holm
+    records = sezgi.run_experiment(spec_toml, parallel=True)
 
-Compare algorithms per budget, never pooled across budgets: rankings can flip
-between small and large budgets (Piotrowski et al. 2025), so repeat the
-analysis above for each budget of interest.
+    # One paper_package PER DISTINCT BUDGET present in records, in ascending
+    # budget order — no hand-rolled filtering/aggregation needed. At least 5
+    # problems is recommended for meaningful comparisons (the exact Wilcoxon
+    # test now handles fewer if no ties or zeros are present).
+    packages = sezgi.per_budget_packages(records, rope=0.01, samples=10000, seed=42)
+
+    for budget, pkg in packages:
+        print(f"--- budget={budget} ---")
+        print(pkg["latex_summary"])  # Friedman ranks + pairwise Wilcoxon–Holm
+
+`per_budget_packages` reports statistics per budget, never pooled across
+budgets: rankings can flip between small and large budgets (Piotrowski et al.
+2025), so each budget gets its own package rather than one arbitrarily-chosen
+budget standing in for all of them. `sezgi.results_matrix(records, budget)`
+is available separately if you need just the `(algo_names, problem_labels,
+matrix)` triple for one budget (e.g. to feed a custom analysis).
+
+## Quickstart (R)
+
+Install from the repo root (the Rust core builds via `cargo` on install):
+
+    R CMD INSTALL r-sezgi
+
+Then:
+
+    library(sezgi)
+
+    spec <- sz_preset_de_rand_1(pop_size = 50, budget = 20000)
+    result <- sz_solve_bbob(spec, fid = 1L, dim = 10L, instance = 1L,
+                             master_seed = 42, run_id = 0)
+    print(result$best_f)
+
+Experiments and statistics mirror the Python bindings exactly (same TOML
+grid schema, same checkpoint/resume semantics, bit-identical results for the
+same spec and seed):
+
+    spec_toml <- '
+        name = "example"
+        seeds = [1, 2, 3]
+        budgets = [1000, 5000]
+
+        [[algorithms]]
+        name = "de"
+        preset = { kind = "de_rand_1", pop_size = 20 }
+
+        [[algorithms]]
+        name = "cmaes"
+        preset = { kind = "cmaes", pop_size = 20 }
+
+        [[problems]]
+        suite = "bbob"
+        fid = 1
+        dim = 10
+        instances = [1, 2, 3, 4, 5]
+    '
+
+    records <- sz_run_experiment(spec_toml, parallel = TRUE)
+
+    # One paper_package PER DISTINCT BUDGET present in records, named by
+    # budget, in ascending budget order.
+    packages <- sz_per_budget_packages(records, rope = 0.01, samples = 10000, seed = 42)
+
+    for (budget_name in names(packages)) {
+      cat("--- budget=", budget_name, " ---\n", sep = "")
+      cat(packages[[budget_name]]$latex_summary, "\n")
+    }
+
+`sz_results_matrix(records, budget)` is available separately if you need
+just the `(algo_names, problem_labels, matrix)` triple for one budget.
 
 ## Development
 
     cargo test --workspace --release        # Rust tests
     cd py-sezgi && maturin develop && pytest # Python tests
+    R CMD INSTALL --preclean r-sezgi && Rscript -e 'testthat::test_dir("r-sezgi/tests/testthat", package = "sezgi")' # R tests
 
 ## Status
 
-M2c (experiment runner + statistics) **complete** — TOML grids with parallel execution, multi-budget checkpoint/resume, Friedman/Holm/Hochberg/Nemenyi tests, Wilcoxon-Pratt/Cliff's δ, Bayesian signed-rank with ROPE, Plackett–Luce rankings, LaTeX paper package generation. Next: M2d (R frontend + examples + ECDF/anytime analysis). License: MIT.
+M2d-1 (R frontend + exact-Wilcoxon + canonical spec hashing) **complete** — savvy-based R bindings mirroring py-sezgi (13 presets, `sz_run_experiment`, `sz_results_matrix`/`sz_per_budget_packages`, full stats namespace), exact small-n Wilcoxon signed-rank distribution, canonical spec-hash checkpointing in both bindings. See `docs/DECISIONS.md` for the full M2d-1 record. Next: M2d-2 (ECDF/anytime analysis, COCO export, example triplets, Bayesian PL posterior, IOH-driven stats input, R-callback problems). License: MIT.
 
 ## Algorithms
 
@@ -114,4 +150,4 @@ sezgi M2b ships 13 reference algorithm presets (with Rust function names):
 | Nelder–Mead Simplex | `presets::nelder_mead` |
 | Random Search (baseline) | `presets::random_search` |
 
-Python bindings expose every preset above except `es_mu_plus_lambda` (its `Distribution` argument lacks clean FFI mapping; deferred to M2d). All other algorithm families are ready for experiment-driven research.
+Both the Python and R bindings expose every preset above, including `es_mu_plus_lambda` (its `Distribution` argument is bridged via a distribution-name string plus per-family parameters — see `sezgi.presets.es_mu_plus_lambda` / `sz_preset_es_mu_plus_lambda`).

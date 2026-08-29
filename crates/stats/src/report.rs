@@ -7,9 +7,9 @@
 //! pairwise comparison matrix.
 
 use crate::{
-    bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman, holm, nemenyi_cd,
-    plackett_luce, rank_matrix, wilcoxon_signed_rank, BayesSignedRankResult, FriedmanResult,
-    PlackettLuceResult, StatsError,
+    bayesian_signed_rank, check_finite, cliffs_delta, cliffs_magnitude, friedman, holm,
+    nemenyi_cd, plackett_luce, rank_matrix, wilcoxon_signed_rank, BayesSignedRankResult,
+    FriedmanResult, PlackettLuceResult, StatsError,
 };
 
 /// Summary statistics for a single algorithm across multiple problems.
@@ -162,8 +162,11 @@ fn escape_latex_name(name: &str) -> String {
 /// - The results matrix is ragged
 /// - Friedman test fails (too few problems/algorithms)
 /// - Nemenyi CD cannot be computed (k outside 2..=20 or n == 0)
-/// - Any Wilcoxon test fails (requires ≥ 5 problems; Wilcoxon needs n_effective ≥ 5 paired
-///   samples per algorithm pair); see [`wilcoxon_signed_rank`] docs for details.
+/// - Any Wilcoxon test fails: `n_effective >= 5` paired samples per
+///   algorithm pair are required *unless* the pair is exact-eligible (no
+///   zero differences, no tied `|d|` ranks, `n_effective <= 25`), in which
+///   case the exact small-n distribution applies down to `n_effective >=
+///   1`; see [`wilcoxon_signed_rank`] docs for the full eligibility rule.
 pub fn paper_package(
     algo_names: &[String],
     problem_names: &[String],
@@ -172,6 +175,8 @@ pub fn paper_package(
     bayes_samples: u64,
     master_seed: u64,
 ) -> Result<PaperPackage, StatsError> {
+    check_finite("paper_package", results.iter().flatten().copied())?;
+
     let n = results.len();
     let k = algo_names.len();
 
@@ -225,7 +230,7 @@ pub fn paper_package(
         for j in (i + 1)..k {
             let a: Vec<f64> = results.iter().map(|row| row[i]).collect();
             let b: Vec<f64> = results.iter().map(|row| row[j]).collect();
-            let delta = cliffs_delta(&a, &b);
+            let delta = cliffs_delta(&a, &b)?;
             cliffs_vec.push((i, j, delta));
         }
     }
@@ -540,7 +545,51 @@ mod tests {
     }
 
     #[test]
+    fn paper_package_errors_on_nan() {
+        let algo_names = vec!["A".to_string(), "B".to_string()];
+        let problem_names = vec!["P1".to_string(), "P2".to_string()];
+        let results = vec![vec![1.0, f64::NAN], vec![1.5, 1.8]];
+
+        let err = paper_package(&algo_names, &problem_names, &results, 0.1, 100, 777)
+            .expect_err("NaN must be rejected");
+        let StatsError::InvalidInput(msg) = err;
+        assert!(msg.contains("paper_package"), "message should name the function: {msg}");
+        assert!(msg.contains("non-finite"), "message should say non-finite: {msg}");
+    }
+
+    #[test]
     fn paper_package_errors_on_too_few_problems() {
+        // n = 1 problem: friedman() requires n >= 2 rows, so this still
+        // errors regardless of Wilcoxon eligibility (unlike the fixture
+        // below, which used to error here too before Task 6).
+        let algo_names = vec!["A".to_string(), "B".to_string()];
+        let problem_names = vec!["P1".to_string()];
+
+        let results = vec![vec![1.0, 2.0]];
+
+        let result = paper_package(&algo_names, &problem_names, &results, 0.1, 100, 777);
+
+        // Should error because friedman needs >= 2 problems (rows).
+        assert!(result.is_err(), "expected error for insufficient problems");
+    }
+
+    // *** TASK 6 BEHAVIOR CHANGE (M2d-1, flagged prominently per the
+    // brief's disclosure rule): this is the SAME fixture that used to be
+    // `paper_package_errors_on_too_few_problems` (3 problems, 2 algorithms,
+    // A=[1.0,1.5,1.2], B=[2.0,1.8,2.1]). It used to error because the
+    // per-pair `wilcoxon_signed_rank` call has n_effective = 3 < 5, and
+    // pre-Task-6 that unconditionally errored (no exact small-n
+    // distribution existed to fall back on). d = A - B = [-1.0, -0.3,
+    // -0.9], |d| = [1.0, 0.3, 0.9] -- all distinct, no zeros -- so this
+    // pair is now exact-eligible (t0=0, n_effective=3 <= 25, no ties), and
+    // paper_package succeeds end-to-end (Nemenyi CD and
+    // bayesian_signed_rank have no n_effective >= 5 floor, so nothing else
+    // blocks it). This is a direct, intended consequence of Task 6 lifting
+    // the n_effective < 5 floor for exact-eligible input inside
+    // `wilcoxon_signed_rank` -- flagged here since it changes a
+    // previously-pinned Err assertion to Ok.
+    #[test]
+    fn paper_package_succeeds_with_few_problems_via_exact_wilcoxon() {
         let algo_names = vec!["A".to_string(), "B".to_string()];
         let problem_names = vec!["P1".to_string(), "P2".to_string(), "P3".to_string()];
 
@@ -552,7 +601,14 @@ mod tests {
 
         let result = paper_package(&algo_names, &problem_names, &results, 0.1, 100, 777);
 
-        // Should error because wilcoxon needs n_effective >= 5
-        assert!(result.is_err(), "expected error for insufficient problems");
+        assert!(
+            result.is_ok(),
+            "n_effective=3 is now exact-eligible (no zeros, no ties), not an error: {:?}",
+            result.err()
+        );
+        let pkg = result.unwrap();
+        assert_eq!(pkg.pairwise_wilcoxon_holm.len(), 1); // C(2,2)=1 pair
+        let (_, _, p) = pkg.pairwise_wilcoxon_holm[0];
+        assert!((0.0..=1.0).contains(&p), "p-value out of range: {}", p);
     }
 }

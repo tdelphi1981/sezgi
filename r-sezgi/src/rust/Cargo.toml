@@ -1,0 +1,30 @@
+[package]
+name = "sezgi"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[lib]
+crate-type = ["staticlib", "lib"]
+
+[dependencies]
+savvy = "0.10"
+sezgi-core = { path = "../../../crates/core" }
+sezgi-components = { path = "../../../crates/components" }
+sezgi-problems = { path = "../../../crates/problems" }
+sezgi-bench = { path = "../../../crates/bench" }
+sezgi-stats = { path = "../../../crates/stats" }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[profile.release]
+# By default, on release build, savvy terminates the R session when a panic
+# occurs. This is the right behavior in that a panic means such a fatal event
+# where we can have no hope of recovery.
+#
+# cf. https://doc.rust-lang.org/book/ch09-03-to-panic-or-not-to-panic.html
+#
+# However, it's possible that the panic is thrown by some of the dependency
+# crate and there's little you can do. In such cases, you can change the
+# following line to `panic = "unwind"` to always catch a panic.
+panic = "abort"

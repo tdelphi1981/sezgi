@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/core", "crates/components", "crates/problems", "crates/bench", "crates/stats", "py-sezgi"]
+exclude = ["r-sezgi/src/rust"]
 
 [workspace.package]
 version = "0.1.0"
