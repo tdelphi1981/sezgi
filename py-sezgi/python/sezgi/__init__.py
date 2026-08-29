@@ -43,10 +43,18 @@ def _preset(fn):
     return wrapper
 
 
-# All presets from crates/components/src/presets.rs are exposed here except
-# `es_mu_plus_lambda`: its Rust signature takes a `Distribution` (an enum
-# with nested params), which doesn't have a clean pyfunction argument
-# mapping. Bridging it is deferred to M2d.
+# All presets from crates/components/src/presets.rs are exposed here.
+#
+# es_mu_plus_lambda takes the mutation distribution as a `dist` string plus
+# its (flattened, all-distributions-superimposed) params, parsed on the Rust
+# side by `parse_distribution` in py-sezgi/src/lib.rs:
+#   dist="uniform"                    -> no extra params
+#   dist="gaussian", mean=0.0, sigma=0.5
+#   dist="cauchy",   loc=0.0,  scale=1.0
+#   dist="levy",     alpha=1.5
+#   dist="student_t", nu=3.0
+#   dist="laplace",  loc=0.0,  scale=1.0
+# An unrecognized `dist` raises ValueError ("unknown distribution ...").
 presets = SimpleNamespace(
     de_rand_1=_preset(_sezgi.preset_de_rand_1),
     de_best_1=_preset(_sezgi.preset_de_best_1),
@@ -60,6 +68,7 @@ presets = SimpleNamespace(
     nelder_mead=_preset(_sezgi.preset_nelder_mead),
     cmaes=_preset(_sezgi.preset_cmaes),
     cmaes_ipop=_preset(_sezgi.preset_cmaes_ipop),
+    es_mu_plus_lambda=_preset(_sezgi.preset_es_mu_plus_lambda),
 )
 
 def _paper_package(algo_names, problem_names, results, rope=0.0, samples=20000, seed=1):

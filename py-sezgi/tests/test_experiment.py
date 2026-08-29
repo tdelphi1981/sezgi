@@ -107,6 +107,15 @@ def test_stats_bindings_smoke():
     assert isinstance(pl["iterations"], int)
 
 
+def test_stats_wilcoxon_nan_raises():
+    """M2d-1 Task 7: non-finite input to any stats entry point raises
+    ValueError naming the non-finite policy."""
+    a = [1.0, float("nan"), 3.0]
+    b = [1.0, 2.0, 3.0]
+    with pytest.raises(ValueError, match="non-finite"):
+        sezgi.stats.wilcoxon(a, b)
+
+
 def test_wilcoxon_exact_small_n():
     # Mirrors crates/stats/src/pairwise.rs::exact_small_n_no_ties_uses_exact_distribution.
     # n=8, |d| ranks 1..8 (distinct), only the smallest-|d| pair (|d|=1) has

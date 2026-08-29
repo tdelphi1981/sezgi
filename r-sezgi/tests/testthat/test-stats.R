@@ -76,6 +76,12 @@ test_that("wilcoxon reports method=exact for the pinned exact small-n fixture (p
   expect_equal(r$n_effective, 8)
 })
 
+test_that("wilcoxon rejects a non-finite input (M2d-1 Task 7 NaN policy)", {
+  a <- c(1, NaN, 3)
+  b <- c(1, 2, 3)
+  expect_error(sz_stats_wilcoxon(a, b), "non-finite")
+})
+
 test_that("cliffs_delta matches the pinned known-value fixture (pairwise.rs::cliffs_delta_known_value)", {
   a <- c(1, 2, 3)
   b <- c(2, 3, 4)

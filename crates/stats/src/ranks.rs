@@ -7,7 +7,7 @@
 //! lower is better).
 
 use crate::special::chi_square_sf;
-use crate::StatsError;
+use crate::{check_finite, StatsError};
 
 /// Result of a Friedman test.
 #[derive(Debug, Clone, PartialEq)]
@@ -82,6 +82,8 @@ pub fn rank_matrix(results: &[Vec<f64>]) -> Vec<Vec<f64>> {
 /// Returns `StatsError::InvalidInput` if `n < 2`, `k < 2`, or the matrix is
 /// ragged (rows of differing length).
 pub fn friedman(results: &[Vec<f64>]) -> Result<FriedmanResult, StatsError> {
+    check_finite("friedman", results.iter().flatten().copied())?;
+
     let n = results.len();
     if n < 2 {
         return Err(StatsError::InvalidInput(format!(
@@ -451,6 +453,24 @@ mod tests {
             friedman(&results),
             Err(StatsError::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn friedman_errors_on_nan() {
+        let results = vec![vec![1.0, f64::NAN, 3.0], vec![2.0, 3.0, 1.0]];
+        let err = friedman(&results).expect_err("NaN must be rejected");
+        let StatsError::InvalidInput(msg) = err;
+        assert!(msg.contains("friedman"), "message should name the function: {msg}");
+        assert!(msg.contains("non-finite"), "message should say non-finite: {msg}");
+    }
+
+    #[test]
+    fn friedman_errors_on_infinity() {
+        let results = vec![vec![1.0, f64::INFINITY, 3.0], vec![2.0, 3.0, 1.0]];
+        let err = friedman(&results).expect_err("infinity must be rejected");
+        let StatsError::InvalidInput(msg) = err;
+        assert!(msg.contains("friedman"), "message should name the function: {msg}");
+        assert!(msg.contains("non-finite"), "message should say non-finite: {msg}");
     }
 
     // Textbook Holm/Hochberg fixture: p = [0.01, 0.02, 0.03, 0.04], m = 4.

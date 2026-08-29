@@ -190,7 +190,7 @@ fn sz_stats_wilcoxon(a: RealSexp, b: RealSexp) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_stats_cliffs_delta(a: RealSexp, b: RealSexp) -> savvy::Result<Sexp> {
-    let delta = cliffs_delta(a.as_slice(), b.as_slice());
+    let delta = cliffs_delta(a.as_slice(), b.as_slice()).map_err(|e| savvy_err!("{e}"))?;
     delta.try_into()
 }
 

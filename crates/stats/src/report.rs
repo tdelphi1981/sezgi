@@ -7,9 +7,9 @@
 //! pairwise comparison matrix.
 
 use crate::{
-    bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman, holm, nemenyi_cd,
-    plackett_luce, rank_matrix, wilcoxon_signed_rank, BayesSignedRankResult, FriedmanResult,
-    PlackettLuceResult, StatsError,
+    bayesian_signed_rank, check_finite, cliffs_delta, cliffs_magnitude, friedman, holm,
+    nemenyi_cd, plackett_luce, rank_matrix, wilcoxon_signed_rank, BayesSignedRankResult,
+    FriedmanResult, PlackettLuceResult, StatsError,
 };
 
 /// Summary statistics for a single algorithm across multiple problems.
@@ -175,6 +175,8 @@ pub fn paper_package(
     bayes_samples: u64,
     master_seed: u64,
 ) -> Result<PaperPackage, StatsError> {
+    check_finite("paper_package", results.iter().flatten().copied())?;
+
     let n = results.len();
     let k = algo_names.len();
 
@@ -228,7 +230,7 @@ pub fn paper_package(
         for j in (i + 1)..k {
             let a: Vec<f64> = results.iter().map(|row| row[i]).collect();
             let b: Vec<f64> = results.iter().map(|row| row[j]).collect();
-            let delta = cliffs_delta(&a, &b);
+            let delta = cliffs_delta(&a, &b)?;
             cliffs_vec.push((i, j, delta));
         }
     }
@@ -540,6 +542,19 @@ mod tests {
 
         // Check Bayes results are identical
         assert_eq!(pkg1.bayes, pkg2.bayes, "bayesian results differ");
+    }
+
+    #[test]
+    fn paper_package_errors_on_nan() {
+        let algo_names = vec!["A".to_string(), "B".to_string()];
+        let problem_names = vec!["P1".to_string(), "P2".to_string()];
+        let results = vec![vec![1.0, f64::NAN], vec![1.5, 1.8]];
+
+        let err = paper_package(&algo_names, &problem_names, &results, 0.1, 100, 777)
+            .expect_err("NaN must be rejected");
+        let StatsError::InvalidInput(msg) = err;
+        assert!(msg.contains("paper_package"), "message should name the function: {msg}");
+        assert!(msg.contains("non-finite"), "message should say non-finite: {msg}");
     }
 
     #[test]

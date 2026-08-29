@@ -8,7 +8,7 @@
 //! comparison (e.g. two columns of a results matrix).
 
 use crate::special::normal_cdf;
-use crate::StatsError;
+use crate::{check_finite, StatsError};
 
 /// Which distribution [`WilcoxonResult::p_value`] was drawn from.
 ///
@@ -180,6 +180,8 @@ fn rank_with_tie_groups(values: &[f64]) -> (Vec<f64>, Vec<(f64, usize)>) {
 /// Rank Procedures." *Journal of the American Statistical Association*,
 /// 54(287), 655-667.
 pub fn wilcoxon_signed_rank(a: &[f64], b: &[f64]) -> Result<WilcoxonResult, StatsError> {
+    check_finite("wilcoxon_signed_rank", a.iter().chain(b.iter()).copied())?;
+
     if a.len() != b.len() {
         return Err(StatsError::InvalidInput(format!(
             "wilcoxon_signed_rank requires paired samples of equal length, got {} and {}",
@@ -319,7 +321,13 @@ fn exact_wilcoxon_p_value(w: usize, n: usize) -> f64 {
 ///
 /// Direct O(n*m) computation (no rank-based shortcut), matching the
 /// definition exactly.
-pub fn cliffs_delta(a: &[f64], b: &[f64]) -> f64 {
+///
+/// # Errors
+/// Returns `StatsError::InvalidInput` if any value in `a` or `b` is
+/// non-finite (NaN or +/-infinity).
+pub fn cliffs_delta(a: &[f64], b: &[f64]) -> Result<f64, StatsError> {
+    check_finite("cliffs_delta", a.iter().chain(b.iter()).copied())?;
+
     let n = a.len();
     let m = b.len();
 
@@ -335,7 +343,7 @@ pub fn cliffs_delta(a: &[f64], b: &[f64]) -> f64 {
         }
     }
 
-    (greater - less) as f64 / (n as f64 * m as f64)
+    Ok((greater - less) as f64 / (n as f64 * m as f64))
 }
 
 /// Qualitative magnitude label for a Cliff's delta value, using Romano et
@@ -858,6 +866,16 @@ mod tests {
     }
 
     #[test]
+    fn wilcoxon_errors_on_nan() {
+        let a = vec![1.0, f64::NAN, 3.0];
+        let b = vec![0.0, 0.0, 0.0];
+        let err = wilcoxon_signed_rank(&a, &b).expect_err("NaN must be rejected");
+        let StatsError::InvalidInput(msg) = err;
+        assert!(msg.contains("wilcoxon_signed_rank"), "message should name the function: {msg}");
+        assert!(msg.contains("non-finite"), "message should say non-finite: {msg}");
+    }
+
+    #[test]
     fn wilcoxon_errors_on_unequal_lengths() {
         let a = vec![1.0, 2.0, 3.0];
         let b = vec![1.0, 2.0];
@@ -932,7 +950,7 @@ mod tests {
     fn cliffs_delta_identical_arrays_is_zero() {
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let b = vec![1.0, 2.0, 3.0, 4.0];
-        let delta = cliffs_delta(&a, &b);
+        let delta = cliffs_delta(&a, &b).expect("valid fixture");
         assert!((delta - 0.0).abs() < 1e-12, "delta: got {}", delta);
     }
 
@@ -942,12 +960,12 @@ mod tests {
         // delta = -1 (sign convention: a-dominates-lower gives negative).
         let a = vec![1.0, 2.0, 3.0];
         let b = vec![10.0, 20.0, 30.0];
-        let delta_ab = cliffs_delta(&a, &b);
+        let delta_ab = cliffs_delta(&a, &b).expect("valid fixture");
         assert!((delta_ab - (-1.0)).abs() < 1e-12, "got {}", delta_ab);
 
         // Reversed: every element of a is larger than every element of b
         // -> delta = +1.
-        let delta_ba = cliffs_delta(&b, &a);
+        let delta_ba = cliffs_delta(&b, &a).expect("valid fixture");
         assert!((delta_ba - 1.0).abs() < 1e-12, "got {}", delta_ba);
     }
 
@@ -961,7 +979,7 @@ mod tests {
     fn cliffs_delta_known_value() {
         let a = vec![1.0, 2.0, 3.0];
         let b = vec![2.0, 3.0, 4.0];
-        let delta = cliffs_delta(&a, &b);
+        let delta = cliffs_delta(&a, &b).expect("valid fixture");
         let expected = -5.0 / 9.0;
         assert!(
             (delta - expected).abs() < 1e-12,
@@ -969,6 +987,16 @@ mod tests {
             delta,
             expected
         );
+    }
+
+    #[test]
+    fn cliffs_delta_errors_on_nan() {
+        let a = vec![1.0, f64::NAN, 3.0];
+        let b = vec![2.0, 3.0, 4.0];
+        let err = cliffs_delta(&a, &b).expect_err("NaN must be rejected");
+        let StatsError::InvalidInput(msg) = err;
+        assert!(msg.contains("cliffs_delta"), "message should name the function: {msg}");
+        assert!(msg.contains("non-finite"), "message should say non-finite: {msg}");
     }
 
     #[test]

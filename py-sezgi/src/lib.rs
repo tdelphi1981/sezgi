@@ -8,6 +8,7 @@ use sezgi_bench::{
 };
 use sezgi_components::{presets, register_builtins};
 use sezgi_core::component::Registry;
+use sezgi_core::dist::Distribution;
 use sezgi_core::engine::{Engine, RunConfig};
 use sezgi_core::problem::Problem;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
@@ -293,7 +294,7 @@ fn stats_wilcoxon(
 fn stats_cliffs_delta(a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<f64> {
     let av = extract_f64_vec(a)?;
     let bv = extract_f64_vec(b)?;
-    Ok(cliffs_delta(&av, &bv))
+    cliffs_delta(&av, &bv).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 #[pyfunction]
@@ -439,11 +440,49 @@ fn stats_paper_package(
 #[pyfunction] fn preset_random_search(pop_size: usize, budget: u64) -> String {
     presets::random_search(pop_size, budget).to_json()
 }
-// preset_es_mu_plus_lambda is intentionally NOT exposed here: its Rust
-// signature takes a `Distribution` (an enum with nested params, e.g.
-// gaussian mean/sigma), which does not have a clean pyfunction argument
-// mapping. Bridging it (accepting a JSON-encoded dist, or a richer PyO3
-// type) is deferred to M2d.
+/// Parses the dist string + flattened params accepted by
+/// `preset_es_mu_plus_lambda` into a `Distribution`. Shared with the R
+/// binding's semantics (duplicated there per the "no shared private crate
+/// imports" rule — see `r-sezgi/src/rust/src/solve.rs`).
+fn parse_distribution(
+    dist: &str,
+    mean: f64,
+    sigma: f64,
+    loc: f64,
+    scale: f64,
+    alpha: f64,
+    nu: f64,
+) -> Result<Distribution, String> {
+    match dist {
+        "uniform" => Ok(Distribution::Uniform),
+        "gaussian" => Ok(Distribution::Gaussian { mean, sigma }),
+        "cauchy" => Ok(Distribution::Cauchy { loc, scale }),
+        "levy" => Ok(Distribution::Levy { alpha }),
+        "student_t" => Ok(Distribution::StudentT { nu }),
+        "laplace" => Ok(Distribution::Laplace { loc, scale }),
+        other => Err(format!(
+            "unknown distribution '{other}' (expected uniform|gaussian|cauchy|levy|student_t|laplace)"
+        )),
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (pop_size, budget, dist="gaussian", mean=0.0, sigma=0.5, loc=0.0, scale=1.0, alpha=1.5, nu=3.0))]
+fn preset_es_mu_plus_lambda(
+    pop_size: usize,
+    budget: u64,
+    dist: &str,
+    mean: f64,
+    sigma: f64,
+    loc: f64,
+    scale: f64,
+    alpha: f64,
+    nu: f64,
+) -> PyResult<String> {
+    let d = parse_distribution(dist, mean, sigma, loc, scale, alpha, nu)
+        .map_err(PyValueError::new_err)?;
+    Ok(presets::es_mu_plus_lambda(pop_size, budget, d).to_json())
+}
 
 #[pymodule]
 fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -471,5 +510,6 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(preset_cmaes_ipop, m)?)?;
     m.add_function(wrap_pyfunction!(preset_nelder_mead, m)?)?;
     m.add_function(wrap_pyfunction!(preset_random_search, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_es_mu_plus_lambda, m)?)?;
     Ok(())
 }

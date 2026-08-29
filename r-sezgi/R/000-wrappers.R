@@ -91,6 +91,35 @@ NULL
   .Call(savvy_sz_preset_de_rand_1__impl, `pop_size`, `budget`)
 }
 
+#' Builds a (mu/mu_w,lambda)-ES algorithm spec (mutation step drawn from
+#' `dist`) as JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' This is the raw savvy-generated binding (required args only; savvy has no
+#' way to express a non-`NULL`/string default in the generated signature).
+#' The public R entry point with R-native defaults is the hand-written
+#' wrapper `sz_preset_es_mu_plus_lambda()` in `R/presets.R`, which calls this
+#' function -- same raw/wrapper pattern as `sz_run_experiment()` /
+#' `sz_run_experiment_raw()` and `sz_stats_bayesian_signed_rank()` /
+#' `sz_stats_bayesian_signed_rank_raw()`.
+#'
+#' @param pop_size Population size.
+#' @param budget Evaluation budget.
+#' @param dist Mutation distribution: one of `"uniform"`, `"gaussian"`,
+#'   `"cauchy"`, `"levy"`, `"student_t"`, `"laplace"`.
+#' @param mean Gaussian mean (used only when `dist = "gaussian"`).
+#' @param sigma Gaussian std-dev (used only when `dist = "gaussian"`).
+#' @param loc Cauchy/Laplace location (used only when `dist` is `"cauchy"`
+#'   or `"laplace"`).
+#' @param scale Cauchy/Laplace scale (used only when `dist` is `"cauchy"`
+#'   or `"laplace"`).
+#' @param alpha Levy stability parameter (used only when `dist = "levy"`).
+#' @param nu Student-t degrees of freedom (used only when `dist =
+#'   "student_t"`).
+#' @returns A character scalar with the algorithm spec as JSON.
+`sz_preset_es_mu_plus_lambda_raw` <- function(`pop_size`, `budget`, `dist`, `mean`, `sigma`, `loc`, `scale`, `alpha`, `nu`) {
+  .Call(savvy_sz_preset_es_mu_plus_lambda_raw__impl, `pop_size`, `budget`, `dist`, `mean`, `sigma`, `loc`, `scale`, `alpha`, `nu`)
+}
+
 #' Builds a real-coded GA (SBX crossover, polynomial mutation) algorithm spec
 #' as JSON, ready to pass to `sz_solve_bbob()`.
 #'

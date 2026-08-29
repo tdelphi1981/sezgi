@@ -7,7 +7,7 @@
 
 use sezgi_core::rng::RngStream;
 
-use crate::StatsError;
+use crate::{check_finite, StatsError};
 
 /// Result of [`bayesian_signed_rank`]: posterior probability mass assigned
 /// to each of the three regions of the (A - B) pseudo-median, relative to a
@@ -90,6 +90,8 @@ pub fn bayesian_signed_rank(
     samples: u64,
     master_seed: u64,
 ) -> Result<BayesSignedRankResult, StatsError> {
+    check_finite("bayesian_signed_rank", a.iter().chain(b.iter()).copied())?;
+
     if a.len() != b.len() {
         return Err(StatsError::InvalidInput(format!(
             "bayesian_signed_rank requires paired samples of equal length, got {} and {}",
@@ -258,6 +260,10 @@ const PL_WEIGHT_FLOOR: f64 = 1e-300;
 /// - any row is not a valid permutation of `0..k` (out-of-range or
 ///   repeated item).
 ///
+/// No `check_finite` call: `rankings` are `usize` permutations of item
+/// indices, not `f64` data, so there is no non-finite value they could ever
+/// contain.
+///
 /// # Reference
 /// Hunter, D. R. (2004). "MM algorithms for generalized Bradley-Terry
 /// models." *The Annals of Statistics*, 32(1), 384-406.
@@ -425,6 +431,16 @@ mod tests {
             "p_rope: got {}",
             result.p_rope
         );
+    }
+
+    #[test]
+    fn errors_on_nan() {
+        let a = vec![1.0, f64::NAN, 3.0];
+        let b = vec![1.0, 2.0, 3.0];
+        let err = bayesian_signed_rank(&a, &b, 0.1, 100, 1).expect_err("NaN must be rejected");
+        let StatsError::InvalidInput(msg) = err;
+        assert!(msg.contains("bayesian_signed_rank"), "message should name the function: {msg}");
+        assert!(msg.contains("non-finite"), "message should say non-finite: {msg}");
     }
 
     #[test]

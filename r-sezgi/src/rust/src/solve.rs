@@ -1,6 +1,7 @@
 use savvy::{savvy, savvy_err, OwnedListSexp, OwnedRealSexp, Sexp};
 use sezgi_components::{presets, register_builtins};
 use sezgi_core::component::Registry;
+use sezgi_core::dist::Distribution;
 use sezgi_core::engine::{Engine, RunConfig};
 use sezgi_core::problem::Problem;
 use sezgi_core::space::BlockValues;
@@ -160,6 +161,76 @@ fn sz_preset_nelder_mead(dim: f64, budget: f64) -> savvy::Result<Sexp> {
 #[savvy]
 fn sz_preset_random_search(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     let json = presets::random_search(pop_size as usize, budget as u64).to_json();
+    json.try_into()
+}
+
+/// Parses the `dist` string + flattened distribution params accepted by
+/// `sz_preset_es_mu_plus_lambda_raw()` into a `Distribution`. Duplicated
+/// (rather than shared via a private cross-crate import) from py-sezgi's
+/// identically-named helper in `py-sezgi/src/lib.rs` -- same rule as
+/// `ln_gamma`'s independent implementations, see that precedent.
+fn parse_distribution(
+    dist: &str,
+    mean: f64,
+    sigma: f64,
+    loc: f64,
+    scale: f64,
+    alpha: f64,
+    nu: f64,
+) -> Result<Distribution, String> {
+    match dist {
+        "uniform" => Ok(Distribution::Uniform),
+        "gaussian" => Ok(Distribution::Gaussian { mean, sigma }),
+        "cauchy" => Ok(Distribution::Cauchy { loc, scale }),
+        "levy" => Ok(Distribution::Levy { alpha }),
+        "student_t" => Ok(Distribution::StudentT { nu }),
+        "laplace" => Ok(Distribution::Laplace { loc, scale }),
+        other => Err(format!(
+            "unknown distribution '{other}' (expected uniform|gaussian|cauchy|levy|student_t|laplace)"
+        )),
+    }
+}
+
+/// Builds a (mu/mu_w,lambda)-ES algorithm spec (mutation step drawn from
+/// `dist`) as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// This is the raw savvy-generated binding (required args only; savvy has no
+/// way to express a non-`NULL`/string default in the generated signature).
+/// The public R entry point with R-native defaults is the hand-written
+/// wrapper `sz_preset_es_mu_plus_lambda()` in `R/presets.R`, which calls this
+/// function -- same raw/wrapper pattern as `sz_run_experiment()` /
+/// `sz_run_experiment_raw()` and `sz_stats_bayesian_signed_rank()` /
+/// `sz_stats_bayesian_signed_rank_raw()`.
+///
+/// @param pop_size Population size.
+/// @param budget Evaluation budget.
+/// @param dist Mutation distribution: one of `"uniform"`, `"gaussian"`,
+///   `"cauchy"`, `"levy"`, `"student_t"`, `"laplace"`.
+/// @param mean Gaussian mean (used only when `dist = "gaussian"`).
+/// @param sigma Gaussian std-dev (used only when `dist = "gaussian"`).
+/// @param loc Cauchy/Laplace location (used only when `dist` is `"cauchy"`
+///   or `"laplace"`).
+/// @param scale Cauchy/Laplace scale (used only when `dist` is `"cauchy"`
+///   or `"laplace"`).
+/// @param alpha Levy stability parameter (used only when `dist = "levy"`).
+/// @param nu Student-t degrees of freedom (used only when `dist =
+///   "student_t"`).
+/// @returns A character scalar with the algorithm spec as JSON.
+#[savvy]
+fn sz_preset_es_mu_plus_lambda_raw(
+    pop_size: f64,
+    budget: f64,
+    dist: &str,
+    mean: f64,
+    sigma: f64,
+    loc: f64,
+    scale: f64,
+    alpha: f64,
+    nu: f64,
+) -> savvy::Result<Sexp> {
+    let d = parse_distribution(dist, mean, sigma, loc, scale, alpha, nu)
+        .map_err(|e| savvy_err!("{e}"))?;
+    let json = presets::es_mu_plus_lambda(pop_size as usize, budget as u64, d).to_json();
     json.try_into()
 }
 
