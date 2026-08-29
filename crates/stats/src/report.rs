@@ -151,8 +151,8 @@ fn escape_latex_name(name: &str) -> String {
 /// - The results matrix is ragged
 /// - Friedman test fails (too few problems/algorithms)
 /// - Nemenyi CD cannot be computed (k outside 2..=20 or n == 0)
-/// - Any Wilcoxon test fails (requires ≥ 5 effective pairs per problem); see
-///   [`wilcoxon_signed_rank`] docs for details on effective pair requirement.
+/// - Any Wilcoxon test fails (requires ≥ 5 problems; Wilcoxon needs n_effective ≥ 5 paired
+///   samples per algorithm pair); see [`wilcoxon_signed_rank`] docs for details.
 pub fn paper_package(
     algo_names: &[String],
     problem_names: &[String],
@@ -332,11 +332,11 @@ mod tests {
 
     #[test]
     fn summary_table_latex_2x2_fixture() {
-        let problem_names = vec!["P1".to_string(), "P2".to_string()];
+        let problem_names = vec!["P_1".to_string(), "P_2".to_string()];
         let algo_names = vec!["A_1".to_string(), "B_2".to_string()];
 
-        // P1: A=1.0, B=2.0 (A better)
-        // P2: A=3.0, B=2.0 (B better)
+        // P_1: A=1.0, B=2.0 (A better)
+        // P_2: A=3.0, B=2.0 (B better)
         let results_per_problem = vec![
             vec![vec![1.0], vec![2.0]],
             vec![vec![3.0], vec![2.0]],
@@ -349,14 +349,20 @@ mod tests {
         assert!(latex.contains("\\midrule"), "missing \\midrule");
         assert!(latex.contains("\\bottomrule"), "missing \\bottomrule");
 
-        // Check for escaped underscores
+        // Check for escaped underscores in algorithm names
         assert!(latex.contains("A\\_1"), "underscore not escaped in A_1");
         assert!(latex.contains("B\\_2"), "underscore not escaped in B_2");
 
-        // Count bold entries per problem row
+        // Check for escaped underscores in problem names (end-to-end escaping)
+        assert!(latex.contains("P\\_1"), "underscore not escaped in P_1");
+        assert!(latex.contains("P\\_2"), "underscore not escaped in P_2");
+
+        // Verify exactly one bold per problem row
         let lines: Vec<&str> = latex.lines().collect();
-        for line in lines {
+        let mut matched_rows = 0;
+        for line in &lines {
             if line.contains("P\\_1") || line.contains("P\\_2") {
+                matched_rows += 1;
                 let bold_count = line.matches("\\textbf{").count();
                 assert_eq!(
                     bold_count, 1,
@@ -365,6 +371,11 @@ mod tests {
                 );
             }
         }
+        assert_eq!(
+            matched_rows, 2,
+            "expected to find 2 problem rows (P\\_1 and P\\_2), found {}",
+            matched_rows
+        );
     }
 
     #[test]
