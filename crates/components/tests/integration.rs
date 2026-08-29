@@ -810,15 +810,18 @@ fn hho_solves_bbob_f1_dim5() {
     let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
     let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
     let gap = r.best_f - p.f_opt();
-    // Measured gap at seed 42/pop 30/budget 20k: below 0.5 (well within the
-    // wave's anchored-threshold convention -- HHO's escape-energy tree and
-    // rapid-dive greedy acceptance make steady progress on the separable,
-    // unimodal BBOB f1/Sphere; the internal dive-trial evaluations also
-    // consume part of the 20k budget, per this module's eval-accounting
-    // design, so fewer generations complete than a single-eval-per-hawk
-    // preset would get at the same budget). Anchored bound rounded up to
-    // the next 0.5 above the measured value (0.5), matching this wave's
-    // other anchored-threshold tests' bound; ample (>=0.3) headroom.
+    // Measured gap at seed 42/pop 30/budget 20k, RE-MEASURED after fix
+    // round 1 (the soft-dive Y formula correction, HHO.m line 105 vs line
+    // 98 -- see hho.rs's finding 4): approximately 8.39e-3 (0.00839) --
+    // HHO's escape-energy tree and rapid-dive greedy acceptance still make
+    // steady progress on the separable, unimodal BBOB f1/Sphere well within
+    // the budget (the internal dive-trial evaluations also consume part of
+    // the 20k budget, per this module's eval-accounting design, so fewer
+    // generations complete than a single-eval-per-hawk preset would get at
+    // the same budget -- but still comfortably converges). Anchored bound
+    // rounded up to the next 0.5 above the measured value (0.5), matching
+    // this wave's other anchored-threshold tests' bound; ample (>=0.3,
+    // here ~0.49) headroom.
     assert!(gap < 0.5,
         "hho should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
 }

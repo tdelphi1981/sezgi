@@ -123,12 +123,17 @@ use sezgi_core::space::{Block, BlockValues, Genotype};
 ///
 /// `HHO.m` also runs a first per-iteration loop, BEFORE the branch tree
 /// above, that clips each `X(i,:)` into `[lb,ub]`, re-evaluates `fobj(X(i,:))`
-/// fresh, and updates `Rabbit_Location`/`Rabbit_Energy` if improved -- this
-/// is functionally identical to what this crate's engine ALREADY does for
-/// every preset (boundary-repair the previous generation's offspring, then
-/// evaluate it, populating `pop.fitness` for the next `generate()` call),
-/// merely one iteration earlier in sezgi's synchronous model vs `HHO.m`'s
-/// "re-evaluate at the top of next iteration" timing -- see finding 7.
+/// fresh, and updates `Rabbit_Location`/`Rabbit_Energy` if improved. The
+/// FITNESS RE-SCAN half of this is functionally identical to what this
+/// crate's engine already does for every preset (boundary-repair the
+/// previous generation's offspring, then evaluate it, populating
+/// `pop.fitness` for the next `generate()` call), merely one iteration
+/// earlier in sezgi's synchronous model vs `HHO.m`'s "re-evaluate at the top
+/// of next iteration" timing. The `Rabbit_Location`/`Rabbit_Energy` UPDATE
+/// itself is a RATCHET against a value persisted across the WHOLE run
+/// (initialized once, before the loop, never reset) -- NOT reproduced
+/// literally; see finding 7's `// sezgi simplification:` for the verified
+/// semantics and the parked-convention rationale.
 ///
 /// ## Verified findings (each checked against `HHO.m`; SOURCE GOVERNS on
 /// every delta from the plan's sketch)
@@ -163,14 +168,23 @@ use sezgi_core::space::{Block, BlockValues, Genotype};
 ///    X_i) - E·|J·Rabbit - X_i|`. See [`hho_hard_besiege_dim_step`]/
 ///    [`hho_soft_besiege_dim_step`].
 /// 4. **Rapid dives -- confirmed as the sketch's four-way branch's `r<0.5`
-///    half, but with an important ASYMMETRY between the two dive
-///    sub-branches, easy to miss:** the `r<0.5 && |E|>=0.5` dive's `Y`
-///    formula (`X1`) is IDENTICAL to finding 3's soft-besiege-no-dive
-///    formula (reuses [`hho_soft_besiege_dim_step`]); the `r<0.5 &&
-///    |E|<0.5` dive's `Y` formula uses `mean(X)` IN PLACE OF `X_i` AND
-///    (unlike the hard-besiege-NO-dive branch, finding 3) DOES draw a
-///    `Jump_strength` -- structurally its own formula, [`hho_hard_dive_y_
-///    dim_step`], NOT a reuse of [`hho_hard_besiege_dim_step`].
+///    half, with an important asymmetry between the two dive sub-branches
+///    AND a distinct easy-to-miss trap corrected during review (fix round
+///    1): the `r<0.5 && |E|>=0.5` dive's `Y` formula (`X1`) is `Rabbit -
+///    E·|J·Rabbit - X_i|` -- it does NOT carry finding 3's no-dive soft
+///    besiege's leading `(Rabbit - X_i)` term at all (compare `HHO.m` line
+///    98's no-dive `X(i,:)=(Rabbit_Location-X(i,:))-Escaping_Energy*abs(...)`
+///    against line 105's dive `X1=Rabbit_Location-Escaping_Energy*abs(...)`
+///    -- Eq. 4 vs Eq. 10 in the paper, genuinely different equations, NOT
+///    the same formula reused). Its own formula is [`hho_soft_dive_y_
+///    dim_step`], structurally IDENTICAL in SHAPE to the `r<0.5 && |E|<0.5`
+///    dive's `Y` ([`hho_hard_dive_y_dim_step`]) -- both are `Rabbit -
+///    E·|J·Rabbit - ref|`, differing only in whether `ref` is `X_i` (soft
+///    dive) or `mean(X)` (hard dive, which ALSO -- unlike the hard-besiege-
+///    NO-dive branch, finding 3 -- DOES draw a `Jump_strength`). Kept as two
+///    separately-named pure functions (mirroring the source's own two
+///    separate `if` blocks) rather than one parameterized helper, so each
+///    branch's formula identity stays independently pinned and testable.
 /// 5. **The accept-chain -- confirmed, exactly TWO extra evaluations
 ///    maximum per diving hawk:** evaluate `Y`; if strictly better than
 ///    `X_i`'s CURRENT fitness, accept `Y` and stop (one evaluation total,
@@ -200,21 +214,34 @@ use sezgi_core::space::{Block, BlockValues, Genotype};
 ///    this interleaved per-`(i,d)` order is the implementer's choice,
 ///    following every other per-dimension formula in this crate. See
 ///    [`hho_dive_z_dim_step`].
-/// 7. **Rabbit (attractor) -- confirms the wave's parked current-pop-
-///    attractor convention, AND (unusually for this wave) this is not
-///    merely a parked simplification but the LITERAL source semantics
-///    too:** `HHO.m`'s `Rabbit_Location` is updated from a FRESH per-
-///    iteration `fobj(X(i,:))` re-scan of the whole population (its own
-///    "Loop 1", see above) -- since this crate's engine already re-
-///    evaluates the full offspring population via its own per-generation
-///    stage-evaluate call (functionally the same re-scan, just performed
-///    one iteration earlier, synchronously, right after `generate()`
-///    returns, instead of at the top of the NEXT MATLAB iteration),
-///    [`Population::best_index`] on the population ENTERING `generate()`
-///    IS `HHO.m`'s `Rabbit_Location` for this iteration's Loop 2 -- not an
-///    approximation. Computed ONCE per `generate()` call, before any RNG
-///    draws, and held FIXED for the whole sweep (`HHO.m`'s Loop 2 never
-///    updates `Rabbit_Location` mid-sweep).
+/// 7. **Rabbit (attractor) -- a genuine, deliberate delta from the verified
+///    source, corrected during review (fix round 1): `HHO.m`'s
+///    `Rabbit_Location`/`Rabbit_Energy` are initialized ONCE, OUTSIDE the
+///    `while t<T` loop (`Rabbit_Location=zeros(1,dim); Rabbit_Energy=inf;`),
+///    and then only RATCHET forward across the ENTIRE run: Loop 1 does
+///    re-scan `fobj(X(i,:))` fresh every iteration, but only overwrites
+///    `Rabbit_Location`/`Rabbit_Energy` when a STRICTLY BETTER fitness is
+///    found (`if fitness<Rabbit_Energy`) -- it never regresses, and (since
+///    exploration/besiege-without-dive branches overwrite unconditionally,
+///    finding 10, with no per-agent greedy guard) the current population's
+///    own best CAN be worse than the historical best, in which case
+///    `Rabbit_Location` correctly stays at that older, better point. This
+///    is a genuinely PERSISTED best-ever, the SAME shape as `ssa.rs`'s
+///    `FoodPosition`/`ba.rs`'s `best` (both independently verified as real
+///    persisted-best-ever mechanisms in their own sources) -- NOT the
+///    "fresh per-iteration re-scan equals current-pop argmin" claim an
+///    earlier version of this module doc made, which was a genuine
+///    provenance error (Loop 1's fresh re-evaluation feeds a ratcheting
+///    comparison, not a stateless recomputation).
+// sezgi simplification: this module uses the current population's fitness
+// argmin ([`Population::best_index`]) as the rabbit, computed once per
+// `generate()` call before any RNG draws, INSTEAD OF `HHO.m`'s verified
+// persisted-best-ever `Rabbit_Location`/`Rabbit_Energy`. This is the SAME
+// wave-wide parked current-pop-attractor convention already applied to
+// `ssa.rs`'s `FoodPosition` and `ba.rs`'s `best` (first parked in Task 1/
+// SCA's review, DECISIONS "X_best" ruling) -- not an HHO-specific
+// deviation. Blackboard-backed persistence (matching the source exactly)
+// is a recorded family-wide enhancement candidate, not implemented here.
 /// 8. **`mean(X)` -- the SAME in-place, sequentially-updating semantics
 ///    `ssa.rs`'s follower chain established (Task 4), for a different
 ///    construct (a whole-population mean, not a single-predecessor
@@ -412,10 +439,24 @@ pub fn hho_hard_besiege_dim_step(rabbit_d: f64, e: f64, x_i_d: f64) -> f64 {
 }
 
 /// Soft besiege (`r>=0.5 && |E|>=0.5`, NO dive), per dimension: `(rabbit_d -
-/// X_i_d) - E·|J·rabbit_d - X_i_d|`. Also reused verbatim for the `r<0.5 &&
-/// |E|>=0.5` dive's `Y` (finding 4 -- identical formula).
+/// X_i_d) - E·|J·rabbit_d - X_i_d|`. NOT reused by the dive branch (fix
+/// round 1: an earlier version of this module incorrectly reused this for
+/// the soft-dive `Y` too -- `HHO.m`'s dive `X1` has no leading `(rabbit_d -
+/// X_i_d)` term at all, a genuinely different equation; see
+/// [`hho_soft_dive_y_dim_step`] and finding 4).
 pub fn hho_soft_besiege_dim_step(rabbit_d: f64, e: f64, jump: f64, x_i_d: f64) -> f64 {
     (rabbit_d - x_i_d) - e * (jump * rabbit_d - x_i_d).abs()
+}
+
+/// Soft-besiege-based dive `Y` (`r<0.5 && |E|>=0.5`), per dimension:
+/// `rabbit_d - E·|J·rabbit_d - X_i_d|` -- a DIFFERENT formula from
+/// [`hho_soft_besiege_dim_step`] (no leading `(rabbit_d - X_i_d)` term;
+/// `HHO.m` line 105's `X1`, not line 98's no-dive `X(i,:)` -- finding 4,
+/// corrected during review). Structurally identical in shape to
+/// [`hho_hard_dive_y_dim_step`], differing only in which reference point
+/// (`X_i` here, `mean(X)` there) is used.
+pub fn hho_soft_dive_y_dim_step(rabbit_d: f64, e: f64, jump: f64, x_i_d: f64) -> f64 {
+    rabbit_d - e * (jump * rabbit_d - x_i_d).abs()
 }
 
 /// Hard-besiege-based dive `Y` (`r<0.5 && |E|<0.5`), per dimension:
@@ -553,7 +594,7 @@ impl Generator for HhoGenerator {
                     // Soft-besiege-based rapid dive.
                     let jump = 2.0 * (1.0 - ctx.rng.next_f64());
                     let y: Vec<f64> = (0..dim)
-                        .map(|d| hho_soft_besiege_dim_step(rabbit[d], e, jump, work[i][d]))
+                        .map(|d| hho_soft_dive_y_dim_step(rabbit[d], e, jump, work[i][d]))
                         .collect();
                     match hho_run_dive(y, dim, pop.fitness[i], ctx) {
                         Some(final_pos) => final_pos,
@@ -682,6 +723,31 @@ mod tests {
     fn hard_dive_y_dim_step_matches_hand_computed_value() {
         // rabbit=5.0, e=0.5, jump=2.0, mean=1.0: 5.0 - 0.5*|2.0*5.0-1.0| = 5.0-4.5 = 0.5
         assert_eq!(hho_hard_dive_y_dim_step(5.0, 0.5, 2.0, 1.0), 0.5);
+    }
+
+    #[test]
+    fn soft_dive_y_dim_step_matches_hand_computed_value() {
+        // Fix round 1: rabbit=5.0, e=0.5, jump=2.0, x_i=1.0: 5.0 - 0.5*|2.0*5.0-1.0| = 5.0-4.5 = 0.5
+        // (same shape/arithmetic as hho_hard_dive_y_dim_step's fixture, with
+        // x_i in place of mean -- see finding 4).
+        assert_eq!(hho_soft_dive_y_dim_step(5.0, 0.5, 2.0, 1.0), 0.5);
+    }
+
+    #[test]
+    fn soft_dive_y_dim_step_differs_from_soft_besiege_no_dive_dim_step() {
+        // Fix round 1 regression guard: HHO.m's dive X1 (line 105) has NO
+        // leading (rabbit-x_i) term that the no-dive soft besiege (line 98)
+        // has -- so the two formulas must NOT agree in general, even though
+        // both take the same (rabbit, e, jump, x_i) shape.
+        let (rabbit, e, jump, x_i) = (5.0, 0.5, 2.0, 1.0);
+        let dive_y = hho_soft_dive_y_dim_step(rabbit, e, jump, x_i);
+        let no_dive = hho_soft_besiege_dim_step(rabbit, e, jump, x_i);
+        assert_ne!(dive_y, no_dive,
+            "the dive Y formula must differ from the no-dive soft besiege formula (Eq. 10 vs Eq. 4)");
+        // no_dive = (rabbit - x_i) - e*T and dive_y = rabbit - e*T (same T),
+        // so no_dive == dive_y - x_i exactly -- the no-dive formula's extra
+        // leading term subtracts x_i relative to the dive Y formula.
+        assert_eq!(no_dive, dive_y - x_i);
     }
 
     #[test]
@@ -1013,7 +1079,9 @@ mod tests {
         let r = twin.next_f64();
         assert!(r < 0.5 && e.abs() >= 0.5, "fixture must land in the soft-besiege rapid-dive sub-branch");
         let jump = 2.0 * (1.0 - twin.next_f64());
-        let y: Vec<f64> = (0..dim).map(|d| hho_soft_besiege_dim_step(rabbit[d], e, jump, x0[d])).collect();
+        // Fix round 1: this is hho_soft_dive_y_dim_step (no leading
+        // (rabbit-x_i) term), NOT hho_soft_besiege_dim_step -- see finding 4.
+        let y: Vec<f64> = (0..dim).map(|d| hho_soft_dive_y_dim_step(rabbit[d], e, jump, x0[d])).collect();
 
         let p = ScriptedProblem::new(dim, -5.0, 5.0, vec![-999.0]); // fy: strictly improves 1000.0
         let space = p.space();
@@ -1033,13 +1101,27 @@ mod tests {
         // Same branch as above (seed=0), but Y/Z are BOTH scripted to be
         // worse than hawk 0's current fitness -- hawk 0's final position
         // must be its own UN-DIVED (pre-dive) value, unchanged, and exactly
-        // two internal evaluations must be consumed (Y then Z).
+        // two internal evaluations must be consumed (Y then Z). Also
+        // hand-derives Y with the CORRECT formula (fix round 1:
+        // hho_soft_dive_y_dim_step, not hho_soft_besiege_dim_step) so this
+        // test documents the same pinned Y as dive_path_soft_besiege_
+        // accepts_y, even though Y's exact value is irrelevant to a
+        // scripted-rejection outcome.
         let dim = 2; let n = 2;
         let pop = Population {
             individuals: vec![g(vec![1.0, -2.0]), g(vec![3.0, 4.0])],
             fitness: vec![-1000.0, 1.0], // hawk 0 already excellent; nothing can improve on it
         };
+        let rabbit = floats(&pop.individuals[1]).clone();
         let x0 = floats(&pop.individuals[0]).clone();
+
+        let mut twin = RngStream::from_master(0, &[]);
+        let e0 = 2.0 * twin.next_f64() - 1.0;
+        let e = hho_e1(0.0) * e0;
+        let r = twin.next_f64();
+        assert!(r < 0.5 && e.abs() >= 0.5, "fixture must land in the soft-besiege rapid-dive sub-branch");
+        let jump = 2.0 * (1.0 - twin.next_f64());
+        let _y: Vec<f64> = (0..dim).map(|d| hho_soft_dive_y_dim_step(rabbit[d], e, jump, x0[d])).collect();
 
         let p = ScriptedProblem::new(dim, -5.0, 5.0, vec![999.0, 999.0]); // fy, fz: both far worse
         let space = p.space();
