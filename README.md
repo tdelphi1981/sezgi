@@ -21,6 +21,61 @@ Your own problem (batch evaluation — a single call per population):
 
     problem = sezgi.from_callable(f, lo=-5.0, hi=5.0, dim=10)
 
+## Experiments & Statistics (M2c)
+
+Run multiple algorithms across multiple problems, seeds, and budgets with a TOML grid; get comparative statistics:
+
+    import sezgi
+    
+    spec_toml = """
+        name = "example"
+        seeds = [1, 2, 3]
+        budgets = [1000, 5000, 10000]
+        
+        [[algorithms]]
+        name = "de"
+        preset = { kind = "de_rand_1", pop_size = 20 }
+        
+        [[algorithms]]
+        name = "cmaes"
+        preset = { kind = "cmaes", pop_size = 20 }
+        
+        [[problems]]
+        suite = "bbob"
+        fid = 1
+        dim = 10
+        instances = [1, 2, 3]
+    """
+    
+    # Run experiment (TOML grid × seeds × budgets × instances)
+    results = sezgi.run_experiment(spec_toml, parallel=True)
+    
+    # Aggregate by instance: mean gap per algorithm (rows = instances, cols = algorithms)
+    instances = sorted(set(r["instance"] for r in results))
+    algos = ["de", "cmaes"]
+    results_matrix = [
+        [
+            sum(r["gap"] for r in results 
+                if r["instance"] == inst and r["algo"] == algo) 
+            / sum(1 for r in results 
+                if r["instance"] == inst and r["algo"] == algo)
+            for algo in algos
+        ]
+        for inst in instances
+    ]
+    
+    # Generate statistical summary with LaTeX tables
+    pkg = sezgi.stats.paper_package(
+        algo_names=["DE", "CMA-ES"],
+        problem_names=[f"instance_{i}" for i in instances],
+        results=results_matrix,
+        rope=0.01,
+        samples=10000,
+        seed=42
+    )
+    
+    print(pkg["latex_summary"])  # Friedman ranks + pairwise Wilcoxon–Holm
+
 ## Development
 
     cargo test --workspace --release        # Rust tests
@@ -28,7 +83,7 @@ Your own problem (batch evaluation — a single call per population):
 
 ## Status
 
-M2b (reference algorithms) **complete** — 13 algorithm presets delivered; Adapter + Restart engine families; 24-fid BBOB pins; Best1 dead-draw fix. Next: M2c (experiment runner + statistics), M2d (R frontend + examples). License: MIT.
+M2c (experiment runner + statistics) **complete** — TOML grids with parallel execution, multi-budget checkpoint/resume, Friedman/Holm/Hochberg/Nemenyi tests, Wilcoxon-Pratt/Cliff's δ, Bayesian signed-rank with ROPE, Plackett–Luce rankings, LaTeX paper package generation. Next: M2d (R frontend + examples + ECDF/anytime analysis). License: MIT.
 
 ## Algorithms
 
@@ -50,4 +105,4 @@ sezgi M2b ships 13 reference algorithm presets (with Rust function names):
 | Nelder–Mead Simplex | `presets::nelder_mead` |
 | Random Search (baseline) | `presets::random_search` |
 
-Python bindings currently expose every preset above except `es_mu_plus_lambda` (its `Distribution` argument crosses the FFI boundary awkwardly; deferred to M2d).
+Python bindings expose every preset above except `es_mu_plus_lambda` (its `Distribution` argument lacks clean FFI mapping; deferred to M2d). All other algorithm families are ready for experiment-driven research.

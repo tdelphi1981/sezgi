@@ -296,8 +296,8 @@ fn pairwise_tests_latex(
     latex.push_str(" \\\\\n\\midrule\n");
 
     // Rows
-    for i in 0..k {
-        latex.push_str(&escape_latex_name(&algo_names[i]));
+    for (i, algo_name) in algo_names.iter().enumerate().take(k) {
+        latex.push_str(&escape_latex_name(algo_name));
         for j in 0..k {
             latex.push_str(" & ");
             if i < j {

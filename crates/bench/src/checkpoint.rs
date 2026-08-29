@@ -610,7 +610,7 @@ mod tests {
         // Create a fresh journal with only the first half of records
         let (all_records, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
             .expect("should load journal");
-        let half_count = (all_records.len() + 1) / 2;
+        let half_count = all_records.len().div_ceil(2);
         let missing_count = all_records.len() - half_count;
 
         let half_records = &all_records[..half_count];
@@ -740,7 +740,7 @@ mod tests {
                 seed: 42,
                 budget: 1000,
             },
-            best_f: 1.234567890123456789,
+            best_f: 1.234_567_890_123_456_7,
             f_opt: 0.0,
             evals_used: 999,
             wall_secs: 1.5,
@@ -781,7 +781,7 @@ mod tests {
                 seed: 42,
                 budget: 1000,
             },
-            best_f: 1.234567890123456789,
+            best_f: 1.234_567_890_123_456_7,
             f_opt: 0.0,
             evals_used: 999,
             wall_secs: 1.5,

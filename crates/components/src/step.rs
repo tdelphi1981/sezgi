@@ -16,7 +16,7 @@ impl StepMutation {
             p.get("dist").cloned()
              .unwrap_or(serde_json::json!({"kind": "gaussian", "mean": 0.0, "sigma": 0.1})))
             .map_err(|e| err(e.to_string()))?;
-        dist.validate().map_err(|reason| err(reason))?;
+        dist.validate().map_err(err)?;
         let rate = p.get("rate").and_then(|v| v.as_f64()).unwrap_or(1.0);
         if !(0.0..=1.0).contains(&rate) {
             return Err(err(format!("rate outside [0,1]: {rate}")));
