@@ -51,9 +51,9 @@ Run multiple algorithms across multiple problems, seeds, and budgets with a TOML
     records = sezgi.run_experiment(spec_toml, parallel=True)
 
     # One paper_package PER DISTINCT BUDGET present in records, in ascending
-    # budget order — no hand-rolled filtering/aggregation needed. The
-    # Wilcoxon tests inside each package need at least 5 problem rows, hence
-    # 5 instances above.
+    # budget order — no hand-rolled filtering/aggregation needed. At least 5
+    # problems is recommended for meaningful comparisons (the exact Wilcoxon
+    # test now handles fewer if no ties or zeros are present).
     packages = sezgi.per_budget_packages(records, rope=0.01, samples=10000, seed=42)
 
     for budget, pkg in packages:

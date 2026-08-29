@@ -74,7 +74,7 @@ def per_budget_packages(records, rope=0.0, samples=20000, seed=1, aggregate="mea
         each budget's paper_package (same as `sezgi.stats.paper_package`).
     aggregate: "mean" or "median" -- see `results_matrix`.
 
-    Returns a list of `(budget, package_dict)` tuples; each `package_dict`
+    Returns a list of `[budget, package_dict]` pairs; each `package_dict`
     has exactly the shape `sezgi.stats.paper_package` returns.
     """
     return _sezgi.per_budget_packages(records, rope=rope, samples=samples, seed=seed,

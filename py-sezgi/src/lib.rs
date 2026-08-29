@@ -473,13 +473,15 @@ fn records_from_pylist(records: &Bound<'_, PyAny>) -> PyResult<Vec<RunRecord>> {
 /// Returns `(algo_names, problem_labels, matrix)` for one `budget` — see
 /// `sezgi_bench::reporting::results_matrix`. `records` is the list of dicts
 /// `run_experiment` returns (or any list of dicts with the same fields).
+pub type ResultsMatrix = (Vec<String>, Vec<String>, Vec<Vec<f64>>);
+
 #[pyfunction]
 #[pyo3(signature = (records, budget, aggregate="mean"))]
 fn results_matrix(
     records: &Bound<'_, PyAny>,
     budget: u64,
     aggregate: &str,
-) -> PyResult<(Vec<String>, Vec<String>, Vec<Vec<f64>>)> {
+) -> PyResult<ResultsMatrix> {
     let recs = records_from_pylist(records)?;
     let agg = parse_aggregate(aggregate)?;
     bench_results_matrix(&recs, budget, agg).map_err(|e| PyValueError::new_err(e.to_string()))
@@ -579,6 +581,7 @@ fn parse_distribution(
 
 #[pyfunction]
 #[pyo3(signature = (pop_size, budget, dist="gaussian", mean=0.0, sigma=0.5, loc=0.0, scale=1.0, alpha=1.5, nu=3.0))]
+#[allow(clippy::too_many_arguments)]
 fn preset_es_mu_plus_lambda(
     pop_size: usize,
     budget: u64,

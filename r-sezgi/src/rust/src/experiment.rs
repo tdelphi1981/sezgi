@@ -7,7 +7,8 @@ use std::path::Path;
 
 /// Builds the `data.frame` returned to R: one row per [`RunRecord`], columns
 /// `algo, fid, dim, instance, seed, budget, best_f, f_opt, evals` (same
-/// fields as py-sezgi's `run_experiment` record dicts, minus `wall_secs`).
+/// fields as py-sezgi's `run_experiment` record dicts, minus `wall_secs`,
+/// `gap`, and `evals_used` renamed to `evals`).
 fn records_to_data_frame(records: &[RunRecord]) -> savvy::Result<Sexp> {
     let n = records.len();
 
