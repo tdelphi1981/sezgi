@@ -11,9 +11,11 @@
 //! - Values are performance scores where **lower is better** (minimization).
 //!   Rank 1 is assigned to the best (lowest) value in a row.
 
+pub mod pairwise;
 pub mod ranks;
 pub mod special;
 
+pub use pairwise::{cliffs_delta, cliffs_magnitude, wilcoxon_signed_rank, WilcoxonResult};
 pub use ranks::{friedman, hochberg, holm, nemenyi_cd, rank_matrix, FriedmanResult};
 pub use special::{chi_square_sf, erf, gamma_p, ln_gamma, normal_cdf, normal_sf};
 

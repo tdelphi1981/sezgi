@@ -520,6 +520,38 @@ mod tests {
         }
     }
 
+    #[test]
+    fn hochberg_restores_original_order() {
+        // Same shuffled input as holm_restores_original_order:
+        // p = [0.04, 0.01, 0.03, 0.02] (original order: idx0=0.04,
+        // idx1=0.01, idx2=0.03, idx3=0.02).
+        //
+        // Sorted ascending: p_(1)=0.01(idx1), p_(2)=0.02(idx3),
+        //                    p_(3)=0.03(idx2), p_(4)=0.04(idx0).
+        //
+        // Hochberg (step-up, running min of (m-rank+1)*p_(rank), from
+        // rank m=4 down to rank 1), same arithmetic as the textbook
+        // fixture above since the *sorted* p-values are identical:
+        //   rank 4 (idx0, p=.04): 1*.04 = .04           -> adj = .04
+        //   rank 3 (idx2, p=.03): 2*.03 = .06           -> adj = min(.04,.06) = .04
+        //   rank 2 (idx3, p=.02): 3*.02 = .06           -> adj = min(.04,.06) = .04
+        //   rank 1 (idx1, p=.01): 4*.01 = .04           -> adj = min(.04,.04) = .04
+        //   adjusted in ascending-p order (idx1, idx3, idx2, idx0) = [.04, .04, .04, .04]
+        //
+        // Restored to original order (idx0, idx1, idx2, idx3): [0.04, 0.04, 0.04, 0.04].
+        let p = vec![0.04, 0.01, 0.03, 0.02];
+        let hochberg_adj = hochberg(&p);
+        let expected = vec![0.04, 0.04, 0.04, 0.04];
+        for (a, e) in hochberg_adj.iter().zip(expected.iter()) {
+            assert!(
+                (a - e).abs() < 1e-12,
+                "got {:?}, expected {:?}",
+                hochberg_adj,
+                expected
+            );
+        }
+    }
+
     // Nemenyi CD(4, 14): q_0.05(4) = 2.569 (table index k-2 = 2).
     // CD = 2.569 * sqrt(4*5 / (6*14)) = 2.569 * sqrt(20/84)
     //    = 2.569 * sqrt(0.238095238095...)
