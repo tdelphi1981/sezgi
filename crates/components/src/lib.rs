@@ -21,6 +21,7 @@ pub mod goa;
 pub mod sca;
 pub mod jaya;
 pub mod mfo;
+pub mod ssa;
 
 use sezgi_core::component::Registry;
 
@@ -46,4 +47,5 @@ pub fn register_builtins(reg: &mut Registry) {
     sca::register(reg);
     jaya::register(reg);
     mfo::register(reg);
+    ssa::register(reg);
 }

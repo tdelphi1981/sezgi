@@ -236,6 +236,23 @@ fn sz_preset_mfo(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds an SSA (Salp Swarm Algorithm; Mirjalili et al. 2017 -- a labeled
+/// metaphor preset, see `crates/components/src/ssa.rs`'s module doc for the
+/// tier note, citation, the verified `SSA.m` half-population leader/follower
+/// split, the leader sign-branch pin, the verified in-place follower-chain
+/// semantics, and the persisted-food-vs-current-pop-best delta) spec as
+/// JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (number of salps). Canonical is 30.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_ssa(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::ssa(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
 /// Builds a simulated annealing (Metropolis, geometric cooling) algorithm
 /// spec as JSON, ready to pass to `sz_solve_bbob()`.
 ///

@@ -403,6 +403,21 @@ NULL
   .Call(savvy_sz_preset_shade__impl, `pop_size`, `budget`)
 }
 
+#' Builds an SSA (Salp Swarm Algorithm; Mirjalili et al. 2017 -- a labeled
+#' metaphor preset, see `crates/components/src/ssa.rs`'s module doc for the
+#' tier note, citation, the verified `SSA.m` half-population leader/follower
+#' split, the leader sign-branch pin, the verified in-place follower-chain
+#' semantics, and the persisted-food-vs-current-pop-best delta) spec as
+#' JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (number of salps). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_ssa` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_ssa__impl, `pop_size`, `budget`)
+}
+
 #' Builds a Whale Optimization Algorithm spec (Mirjalili & Lewis 2016 -- a
 #' labeled metaphor preset, see `crates/components/src/woa.rs`'s module doc
 #' for the tier note and citations) as JSON, ready to pass to

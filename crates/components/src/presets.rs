@@ -308,6 +308,33 @@ pub fn mfo(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Salp Swarm Algorithm (Mirjalili et al. 2017) -- a labeled metaphor
+/// preset (see `ssa.rs`'s module doc for the full provenance extraction,
+/// the verified `SSA.m` half-population leader/follower split, the leader
+/// sign-branch pin, the verified in-place follower-chain semantics, and the
+/// persisted-food-vs-current-pop-best delta). Uniform init, `boundary/clamp`
+/// (same as `gwo`/`woa`/`sca`/`jaya`/`mfo`), unconditional generational
+/// replacement (`replace/generational`, reused as-is -- `SSA.m`'s own
+/// reference loop overwrites every salp's position every iteration with no
+/// per-agent fitness-improvement test). `pop_size` is the number of salps;
+/// canonical is 30 per the source paper. `min_pop = 2` (one leader, one
+/// follower, the minimal meaningful split), enforced via
+/// `AlgorithmSpec::validate`.
+pub fn ssa(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "ssa".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/ssa", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),

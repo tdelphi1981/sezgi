@@ -23,6 +23,7 @@ SEXP savvy_sz_preset_random_search__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget
 SEXP savvy_sz_preset_sa__ffi(SEXP c_arg__budget);
 SEXP savvy_sz_preset_sca__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_shade__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_preset_ssa__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_woa__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_read_ioh_records__ffi(SEXP c_arg__log_root, SEXP c_arg__budgets);
 SEXP savvy_sz_results_matrix_raw__ffi(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__budget, SEXP c_arg__aggregate);
