@@ -31,12 +31,15 @@
 //! more and folds each value into its own `best: Option<(Vec<f64>, f64)>`
 //! using the *identical* comparison `Evaluator::evaluate` uses internally
 //! (`Some(b) if b <= f => b, _ => f`, i.e. update only on strict
-//! improvement — ties keep the earlier `x`), so the session's best-tracking
-//! and NaN behavior (see below) match `Evaluator`'s exactly. This is the
+//! improvement — ties keep the earlier `x`). Only the *value* side of this
+//! comparison is mirrored from `Evaluator`, which tracks `f64` only, no `x`;
+//! keeping the associated `x` alongside the winning value is necessarily new
+//! session behavior (there is nothing in `Evaluator` to mirror it from),
+//! required because [`Self::best`] returns `(&[f64], f64)`. This is the
 //! only piece of "counting logic" not reused verbatim, and it is
 //! unavoidable given `Evaluator`'s private fields.
 //!
-//! ## Error semantics (mirrored from `Evaluator`/`BbobProblem`, read first)
+//! ## Error semantics
 //!
 //! - **Budget**: all-or-nothing, exactly like `Evaluator::evaluate` — a
 //!   batch that would cross the remaining budget is rejected *before* any
@@ -54,17 +57,32 @@
 //!   (against `self.problem.space().dim()`) up front, before constructing
 //!   any `Genotype` or touching the counter — all-or-nothing, and it names
 //!   the offending row index.
-//! - **NaN in x / NaN as f**: neither `BbobProblem::evaluate_batch` nor
-//!   `Evaluator::evaluate` special-case NaN in any way — a NaN coordinate
-//!   just flows through the arithmetic (typically producing a NaN `f`), and
-//!   `Evaluator`'s best-tracking comparison `Some(b) if b <= f => b, _ => f`
-//!   treats a NaN `f` as *strictly better* than any existing best (because
-//!   `b <= NaN` is `false` in IEEE 754, so the `_ => f` arm always fires).
-//!   `EvalSession` mirrors this exactly: it does **not** reject NaN
-//!   coordinates or NaN outputs, and its own best-tracking uses the same
-//!   comparison, so a NaN eval "wins" as the new best in the same
-//!   surprising way. This is pinned by a test below rather than treated as
-//!   an error, per the brief's "read first, replicate" instruction.
+//! - **Non-finite coordinates (NaN/±Inf) in x**: `BbobProblem::evaluate_batch`
+//!   does not reject them itself — a non-finite coordinate just flows through
+//!   the arithmetic (typically producing a non-finite `f`), and (as read in
+//!   `Evaluator::evaluate`) its best-tracking comparison
+//!   `Some(b) if b <= f => b, _ => f` would treat a NaN `f` as *strictly
+//!   better* than any existing best (`b <= NaN` is `false` in IEEE 754, so
+//!   the `_ => f` arm always fires) — meaning a NaN could silently become
+//!   "the best" and, with logging on, get written into the IOH archive as
+//!   the run's improvement/final row, permanently if it's the last eval.
+//!   `EvalSession` does **not** let this happen: like `crates/stats`'s
+//!   `check_finite` precedent (M2d-1), which rejects non-finite input at
+//!   every FFI-facing entry point in that crate before any computation runs,
+//!   `EvalSession::evaluate` is the rawest FFI-facing boundary in this crate
+//!   (raw `Vec<f64>` rows straight from Python/R), so it rejects any
+//!   non-finite coordinate explicitly, in the same pre-counter all-or-nothing
+//!   pass as the dimension check, naming the offending row index. This is a
+//!   deliberate *departure* from mirroring `Evaluator`/`BbobProblem` (which
+//!   do not check), chosen because the FFI boundary is exactly where
+//!   `check_finite`'s precedent says user input must be validated, not
+//!   silently propagated.
+//! - **`with_log` after evaluation has started**: calling [`Self::with_log`]
+//!   once `evals_used() > 0` would silently produce an incomplete archive —
+//!   the new `IohRunObserver` only sees evals from that point on, so earlier
+//!   evals vanish from the `.dat` file and the first *logged* row gets
+//!   marked as an "improvement" even if it wasn't the run's actual first
+//!   improvement. `with_log` therefore errors instead of allowing this.
 
 use crate::ioh::{IohLogger, IohRunObserver};
 use crate::experiment::ExperimentError;
@@ -102,7 +120,14 @@ impl EvalSession {
     /// `seed` is a caller-declared reproducibility label recorded in the
     /// meta only — the session itself never draws random numbers, so this
     /// is purely documentation of what the *caller's* RNG was seeded with.
+    ///
+    /// Errors if any evaluation has already happened (`evals_used() > 0`):
+    /// attaching a logger mid-session would silently produce an incomplete
+    /// archive (see module doc).
     pub fn with_log(mut self, log_dir: &Path, algo_name: &str, seed: u64) -> Result<Self, ExperimentError> {
+        if self.used > 0 {
+            return Err(ExperimentError::LogAfterEval { used: self.used });
+        }
         let mut logger = IohLogger::new(
             log_dir, algo_name, SUITE,
             self.problem.fid(), self.problem.name(), self.problem.space().dim(),
@@ -113,14 +138,19 @@ impl EvalSession {
     }
 
     /// Batch-evaluates `xs`. Counts every row on success; on any error
-    /// (dimension mismatch or budget overrun) nothing is counted and no
-    /// row is evaluated — all-or-nothing, mirroring `Evaluator::evaluate`
-    /// (see module doc).
+    /// (dimension mismatch, a non-finite coordinate, or budget overrun)
+    /// nothing is counted and no row is evaluated — all-or-nothing,
+    /// mirroring `Evaluator::evaluate`'s budget check and going further for
+    /// the two checks `Evaluator`/`BbobProblem` don't make themselves (see
+    /// module doc).
     pub fn evaluate(&mut self, xs: &[Vec<f64>]) -> Result<Vec<f64>, ExperimentError> {
         let dim = self.problem.space().dim();
         for (row, x) in xs.iter().enumerate() {
             if x.len() != dim {
                 return Err(ExperimentError::DimensionMismatch { row, expected: dim, got: x.len() });
+            }
+            if x.iter().any(|v| !v.is_finite()) {
+                return Err(ExperimentError::NonFiniteInput { row });
             }
         }
 
@@ -139,7 +169,11 @@ impl EvalSession {
         for (x, &f) in xs.iter().zip(&fs) {
             self.used += 1;
             // Same tie rule as Evaluator::evaluate: update only on strict
-            // improvement (NaN `f` always "wins" — see module doc).
+            // improvement, tracking x too (necessarily new — see module
+            // doc). x is finite by construction (checked above); f could
+            // still be non-finite in principle if the objective itself
+            // produces one from finite input, in which case this mirrors
+            // Evaluator's own (unvalidated) tie behavior for f.
             let improved = !matches!(&self.best, Some((_, b)) if *b <= f);
             if improved { self.best = Some((x.clone(), f)); }
             let best_f = self.best.as_ref().unwrap().1;
@@ -232,20 +266,21 @@ mod tests {
     }
 
     #[test]
-    fn nan_coordinate_propagates_without_erroring_and_wins_best() {
-        // Mirrors BbobProblem/Evaluator: neither rejects NaN, and
-        // Evaluator's `b <= f` tie rule makes a NaN f "win" as the new
-        // best (NaN comparisons are always false in IEEE 754). Pinned here
-        // rather than treated as an error — see module doc.
+    fn non_finite_coordinate_errors_and_does_not_count() {
+        // Departure from mirroring Evaluator/BbobProblem (neither checks):
+        // check_finite's precedent (crates/stats, M2d-1) says FFI-facing
+        // input must be validated, not silently propagated — see module
+        // doc. Covers NaN and +/-Inf, and every offending row is rejected
+        // (all-or-nothing), including a row that itself has valid dimension.
         let mut s = EvalSession::new_bbob(1, 2, 1, 100).unwrap();
-        let fs = s.evaluate(&[row(&[0.0, 0.0]), row(&[f64::NAN, 0.0]), row(&[0.0, 0.0])]).unwrap();
-        assert!(fs[1].is_nan());
-        assert_eq!(s.evals_used(), 3);
-        // After the NaN row, best "becomes" NaN (Evaluator's own quirk);
-        // then the third eval (a real, finite f) again "wins" for the same
-        // reason (NaN <= anything is false), so the final best is finite.
-        let (_, best_f) = s.best().unwrap();
-        assert!(best_f.is_finite(), "the eval after a NaN best always wins under this tie rule");
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let err = s.evaluate(&[row(&[0.0, 0.0]), row(&[bad, 0.0])]).unwrap_err();
+            match err {
+                ExperimentError::NonFiniteInput { row } => assert_eq!(row, 1),
+                other => panic!("expected NonFiniteInput, got {other:?}"),
+            }
+            assert_eq!(s.evals_used(), 0, "a rejected batch must not count any rows, including the good ones before it");
+        }
     }
 
     #[test]
@@ -267,6 +302,31 @@ mod tests {
     fn finish_without_log_is_ok() {
         let s = EvalSession::new_bbob(1, 2, 1, 10).unwrap();
         assert!(s.finish().is_ok());
+    }
+
+    #[test]
+    fn with_log_after_evaluation_errors() {
+        // A logger attached after evals have already happened would
+        // silently produce an incomplete archive (earlier evals invisible,
+        // first logged row falsely marked as an improvement) — see module
+        // doc. Must error instead, and leave the counter untouched.
+        let tmp = tempfile::tempdir().unwrap();
+        let mut s = EvalSession::new_bbob(1, 2, 1, 100).unwrap();
+        s.evaluate(&[row(&[0.0, 0.0]), row(&[1.0, 1.0]), row(&[2.0, 2.0])]).unwrap();
+        assert_eq!(s.evals_used(), 3);
+
+        match s.with_log(tmp.path(), "test-algo", 42) {
+            Err(ExperimentError::LogAfterEval { used }) => assert_eq!(used, 3),
+            Err(other) => panic!("expected LogAfterEval, got {other:?}"),
+            Ok(_) => panic!("with_log after evaluation must error"),
+        }
+    }
+
+    #[test]
+    fn with_log_before_any_evaluation_succeeds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = EvalSession::new_bbob(1, 2, 1, 100).unwrap();
+        assert!(s.with_log(tmp.path(), "test-algo", 42).is_ok());
     }
 
     /// The core deliverable: session-driven IOH output must be byte-identical

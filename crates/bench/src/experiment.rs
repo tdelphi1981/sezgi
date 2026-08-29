@@ -225,6 +225,10 @@ pub enum ExperimentError {
     DimensionMismatch { row: usize, expected: usize, got: usize },
     #[error("EvalSession::evaluate: budget exceeded ({used}/{budget} used, {requested} requested)")]
     BudgetExceeded { used: u64, budget: u64, requested: u64 },
+    #[error("EvalSession::evaluate: row {row} has a non-finite coordinate")]
+    NonFiniteInput { row: usize },
+    #[error("EvalSession::with_log must be called before any evaluation ({used} eval(s) already used)")]
+    LogAfterEval { used: u64 },
 }
 
 const VALID_PRESET_KINDS: &[&str] = &[
