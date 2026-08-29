@@ -181,6 +181,11 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
 /// (`py.allow_threads`) for the duration of the run: experiment problems
 /// are bbob-only (no Python callbacks), so no Python object is touched
 /// while the GIL is released.
+///
+/// The journal's spec hash is computed by `run_experiment_with_checkpoint`
+/// from `spec` (the already-parsed `ExperimentSpec`), not from the raw
+/// `spec_toml` text, so whitespace/comment-only edits to `spec_toml` never
+/// invalidate a journal — see `crates/bench/src/checkpoint.rs`.
 #[pyfunction]
 #[pyo3(signature = (spec_toml, journal=None, parallel=true, threads=None))]
 fn run_experiment(
@@ -196,7 +201,7 @@ fn run_experiment(
     let records = if let Some(journal_path) = journal {
         let path = Path::new(journal_path);
         py.allow_threads(|| {
-            run_experiment_with_checkpoint(&spec, spec_toml, path, parallel, threads)
+            run_experiment_with_checkpoint(&spec, path, parallel, threads)
         })
     } else if parallel {
         py.allow_threads(|| run_experiment_parallel(&spec, threads))

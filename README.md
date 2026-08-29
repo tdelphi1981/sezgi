@@ -67,14 +67,68 @@ budget standing in for all of them. `sezgi.results_matrix(records, budget)`
 is available separately if you need just the `(algo_names, problem_labels,
 matrix)` triple for one budget (e.g. to feed a custom analysis).
 
+## Quickstart (R)
+
+Install from the repo root (the Rust core builds via `cargo` on install):
+
+    R CMD INSTALL r-sezgi
+
+Then:
+
+    library(sezgi)
+
+    spec <- sz_preset_de_rand_1(pop_size = 50, budget = 20000)
+    result <- sz_solve_bbob(spec, fid = 1L, dim = 10L, instance = 1L,
+                             master_seed = 42, run_id = 0)
+    print(result$best_f)
+
+Experiments and statistics mirror the Python bindings exactly (same TOML
+grid schema, same checkpoint/resume semantics, bit-identical results for the
+same spec and seed):
+
+    spec_toml <- '
+        name = "example"
+        seeds = [1, 2, 3]
+        budgets = [1000, 5000]
+
+        [[algorithms]]
+        name = "de"
+        preset = { kind = "de_rand_1", pop_size = 20 }
+
+        [[algorithms]]
+        name = "cmaes"
+        preset = { kind = "cmaes", pop_size = 20 }
+
+        [[problems]]
+        suite = "bbob"
+        fid = 1
+        dim = 10
+        instances = [1, 2, 3, 4, 5]
+    '
+
+    records <- sz_run_experiment(spec_toml, parallel = TRUE)
+
+    # One paper_package PER DISTINCT BUDGET present in records, named by
+    # budget, in ascending budget order.
+    packages <- sz_per_budget_packages(records, rope = 0.01, samples = 10000, seed = 42)
+
+    for (budget_name in names(packages)) {
+      cat("--- budget=", budget_name, " ---\n", sep = "")
+      cat(packages[[budget_name]]$latex_summary, "\n")
+    }
+
+`sz_results_matrix(records, budget)` is available separately if you need
+just the `(algo_names, problem_labels, matrix)` triple for one budget.
+
 ## Development
 
     cargo test --workspace --release        # Rust tests
     cd py-sezgi && maturin develop && pytest # Python tests
+    R CMD INSTALL --preclean r-sezgi && Rscript -e 'testthat::test_dir("r-sezgi/tests/testthat", package = "sezgi")' # R tests
 
 ## Status
 
-M2c (experiment runner + statistics) **complete** — TOML grids with parallel execution, multi-budget checkpoint/resume, Friedman/Holm/Hochberg/Nemenyi tests, Wilcoxon-Pratt/Cliff's δ, Bayesian signed-rank with ROPE, Plackett–Luce rankings, LaTeX paper package generation. Next: M2d (R frontend + examples + ECDF/anytime analysis). License: MIT.
+M2d-1 (R frontend + exact-Wilcoxon + canonical spec hashing) **complete** — savvy-based R bindings mirroring py-sezgi (13 presets, `sz_run_experiment`, `sz_results_matrix`/`sz_per_budget_packages`, full stats namespace), exact small-n Wilcoxon signed-rank distribution, canonical spec-hash checkpointing in both bindings. See `docs/DECISIONS.md` for the full M2d-1 record. Next: M2d-2 (ECDF/anytime analysis, COCO export, example triplets, Bayesian PL posterior, IOH-driven stats input, R-callback problems). License: MIT.
 
 ## Algorithms
 
@@ -96,4 +150,4 @@ sezgi M2b ships 13 reference algorithm presets (with Rust function names):
 | Nelder–Mead Simplex | `presets::nelder_mead` |
 | Random Search (baseline) | `presets::random_search` |
 
-Python bindings expose every preset above except `es_mu_plus_lambda` (its `Distribution` argument lacks clean FFI mapping; deferred to M2d). All other algorithm families are ready for experiment-driven research.
+Both the Python and R bindings expose every preset above, including `es_mu_plus_lambda` (its `Distribution` argument is bridged via a distribution-name string plus per-family parameters — see `sezgi.presets.es_mu_plus_lambda` / `sz_preset_es_mu_plus_lambda`).

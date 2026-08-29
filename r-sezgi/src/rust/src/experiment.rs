@@ -71,6 +71,11 @@ fn records_to_data_frame(records: &[RunRecord]) -> savvy::Result<Sexp> {
 ///   negative values are rejected explicitly (savvy has no unsigned integer
 ///   scalar type to enforce this at the signature level).
 /// @returns A data.frame with one row per run.
+///
+/// The journal's spec hash is computed by `run_experiment_with_checkpoint`
+/// from `spec` (the already-parsed `ExperimentSpec`), not from the raw
+/// `spec_toml` text, so whitespace/comment-only edits to `spec_toml` never
+/// invalidate a journal -- see `crates/bench/src/checkpoint.rs`.
 #[savvy]
 fn sz_run_experiment_raw(
     spec_toml: &str,
@@ -87,7 +92,7 @@ fn sz_run_experiment_raw(
 
     let records = if let Some(journal_path) = journal {
         let path = Path::new(journal_path);
-        run_experiment_with_checkpoint(&spec, spec_toml, path, parallel, threads)
+        run_experiment_with_checkpoint(&spec, path, parallel, threads)
     } else if parallel {
         run_experiment_parallel(&spec, threads)
     } else {

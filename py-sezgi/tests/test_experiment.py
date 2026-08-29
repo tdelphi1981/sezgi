@@ -70,6 +70,47 @@ def test_experiment_resume(tmp_path):
     assert strip_wall(r1) == strip_wall(r2)
 
 
+def test_experiment_resume_tolerates_formatting_only_edit(tmp_path):
+    """M2d Task 9: the journal's spec hash is over the canonical TOML form,
+    so appending a comment (whitespace to the parser) must not invalidate
+    an existing journal on resume."""
+    spec_toml = tiny_experiment_toml()
+    journal_path = str(tmp_path / "journal.jsonl")
+
+    r1 = sezgi.run_experiment(spec_toml, journal=journal_path, parallel=False)
+    assert len(r1) == 4
+    lines_after_first = sum(1 for _ in open(journal_path))
+
+    edited_toml = spec_toml + "\n# harmless comment\n"
+
+    r2 = sezgi.run_experiment(edited_toml, journal=journal_path, parallel=False)
+    assert len(r2) == 4, "resume with a formatting-only edit must not re-run anything"
+
+    lines_after_second = sum(1 for _ in open(journal_path))
+    assert lines_after_second == lines_after_first, \
+        "resume with a formatting-only edit must not append new journal lines"
+
+    def strip_wall(records):
+        return [{k: v for k, v in r.items() if k != "wall_secs"} for r in records]
+
+    assert strip_wall(r1) == strip_wall(r2)
+
+
+def test_experiment_resume_rejects_real_field_change(tmp_path):
+    """A real field change (budget) must still be caught as a spec change."""
+    spec_toml = tiny_experiment_toml()
+    journal_path = str(tmp_path / "journal.jsonl")
+
+    r1 = sezgi.run_experiment(spec_toml, journal=journal_path, parallel=False)
+    assert len(r1) == 4
+
+    changed_toml = spec_toml.replace("budgets = [400]", "budgets = [500]")
+    assert changed_toml != spec_toml
+
+    with pytest.raises(ValueError, match="spec has changed"):
+        sezgi.run_experiment(changed_toml, journal=journal_path, parallel=False)
+
+
 def test_stats_bindings_smoke():
     # friedman on a 3x3 matrix (3 problems x 3 algorithms).
     results = [

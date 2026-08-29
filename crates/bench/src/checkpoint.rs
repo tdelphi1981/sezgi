@@ -159,9 +159,18 @@ pub fn load_journal(
 ///
 /// Returns the FULL result set in ENUMERATION order (journal records + new
 /// records merged by key).
+///
+/// The spec hash is computed HERE, internally, from `spec.to_toml()` (the
+/// canonical serialization), never from whatever raw TOML text a caller may
+/// have parsed `spec` out of. Since M2d this is the *only* place a spec hash
+/// is produced for the checkpoint path: both the Python and R bindings parse
+/// their raw user TOML into an `ExperimentSpec` and hand that (already-
+/// canonicalized-on-read) spec here, so formatting-only differences in the
+/// original TOML text (whitespace, comments, key order) can never affect the
+/// hash and can never cause the two bindings to diverge from each other or
+/// from a fresh run of the same spec.
 pub fn run_experiment_with_checkpoint(
     spec: &ExperimentSpec,
-    spec_toml_str: &str,
     journal_path: &Path,
     parallel: bool,
     threads: Option<usize>,
@@ -172,8 +181,7 @@ pub fn run_experiment_with_checkpoint(
     use sezgi_core::problem::Problem;
     use sezgi_problems::BbobProblem;
 
-    let hash = fnv1a_64(spec_toml_str.as_bytes());
-    let hash_str = format!("{:016x}", hash);
+    let hash_str = spec_hash(spec);
 
     // Load existing journal or create new one.
     let (journal_records, torn_count, valid_end) = load_journal(journal_path, &spec.name, &hash_str)?;
@@ -573,9 +581,8 @@ mod tests {
         let journal_path = dir.path().join("journal.jsonl");
 
         let spec = demo_spec();
-        let spec_toml = spec.to_toml();
 
-        let result = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None);
+        let result = run_experiment_with_checkpoint(&spec, &journal_path, false, None);
         assert!(result.is_ok(), "fresh run must succeed");
 
         assert!(journal_path.exists(), "journal must be created");
@@ -589,10 +596,9 @@ mod tests {
         let journal_path = dir.path().join("journal.jsonl");
 
         let spec = demo_spec();
-        let spec_toml = spec.to_toml();
 
         // First run: complete the full experiment
-        let result1 = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None)
+        let result1 = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
             .expect("first run should succeed");
         let count1 = result1.len();
         assert_eq!(count1, 2, "1 algo x 1 problem x 1 instance x 2 seeds x 1 budget = 2 runs");
@@ -603,7 +609,7 @@ mod tests {
         let lines_after_first = 1 + records_after_first.len(); // header + records
 
         // Second run: resume with same journal (should execute nothing new)
-        let result2 = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None)
+        let result2 = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
             .expect("resume should succeed");
         let count2 = result2.len();
 
@@ -638,10 +644,9 @@ mod tests {
         let journal_path = dir.path().join("journal.jsonl");
 
         let spec = demo_spec();
-        let spec_toml = spec.to_toml();
 
         // First full run
-        let full_result = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None)
+        let full_result = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
             .expect("full run should succeed");
         let full_count = full_result.len();
 
@@ -672,7 +677,7 @@ mod tests {
         let lines_before_resume = 1 + half_count;
 
         // Resume from half
-        let resume_result = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None)
+        let resume_result = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
             .expect("resume should succeed");
 
         // Count journal lines after resume (should be header + all records)
@@ -713,18 +718,16 @@ mod tests {
         let journal_path = dir.path().join("journal.jsonl");
 
         let spec = demo_spec();
-        let spec_toml = spec.to_toml();
 
         // Create journal with first spec
-        run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None).unwrap();
+        run_experiment_with_checkpoint(&spec, &journal_path, false, None).unwrap();
 
         // Modify spec (change a seed)
         let mut modified_spec = spec.clone();
         modified_spec.seeds[0] = 999;
-        let modified_toml = modified_spec.to_toml();
 
         // Try to resume with modified spec
-        let result = run_experiment_with_checkpoint(&modified_spec, &modified_toml, &journal_path, false, None);
+        let result = run_experiment_with_checkpoint(&modified_spec, &journal_path, false, None);
         assert!(matches!(result, Err(ExperimentError::ExperimentHashMismatch { .. })));
     }
 
@@ -738,10 +741,9 @@ mod tests {
         let journal_path = dir.path().join("journal.jsonl");
 
         let spec = demo_spec();
-        let spec_toml = spec.to_toml();
 
         // Full baseline run.
-        let baseline = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None)
+        let baseline = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
             .expect("baseline run should succeed");
         assert_eq!(baseline.len(), 2);
 
@@ -757,7 +759,7 @@ mod tests {
 
         // Resume 1: must truncate the torn tail, re-execute the lost run, and
         // leave a fully parseable journal.
-        let resume1 = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None)
+        let resume1 = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
             .expect("first resume after torn line should succeed");
         assert_eq!(resume1.len(), 2);
         let (records1, torn1, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
@@ -769,7 +771,7 @@ mod tests {
         // Resume 2: nothing to execute, journal must not grow, and must stay
         // fully parseable. (A glued torn tail only detonates on the SECOND
         // resume — this is the regression the fix is pinned against.)
-        let resume2 = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None)
+        let resume2 = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
             .expect("second resume should succeed");
         assert_eq!(resume2.len(), 2);
         let (records2, torn2, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
@@ -797,11 +799,10 @@ mod tests {
         let seq_path = dir.path().join("sequential.jsonl");
 
         let spec = demo_spec();
-        let spec_toml = spec.to_toml();
 
         // Fresh parallel run: every record must land in the journal.
         let parallel_result =
-            run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, true, Some(2))
+            run_experiment_with_checkpoint(&spec, &journal_path, true, Some(2))
                 .expect("parallel run should succeed");
         assert_eq!(parallel_result.len(), 2);
         let (records, torn, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
@@ -814,7 +815,7 @@ mod tests {
         // no growth, results identical.
         let len_before = fs::metadata(&journal_path).unwrap().len();
         let resumed =
-            run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, true, Some(2))
+            run_experiment_with_checkpoint(&spec, &journal_path, true, Some(2))
                 .expect("resume from parallel journal should succeed");
         let len_after = fs::metadata(&journal_path).unwrap().len();
         assert_eq!(len_before, len_after, "resume of complete parallel journal must not grow it");
@@ -823,7 +824,7 @@ mod tests {
         // Parallel checkpoint results must be bit-identical to sequential
         // checkpoint results, in enumeration order.
         let sequential_result =
-            run_experiment_with_checkpoint(&spec, &spec_toml, &seq_path, false, None)
+            run_experiment_with_checkpoint(&spec, &seq_path, false, None)
                 .expect("sequential run should succeed");
         for (i, (s, p)) in sequential_result.iter().zip(parallel_result.iter()).enumerate() {
             let ts = (s.key.to_string(), s.best_f.to_bits(), s.f_opt.to_bits(), s.evals_used);

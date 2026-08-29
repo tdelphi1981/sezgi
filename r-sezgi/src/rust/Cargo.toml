@@ -9,7 +9,7 @@ edition = "2024"
 crate-type = ["staticlib", "lib"]
 
 [dependencies]
-savvy = "*"
+savvy = "0.10"
 sezgi-core = { path = "../../../crates/core" }
 sezgi-components = { path = "../../../crates/components" }
 sezgi-problems = { path = "../../../crates/problems" }

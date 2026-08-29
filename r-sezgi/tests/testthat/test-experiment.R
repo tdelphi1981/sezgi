@@ -46,6 +46,38 @@ test_that("journal resume does not change results", {
   expect_identical(a$best_f[order(a$seed)], b$best_f[order(b$seed)])
 })
 
+test_that("journal resume tolerates a formatting-only edit (M2d-1 Task 9)", {
+  # The journal's spec hash is computed over the canonical TOML form, so
+  # appending a comment (whitespace to the TOML parser) must not invalidate
+  # an existing journal on resume.
+  j <- tempfile(fileext = ".jsonl")
+  a <- sz_run_experiment(experiment_toml, journal = j, parallel = FALSE)
+  lines_after_first <- length(readLines(j))
+
+  edited_toml <- paste0(experiment_toml, "\n# harmless comment\n")
+  b <- sz_run_experiment(edited_toml, journal = j, parallel = FALSE)
+  lines_after_second <- length(readLines(j))
+
+  expect_equal(nrow(a), nrow(b))
+  expect_equal(lines_after_first, lines_after_second,
+               info = "resume with a formatting-only edit must not append new journal lines")
+  ord <- function(d) d[order(d$algo, d$seed, d$instance), ]
+  expect_identical(ord(a)$best_f, ord(b)$best_f)
+})
+
+test_that("journal resume rejects a real spec field change", {
+  j <- tempfile(fileext = ".jsonl")
+  sz_run_experiment(experiment_toml, journal = j, parallel = FALSE)
+
+  changed_toml <- sub("budgets = [500]", "budgets = [600]", experiment_toml, fixed = TRUE)
+  expect_false(identical(changed_toml, experiment_toml))
+
+  expect_error(
+    sz_run_experiment(changed_toml, journal = j, parallel = FALSE),
+    regexp = "spec has changed"
+  )
+})
+
 test_that("all 13 preset builders return parseable spec JSON", {
   skip_if_not_installed("jsonlite")
   specs <- list(
