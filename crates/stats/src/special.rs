@@ -65,9 +65,9 @@ pub fn ln_gamma(x: f64) -> f64 {
 
     if x < 0.5 {
         // Use reflection formula: Γ(x) * Γ(1-x) = π / sin(πx)
-        // ln(Γ(x)) = ln(π / sin(πx)) - ln(Γ(1-x))
+        // ln(Γ(x)) = ln(π) - ln(sin(πx)) - ln(Γ(1-x))
         let pi_x = std::f64::consts::PI * x;
-        return pi_x.sin().ln() - std::f64::consts::PI.ln() - ln_gamma(1.0 - x);
+        return std::f64::consts::PI.ln() - pi_x.sin().ln() - ln_gamma(1.0 - x);
     }
 
     let x = x - 1.0;
@@ -249,6 +249,26 @@ mod tests {
         assert!((result - expected).abs() < 1e-8,
                 "ln_gamma(0.5) should be ln(√π), got {}, expected {}, error: {}",
                 result, expected, (result - expected).abs());
+    }
+
+    #[test]
+    fn test_ln_gamma_reflection_branch() {
+        // Tests the reflection branch (x < 0.5) using ln_gamma(0.3)
+        let result = ln_gamma(0.3);
+        let expected = 1.0957979948180756;
+        assert!((result - expected).abs() < 1e-8,
+                "ln_gamma(0.3) should be {}, got {}, error: {}",
+                expected, result, (result - expected).abs());
+    }
+
+    #[test]
+    fn test_ln_gamma_reflection_point_25() {
+        // Tests the reflection branch (x < 0.5) using ln_gamma(0.25)
+        let result = ln_gamma(0.25);
+        let expected = 1.2880225246980774;
+        assert!((result - expected).abs() < 1e-8,
+                "ln_gamma(0.25) should be {}, got {}, error: {}",
+                expected, result, (result - expected).abs());
     }
 
     #[test]
