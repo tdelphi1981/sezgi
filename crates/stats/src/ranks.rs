@@ -522,26 +522,36 @@ mod tests {
 
     #[test]
     fn hochberg_restores_original_order() {
-        // Same shuffled input as holm_restores_original_order:
-        // p = [0.04, 0.01, 0.03, 0.02] (original order: idx0=0.04,
-        // idx1=0.01, idx2=0.03, idx3=0.02).
+        // Non-uniform, shuffled input: p = [0.03, 0.001, 0.04, 0.002]
+        // (original order: idx0=0.03, idx1=0.001, idx2=0.04, idx3=0.002).
         //
-        // Sorted ascending: p_(1)=0.01(idx1), p_(2)=0.02(idx3),
-        //                    p_(3)=0.03(idx2), p_(4)=0.04(idx0).
+        // Deliberately NOT a uniformly-spaced fixture (unlike the earlier
+        // holm_restores_original_order / textbook fixtures) so that a
+        // broken order-restoration mapping -- e.g. one that accidentally
+        // returns the values in sorted order, or off-by-one shifts the
+        // index mapping -- cannot coincidentally produce the right answer.
+        //
+        // Sorted ascending: p_(1)=0.001(idx1), p_(2)=0.002(idx3),
+        //                    p_(3)=0.03(idx0), p_(4)=0.04(idx2).
         //
         // Hochberg (step-up, running min of (m-rank+1)*p_(rank), from
-        // rank m=4 down to rank 1), same arithmetic as the textbook
-        // fixture above since the *sorted* p-values are identical:
-        //   rank 4 (idx0, p=.04): 1*.04 = .04           -> adj = .04
-        //   rank 3 (idx2, p=.03): 2*.03 = .06           -> adj = min(.04,.06) = .04
-        //   rank 2 (idx3, p=.02): 3*.02 = .06           -> adj = min(.04,.06) = .04
-        //   rank 1 (idx1, p=.01): 4*.01 = .04           -> adj = min(.04,.04) = .04
-        //   adjusted in ascending-p order (idx1, idx3, idx2, idx0) = [.04, .04, .04, .04]
+        // rank m=4 down to rank 1):
+        //   rank 4 (idx2, p=.04):  mult=4-4+1=1, 1*.04  = .04   -> adj = .04
+        //   rank 3 (idx0, p=.03):  mult=4-3+1=2, 2*.03  = .06   -> adj = min(.04,.06) = .04
+        //   rank 2 (idx3, p=.002): mult=4-2+1=3, 3*.002 = .006  -> adj = min(.04,.006) = .006
+        //   rank 1 (idx1, p=.001): mult=4-1+1=4, 4*.001 = .004  -> adj = min(.006,.004) = .004
+        //   adjusted in ascending-p order (idx1, idx3, idx0, idx2)
+        //     = [0.004, 0.006, 0.04, 0.04]
         //
-        // Restored to original order (idx0, idx1, idx2, idx3): [0.04, 0.04, 0.04, 0.04].
-        let p = vec![0.04, 0.01, 0.03, 0.02];
+        // Restored to original order (idx0, idx1, idx2, idx3):
+        //   idx0 -> 0.04 (from rank 3)
+        //   idx1 -> 0.004 (from rank 1)
+        //   idx2 -> 0.04 (from rank 4)
+        //   idx3 -> 0.006 (from rank 2)
+        //   expected = [0.04, 0.004, 0.04, 0.006]
+        let p = vec![0.03, 0.001, 0.04, 0.002];
         let hochberg_adj = hochberg(&p);
-        let expected = vec![0.04, 0.04, 0.04, 0.04];
+        let expected = vec![0.04, 0.004, 0.04, 0.006];
         for (a, e) in hochberg_adj.iter().zip(expected.iter()) {
             assert!(
                 (a - e).abs() < 1e-12,
