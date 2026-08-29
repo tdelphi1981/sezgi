@@ -1,6 +1,9 @@
 pub mod ioh;
 pub use ioh::{IohFinish, IohLogger, IohRunObserver};
 
+pub mod ioh_read;
+pub use ioh_read::{IohRun, IohScenario, read_ioh_root};
+
 pub mod manifest;
 
 pub mod experiment;

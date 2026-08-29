@@ -217,6 +217,8 @@ pub enum ExperimentError {
     Stats { budget: u64, #[source] source: sezgi_stats::StatsError },
     #[error("IOH log write error: {0}")]
     IohWrite(String),
+    #[error("IOH log read error: {0}")]
+    IohRead(String),
 }
 
 const VALID_PRESET_KINDS: &[&str] = &[
