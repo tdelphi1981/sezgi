@@ -167,6 +167,7 @@ presets = SimpleNamespace(
     firefly=_preset(_sezgi.preset_firefly),
     bat=_preset(_sezgi.preset_bat),
     fpa=_preset(_sezgi.preset_fpa),
+    tlbo=_preset(_sezgi.preset_tlbo),
     sa=_preset(_sezgi.preset_sa),
     random_search=_preset(_sezgi.preset_random_search),
     nelder_mead=_preset(_sezgi.preset_nelder_mead),

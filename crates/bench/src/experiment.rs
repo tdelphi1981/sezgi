@@ -34,6 +34,7 @@
 //! | `firefly`             | required                            | no |
 //! | `bat`                 | required                            | no |
 //! | `fpa`                 | required                            | no |
+//! | `tlbo`                | required                            | no |
 //! | `shade`               | required                            | no |
 //! | `cmaes`               | required                            | no |
 //! | `random_search`       | required                            | no |
@@ -258,7 +259,7 @@ pub enum ExperimentError {
 
 const VALID_PRESET_KINDS: &[&str] = &[
     "de_rand_1", "de_best_1", "jde", "es_mu_plus_lambda", "ga_real", "pso", "gwo", "woa",
-    "harmony_search", "cuckoo_search", "goa", "sca", "jaya", "mfo", "ssa", "firefly", "bat", "fpa", "shade", "cmaes", "random_search", "lshade", "cmaes_ipop",
+    "harmony_search", "cuckoo_search", "goa", "sca", "jaya", "mfo", "ssa", "firefly", "bat", "fpa", "tlbo", "shade", "cmaes", "random_search", "lshade", "cmaes_ipop",
     "nelder_mead", "sa",
 ];
 
@@ -291,6 +292,7 @@ fn build_preset(kind: &str, pop_size: Option<usize>, dim: usize, budget: u64)
         "firefly" => presets::firefly(require_pop_size(kind, pop_size)?, budget),
         "bat" => presets::bat(require_pop_size(kind, pop_size)?, budget),
         "fpa" => presets::fpa(require_pop_size(kind, pop_size)?, budget),
+        "tlbo" => presets::tlbo(require_pop_size(kind, pop_size)?, budget),
         "shade" => presets::shade(require_pop_size(kind, pop_size)?, budget),
         "cmaes" => presets::cmaes(require_pop_size(kind, pop_size)?, budget),
         "random_search" => presets::random_search(require_pop_size(kind, pop_size)?, budget),
@@ -992,6 +994,35 @@ mod tests {
         let r = &records[0];
         assert!(r.best_f.is_finite(), "best_f must be finite, got {}", r.best_f);
         assert!(r.evals_used <= 300, "evals_used ({}) must respect the budget", r.evals_used);
+    }
+
+    /// Multi-stage engine-interaction test (d) (M2d-4 Task 8): TLBO is the
+    /// first preset whose `AlgorithmSpec` has more than one `[[stages]]`
+    /// entry. `AlgorithmSpec::to_toml`/`from_toml` (the same TOML shape the
+    /// `spec_toml` escape hatch parses -- see `spec_toml_runs_end_to_end`
+    /// above) must preserve BOTH stages, in order, with their own
+    /// generator/replacer kinds intact -- not just the first.
+    #[test]
+    fn tlbo_two_stage_spec_toml_roundtrips_via_spec_toml_path() {
+        let spec = presets::tlbo(30, 2000);
+        assert_eq!(spec.stages.len(), 2, "tlbo must be a two-stage spec");
+
+        let toml_src = spec.to_toml();
+        let spec2 = AlgorithmSpec::from_toml(&toml_src).unwrap();
+        assert_eq!(spec, spec2,
+            "round-tripping through TOML must preserve every field, including both stages");
+        assert_eq!(spec2.stages.len(), 2);
+        assert_eq!(spec2.stages[0].generator.kind, "gen/tlbo-teacher");
+        assert_eq!(spec2.stages[0].replacer.kind, "replace/one-to-one-greedy");
+        assert_eq!(spec2.stages[1].generator.kind, "gen/tlbo-learner");
+        assert_eq!(spec2.stages[1].replacer.kind, "replace/one-to-one-greedy");
+
+        // Also exercise it through the bench's actual `spec_toml` path
+        // (build_algo_spec), the same function AlgoSource::SpecToml goes
+        // through inside enumerate().
+        let built = build_algo_spec(&AlgoSource::SpecToml(toml_src), 5, 2000).unwrap();
+        assert_eq!(built.stages.len(), 2, "the spec_toml path must preserve both stages too");
+        assert_eq!(built.termination.budget, 2000, "budget must still be overridden per contract");
     }
 
     // -------------------------------------------------------------

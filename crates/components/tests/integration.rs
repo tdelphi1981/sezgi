@@ -734,3 +734,59 @@ fn fpa_min_pop_2_enforced_by_spec_validation() {
         other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
     }
 }
+
+// ---- TLBO / Teaching-Learning-Based Optimization (M2d-4 Task 8, first
+// multi-stage preset) ----
+
+#[test]
+fn tlbo_is_a_two_stage_spec() {
+    let spec = presets::tlbo(30, 2000);
+    assert_eq!(spec.stages.len(), 2, "tlbo must have exactly two [[stages]]: teacher, then learner");
+    assert_eq!(spec.stages[0].generator.kind, "gen/tlbo-teacher");
+    assert_eq!(spec.stages[0].replacer.kind, "replace/one-to-one-greedy");
+    assert_eq!(spec.stages[1].generator.kind, "gen/tlbo-learner");
+    assert_eq!(spec.stages[1].replacer.kind, "replace/one-to-one-greedy");
+}
+
+#[test]
+fn tlbo_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::tlbo(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop 30/budget 20k: EXACTLY 0.0 (best_f is
+    // bit-identical to f_opt -- TLBO's greedy same-index acceptance after
+    // EACH phase never loses ground, and the teacher phase's pull toward
+    // the current-pop best plus the learner phase's toward-better/
+    // away-from-worse pairwise moves converge past double-precision
+    // resolution on the separable, unimodal BBOB f1/Sphere well within the
+    // 2*pop_size-per-generation budget). Anchored bound rounded up to the
+    // next 0.5 above the measured value (0.5), matching this wave's other
+    // anchored-threshold tests' bound; ample (>=0.3) headroom.
+    assert!(gap < 0.5,
+        "TLBO should land at (or extremely close to) the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+#[test]
+fn tlbo_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::tlbo(1, 500); // below min_pop = 2 (learner phase needs a distinct partner)
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    // validate() checks each stage's components in order, so the FIRST
+    // stage's generator (gen/tlbo-teacher) is the one reported here.
+    assert!(err_str.contains("gen/tlbo-teacher") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/tlbo-teacher");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}

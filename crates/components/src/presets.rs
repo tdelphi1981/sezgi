@@ -424,6 +424,46 @@ pub fn fpa(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Teaching-Learning-Based Optimization (Rao, Savsani & Vakharia 2011,
+/// Computer-Aided Design) -- a labeled metaphor preset, and sezgi's FIRST
+/// **multi-stage** preset: two `[[stages]]` run in sequence every
+/// generation, `gen/tlbo-teacher` then `gen/tlbo-learner` (see `tlbo.rs`'s
+/// module doc for the full provenance extraction against Yarpiz's `tlbo.m`
+/// -- explicitly labeled third-party, not Rao's own code -- the per-learner
+/// teaching-factor finding, the unconditionally-distinct partner-selection
+/// finding, the min_pop adjustment from the plan's sketched 3 down to 2, and
+/// the "parameter-free" framing's Črepinšek/Liu/Mernik (2012) counterpoint).
+/// Both stages: uniform init, `boundary/clamp` (same as every other preset
+/// in this crate), `replace/one-to-one-greedy` (DE's kind, reused as-is --
+/// each phase's own `if newsol.Cost<pop(i).Cost` acceptance). A full
+/// generation costs `2 * pop_size` evaluations (both stages evaluate; see
+/// `sezgi_core::engine`'s two-stage budget-accounting test). `pop_size` is
+/// the class size; canonical is 30 per the source paper. `min_pop = 2` --
+/// the learner phase's partner selection is a HARD requirement (needs
+/// exactly one OTHER member at minimum), enforced via `AlgorithmSpec::
+/// validate`.
+pub fn tlbo(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "tlbo".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![
+            StageSpec {
+                generator: comp("gen/tlbo-teacher", serde_json::json!({})),
+                replacer: comp("replace/one-to-one-greedy", serde_json::json!({})),
+                adapter: None,
+            },
+            StageSpec {
+                generator: comp("gen/tlbo-learner", serde_json::json!({})),
+                replacer: comp("replace/one-to-one-greedy", serde_json::json!({})),
+                adapter: None,
+            },
+        ],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),

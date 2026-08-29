@@ -184,6 +184,11 @@ SEXP savvy_sz_preset_ssa__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     return handle_result(res);
 }
 
+SEXP savvy_sz_preset_tlbo__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_tlbo__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_preset_woa__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_woa__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
@@ -310,6 +315,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_preset_sca__impl", (DL_FUNC) &savvy_sz_preset_sca__impl, 2},
     {"savvy_sz_preset_shade__impl", (DL_FUNC) &savvy_sz_preset_shade__impl, 2},
     {"savvy_sz_preset_ssa__impl", (DL_FUNC) &savvy_sz_preset_ssa__impl, 2},
+    {"savvy_sz_preset_tlbo__impl", (DL_FUNC) &savvy_sz_preset_tlbo__impl, 2},
     {"savvy_sz_preset_woa__impl", (DL_FUNC) &savvy_sz_preset_woa__impl, 2},
     {"savvy_sz_read_ioh_records__impl", (DL_FUNC) &savvy_sz_read_ioh_records__impl, 2},
     {"savvy_sz_results_matrix_raw__impl", (DL_FUNC) &savvy_sz_results_matrix_raw__impl, 11},

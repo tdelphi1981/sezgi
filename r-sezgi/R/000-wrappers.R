@@ -466,6 +466,27 @@ NULL
   .Call(savvy_sz_preset_ssa__impl, `pop_size`, `budget`)
 }
 
+#' Builds a Teaching-Learning-Based Optimization spec (Rao, Savsani &
+#' Vakharia 2011, Computer-Aided Design -- a labeled metaphor preset, and
+#' sezgi's FIRST multi-stage preset: two `[[stages]]` (teacher, then
+#' learner) run in sequence every generation. See
+#' `crates/components/src/tlbo.rs`'s module doc for the full provenance
+#' extraction against Yarpiz's `tlbo.m` -- explicitly labeled third-party,
+#' not Rao's own code -- the per-learner teaching-factor finding, the
+#' unconditionally-distinct partner-selection finding, the min_pop
+#' adjustment from 3 down to 2, and the "parameter-free" framing's
+#' Črepinšek/Liu/Mernik (2012) counterpoint) as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (class size). Canonical is 30.
+#' @param budget Evaluation budget. A full generation costs `2 * pop_size`
+#'   evaluations (both stages evaluate).
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_tlbo` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_tlbo__impl, `pop_size`, `budget`)
+}
+
 #' Builds a Whale Optimization Algorithm spec (Mirjalili & Lewis 2016 -- a
 #' labeled metaphor preset, see `crates/components/src/woa.rs`'s module doc
 #' for the tier note and citations) as JSON, ready to pass to
