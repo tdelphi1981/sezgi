@@ -1,1 +1,11 @@
 /target
+
+# R build artifacts (r-sezgi)
+r-sezgi/src/*.o
+r-sezgi/src/*.so
+r-sezgi/src/*.dll
+r-sezgi/src/Makevars
+r-sezgi/src/Makevars.win
+r-sezgi/src/rust/target/
+r-sezgi.Rcheck/
+r-sezgi_*.tar.gz
