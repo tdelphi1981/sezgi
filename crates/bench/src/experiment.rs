@@ -379,6 +379,88 @@ pub fn run_experiment_sequential(
     Ok(records)
 }
 
+// ---------------------------------------------------------------------
+// Parallel executor
+// ---------------------------------------------------------------------
+
+/// Enumerates `spec`, then runs each [`PlannedRun`] in parallel via
+/// [`rayon`]'s `par_iter`. Each parallel task builds its own
+/// [`BbobProblem`] and [`Engine`] (both `Send + Sync`, and neither shared
+/// with any other task); the shared [`Registry`] is read-only after
+/// construction (`build_*` takes `&self`), so it is safely shared by
+/// reference across tasks. Results are written into slots indexed by
+/// enumeration order (via rayon's indexed `par_iter().map().collect()`),
+/// so the returned `Vec`'s order is the ENUMERATION order — same as
+/// [`run_experiment_sequential`]'s — regardless of which run finishes
+/// first at runtime.
+///
+/// `threads`: `Some(n)` builds a scoped rayon [`rayon::ThreadPool`] with
+/// `n` threads and runs inside it; `None` uses rayon's global pool.
+///
+/// ## Reproducibility argument
+///
+/// Every run's RNG state is derived solely from `(run.seed, run.run_id)`
+/// (the enumerated run's master seed and its seed-index-derived
+/// `run_id`), via [`sezgi_core::rng::RngStream::from_master`] path offsets
+/// that are also fixed functions of `(master_seed, run_id, stage index)`
+/// — see [`Engine::run`]. No run reads or writes any state shared with
+/// another run (own `Problem`, own `Engine`, own `Blackboard`, own RNG
+/// streams), so which thread executes a run, and in what order runs are
+/// scheduled or complete, cannot affect any run's numeric result. This
+/// function is therefore bit-identical, run-for-run, to
+/// [`run_experiment_sequential`] for the same `spec`, no matter how many
+/// threads are used.
+pub fn run_experiment_parallel(
+    spec: &ExperimentSpec,
+    threads: Option<usize>,
+) -> Result<Vec<RunRecord>, ExperimentError> {
+    use rayon::prelude::*;
+
+    let planned = enumerate(spec)?;
+
+    let mut reg = Registry::new();
+    sezgi_components::register_builtins(&mut reg);
+    let reg = &reg;
+
+    let run_one = |run: &PlannedRun| -> Result<RunRecord, ExperimentError> {
+        let problem = BbobProblem::new(run.fid, run.dim, run.instance)
+            .map_err(|e| ExperimentError::Problem(e.to_string()))?;
+        let engine = Engine::from_spec(&run.algo_spec, reg, problem.space())
+            .map_err(|e| ExperimentError::Engine(e.to_string()))?;
+        let t0 = std::time::Instant::now();
+        let res = engine
+            .run(&problem, RunConfig { master_seed: run.seed, run_id: run.run_id }, None)
+            .map_err(|e| ExperimentError::Engine(e.to_string()))?;
+        Ok(RunRecord {
+            key: run.key.clone(),
+            best_f: res.best_f,
+            f_opt: problem.f_opt(),
+            evals_used: res.evals_used,
+            wall_secs: t0.elapsed().as_secs_f64(),
+        })
+    };
+
+    // Indexed par_iter().map().collect() places each result into its
+    // enumeration-order slot regardless of completion order.
+    let slotted: Vec<Result<RunRecord, ExperimentError>> = match threads {
+        Some(n) => {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(n)
+                .build()
+                .map_err(|e| ExperimentError::Engine(e.to_string()))?;
+            pool.install(|| planned.par_iter().map(run_one).collect())
+        }
+        None => planned.par_iter().map(run_one).collect(),
+    };
+
+    // Sequential error-fold: first error (in enumeration order) wins.
+    let mut records = Vec::with_capacity(slotted.len());
+    for r in slotted {
+        records.push(r?);
+    }
+    Ok(records)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -564,5 +646,101 @@ mod tests {
                 "best_f ({}) must not undercut f_opt ({}) by more than numerical noise", r.best_f, r.f_opt);
             assert!(r.evals_used <= 500, "evals_used ({}) must respect the budget", r.evals_used);
         }
+    }
+
+    /// A small experiment: 2 algorithms (one dim-linked), 1 problem,
+    /// 2 instances, 2 seeds, 1 budget.
+    fn parallel_test_spec() -> ExperimentSpec {
+        ExperimentSpec {
+            name: "parallel-check".into(),
+            seeds: vec![7, 99],
+            budgets: vec![600],
+            algorithms: vec![
+                AlgoEntry {
+                    name: "de".into(),
+                    source: AlgoSource::Preset { kind: "de_rand_1".into(), pop_size: Some(8) },
+                },
+                AlgoEntry {
+                    // dim-linked preset: pop_size is derived from the
+                    // problem's dim, not from the TOML.
+                    name: "nm".into(),
+                    source: AlgoSource::Preset { kind: "nelder_mead".into(), pop_size: None },
+                },
+            ],
+            problems: vec![ProblemEntry {
+                suite: "bbob".into(), fid: 1, dim: 5, instances: vec![1, 2],
+            }],
+        }
+    }
+
+    #[test]
+    fn parallel_equals_sequential_bitwise() {
+        let spec = parallel_test_spec();
+
+        let sequential = run_experiment_sequential(&spec, |_| {}).unwrap();
+        let parallel = run_experiment_parallel(&spec, Some(4)).unwrap();
+
+        assert_eq!(sequential.len(), parallel.len());
+        // 2 algos x 1 problem x 2 instances x 2 seeds x 1 budget = 8
+        assert_eq!(sequential.len(), 8);
+
+        for (i, (s, p)) in sequential.iter().zip(parallel.iter()).enumerate() {
+            assert_eq!(s.key, p.key, "record {i}: key must match (enumeration order)");
+            assert_eq!(
+                s.best_f.to_bits(), p.best_f.to_bits(),
+                "record {i} ({}): best_f must be bit-identical: sequential={} parallel={}",
+                s.key, s.best_f, p.best_f,
+            );
+            assert_eq!(
+                s.evals_used, p.evals_used,
+                "record {i} ({}): evals_used must match", s.key,
+            );
+        }
+    }
+
+    #[test]
+    fn parallel_threads_config() {
+        let spec = parallel_test_spec();
+        let records = run_experiment_parallel(&spec, Some(2)).unwrap();
+        assert_eq!(records.len(), 8);
+    }
+
+    /// Housekeeping (closes a T7 deferral): an algorithm entry whose
+    /// `spec_toml` is a hand-written, valid inline [`AlgorithmSpec`] TOML
+    /// runs end-to-end through [`run_experiment_sequential`] — proving the
+    /// parse -> budget-override -> `Engine::run` path for the `spec_toml`
+    /// escape hatch (as opposed to a built-in `preset`).
+    #[test]
+    fn spec_toml_runs_end_to_end() {
+        let de_spec_toml = r#"
+            name = "custom-de"
+            pop_size = 8
+            init = { kind = "init/uniform" }
+            boundary = { kind = "boundary/clamp" }
+            [[stages]]
+            generator = { kind = "gen/de", strategy = "rand1", f = 0.5, cr = 0.9 }
+            replacer = { kind = "replace/one-to-one-greedy" }
+            [termination]
+            budget = 1
+        "#;
+
+        let spec = ExperimentSpec {
+            name: "spec-toml-e2e".into(),
+            seeds: vec![1],
+            budgets: vec![300],
+            algorithms: vec![AlgoEntry {
+                name: "custom-de".into(),
+                source: AlgoSource::SpecToml(de_spec_toml.into()),
+            }],
+            problems: vec![ProblemEntry {
+                suite: "bbob".into(), fid: 1, dim: 5, instances: vec![1],
+            }],
+        };
+
+        let records = run_experiment_sequential(&spec, |_| {}).unwrap();
+        assert_eq!(records.len(), 1);
+        let r = &records[0];
+        assert!(r.best_f.is_finite(), "best_f must be finite, got {}", r.best_f);
+        assert!(r.evals_used <= 300, "evals_used ({}) must respect the budget", r.evals_used);
     }
 }
