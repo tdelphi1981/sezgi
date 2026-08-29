@@ -1,5 +1,6 @@
 use savvy::savvy;
 
+mod anytime;
 mod experiment;
 mod solve;
 mod stats;

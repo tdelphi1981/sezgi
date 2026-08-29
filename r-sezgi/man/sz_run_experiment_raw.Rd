@@ -10,7 +10,13 @@ exactly (see `py-sezgi/src/lib.rs`): `journal=None` runs via
 which resumes from -- and appends to -- an existing journal file at
 `path`.}
 \usage{
-sz_run_experiment_raw(spec_toml, parallel, journal = NULL, threads = NULL)
+sz_run_experiment_raw(
+  spec_toml,
+  parallel,
+  journal = NULL,
+  threads = NULL,
+  log_dir = NULL
+)
 }
 \arguments{
 \item{spec_toml}{Experiment spec as TOML.}
@@ -23,9 +29,21 @@ sz_run_experiment_raw(spec_toml, parallel, journal = NULL, threads = NULL)
 supported savvy scalar arg type, so this comes in as `i32` and is cast;
 negative values are rejected explicitly (savvy has no unsigned integer
 scalar type to enforce this at the signature level).}
+
+\item{log_dir}{Optional directory to log every run this call actually
+EXECUTES in IOH-profiler format (via `run_experiment_logged` when
+there is no `journal`, or via `run_experiment_with_checkpoint`'s own
+`log_dir` pass-through when there is -- see that function's doc
+comment: a run resumed from the journal was executed in a PRIOR
+process and is never re-logged).}
 }
 \value{
 A data.frame with one row per run.
+
+The journal's spec hash is computed by `run_experiment_with_checkpoint`
+from `spec` (the already-parsed `ExperimentSpec`), not from the raw
+`spec_toml` text, so whitespace/comment-only edits to `spec_toml` never
+invalidate a journal -- see `crates/bench/src/checkpoint.rs`.
 }
 \description{
 This is the raw savvy-generated binding; the public R entry point with

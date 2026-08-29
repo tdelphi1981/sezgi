@@ -7,9 +7,9 @@ use sezgi_bench::{
     Aggregate, RunKey, RunRecord,
 };
 use sezgi_stats::{
-    bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman, paper_package, plackett_luce,
-    wilcoxon_signed_rank, BayesSignedRankResult, FriedmanResult, PaperPackage, PlackettLuceResult,
-    WilcoxonMethod,
+    bayesian_plackett_luce, bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman,
+    paper_package, plackett_luce, wilcoxon_signed_rank, BayesPlackettLuceResult,
+    BayesSignedRankResult, FriedmanResult, PaperPackage, PlackettLuceResult, WilcoxonMethod,
 };
 
 /// Converts an R matrix (`RealSexp` with a `dim` attribute, R's column-major
@@ -136,6 +136,68 @@ fn pl_result_list(r: &PlackettLuceResult) -> savvy::Result<OwnedListSexp> {
         OwnedRealSexp::try_from_scalar(r.iterations as f64)?,
     )?;
     Ok(out)
+}
+
+/// Builds the named list mirroring py-sezgi's `stats_bayesian_plackett_luce`
+/// dict: `mean_worths`, `ci_low`, `ci_high`, `p_best`, `samples`.
+fn bayes_pl_result_list(r: &BayesPlackettLuceResult) -> savvy::Result<OwnedListSexp> {
+    let mut out = OwnedListSexp::new(5, true)?;
+    out.set_name_and_value(
+        0,
+        "mean_worths",
+        OwnedRealSexp::try_from_slice(r.mean_worths.as_slice())?,
+    )?;
+    out.set_name_and_value(1, "ci_low", OwnedRealSexp::try_from_slice(r.ci_low.as_slice())?)?;
+    out.set_name_and_value(
+        2,
+        "ci_high",
+        OwnedRealSexp::try_from_slice(r.ci_high.as_slice())?,
+    )?;
+    out.set_name_and_value(3, "p_best", OwnedRealSexp::try_from_slice(r.p_best.as_slice())?)?;
+    out.set_name_and_value(4, "samples", OwnedRealSexp::try_from_scalar(r.samples as f64)?)?;
+    Ok(out)
+}
+
+/// Bayesian Plackett-Luce posterior via Gibbs sampling (Caron & Doucet
+/// 2012 latent exponential-race augmentation; see
+/// `sezgi_stats::bayesian_plackett_luce`).
+///
+/// This is the raw savvy-generated binding (required args only; savvy has
+/// no way to express a non-`NULL` default for a required argument in the
+/// generated signature). The public R entry point with R-native defaults
+/// is the hand-written wrapper `sz_bayesian_plackett_luce()` in
+/// `R/stats.R`, which calls this function -- same raw/wrapper pattern as
+/// `sz_stats_bayesian_signed_rank()` / `sz_stats_bayesian_signed_rank_raw()`.
+///
+/// @param rankings A `list` of integer (or integer-valued numeric)
+///   vectors, each a full ranking of the same `k` items as **1-based item
+///   ids** (same convention as `sz_stats_plackett_luce()`; converted via
+///   the SAME `rankings_from_list()` helper). Best (rank 1) first.
+/// @param samples Number of post-burn-in Gibbs iterations to record
+///   (double, cast to `u64`).
+/// @param burn_in Number of initial Gibbs iterations to discard (double,
+///   cast to `u64`).
+/// @param seed Master RNG seed, passed through unchanged (`u64` via `f64`
+///   cast) -- the same `(rankings, samples, burn_in, seed)` always
+///   produces a bit-identical result, since R calls the exact same seeded
+///   Rust core as Python and Rust.
+/// @returns A named list with `mean_worths`, `ci_low`, `ci_high`,
+///   `p_best`, `samples` (mirrors py-sezgi's
+///   `stats_bayesian_plackett_luce()` dict keys exactly).
+#[savvy]
+fn sz_bayesian_plackett_luce_raw(
+    rankings: ListSexp,
+    samples: f64,
+    burn_in: f64,
+    seed: f64,
+) -> savvy::Result<Sexp> {
+    let rv = rankings_from_list(&rankings)?;
+    let samples_u = f64_to_u64("samples", samples)?;
+    let burn_in_u = f64_to_u64("burn_in", burn_in)?;
+    let seed_u = f64_to_u64("seed", seed)?;
+    let r = bayesian_plackett_luce(&rv, samples_u, burn_in_u, seed_u)
+        .map_err(|e| savvy_err!("{e}"))?;
+    Ok(bayes_pl_result_list(&r)?.into())
 }
 
 /// Runs the Friedman test on a results matrix.

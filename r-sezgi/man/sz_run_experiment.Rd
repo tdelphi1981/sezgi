@@ -5,7 +5,13 @@
 \title{Run a sezgi experiment spec across algorithms x problems x instances x
 seeds x budgets.}
 \usage{
-sz_run_experiment(spec_toml, journal = NULL, parallel = TRUE, threads = NULL)
+sz_run_experiment(
+  spec_toml,
+  journal = NULL,
+  parallel = TRUE,
+  threads = NULL,
+  log_dir = NULL
+)
 }
 \arguments{
 \item{spec_toml}{Experiment spec as TOML. Schema (see
@@ -26,6 +32,11 @@ Results are bit-identical to the sequential (`FALSE`) run.}
 
 \item{threads}{Optional rayon thread-pool size (`NULL` uses rayon's
 default).}
+
+\item{log_dir}{Optional directory: when given, every run this call
+actually EXECUTES is also logged in IOH-profiler format under that
+directory (a run resumed from `journal` was executed in a PRIOR call
+and is never re-logged). Read back with `sz_read_ioh_records()`.}
 }
 \value{
 A data.frame with one row per run and columns `algo`, `fid`,

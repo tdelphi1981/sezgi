@@ -45,6 +45,73 @@ NULL
   .Call(savvy_sezgi_version__impl)
 }
 
+#' Bayesian Plackett-Luce posterior via Gibbs sampling (Caron & Doucet
+#' 2012 latent exponential-race augmentation; see
+#' `sezgi_stats::bayesian_plackett_luce`).
+#'
+#' This is the raw savvy-generated binding (required args only; savvy has
+#' no way to express a non-`NULL` default for a required argument in the
+#' generated signature). The public R entry point with R-native defaults
+#' is the hand-written wrapper `sz_bayesian_plackett_luce()` in
+#' `R/stats.R`, which calls this function -- same raw/wrapper pattern as
+#' `sz_stats_bayesian_signed_rank()` / `sz_stats_bayesian_signed_rank_raw()`.
+#'
+#' @param rankings A `list` of integer (or integer-valued numeric)
+#'   vectors, each a full ranking of the same `k` items as **1-based item
+#'   ids** (same convention as `sz_stats_plackett_luce()`; converted via
+#'   the SAME `rankings_from_list()` helper). Best (rank 1) first.
+#' @param samples Number of post-burn-in Gibbs iterations to record
+#'   (double, cast to `u64`).
+#' @param burn_in Number of initial Gibbs iterations to discard (double,
+#'   cast to `u64`).
+#' @param seed Master RNG seed, passed through unchanged (`u64` via `f64`
+#'   cast) -- the same `(rankings, samples, burn_in, seed)` always
+#'   produces a bit-identical result, since R calls the exact same seeded
+#'   Rust core as Python and Rust.
+#' @returns A named list with `mean_worths`, `ci_low`, `ci_high`,
+#'   `p_best`, `samples` (mirrors py-sezgi's
+#'   `stats_bayesian_plackett_luce()` dict keys exactly).
+`sz_bayesian_plackett_luce_raw` <- function(`rankings`, `samples`, `burn_in`, `seed`) {
+  .Call(savvy_sz_bayesian_plackett_luce_raw__impl, `rankings`, `samples`, `burn_in`, `seed`)
+}
+
+#' Exports the IOH archive at `log_root` as a COCO/BBOB "old format"
+#' archive rooted at `out_dir` -- see `sezgi_bench::coco_export`. Returns
+#' the list of written file paths (as strings), sorted for determinism.
+#'
+#' @param log_root Path to the IOH archive directory (as passed to
+#'   `sz_run_experiment(..., log_dir = ...)`).
+#' @param out_dir Directory to write the COCO/BBOB archive under.
+#' @returns A character vector of written file paths, sorted.
+#' @export
+`sz_coco_export` <- function(`log_root`, `out_dir`) {
+  .Call(savvy_sz_coco_export__impl, `log_root`, `out_dir`)
+}
+
+#' ECDF/anytime curve(s) over the IOH archive at `log_root` -- see
+#' `sezgi_bench::ecdf`/`sezgi_bench::ecdf_per_algo`.
+#'
+#' This is the raw savvy-generated binding (required args only; savvy has
+#' no way to express a non-`NULL` default for a required argument in the
+#' generated signature -- same raw/wrapper pattern as
+#' `sz_run_experiment()`). The public R entry point with R-native defaults
+#' (`per_algo = TRUE`) is the hand-written wrapper `sz_ecdf()` in
+#' `R/anytime.R`, which calls this function.
+#'
+#' @param log_root Path to the IOH archive directory (as passed to
+#'   `sz_run_experiment(..., log_dir = ...)`).
+#' @param per_algo `TRUE` returns a named list, one `list(evals=,
+#'   proportion=)` entry per distinct algo in the archive, named by algo
+#'   (first-appearance order); `FALSE` returns a single pooled
+#'   `list(evals=, proportion=)` over every scenario.
+#' @param targets Optional numeric vector of precision targets; `NULL`
+#'   uses `sezgi_bench::default_targets` (the COCO-convention 51-value
+#'   set).
+#' @returns A named list (see `per_algo`).
+`sz_ecdf_raw` <- function(`log_root`, `per_algo`, `targets` = NULL) {
+  .Call(savvy_sz_ecdf_raw__impl, `log_root`, `per_algo`, `targets`)
+}
+
 #' Builds one `sezgi_stats::PaperPackage` PER DISTINCT BUDGET present in a
 #' `sz_run_experiment()` data.frame's columns, in ascending budget order --
 #' see `sezgi_bench::reporting::per_budget_packages`. Per Piotrowski et al.
@@ -235,6 +302,27 @@ NULL
   .Call(savvy_sz_preset_shade__impl, `pop_size`, `budget`)
 }
 
+#' Reconstructs `RunRecord`s from an on-disk IOH archive at `log_root` (as
+#' written by `sz_run_experiment(..., log_dir = ...)`), one record per
+#' `(run, budget)` pair -- see `sezgi_bench::ioh_records`'s doc comment for
+#' the exact `best_f`/`evals_used` semantics and the curtailed-view-vs-
+#' independent-run distinction for budgets smaller than a run's logged
+#' budget.
+#'
+#' Returns the SAME data.frame shape `sz_run_experiment()` returns (via
+#' [`records_to_data_frame`]), so `sz_results_matrix()`/
+#' `sz_per_budget_packages()` accept it unchanged.
+#'
+#' @param log_root Path to the IOH archive directory (as passed to
+#'   `sz_run_experiment(..., log_dir = ...)`).
+#' @param budgets Numeric vector of evaluation budgets to reconstruct
+#'   records at.
+#' @returns A data.frame with the same columns as `sz_run_experiment()`.
+#' @export
+`sz_read_ioh_records` <- function(`log_root`, `budgets`) {
+  .Call(savvy_sz_read_ioh_records__impl, `log_root`, `budgets`)
+}
+
 #' Builds a `sezgi_stats`-shaped results matrix for one `budget` from a
 #' `sz_run_experiment()` data.frame's columns -- see
 #' `sezgi_bench::reporting::results_matrix`.
@@ -276,9 +364,20 @@ NULL
 #'   supported savvy scalar arg type, so this comes in as `i32` and is cast;
 #'   negative values are rejected explicitly (savvy has no unsigned integer
 #'   scalar type to enforce this at the signature level).
+#' @param log_dir Optional directory to log every run this call actually
+#'   EXECUTES in IOH-profiler format (via `run_experiment_logged` when
+#'   there is no `journal`, or via `run_experiment_with_checkpoint`'s own
+#'   `log_dir` pass-through when there is -- see that function's doc
+#'   comment: a run resumed from the journal was executed in a PRIOR
+#'   process and is never re-logged).
 #' @returns A data.frame with one row per run.
-`sz_run_experiment_raw` <- function(`spec_toml`, `parallel`, `journal` = NULL, `threads` = NULL) {
-  .Call(savvy_sz_run_experiment_raw__impl, `spec_toml`, `parallel`, `journal`, `threads`)
+#'
+#' The journal's spec hash is computed by `run_experiment_with_checkpoint`
+#' from `spec` (the already-parsed `ExperimentSpec`), not from the raw
+#' `spec_toml` text, so whitespace/comment-only edits to `spec_toml` never
+#' invalidate a journal -- see `crates/bench/src/checkpoint.rs`.
+`sz_run_experiment_raw` <- function(`spec_toml`, `parallel`, `journal` = NULL, `threads` = NULL, `log_dir` = NULL) {
+  .Call(savvy_sz_run_experiment_raw__impl, `spec_toml`, `parallel`, `journal`, `threads`, `log_dir`)
 }
 
 #' Runs an algorithm spec on a BBOB problem and returns the result.
