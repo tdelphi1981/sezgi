@@ -201,7 +201,9 @@ fn run_experiment(
     let records = if let Some(journal_path) = journal {
         let path = Path::new(journal_path);
         py.allow_threads(|| {
-            run_experiment_with_checkpoint(&spec, path, parallel, threads)
+            // log_dir wiring lands in Task 7; until then, no IOH logging on
+            // the checkpoint path.
+            run_experiment_with_checkpoint(&spec, path, parallel, threads, None)
         })
     } else if parallel {
         py.allow_threads(|| run_experiment_parallel(&spec, threads))

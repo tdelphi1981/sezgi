@@ -6,7 +6,8 @@ pub mod manifest;
 pub mod experiment;
 pub use experiment::{
     AlgoEntry, AlgoSource, ExperimentError, ExperimentSpec, PlannedRun, ProblemEntry,
-    RunKey, RunRecord, enumerate, run_experiment_parallel, run_experiment_sequential,
+    RunKey, RunRecord, enumerate, run_experiment_logged, run_experiment_parallel,
+    run_experiment_sequential,
 };
 
 pub mod checkpoint;

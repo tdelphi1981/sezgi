@@ -93,7 +93,9 @@ fn sz_run_experiment_raw(
 
     let records = if let Some(journal_path) = journal {
         let path = Path::new(journal_path);
-        run_experiment_with_checkpoint(&spec, path, parallel, threads)
+        // log_dir wiring lands in Task 8; until then, no IOH logging on the
+        // checkpoint path.
+        run_experiment_with_checkpoint(&spec, path, parallel, threads, None)
     } else if parallel {
         run_experiment_parallel(&spec, threads)
     } else {

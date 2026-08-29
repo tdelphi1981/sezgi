@@ -44,16 +44,19 @@
 //! Regardless of source (`preset` or `spec_toml`), `spec.termination.budget`
 //! is ALWAYS overridden to the enumerated run's budget.
 
+use crate::ioh::{IohFinish, IohLogger, IohRunObserver};
 use serde::de::Error as DeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sezgi_components::presets;
 use sezgi_core::component::Registry;
 use sezgi_core::dist::Distribution;
 use sezgi_core::engine::{Engine, RunConfig};
-use sezgi_core::problem::Problem;
+use sezgi_core::problem::{EvalObserver, Problem};
 use sezgi_core::spec::{AlgorithmSpec, SpecError};
 use sezgi_problems::BbobProblem;
+use std::collections::HashMap;
 use std::fmt;
+use std::path::Path;
 
 // ---------------------------------------------------------------------
 // Experiment spec (TOML)
@@ -212,6 +215,8 @@ pub enum ExperimentError {
     MissingCell { algo: String, problem: String, budget: u64 },
     #[error("stats error while building the paper package for budget {budget}: {source}")]
     Stats { budget: u64, #[source] source: sezgi_stats::StatsError },
+    #[error("IOH log write error: {0}")]
+    IohWrite(String),
 }
 
 const VALID_PRESET_KINDS: &[&str] = &[
@@ -352,6 +357,80 @@ pub fn enumerate(spec: &ExperimentSpec) -> Result<Vec<PlannedRun>, ExperimentErr
 }
 
 // ---------------------------------------------------------------------
+// Shared per-run execution body
+// ---------------------------------------------------------------------
+
+/// Runs a single [`PlannedRun`] through [`Engine::run`] and packages the
+/// result as a [`RunRecord`]. Shared by [`run_experiment_sequential`],
+/// [`run_experiment_parallel`], [`run_experiment_logged`], and
+/// [`crate::checkpoint::run_experiment_with_checkpoint`] — the ONLY place
+/// this body is written, so behavior (including RNG stream derivation) is
+/// identical no matter which caller invokes it. `observer` is a passive
+/// side channel (an [`EvalObserver`] only reads `on_eval` calls after the
+/// engine has already decided what to do); attaching one — or not — never
+/// changes `res.best_f`/`res.evals_used`.
+pub(crate) fn execute_run(
+    reg: &Registry,
+    run: &PlannedRun,
+    observer: Option<Box<dyn EvalObserver>>,
+) -> Result<RunRecord, ExperimentError> {
+    let problem = BbobProblem::new(run.fid, run.dim, run.instance)
+        .map_err(|e| ExperimentError::Problem(e.to_string()))?;
+    let engine = Engine::from_spec(&run.algo_spec, reg, problem.space())
+        .map_err(|e| ExperimentError::Engine(e.to_string()))?;
+    let t0 = std::time::Instant::now();
+    let res = engine
+        .run(&problem, RunConfig { master_seed: run.seed, run_id: run.run_id }, observer)
+        .map_err(|e| ExperimentError::Engine(e.to_string()))?;
+    Ok(RunRecord {
+        key: run.key.clone(),
+        best_f: res.best_f,
+        f_opt: problem.f_opt(),
+        evals_used: res.evals_used,
+        wall_secs: t0.elapsed().as_secs_f64(),
+    })
+}
+
+/// Builds one [`IohLogger`] per `(algo, fid, dim)` group found in `planned`,
+/// and one [`IohRunObserver`] per element of `planned` (same order,
+/// index-for-index) — ALL created here, upfront, before any run executes or
+/// any parallel dispatch happens. `IohLogger::start_run_with` pushes each
+/// run's `Arc<Mutex<RunData>>` handle into its logger's run list in the
+/// order this loop calls it, and `finish()` later writes `runs_json` in
+/// THAT order — so calling this once, sequentially, before either the
+/// sequential or the parallel execution arm, is what makes the on-disk
+/// `.dat`/meta run order identical between the two.
+///
+/// Shared by [`run_experiment_logged`] and
+/// [`crate::checkpoint::run_experiment_with_checkpoint`]'s logged path.
+pub(crate) fn build_ioh_observers(
+    log_dir: &Path,
+    planned: &[PlannedRun],
+) -> Result<(Vec<IohLogger>, Vec<IohRunObserver>), ExperimentError> {
+    let mut group_index: HashMap<(String, u32, usize), usize> = HashMap::new();
+    let mut loggers: Vec<IohLogger> = Vec::new();
+    let mut observers: Vec<IohRunObserver> = Vec::with_capacity(planned.len());
+
+    for run in planned {
+        // f_opt (and the function name) depend on (fid, dim, instance), so
+        // this is built once here purely to seed the observer; `execute_run`
+        // builds its own (identical, since BbobProblem::new is a pure
+        // function of its arguments) copy when the run actually executes.
+        let problem = BbobProblem::new(run.fid, run.dim, run.instance)
+            .map_err(|e| ExperimentError::Problem(e.to_string()))?;
+        let group_key = (run.key.algo.clone(), run.fid, run.dim);
+        let idx = *group_index.entry(group_key).or_insert_with(|| {
+            loggers.push(IohLogger::new(
+                log_dir, &run.key.algo, "sezgi-bbob", run.fid, problem.name(), run.dim,
+            ));
+            loggers.len() - 1
+        });
+        observers.push(loggers[idx].start_run_with(run.instance, run.seed, problem.f_opt()));
+    }
+    Ok((loggers, observers))
+}
+
+// ---------------------------------------------------------------------
 // Sequential executor
 // ---------------------------------------------------------------------
 
@@ -367,22 +446,8 @@ pub fn run_experiment_sequential(
     sezgi_components::register_builtins(&mut reg);
 
     let mut records = Vec::with_capacity(planned.len());
-    for run in planned {
-        let problem = BbobProblem::new(run.fid, run.dim, run.instance)
-            .map_err(|e| ExperimentError::Problem(e.to_string()))?;
-        let engine = Engine::from_spec(&run.algo_spec, &reg, problem.space())
-            .map_err(|e| ExperimentError::Engine(e.to_string()))?;
-        let t0 = std::time::Instant::now();
-        let res = engine
-            .run(&problem, RunConfig { master_seed: run.seed, run_id: run.run_id }, None)
-            .map_err(|e| ExperimentError::Engine(e.to_string()))?;
-        let record = RunRecord {
-            key: run.key,
-            best_f: res.best_f,
-            f_opt: problem.f_opt(),
-            evals_used: res.evals_used,
-            wall_secs: t0.elapsed().as_secs_f64(),
-        };
+    for run in &planned {
+        let record = execute_run(&reg, run, None)?;
         on_record(&record);
         records.push(record);
     }
@@ -432,23 +497,7 @@ pub fn run_experiment_parallel(
     sezgi_components::register_builtins(&mut reg);
     let reg = &reg;
 
-    let run_one = |run: &PlannedRun| -> Result<RunRecord, ExperimentError> {
-        let problem = BbobProblem::new(run.fid, run.dim, run.instance)
-            .map_err(|e| ExperimentError::Problem(e.to_string()))?;
-        let engine = Engine::from_spec(&run.algo_spec, reg, problem.space())
-            .map_err(|e| ExperimentError::Engine(e.to_string()))?;
-        let t0 = std::time::Instant::now();
-        let res = engine
-            .run(&problem, RunConfig { master_seed: run.seed, run_id: run.run_id }, None)
-            .map_err(|e| ExperimentError::Engine(e.to_string()))?;
-        Ok(RunRecord {
-            key: run.key.clone(),
-            best_f: res.best_f,
-            f_opt: problem.f_opt(),
-            evals_used: res.evals_used,
-            wall_secs: t0.elapsed().as_secs_f64(),
-        })
-    };
+    let run_one = |run: &PlannedRun| execute_run(reg, run, None);
 
     // Indexed par_iter().map().collect() places each result into its
     // enumeration-order slot regardless of completion order.
@@ -469,6 +518,87 @@ pub fn run_experiment_parallel(
         records.push(r?);
     }
     Ok(records)
+}
+
+// ---------------------------------------------------------------------
+// Logged executor (IOH-profiler-format output)
+// ---------------------------------------------------------------------
+
+/// Enumerates `spec`, then runs each [`PlannedRun`] exactly as
+/// [`run_experiment_sequential`]/[`run_experiment_parallel`] do (both call
+/// the same [`execute_run`] helper this function uses), additionally
+/// attaching an IOH-profiler-format [`EvalObserver`] to each run and writing
+/// `.dat`/meta files under `log_dir` once every run has completed.
+///
+/// `log_dir` is a plain function argument, not part of [`ExperimentSpec`]:
+/// it must never affect the spec hash used by
+/// [`crate::checkpoint::run_experiment_with_checkpoint`].
+///
+/// Observers are built upfront via [`build_ioh_observers`], in enumeration
+/// order, before either the sequential or the parallel arm runs — see that
+/// function's doc comment for why this is what keeps the on-disk `.dat`/meta
+/// run order identical between `parallel = true` and `parallel = false`.
+///
+/// This function is observationally passive: attaching an observer never
+/// changes any RNG draw or evaluation order (an [`EvalObserver`] only reads
+/// `on_eval` calls the engine was already going to make), so the returned
+/// `RunRecord`s are bit-identical to [`run_experiment_sequential`]'s for the
+/// same `spec`.
+pub fn run_experiment_logged(
+    spec: &ExperimentSpec,
+    log_dir: &Path,
+    parallel: bool,
+    threads: Option<usize>,
+) -> Result<(Vec<RunRecord>, Vec<IohFinish>), ExperimentError> {
+    use rayon::prelude::*;
+
+    let planned = enumerate(spec)?;
+
+    let mut reg = Registry::new();
+    sezgi_components::register_builtins(&mut reg);
+
+    let (loggers, observers) = build_ioh_observers(log_dir, &planned)?;
+
+    let records = if parallel {
+        let reg = &reg;
+        let pairs: Vec<(&PlannedRun, IohRunObserver)> = planned.iter().zip(observers).collect();
+        let run_one = |(run, obs): (&PlannedRun, IohRunObserver)|
+            execute_run(reg, run, Some(Box::new(obs)));
+
+        // Indexed par_iter().map().collect() places each result into its
+        // enumeration-order slot regardless of completion order — same
+        // guarantee as run_experiment_parallel.
+        let slotted: Vec<Result<RunRecord, ExperimentError>> = match threads {
+            Some(n) => {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(n)
+                    .build()
+                    .map_err(|e| ExperimentError::Engine(e.to_string()))?;
+                pool.install(|| pairs.into_par_iter().map(run_one).collect())
+            }
+            None => pairs.into_par_iter().map(run_one).collect(),
+        };
+
+        let mut records = Vec::with_capacity(slotted.len());
+        for r in slotted {
+            records.push(r?);
+        }
+        records
+    } else {
+        let mut records = Vec::with_capacity(planned.len());
+        for (run, obs) in planned.iter().zip(observers) {
+            records.push(execute_run(&reg, run, Some(Box::new(obs)))?);
+        }
+        records
+    };
+
+    let mut finishes = Vec::with_capacity(loggers.len());
+    for logger in loggers {
+        let fin = logger.finish().map_err(|e| ExperimentError::IohWrite(e.to_string()))?;
+        finishes.push(fin);
+    }
+
+    Ok((records, finishes))
 }
 
 #[cfg(test)]
@@ -752,5 +882,102 @@ mod tests {
         let r = &records[0];
         assert!(r.best_f.is_finite(), "best_f must be finite, got {}", r.best_f);
         assert!(r.evals_used <= 300, "evals_used ({}) must respect the budget", r.evals_used);
+    }
+
+    // -------------------------------------------------------------
+    // IOH logging (M2d Task 1)
+    // -------------------------------------------------------------
+
+    #[test]
+    fn logged_run_records_are_bit_identical_to_unlogged() {
+        let spec = parallel_test_spec(); // 2 algos x f1d5 x 2 instances x 2 seeds x 1 budget
+        let plain = run_experiment_sequential(&spec, |_| {}).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let (logged, finishes) = run_experiment_logged(&spec, tmp.path(), false, None).unwrap();
+        assert_eq!(plain.len(), logged.len());
+        for (a, b) in plain.iter().zip(logged.iter()) {
+            assert_eq!(a.best_f.to_bits(), b.best_f.to_bits());
+            assert_eq!(a.key, b.key);
+        }
+        assert!(!finishes.is_empty());
+    }
+
+    /// Recursively collects every `.dat` file under `root` as
+    /// `(path relative to root, contents)` pairs, sorted by relative path,
+    /// for byte-for-byte tree comparison.
+    fn collect_dat_files(root: &std::path::Path) -> Vec<(String, String)> {
+        fn walk(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(String, String)>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, root, out);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("dat") {
+                    let rel = path.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+                    out.push((rel, std::fs::read_to_string(&path).unwrap()));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(root, root, &mut out);
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    #[test]
+    fn logged_parallel_equals_sequential_bitwise() {
+        let spec = parallel_test_spec();
+
+        let tmp_seq = tempfile::tempdir().unwrap();
+        let (seq_records, seq_finishes) =
+            run_experiment_logged(&spec, tmp_seq.path(), false, None).unwrap();
+
+        let tmp_par = tempfile::tempdir().unwrap();
+        let (par_records, par_finishes) =
+            run_experiment_logged(&spec, tmp_par.path(), true, Some(4)).unwrap();
+
+        assert_eq!(seq_records.len(), par_records.len());
+        for (s, p) in seq_records.iter().zip(par_records.iter()) {
+            assert_eq!(s.key, p.key, "record order (by key) must match");
+            assert_eq!(s.best_f.to_bits(), p.best_f.to_bits(), "best_f must be bit-identical");
+        }
+        assert_eq!(seq_finishes.len(), par_finishes.len());
+
+        let seq_dats = collect_dat_files(tmp_seq.path());
+        let par_dats = collect_dat_files(tmp_par.path());
+        assert_eq!(seq_dats, par_dats, "sequential vs parallel .dat trees must be byte-identical");
+    }
+
+    #[test]
+    fn ioh_meta_carries_seed_and_f_opt() {
+        let spec = ExperimentSpec {
+            name: "meta-check".into(),
+            seeds: vec![11, 22],
+            budgets: vec![300],
+            algorithms: vec![AlgoEntry {
+                name: "de".into(),
+                source: AlgoSource::Preset { kind: "de_rand_1".into(), pop_size: Some(8) },
+            }],
+            problems: vec![ProblemEntry {
+                suite: "bbob".into(), fid: 1, dim: 5, instances: vec![1],
+            }],
+        };
+
+        let tmp = tempfile::tempdir().unwrap();
+        let (_records, finishes) = run_experiment_logged(&spec, tmp.path(), false, None).unwrap();
+        assert_eq!(finishes.len(), 1, "1 algo x 1 fid x 1 dim = 1 IOH logger group");
+
+        let meta: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&finishes[0].meta_path).unwrap()).unwrap();
+        let runs = meta["scenarios"][0]["runs"].as_array().unwrap();
+        assert_eq!(runs.len(), 2, "1 algo x 1 instance x 2 seeds = 2 runs");
+
+        let expected_f_opt = BbobProblem::new(1, 5, 1).unwrap().f_opt();
+        for run in runs {
+            let seed = run["seed"].as_u64().expect("seed must be an integer");
+            assert!(spec.seeds.contains(&seed), "seed {} must match a spec seed", seed);
+            let f_opt = run["f_opt"].as_f64().expect("f_opt must be present and finite");
+            assert!(f_opt.is_finite(), "f_opt must be finite");
+            assert_eq!(f_opt, expected_f_opt, "f_opt must equal BbobProblem::f_opt() for fid 1, dim 5, instance 1");
+        }
     }
 }

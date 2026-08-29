@@ -5,8 +5,13 @@
 //! journal is validated against the experiment spec's hash (FNV-1a 64-bit) to
 //! detect if the spec changed between runs.
 
-use crate::experiment::{ExperimentSpec, RunKey, RunRecord, ExperimentError, enumerate};
+use crate::experiment::{
+    ExperimentSpec, RunKey, RunRecord, ExperimentError, PlannedRun, enumerate,
+    execute_run, build_ioh_observers,
+};
+use crate::ioh::IohRunObserver;
 use serde::{Deserialize, Serialize};
+use sezgi_core::problem::EvalObserver;
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -169,17 +174,27 @@ pub fn load_journal(
 /// original TOML text (whitespace, comments, key order) can never affect the
 /// hash and can never cause the two bindings to diverge from each other or
 /// from a fresh run of the same spec.
+///
+/// `log_dir`: when `Some`, every run this call actually EXECUTES (i.e. not
+/// resumed from the journal) is also logged in IOH-profiler format under
+/// that directory, exactly as [`crate::experiment::run_experiment_logged`]
+/// would log it (same grouping, same deterministic upfront-observer-creation
+/// ordering). NOTE: a run resumed from the journal was executed in a PRIOR
+/// process and is never re-run here, so it is never (re-)logged — the IOH
+/// tree written by a given call only ever reflects runs that call actually
+/// executed. Keep `log_dir` tied to a single, fresh, uninterrupted run of an
+/// experiment if the IOH tree must reflect the experiment in full; `None`
+/// disables IOH logging entirely (both bindings pass `None` until they wire
+/// this through).
 pub fn run_experiment_with_checkpoint(
     spec: &ExperimentSpec,
     journal_path: &Path,
     parallel: bool,
     threads: Option<usize>,
+    log_dir: Option<&Path>,
 ) -> Result<Vec<RunRecord>, ExperimentError> {
     use rayon::prelude::*;
     use sezgi_core::component::Registry;
-    use sezgi_core::engine::{Engine, RunConfig};
-    use sezgi_core::problem::Problem;
-    use sezgi_problems::BbobProblem;
 
     let hash_str = spec_hash(spec);
 
@@ -239,6 +254,20 @@ pub fn run_experiment_with_checkpoint(
     let mut reg = Registry::new();
     sezgi_components::register_builtins(&mut reg);
 
+    // If IOH logging is requested, build one observer per run this call is
+    // actually about to execute — upfront, in (the todo subsequence of)
+    // enumeration order, before either execution arm runs. See
+    // `build_ioh_observers`'s doc comment for why creating them upfront,
+    // before any parallel dispatch, is what keeps the .dat/meta run order
+    // deterministic between `parallel = true` and `parallel = false`.
+    let (loggers, observers): (Vec<_>, Vec<Option<IohRunObserver>>) = match log_dir {
+        Some(dir) => {
+            let (loggers, observers) = build_ioh_observers(dir, &planned_to_execute)?;
+            (loggers, observers.into_iter().map(Some).collect())
+        }
+        None => (Vec::new(), planned_to_execute.iter().map(|_| None).collect()),
+    };
+
     // Execute runs.
     let new_records = if parallel {
         // Parallel: run via rayon; each task appends its record (with flush)
@@ -253,22 +282,13 @@ pub fn run_experiment_with_checkpoint(
                 .map_err(|e| ExperimentError::JournalWrite(format!("could not open journal for append: {}", e)))?,
         );
 
-        let run_one = |planned_run: &crate::experiment::PlannedRun| -> Result<RunRecord, ExperimentError> {
-            let problem = BbobProblem::new(planned_run.fid, planned_run.dim, planned_run.instance)
-                .map_err(|e| ExperimentError::Problem(e.to_string()))?;
-            let engine = Engine::from_spec(&planned_run.algo_spec, &reg, problem.space())
-                .map_err(|e| ExperimentError::Engine(e.to_string()))?;
-            let t0 = std::time::Instant::now();
-            let res = engine
-                .run(&problem, RunConfig { master_seed: planned_run.seed, run_id: planned_run.run_id }, None)
-                .map_err(|e| ExperimentError::Engine(e.to_string()))?;
-            let record = RunRecord {
-                key: planned_run.key.clone(),
-                best_f: res.best_f,
-                f_opt: problem.f_opt(),
-                evals_used: res.evals_used,
-                wall_secs: t0.elapsed().as_secs_f64(),
-            };
+        let reg = &reg;
+        let pairs: Vec<(&PlannedRun, Option<IohRunObserver>)> =
+            planned_to_execute.iter().zip(observers).collect();
+
+        let run_one = |(planned_run, obs): (&PlannedRun, Option<IohRunObserver>)| -> Result<RunRecord, ExperimentError> {
+            let observer: Option<Box<dyn EvalObserver>> = obs.map(|o| Box::new(o) as Box<dyn EvalObserver>);
+            let record = execute_run(reg, planned_run, observer)?;
 
             // Serialize OUTSIDE the Mutex critical section to avoid holding
             // the lock during serialization.
@@ -290,9 +310,9 @@ pub fn run_experiment_with_checkpoint(
                     .num_threads(n)
                     .build()
                     .map_err(|e| ExperimentError::Engine(e.to_string()))?;
-                pool.install(|| planned_to_execute.par_iter().map(run_one).collect())
+                pool.install(|| pairs.into_par_iter().map(run_one).collect())
             }
-            None => planned_to_execute.par_iter().map(run_one).collect(),
+            None => pairs.into_par_iter().map(run_one).collect(),
         };
 
         let mut new_records = Vec::with_capacity(slotted.len());
@@ -308,22 +328,9 @@ pub fn run_experiment_with_checkpoint(
             .map_err(|e| ExperimentError::JournalWrite(format!("could not open journal for append: {}", e)))?;
 
         let mut new_records = Vec::with_capacity(planned_to_execute.len());
-        for planned_run in &planned_to_execute {
-            let problem = BbobProblem::new(planned_run.fid, planned_run.dim, planned_run.instance)
-                .map_err(|e| ExperimentError::Problem(e.to_string()))?;
-            let engine = Engine::from_spec(&planned_run.algo_spec, &reg, problem.space())
-                .map_err(|e| ExperimentError::Engine(e.to_string()))?;
-            let t0 = std::time::Instant::now();
-            let res = engine
-                .run(&problem, RunConfig { master_seed: planned_run.seed, run_id: planned_run.run_id }, None)
-                .map_err(|e| ExperimentError::Engine(e.to_string()))?;
-            let record = RunRecord {
-                key: planned_run.key.clone(),
-                best_f: res.best_f,
-                f_opt: problem.f_opt(),
-                evals_used: res.evals_used,
-                wall_secs: t0.elapsed().as_secs_f64(),
-            };
+        for (planned_run, obs) in planned_to_execute.iter().zip(observers) {
+            let observer: Option<Box<dyn EvalObserver>> = obs.map(|o| Box::new(o) as Box<dyn EvalObserver>);
+            let record = execute_run(&reg, planned_run, observer)?;
 
             let record_json = serde_json::to_string(&record)
                 .map_err(|e| ExperimentError::JournalWrite(format!("could not serialize record: {}", e)))?;
@@ -335,6 +342,13 @@ pub fn run_experiment_with_checkpoint(
         }
         new_records
     };
+
+    // Now that every run this call was going to execute has completed,
+    // write each IOH logger's .dat/meta files (a no-op Vec when
+    // `log_dir` was `None`).
+    for logger in loggers {
+        logger.finish().map_err(|e| ExperimentError::IohWrite(e.to_string()))?;
+    }
 
     // Merge journal records and new records in enumeration order.
     let mut result = Vec::new();
@@ -582,7 +596,7 @@ mod tests {
 
         let spec = demo_spec();
 
-        let result = run_experiment_with_checkpoint(&spec, &journal_path, false, None);
+        let result = run_experiment_with_checkpoint(&spec, &journal_path, false, None, None);
         assert!(result.is_ok(), "fresh run must succeed");
 
         assert!(journal_path.exists(), "journal must be created");
@@ -598,7 +612,7 @@ mod tests {
         let spec = demo_spec();
 
         // First run: complete the full experiment
-        let result1 = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
+        let result1 = run_experiment_with_checkpoint(&spec, &journal_path, false, None, None)
             .expect("first run should succeed");
         let count1 = result1.len();
         assert_eq!(count1, 2, "1 algo x 1 problem x 1 instance x 2 seeds x 1 budget = 2 runs");
@@ -609,7 +623,7 @@ mod tests {
         let lines_after_first = 1 + records_after_first.len(); // header + records
 
         // Second run: resume with same journal (should execute nothing new)
-        let result2 = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
+        let result2 = run_experiment_with_checkpoint(&spec, &journal_path, false, None, None)
             .expect("resume should succeed");
         let count2 = result2.len();
 
@@ -646,7 +660,7 @@ mod tests {
         let spec = demo_spec();
 
         // First full run
-        let full_result = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
+        let full_result = run_experiment_with_checkpoint(&spec, &journal_path, false, None, None)
             .expect("full run should succeed");
         let full_count = full_result.len();
 
@@ -677,7 +691,7 @@ mod tests {
         let lines_before_resume = 1 + half_count;
 
         // Resume from half
-        let resume_result = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
+        let resume_result = run_experiment_with_checkpoint(&spec, &journal_path, false, None, None)
             .expect("resume should succeed");
 
         // Count journal lines after resume (should be header + all records)
@@ -720,14 +734,14 @@ mod tests {
         let spec = demo_spec();
 
         // Create journal with first spec
-        run_experiment_with_checkpoint(&spec, &journal_path, false, None).unwrap();
+        run_experiment_with_checkpoint(&spec, &journal_path, false, None, None).unwrap();
 
         // Modify spec (change a seed)
         let mut modified_spec = spec.clone();
         modified_spec.seeds[0] = 999;
 
         // Try to resume with modified spec
-        let result = run_experiment_with_checkpoint(&modified_spec, &journal_path, false, None);
+        let result = run_experiment_with_checkpoint(&modified_spec, &journal_path, false, None, None);
         assert!(matches!(result, Err(ExperimentError::ExperimentHashMismatch { .. })));
     }
 
@@ -743,7 +757,7 @@ mod tests {
         let spec = demo_spec();
 
         // Full baseline run.
-        let baseline = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
+        let baseline = run_experiment_with_checkpoint(&spec, &journal_path, false, None, None)
             .expect("baseline run should succeed");
         assert_eq!(baseline.len(), 2);
 
@@ -759,7 +773,7 @@ mod tests {
 
         // Resume 1: must truncate the torn tail, re-execute the lost run, and
         // leave a fully parseable journal.
-        let resume1 = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
+        let resume1 = run_experiment_with_checkpoint(&spec, &journal_path, false, None, None)
             .expect("first resume after torn line should succeed");
         assert_eq!(resume1.len(), 2);
         let (records1, torn1, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
@@ -771,7 +785,7 @@ mod tests {
         // Resume 2: nothing to execute, journal must not grow, and must stay
         // fully parseable. (A glued torn tail only detonates on the SECOND
         // resume — this is the regression the fix is pinned against.)
-        let resume2 = run_experiment_with_checkpoint(&spec, &journal_path, false, None)
+        let resume2 = run_experiment_with_checkpoint(&spec, &journal_path, false, None, None)
             .expect("second resume should succeed");
         assert_eq!(resume2.len(), 2);
         let (records2, torn2, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
@@ -802,7 +816,7 @@ mod tests {
 
         // Fresh parallel run: every record must land in the journal.
         let parallel_result =
-            run_experiment_with_checkpoint(&spec, &journal_path, true, Some(2))
+            run_experiment_with_checkpoint(&spec, &journal_path, true, Some(2), None)
                 .expect("parallel run should succeed");
         assert_eq!(parallel_result.len(), 2);
         let (records, torn, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
@@ -815,7 +829,7 @@ mod tests {
         // no growth, results identical.
         let len_before = fs::metadata(&journal_path).unwrap().len();
         let resumed =
-            run_experiment_with_checkpoint(&spec, &journal_path, true, Some(2))
+            run_experiment_with_checkpoint(&spec, &journal_path, true, Some(2), None)
                 .expect("resume from parallel journal should succeed");
         let len_after = fs::metadata(&journal_path).unwrap().len();
         assert_eq!(len_before, len_after, "resume of complete parallel journal must not grow it");
@@ -824,7 +838,7 @@ mod tests {
         // Parallel checkpoint results must be bit-identical to sequential
         // checkpoint results, in enumeration order.
         let sequential_result =
-            run_experiment_with_checkpoint(&spec, &seq_path, false, None)
+            run_experiment_with_checkpoint(&spec, &seq_path, false, None, None)
                 .expect("sequential run should succeed");
         for (i, (s, p)) in sequential_result.iter().zip(parallel_result.iter()).enumerate() {
             let ts = (s.key.to_string(), s.best_f.to_bits(), s.f_opt.to_bits(), s.evals_used);

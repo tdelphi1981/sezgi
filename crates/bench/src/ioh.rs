@@ -6,6 +6,9 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone)]
 struct RunData {
     instance: u32,
+    seed: u64,
+    f_opt: f64,                  // f64::NAN means "unknown" (legacy `start_run` path):
+                                  // never serialized — see `finish()`.
     rows: Vec<(u64, f64)>,       // improvement rows
     last: Option<(u64, f64)>,    // final eval (always written)
     evals: u64,
@@ -53,9 +56,22 @@ impl IohLogger {
                fid, fname: fname.into(), dim, runs: vec![] }
     }
 
+    /// Legacy entry point (M2c): no seed/f_opt known at call time. Delegates
+    /// to [`Self::start_run_with`] with `seed = 0` and `f_opt = f64::NAN`;
+    /// `finish()` omits the `"seed"`/`"f_opt"` meta keys for such a run
+    /// (NaN is never serialized into JSON), keeping the meta backward-
+    /// compatible with pre-M2d readers.
     pub fn start_run(&mut self, instance: u32) -> IohRunObserver {
+        self.start_run_with(instance, 0, f64::NAN)
+    }
+
+    /// Starts a run with its master `seed` and the problem instance's known
+    /// `f_opt`, both of which `finish()` writes into that run's meta entry.
+    /// Pass `f_opt = f64::NAN` only via [`Self::start_run`] (legacy path);
+    /// a caller that knows the real f_opt must always pass it here.
+    pub fn start_run_with(&mut self, instance: u32, seed: u64, f_opt: f64) -> IohRunObserver {
         let data = Arc::new(Mutex::new(RunData {
-            instance, rows: vec![], last: None, evals: 0, best: None }));
+            instance, seed, f_opt, rows: vec![], last: None, evals: 0, best: None }));
         self.runs.push(data.clone());
         IohRunObserver { data, prev_best: None }
     }
@@ -83,10 +99,17 @@ impl IohLogger {
                 if d.rows.last() != Some(&(e, y)) { writeln!(dat, "{e} {y}")?; }
             }
             let (be, by) = d.best.unwrap();
-            runs_json.push(serde_json::json!({
+            let mut entry = serde_json::json!({
                 "instance": d.instance, "evals": d.evals,
                 "best": {"evals": be, "y": by},
-            }));
+            });
+            // NaN f_opt marks the legacy `start_run` path: omit both keys
+            // rather than ever serializing a NaN into JSON.
+            if !d.f_opt.is_nan() {
+                entry["seed"] = serde_json::json!(d.seed);
+                entry["f_opt"] = serde_json::json!(d.f_opt);
+            }
+            runs_json.push(entry);
         }
 
         let meta = serde_json::json!({
@@ -181,5 +204,31 @@ mod tests {
         let meta: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(&fin.meta_path).unwrap()).unwrap();
         assert_eq!(meta["scenarios"][0]["runs"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn start_run_with_writes_seed_and_f_opt() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut lg = IohLogger::new(tmp.path(), "a", "s", 1, "Sphere", 3);
+        { let mut o = lg.start_run_with(1, 42, -12.5); o.on_eval(1, 5.0, 5.0); }
+        let fin = lg.finish().unwrap();
+        let meta: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&fin.meta_path).unwrap()).unwrap();
+        let run0 = &meta["scenarios"][0]["runs"][0];
+        assert_eq!(run0["seed"], 42);
+        assert_eq!(run0["f_opt"], -12.5);
+    }
+
+    #[test]
+    fn legacy_start_run_omits_seed_and_f_opt_keys() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut lg = IohLogger::new(tmp.path(), "a", "s", 1, "Sphere", 3);
+        { let mut o = lg.start_run(1); o.on_eval(1, 5.0, 5.0); }
+        let fin = lg.finish().unwrap();
+        let meta: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&fin.meta_path).unwrap()).unwrap();
+        let run0 = meta["scenarios"][0]["runs"][0].as_object().unwrap();
+        assert!(!run0.contains_key("seed"), "legacy run must not carry a seed key");
+        assert!(!run0.contains_key("f_opt"), "legacy run must not carry an f_opt key (NaN never serialized)");
     }
 }
