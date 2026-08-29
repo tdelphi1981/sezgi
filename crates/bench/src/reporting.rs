@@ -68,13 +68,18 @@ impl Aggregate {
 ///   is reported as [`ExperimentError::MissingCell`] rather than silently
 ///   skipped or filled in.
 ///
+/// `(algo_names, problem_labels, matrix)` triple returned by
+/// [`results_matrix`]: `matrix[i][j]` is the aggregated gap of
+/// `algo_names[j]` on `problem_labels[i]`.
+pub type ResultsMatrix = (Vec<String>, Vec<String>, Vec<Vec<f64>>);
+
 /// Returns `(algo_names, problem_labels, matrix)` where `matrix[i][j]` is
 /// the aggregated gap of `algo_names[j]` on `problem_labels[i]`.
 pub fn results_matrix(
     records: &[RunRecord],
     budget: u64,
     aggregate: Aggregate,
-) -> Result<(Vec<String>, Vec<String>, Vec<Vec<f64>>), ExperimentError> {
+) -> Result<ResultsMatrix, ExperimentError> {
     let mut algo_names: Vec<String> = Vec::new();
     let mut algo_index: HashMap<String, usize> = HashMap::new();
     let mut problem_labels: Vec<String> = Vec::new();

@@ -26,8 +26,10 @@ def run_experiment(spec_toml, journal=None, parallel=True, threads=None):
     journal: optional path to a JSONL checkpoint file; if given, runs via
         the checkpoint/resume executor (already-completed runs, by key,
         are skipped and loaded from the journal instead of re-executed).
-    parallel: if True (and journal is None), runs via rayon in parallel;
-        if False, runs sequentially. Both produce bit-identical results.
+    parallel: if True, runs via rayon in parallel; if False, runs
+        sequentially. Applies both with and without a journal (a journaled
+        parallel run checkpoints each record incrementally as it
+        completes). Both modes produce bit-identical results.
     threads: thread pool size for the parallel executor; None uses rayon's
         global pool.
     """

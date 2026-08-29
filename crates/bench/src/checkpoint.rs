@@ -8,8 +8,8 @@
 use crate::experiment::{ExperimentSpec, RunKey, RunRecord, ExperimentError, enumerate};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -53,33 +53,35 @@ pub fn spec_hash(spec: &ExperimentSpec) -> String {
 /// - Line 0: Header JSON `{"experiment": <name>, "spec_hash": <hash>}`
 /// - Lines 1+: RunRecord JSON, one per line, appended with flush after each run.
 ///
-/// A final partial/torn line (incomplete JSON at EOF) is tolerated and skipped;
-/// its count is returned. An unparseable line NOT at the end is a hard error.
+/// A final partial/torn line (incomplete JSON at EOF, or a line without a
+/// trailing newline) is tolerated and skipped; its count is returned along
+/// with the byte offset of the end of the last VALID line (header or record,
+/// including its newline). That offset lets a resumer truncate the torn tail
+/// away before appending, so a re-executed record is never glued onto the
+/// garbage. An unparseable line NOT at the end is a hard error.
 /// Empty journal file or file that doesn't exist are treated as "no records".
 pub fn load_journal(
     path: &Path,
     expected_name: &str,
     expected_hash: &str,
-) -> Result<(Vec<RunRecord>, usize), ExperimentError> {
+) -> Result<(Vec<RunRecord>, usize, u64), ExperimentError> {
     if !path.exists() {
-        return Ok((Vec::new(), 0));
+        return Ok((Vec::new(), 0, 0));
     }
 
-    let file = File::open(path)
-        .map_err(|e| ExperimentError::JournalLoad(format!("could not open journal: {}", e)))?;
-
-    let reader = BufReader::new(file);
-    let all_lines: Vec<String> = reader
-        .lines()
-        .collect::<Result<Vec<_>, _>>()
+    let content = fs::read_to_string(path)
         .map_err(|e| ExperimentError::JournalLoad(format!("could not read journal file: {}", e)))?;
 
-    if all_lines.is_empty() {
-        return Ok((Vec::new(), 0));
+    if content.is_empty() {
+        return Ok((Vec::new(), 0, 0));
     }
 
+    // Split preserving newlines, so torn (unterminated) final lines are
+    // distinguishable and byte offsets can be tracked exactly.
+    let segments: Vec<&str> = content.split_inclusive('\n').collect();
+
     // Read and validate header.
-    let header: JournalHeader = serde_json::from_str(&all_lines[0])
+    let header: JournalHeader = serde_json::from_str(segments[0].trim_end())
         .map_err(|e| ExperimentError::JournalLoad(format!("header JSON parse failed: {}", e)))?;
 
     if header.experiment != expected_name {
@@ -96,16 +98,28 @@ pub fn load_journal(
         });
     }
 
-    // Read records; tolerate a final torn line.
+    // Read records; tolerate a final torn line. A record line is VALID only
+    // if it parses AND is newline-terminated: a parseable final line without
+    // a trailing newline is treated as torn too (appending after it would
+    // glue the next record onto it). Its run is simply re-executed on resume;
+    // the engine is deterministic, so the record comes back bit-identical.
     let mut records = Vec::new();
     let mut torn_count = 0usize;
+    let mut valid_end = segments[0].len() as u64;
 
-    for (i, line) in all_lines.iter().enumerate().skip(1) {
-        match serde_json::from_str::<RunRecord>(line) {
-            Ok(record) => records.push(record),
+    for (i, seg) in segments.iter().enumerate().skip(1) {
+        let terminated = seg.ends_with('\n');
+        match serde_json::from_str::<RunRecord>(seg.trim_end()) {
+            Ok(record) if terminated => {
+                records.push(record);
+                valid_end += seg.len() as u64;
+            }
+            Ok(_) => {
+                // Unterminated (necessarily last) segment: torn.
+                torn_count = 1;
+            }
             Err(_) => {
-                // Check if this is the last line (torn write tolerance).
-                if i == all_lines.len() - 1 {
+                if i == segments.len() - 1 {
                     torn_count = 1;
                 } else {
                     return Err(ExperimentError::JournalLoad(
@@ -116,7 +130,7 @@ pub fn load_journal(
         }
     }
 
-    Ok((records, torn_count))
+    Ok((records, torn_count, valid_end))
 }
 
 /// Run an experiment with checkpoint/resume support.
@@ -132,10 +146,16 @@ pub fn load_journal(
 /// Execution:
 /// - **Sequential** (`parallel = false`): appends each completed run to the
 ///   journal with flush immediately (safe for crash recovery).
-/// - **Parallel** (`parallel = true`): runs via rayon with `threads` threads,
-///   then appends all results behind a Mutex as they complete (file order may
-///   differ from enumeration order, but the returned Vec is always in
-///   enumeration order).
+/// - **Parallel** (`parallel = true`): runs via rayon with `threads` threads;
+///   each rayon task appends its record (with flush) through a shared
+///   `Mutex<File>` AS IT COMPLETES, so parallel runs get the same incremental
+///   crash durability as sequential ones. File order may differ from
+///   enumeration order (resume is unaffected — the loader keys records by
+///   [`RunKey`]), but the returned Vec is always in enumeration order.
+///
+/// If the journal ends in a torn line (crash mid-append), the file is
+/// truncated back to the end of the last valid line before any new record is
+/// appended, so the garbage tail never merges with fresh records.
 ///
 /// Returns the FULL result set in ENUMERATION order (journal records + new
 /// records merged by key).
@@ -156,8 +176,20 @@ pub fn run_experiment_with_checkpoint(
     let hash_str = format!("{:016x}", hash);
 
     // Load existing journal or create new one.
-    let (journal_records, _torn_count) = load_journal(journal_path, &spec.name, &hash_str)?;
+    let (journal_records, torn_count, valid_end) = load_journal(journal_path, &spec.name, &hash_str)?;
     let done_keys: HashSet<RunKey> = journal_records.iter().map(|r| r.key.clone()).collect();
+
+    // A torn tail (crash mid-append) has no trailing newline; appending after
+    // it would glue the next record onto the garbage. Truncate the file back
+    // to the end of the last valid line before doing anything else.
+    if torn_count > 0 {
+        let file = OpenOptions::new()
+            .write(true)
+            .open(journal_path)
+            .map_err(|e| ExperimentError::JournalWrite(format!("could not open journal to truncate torn tail: {}", e)))?;
+        file.set_len(valid_end)
+            .map_err(|e| ExperimentError::JournalWrite(format!("could not truncate torn tail: {}", e)))?;
+    }
 
     // Enumerate all planned runs.
     let all_planned = enumerate(spec)?;
@@ -201,7 +233,11 @@ pub fn run_experiment_with_checkpoint(
 
     // Execute runs.
     let new_records = if parallel {
-        // Parallel: run via rayon, then append behind Mutex.
+        // Parallel: run via rayon; each task appends its record (with flush)
+        // through the Mutex AS IT COMPLETES, giving incremental crash
+        // durability. File order is nondeterministic, but the loader keys
+        // records by RunKey, so resume is unaffected; the returned Vec is in
+        // enumeration order (indexed par_iter().map().collect() preserves it).
         let file = Mutex::new(
             OpenOptions::new()
                 .append(true)
@@ -218,13 +254,26 @@ pub fn run_experiment_with_checkpoint(
             let res = engine
                 .run(&problem, RunConfig { master_seed: planned_run.seed, run_id: planned_run.run_id }, None)
                 .map_err(|e| ExperimentError::Engine(e.to_string()))?;
-            Ok(RunRecord {
+            let record = RunRecord {
                 key: planned_run.key.clone(),
                 best_f: res.best_f,
                 f_opt: problem.f_opt(),
                 evals_used: res.evals_used,
                 wall_secs: t0.elapsed().as_secs_f64(),
-            })
+            };
+
+            // Serialize OUTSIDE the Mutex critical section to avoid holding
+            // the lock during serialization.
+            let record_json = serde_json::to_string(&record)
+                .map_err(|e| ExperimentError::JournalWrite(format!("could not serialize record: {}", e)))?;
+            {
+                let mut file_guard = file.lock().map_err(|_| ExperimentError::JournalWrite(
+                    "could not acquire file lock".to_string()))?;
+                writeln!(file_guard, "{}", record_json)
+                    .map_err(|e| ExperimentError::JournalWrite(format!("could not write record: {}", e)))?;
+                file_guard.flush().map_err(|e| ExperimentError::JournalWrite(format!("could not flush journal: {}", e)))?;
+            }
+            Ok(record)
         };
 
         let slotted: Vec<Result<RunRecord, ExperimentError>> = match threads {
@@ -240,18 +289,7 @@ pub fn run_experiment_with_checkpoint(
 
         let mut new_records = Vec::with_capacity(slotted.len());
         for r in slotted {
-            let record = r?;
-            // Serialize OUTSIDE the Mutex critical section to avoid holding the lock during serialization
-            let record_json = serde_json::to_string(&record)
-                .map_err(|e| ExperimentError::JournalWrite(format!("could not serialize record: {}", e)))?;
-            {
-                let mut file_guard = file.lock().map_err(|_| ExperimentError::JournalWrite(
-                    "could not acquire file lock".to_string()))?;
-                writeln!(file_guard, "{}", record_json)
-                    .map_err(|e| ExperimentError::JournalWrite(format!("could not write record: {}", e)))?;
-                file_guard.flush().map_err(|e| ExperimentError::JournalWrite(format!("could not flush journal: {}", e)))?;
-            }
-            new_records.push(record);
+            new_records.push(r?);
         }
         new_records
     } else {
@@ -361,7 +399,7 @@ mod tests {
     fn load_journal_nonexistent_returns_empty() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("nonexistent.jsonl");
-        let (records, torn) = load_journal(&path, "test", "0000000000000000").unwrap();
+        let (records, torn, _) = load_journal(&path, "test", "0000000000000000").unwrap();
         assert_eq!(records.len(), 0);
         assert_eq!(torn, 0);
     }
@@ -371,7 +409,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("empty.jsonl");
         fs::write(&path, "").unwrap();
-        let (records, torn) = load_journal(&path, "test", "0000000000000000").unwrap();
+        let (records, torn, _) = load_journal(&path, "test", "0000000000000000").unwrap();
         assert_eq!(records.len(), 0);
         assert_eq!(torn, 0);
     }
@@ -436,7 +474,7 @@ mod tests {
         let content = format!("{}\n{}\n", header_json, record1_json);
         fs::write(&path, content).unwrap();
 
-        let (records, torn) = load_journal(&path, "test", "aaaaaaaaaaaaaaaa").unwrap();
+        let (records, torn, _) = load_journal(&path, "test", "aaaaaaaaaaaaaaaa").unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].best_f, 1.5);
         assert_eq!(torn, 0);
@@ -473,7 +511,7 @@ mod tests {
         let content = format!("{}\n{}\n{{\"incomplete", header_json, record1_json);
         fs::write(&path, content).unwrap();
 
-        let (records, torn) = load_journal(&path, "test", "bbbbbbbbbbbbbbbb").unwrap();
+        let (records, torn, _) = load_journal(&path, "test", "bbbbbbbbbbbbbbbb").unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(torn, 1);
     }
@@ -541,7 +579,7 @@ mod tests {
         assert!(result.is_ok(), "fresh run must succeed");
 
         assert!(journal_path.exists(), "journal must be created");
-        let (records, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec)).unwrap();
+        let (records, _, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec)).unwrap();
         assert!(!records.is_empty(), "journal must contain records after fresh run");
     }
 
@@ -560,7 +598,7 @@ mod tests {
         assert_eq!(count1, 2, "1 algo x 1 problem x 1 instance x 2 seeds x 1 budget = 2 runs");
 
         // Count journal lines after first run (header + N records)
-        let (records_after_first, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
+        let (records_after_first, _, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
             .expect("should load journal");
         let lines_after_first = 1 + records_after_first.len(); // header + records
 
@@ -570,7 +608,7 @@ mod tests {
         let count2 = result2.len();
 
         // Count journal lines after second run (should not increase if nothing executed)
-        let (records_after_second, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
+        let (records_after_second, _, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
             .expect("should load journal");
         let lines_after_second = 1 + records_after_second.len(); // header + records
 
@@ -608,7 +646,7 @@ mod tests {
         let full_count = full_result.len();
 
         // Create a fresh journal with only the first half of records
-        let (all_records, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
+        let (all_records, _, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
             .expect("should load journal");
         let half_count = all_records.len().div_ceil(2);
         let missing_count = all_records.len() - half_count;
@@ -638,7 +676,7 @@ mod tests {
             .expect("resume should succeed");
 
         // Count journal lines after resume (should be header + all records)
-        let (records_after_resume, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
+        let (records_after_resume, _, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
             .expect("should load journal");
         let lines_after_resume = 1 + records_after_resume.len();
 
@@ -692,6 +730,111 @@ mod tests {
 
     fn format_hash(spec: &ExperimentSpec) -> String {
         spec_hash(spec)
+    }
+
+    #[test]
+    fn resume_after_torn_line_truncates_and_second_resume_is_stable() {
+        let dir = TempDir::new().unwrap();
+        let journal_path = dir.path().join("journal.jsonl");
+
+        let spec = demo_spec();
+        let spec_toml = spec.to_toml();
+
+        // Full baseline run.
+        let baseline = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None)
+            .expect("baseline run should succeed");
+        assert_eq!(baseline.len(), 2);
+
+        // Simulate a torn write: chop the journal mid-way through its last
+        // record, leaving a partial line with NO trailing newline.
+        let bytes = fs::read(&journal_path).unwrap();
+        let torn_len = bytes.len() - 10;
+        let file = OpenOptions::new().write(true).open(&journal_path).unwrap();
+        file.set_len(torn_len as u64).unwrap();
+        drop(file);
+        let (_, torn, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec)).unwrap();
+        assert_eq!(torn, 1, "chopped journal must present a torn line");
+
+        // Resume 1: must truncate the torn tail, re-execute the lost run, and
+        // leave a fully parseable journal.
+        let resume1 = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None)
+            .expect("first resume after torn line should succeed");
+        assert_eq!(resume1.len(), 2);
+        let (records1, torn1, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
+            .expect("journal must be fully parseable after first resume");
+        assert_eq!(torn1, 0, "no torn line may remain after first resume");
+        assert_eq!(records1.len(), 2, "journal must hold all records after first resume");
+        let len_after_resume1 = fs::metadata(&journal_path).unwrap().len();
+
+        // Resume 2: nothing to execute, journal must not grow, and must stay
+        // fully parseable. (A glued torn tail only detonates on the SECOND
+        // resume — this is the regression the fix is pinned against.)
+        let resume2 = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None)
+            .expect("second resume should succeed");
+        assert_eq!(resume2.len(), 2);
+        let (records2, torn2, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
+            .expect("journal must be fully parseable after second resume");
+        assert_eq!(torn2, 0, "no torn line may appear on second resume");
+        assert_eq!(records2.len(), 2);
+        let len_after_resume2 = fs::metadata(&journal_path).unwrap().len();
+        assert_eq!(
+            len_after_resume1, len_after_resume2,
+            "journal must not grow on a second resume of a completed experiment"
+        );
+
+        // Records stay bit-identical to the uninterrupted baseline.
+        for (i, (b, r)) in baseline.iter().zip(resume2.iter()).enumerate() {
+            let tb = (b.key.to_string(), b.best_f.to_bits(), b.f_opt.to_bits(), b.evals_used);
+            let tr = (r.key.to_string(), r.best_f.to_bits(), r.f_opt.to_bits(), r.evals_used);
+            assert_eq!(tb, tr, "record {}: baseline vs post-torn-resume must be bit-identical", i);
+        }
+    }
+
+    #[test]
+    fn parallel_journal_written_incrementally_and_resumable() {
+        let dir = TempDir::new().unwrap();
+        let journal_path = dir.path().join("parallel.jsonl");
+        let seq_path = dir.path().join("sequential.jsonl");
+
+        let spec = demo_spec();
+        let spec_toml = spec.to_toml();
+
+        // Fresh parallel run: every record must land in the journal.
+        let parallel_result =
+            run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, true, Some(2))
+                .expect("parallel run should succeed");
+        assert_eq!(parallel_result.len(), 2);
+        let (records, torn, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
+            .expect("parallel journal must be parseable");
+        assert_eq!(torn, 0);
+        assert_eq!(records.len(), 2, "parallel run must append every record to the journal");
+
+        // Resume from the parallel-written journal (file order may differ from
+        // enumeration order; the loader keys by RunKey): nothing re-executes,
+        // no growth, results identical.
+        let len_before = fs::metadata(&journal_path).unwrap().len();
+        let resumed =
+            run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, true, Some(2))
+                .expect("resume from parallel journal should succeed");
+        let len_after = fs::metadata(&journal_path).unwrap().len();
+        assert_eq!(len_before, len_after, "resume of complete parallel journal must not grow it");
+        assert_eq!(resumed.len(), 2);
+
+        // Parallel checkpoint results must be bit-identical to sequential
+        // checkpoint results, in enumeration order.
+        let sequential_result =
+            run_experiment_with_checkpoint(&spec, &spec_toml, &seq_path, false, None)
+                .expect("sequential run should succeed");
+        for (i, (s, p)) in sequential_result.iter().zip(parallel_result.iter()).enumerate() {
+            let ts = (s.key.to_string(), s.best_f.to_bits(), s.f_opt.to_bits(), s.evals_used);
+            let tp = (p.key.to_string(), p.best_f.to_bits(), p.f_opt.to_bits(), p.evals_used);
+            assert_eq!(ts, tp, "record {}: sequential vs parallel checkpoint must be bit-identical", i);
+        }
+        for (i, (p, r)) in parallel_result.iter().zip(resumed.iter()).enumerate() {
+            let tp = (p.key.to_string(), p.best_f.to_bits(), p.f_opt.to_bits(), p.evals_used);
+            let tr = (r.key.to_string(), r.best_f.to_bits(), r.f_opt.to_bits(), r.evals_used);
+            assert_eq!(tp, tr, "record {}: fresh vs resumed parallel run must be bit-identical", i);
+        }
     }
 
     #[test]
@@ -800,7 +943,7 @@ mod tests {
         drop(file);
 
         // Read back
-        let (loaded_records, _) = load_journal(&path, "test", "aaaaaaaaaaaaaaaa").unwrap();
+        let (loaded_records, _, _) = load_journal(&path, "test", "aaaaaaaaaaaaaaaa").unwrap();
         assert_eq!(loaded_records.len(), 1, "should have loaded one record");
         let loaded = &loaded_records[0];
 

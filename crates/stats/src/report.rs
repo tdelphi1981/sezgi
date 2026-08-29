@@ -60,7 +60,9 @@ pub struct PaperPackage {
 /// # Output
 /// LaTeX booktabs table with:
 /// - `\toprule`, `\midrule`, `\bottomrule`
-/// - Per-problem row: mean±std per algorithm
+/// - Per-problem row: `$mean \pm std$` (math mode) per algorithm when the
+///   cell has n > 1 samples; just the mean (no ±std, which is undefined for
+///   a single sample with the n-1 denominator) when n = 1
 /// - Best (lowest mean) per problem: bolded with `\textbf{...}`
 /// - Underscores in names escaped as `\_`
 /// - Numbers formatted as `{:.3e}` (3-digit exponential notation)
@@ -105,17 +107,26 @@ pub fn summary_table_latex(
             latex.push_str(" & ");
             if !algo_results.is_empty() {
                 let mean = algo_results.iter().sum::<f64>() / algo_results.len() as f64;
-                let variance: f64 = algo_results
-                    .iter()
-                    .map(|&x| (x - mean).powi(2))
-                    .sum::<f64>()
-                    / (algo_results.len() as f64 - 1.0);
-                let std = variance.sqrt();
+
+                // n = 1: sample std (n-1 denominator) is undefined — emit
+                // just the mean. n > 1: mean ± std, wrapped in math mode
+                // (\pm is a math-mode-only command).
+                let cell = if algo_results.len() == 1 {
+                    format!("{:.3e}", mean)
+                } else {
+                    let variance: f64 = algo_results
+                        .iter()
+                        .map(|&x| (x - mean).powi(2))
+                        .sum::<f64>()
+                        / (algo_results.len() as f64 - 1.0);
+                    let std = variance.sqrt();
+                    format!("${:.3e} \\pm {:.3e}$", mean, std)
+                };
 
                 if algo_idx == best_idx {
-                    latex.push_str(&format!("\\textbf{{{:.3e} \\pm {:.3e}}}", mean, std));
+                    latex.push_str(&format!("\\textbf{{{}}}", cell));
                 } else {
-                    latex.push_str(&format!("{:.3e} \\pm {:.3e}", mean, std));
+                    latex.push_str(&cell);
                 }
             }
         }
@@ -244,8 +255,10 @@ pub fn paper_package(
     let pl_result = plackett_luce(&rankings)?;
 
     // LaTeX summary table
-    // Build results_per_problem: for each problem, a vec of vecs of f64
-    // For simplicity, treat each cell as a single value (mean=value, std=0)
+    // Build results_per_problem: for each problem, a vec of vecs of f64.
+    // Each cell holds a single (already aggregated) value; the table
+    // renderer emits just that value for n = 1 cells (no ±std, whose n-1
+    // denominator would be zero).
     let results_per_problem: Vec<Vec<Vec<f64>>> = results
         .iter()
         .map(|row| row.iter().map(|&v| vec![v]).collect())
@@ -301,19 +314,25 @@ fn pairwise_tests_latex(
         for j in 0..k {
             latex.push_str(" & ");
             if i < j {
-                // Upper triangle: show p-value and delta
+                // Upper triangle: show p-value and delta. A missing pair is
+                // rendered as "--" (defensive: paper_package always supplies
+                // every i < j pair). It must NOT default to 0.0 — p = 0.0000
+                // would read as maximal significance.
                 let p = pairwise_wilcoxon_holm
                     .iter()
                     .find(|&&(ai, aj, _)| ai == i && aj == j)
-                    .map(|&(_, _, p)| p)
-                    .unwrap_or(0.0);
+                    .map(|&(_, _, p)| p);
                 let delta = cliffs
                     .iter()
                     .find(|&&(ai, aj, _)| ai == i && aj == j)
-                    .map(|&(_, _, d)| d)
-                    .unwrap_or(0.0);
-                let mag = cliffs_magnitude(delta);
-                latex.push_str(&format!("$p={:.4}$, $\\Delta$ = {}", p, mag));
+                    .map(|&(_, _, d)| d);
+                match (p, delta) {
+                    (Some(p), Some(delta)) => {
+                        let mag = cliffs_magnitude(delta);
+                        latex.push_str(&format!("$p={:.4}$, $\\Delta$ = {}", p, mag));
+                    }
+                    _ => latex.push_str("--"),
+                }
             } else if i == j {
                 latex.push_str("--");
             }
@@ -426,6 +445,65 @@ mod tests {
         // Check LaTeX tables are non-empty
         assert!(!package.latex_summary.is_empty());
         assert!(!package.latex_tests.is_empty());
+
+        // paper_package cells are single aggregated values (n = 1): the
+        // summary table must emit just the mean — never "NaN" (sample std's
+        // n-1 denominator is zero for n = 1) and never a ±std.
+        assert!(!package.latex_summary.contains("NaN"), "latex_summary must not contain NaN");
+        assert!(!package.latex_summary.contains("\\pm"), "n=1 cells must not emit \\pm");
+        assert!(!package.latex_tests.contains("NaN"), "latex_tests must not contain NaN");
+    }
+
+    #[test]
+    fn summary_table_multi_sample_emits_math_mode_pm() {
+        let problem_names = vec!["P1".to_string()];
+        let algo_names = vec!["A".to_string(), "B".to_string()];
+
+        // n = 3 samples per cell -> mean ± std in math mode.
+        let results_per_problem = vec![vec![
+            vec![1.0, 2.0, 3.0],
+            vec![4.0, 5.0, 6.0],
+        ]];
+
+        let latex = summary_table_latex(&problem_names, &algo_names, &results_per_problem);
+
+        assert!(!latex.contains("NaN"), "multi-sample table must not contain NaN");
+        // Non-best cell: bare math-mode $mean \pm std$.
+        assert!(
+            latex.contains("$5.000e0 \\pm 1.000e0$"),
+            "expected math-mode mean ± std cell, got:\n{}",
+            latex
+        );
+        // Best cell: bolded math-mode cell.
+        assert!(
+            latex.contains("\\textbf{$2.000e0 \\pm 1.000e0$}"),
+            "expected bolded math-mode best cell, got:\n{}",
+            latex
+        );
+        // Every \pm must sit inside math mode: no " \pm " preceded by a
+        // non-$ context. Check there is no \pm outside $...$ by ensuring
+        // each line containing \pm has an even number of $ around it.
+        for line in latex.lines() {
+            if line.contains("\\pm") {
+                let dollars = line.matches('$').count();
+                assert!(dollars >= 2 && dollars % 2 == 0, "\\pm outside math mode in: {}", line);
+            }
+        }
+    }
+
+    #[test]
+    fn summary_table_single_sample_emits_mean_only() {
+        let problem_names = vec!["P1".to_string()];
+        let algo_names = vec!["A".to_string(), "B".to_string()];
+
+        let results_per_problem = vec![vec![vec![1.0], vec![2.0]]];
+
+        let latex = summary_table_latex(&problem_names, &algo_names, &results_per_problem);
+
+        assert!(!latex.contains("NaN"), "single-sample table must not contain NaN");
+        assert!(!latex.contains("\\pm"), "single-sample cells must not emit \\pm");
+        assert!(latex.contains("\\textbf{1.000e0}"), "best n=1 cell is the bolded bare mean");
+        assert!(latex.contains("2.000e0"), "n=1 cell is the bare mean");
     }
 
     #[test]

@@ -30,7 +30,7 @@ Run multiple algorithms across multiple problems, seeds, and budgets with a TOML
     spec_toml = """
         name = "example"
         seeds = [1, 2, 3]
-        budgets = [1000, 5000, 10000]
+        budgets = [1000, 5000]
         
         [[algorithms]]
         name = "de"
@@ -44,20 +44,25 @@ Run multiple algorithms across multiple problems, seeds, and budgets with a TOML
         suite = "bbob"
         fid = 1
         dim = 10
-        instances = [1, 2, 3]
+        instances = [1, 2, 3, 4, 5]
     """
     
     # Run experiment (TOML grid × seeds × budgets × instances)
     results = sezgi.run_experiment(spec_toml, parallel=True)
     
-    # Aggregate by instance: mean gap per algorithm (rows = instances, cols = algorithms)
-    instances = sorted(set(r["instance"] for r in results))
+    # Statistics for ONE budget at a time: filter records first, then
+    # aggregate the mean gap per (instance, algorithm) cell. The Wilcoxon
+    # tests inside paper_package need at least 5 problem rows, hence
+    # 5 instances above.
+    budget = 5000
+    records = [r for r in results if r["budget"] == budget]
+    instances = sorted(set(r["instance"] for r in records))
     algos = ["de", "cmaes"]
     results_matrix = [
         [
-            sum(r["gap"] for r in results 
+            sum(r["gap"] for r in records 
                 if r["instance"] == inst and r["algo"] == algo) 
-            / sum(1 for r in results 
+            / sum(1 for r in records 
                 if r["instance"] == inst and r["algo"] == algo)
             for algo in algos
         ]
@@ -75,6 +80,10 @@ Run multiple algorithms across multiple problems, seeds, and budgets with a TOML
     )
     
     print(pkg["latex_summary"])  # Friedman ranks + pairwise Wilcoxon–Holm
+
+Compare algorithms per budget, never pooled across budgets: rankings can flip
+between small and large budgets (Piotrowski et al. 2025), so repeat the
+analysis above for each budget of interest.
 
 ## Development
 
