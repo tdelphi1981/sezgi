@@ -62,24 +62,30 @@ def main():
         offspring = []
         for i in range(POP_SIZE):
             x = pop[i]
+            # p, and then r1/r2 (search branch) or l_raw (spiral branch),
+            # are all drawn ONCE per whale, before the dimension loop --
+            # matching the reference MATLAB (WOA.m) exactly. Only the
+            # random-leader index is drawn per dimension.
             p = rng.random()
             new_x = []
-            for d in range(DIM):
-                if p < 0.5:
-                    r1, r2 = rng.random(), rng.random()
-                    big_a = 2.0 * a * r1 - a
-                    big_c = 2.0 * r2
+            if p < 0.5:
+                r1, r2 = rng.random(), rng.random()
+                big_a = 2.0 * a * r1 - a
+                big_c = 2.0 * r2
+                for d in range(DIM):
                     if abs(big_a) < 1.0:
                         target_d = x_best[d]
                     else:
                         j = rng.randrange(POP_SIZE)  # may equal i, matches reference MATLAB
                         target_d = pop[j][d]
                     val = woa_encircle_step(target_d, x[d], big_a, big_c)
-                else:
-                    l_raw = rng.random()
-                    l = (a2 - 1.0) * l_raw + 1.0
+                    new_x.append(clamp(val, LO, HI))
+            else:
+                l_raw = rng.random()
+                l = (a2 - 1.0) * l_raw + 1.0
+                for d in range(DIM):
                     val = woa_spiral_step(x_best[d], x[d], l)
-                new_x.append(clamp(val, LO, HI))
+                    new_x.append(clamp(val, LO, HI))
             offspring.append(new_x)
 
         # Unconditional generational replacement: only run a generation if

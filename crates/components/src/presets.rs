@@ -176,15 +176,14 @@ pub fn harmony_search(pop_size: usize, budget: u64) -> AlgorithmSpec {
 /// Uniform init, `boundary/clamp` (same as `gwo`/`woa`/`harmony_search` --
 /// a Lévy step can push a coordinate outside `[lo, hi]`),
 /// `replace/one-to-one-greedy` (DE's kind, reused as-is for the greedy
-/// same-index replacement --
-// sezgi simplification: reuses DE's same-index greedy replacer (offspring
-// i vs parent i) instead of the paper's random-nest comparison -- see
-// cs.rs's module doc for the full rationale.
-/// plus the new `adapter/abandon-worst-fraction` (worst `pa = 0.25`
-/// fraction re-randomized after replacement each iteration -- see `cs.rs`'s
-/// `AbandonWorstFraction` doc for the component-chain-placement and
-/// RNG-stream rationale). `pop_size` is the nest count; canonical is 25 per
-/// the source paper. `min_pop = 2` (needs a best distinct from `i` to
+/// same-index replacement -- sezgi simplification: reuses DE's same-index
+/// greedy replacer (offspring i vs parent i) instead of the paper's
+/// random-nest comparison; see `cs.rs`'s module doc for the full
+/// rationale), plus the new `adapter/abandon-worst-fraction` (worst
+/// `pa = 0.25` fraction re-randomized after replacement each iteration --
+/// see `cs.rs`'s `AbandonWorstFraction` doc for the component-chain-placement
+/// and RNG-stream rationale). `pop_size` is the nest count; canonical is 25
+/// per the source paper. `min_pop = 2` (needs a best distinct from `i` to
 /// move), enforced via `AlgorithmSpec::validate`.
 pub fn cuckoo_search(pop_size: usize, budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {

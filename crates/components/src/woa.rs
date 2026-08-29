@@ -17,8 +17,14 @@ use sezgi_core::space::{BlockValues, Genotype};
 /// whale, firefly, bat, antlion).
 ///
 /// **Pinned update rule** (part of the RNG-stream contract), following the
-/// paper's reference MATLAB (which recomputes `A` and the branch choice
-/// per-dimension, not once per individual):
+/// paper's reference MATLAB (`WOA.m`, MATLAB Central File Exchange #55667):
+/// `r1, r2, A, C, l, p` are all computed ONCE PER WHALE — outside the
+/// dimension loop — and only the random-leader index (search sub-branch) is
+/// drawn per dimension. Verified directly against `WOA.m`'s source (not
+/// assumed from the paper's prose): the outer loop over whales computes
+/// `r1=rand(); r2=rand(); A=2*a*r1-a; C=2*r2; l=(a2-1)*rand+1; p=rand();`
+/// BEFORE entering the inner loop over dimensions; only
+/// `rand_leader_index = floor(N*rand()+1)` sits inside that inner loop.
 /// - `a = 2 − 2·progress`, `a2 = −1 − progress` (spiral parameter range),
 ///   where `progress = ctx.eval.used() / ctx.eval.budget()` (clamped to
 ///   `[0, 1]`; `0` if `budget == 0`), computed **once per `generate` call**,
@@ -27,27 +33,35 @@ use sezgi_core::space::{BlockValues, Genotype};
 ///   ties → lower index (same convention as `gwo.rs`'s leader selection,
 ///   via [`Population::best_index`]).
 /// - For each whale `i` (population order): draw `p = rng.next_f64()`
-///   (1 draw). Then, for each dimension `d` (index order):
+///   (1 draw).
 ///   - if `p < 0.5` (**encircle/search branch**): draw `r1 = rng.next_f64()`,
-///     then `r2 = rng.next_f64()` (2 draws); `A = 2a·r1 − a`, `C = 2·r2`.
+///     then `r2 = rng.next_f64()` (2 draws, ONCE for the whole whale);
+///     `A = 2a·r1 − a`, `C = 2·r2` — these are SCALARS, reused for every
+///     dimension of this whale, including the `|A|` branch test itself
+///     (not recomputed per dimension). Then, for each dimension `d`
+///     (index order):
 ///     - if `|A| < 1` (**encircling prey**): target = `X_best`.
 ///     - else (**search for prey**): draw a random whale index
 ///       `j = rng.next_below(pop_len)` (1 draw — the project's uniform-index
 ///       idiom, see `de.rs`'s `pick_distinct`, minus the exclusion: `j` MAY
 ///       equal `i`, matching the reference MATLAB which does not exclude
-///       self); target = `X_j`.
+///       self); target = `X_j`. This `j` draw is the ONLY draw in the
+///       entire generator that happens per dimension.
 ///
 ///     `X'[d] = X_target[d] − A·|C·X_target[d] − X_i[d]|`.
 ///   - else (`p ≥ 0.5`, **spiral bubble-net branch**): draw
-///     `l_raw = rng.next_f64()` (1 draw); `l = (a2 − 1)·l_raw + 1`;
-///     `D = |X_best[d] − X_i[d]|`;
+///     `l_raw = rng.next_f64()` (1 draw, ONCE for the whole whale);
+///     `l = (a2 − 1)·l_raw + 1` — a SCALAR, reused for every dimension.
+///     For each dimension `d`: `D = |X_best[d] − X_i[d]|`;
 ///     `X'[d] = D·e^{b·l}·cos(2π·l) + X_best[d]`, `b = 1` (fixed, per the
 ///     paper's convention).
-/// - Draw order: `p` first per whale; then, per dimension, the
-///   branch-dependent draws in the order listed above. This matches the
-///   reference MATLAB, where the encircle/search choice (and hence `A`) is
-///   recomputed per dimension, not once per individual — pinned here as the
-///   RNG-stream contract.
+/// - Draw order: `p` first per whale; then, depending on which branch `p`
+///   selects, either `r1, r2` (search branch) or `l_raw` (spiral branch),
+///   each drawn exactly ONCE per whale, before the dimension loop. The
+///   random-whale index `j` is the sole per-dimension draw, and only within
+///   the search sub-branch (`p < 0.5` and `|A| ≥ 1`). This matches the
+///   reference MATLAB's per-whale/per-dimension draw structure exactly —
+///   pinned here as the RNG-stream contract.
 ///
 /// The per-dimension math is factored into [`woa_encircle_step`] and
 /// [`woa_spiral_step`] so both can be unit-tested directly (the `A = 0` and
@@ -108,27 +122,31 @@ impl Generator for WoaGenerator {
 
         (0..n).map(|i| {
             let x = Self::floats(&pop.individuals[i]);
-            // Pinned draw order: p first, per whale.
+            // Pinned draw order: p first, per whale; then r1/r2 (search
+            // branch) or l_raw (spiral branch) ONCE per whale, before the
+            // dimension loop -- matching the reference MATLAB's per-whale
+            // draw structure (see the module doc above).
             let p = ctx.rng.next_f64();
-            let xs: Vec<f64> = (0..dim).map(|d| {
-                if p < 0.5 {
-                    let r1 = ctx.rng.next_f64();
-                    let r2 = ctx.rng.next_f64();
-                    let big_a = 2.0 * a * r1 - a;
-                    let big_c = 2.0 * r2;
+            let xs: Vec<f64> = if p < 0.5 {
+                let r1 = ctx.rng.next_f64();
+                let r2 = ctx.rng.next_f64();
+                let big_a = 2.0 * a * r1 - a;
+                let big_c = 2.0 * r2;
+                (0..dim).map(|d| {
                     let target_d = if big_a.abs() < 1.0 {
                         x_best[d]
                     } else {
+                        // The ONLY per-dimension draw in the whole generator.
                         let j = ctx.rng.next_below(n as u64) as usize;
                         Self::floats(&pop.individuals[j])[d]
                     };
                     woa_encircle_step(target_d, x[d], big_a, big_c)
-                } else {
-                    let l_raw = ctx.rng.next_f64();
-                    let l = (a2 - 1.0) * l_raw + 1.0;
-                    woa_spiral_step(x_best[d], x[d], l, 1.0)
-                }
-            }).collect();
+                }).collect()
+            } else {
+                let l_raw = ctx.rng.next_f64();
+                let l = (a2 - 1.0) * l_raw + 1.0;
+                (0..dim).map(|d| woa_spiral_step(x_best[d], x[d], l, 1.0)).collect()
+            };
             Genotype { blocks: vec![BlockValues::Float(xs)] }
         }).collect()
     }
@@ -203,25 +221,32 @@ mod tests {
 
     #[test]
     fn draw_count_two_whale_case_covers_both_branches() {
-        // Crafted case: n=2, dim=2, master seed=0, budget=1000/used=0 so
+        // Crafted case: n=2, dim=2, master seed=16, budget=1000/used=0 so
         // progress=0 (a=2, a2=-1). Manually traced against the raw
-        // `RngStream` sequence for master seed 0 (independent of the
-        // implementation, from the pinned draw-order contract): with a=2,
-        //   whale 0 (p0 = 0.3246... < 0.5 -> encircle/search branch):
-        //     dim 0: r1,r2 give |A| < 1 -> encircle (2 draws)
-        //     dim 1: r1,r2 give |A| >= 1 -> search, +1 draw for j (3 draws)
-        //   whale 1 (p1 = 0.8572... >= 0.5 -> spiral branch, both dims):
-        //     dim 0: l_raw (1 draw)
-        //     dim 1: l_raw (1 draw)
-        // Total = 1 (p0) + 2 + 3 + 1 (p1) + 1 + 1 = 9 draws, exercising both
-        // top-level branches (encircle/search vs spiral) and both
-        // sub-branches of the p<0.5 branch (encircle vs search).
+        // `RngStream` sequence for master seed 16 (independent of the
+        // implementation, from the pinned draw-order contract -- see the
+        // module doc's per-whale/per-dim structure):
+        //   whale 0 (p0 = 0.4050... < 0.5 -> encircle/search branch):
+        //     r1 = 0.1456..., r2 = 0.3187... drawn ONCE for the whole whale
+        //     (2 draws) -> A = 2*2*r1 - 2 = -1.4178..., |A| >= 1, so BOTH
+        //     dimensions take the search sub-branch (A is a scalar, not
+        //     recomputed per dimension):
+        //       dim 0: random-whale index j (1 draw)
+        //       dim 1: random-whale index j (1 draw)
+        //   whale 1 (p1 = 0.8126... >= 0.5 -> spiral branch):
+        //     l_raw drawn ONCE for the whole whale (1 draw); both
+        //     dimensions reuse the same scalar l -- no further draws.
+        // Total = 1 (p0) + 2 (r1,r2) + 1 (j dim0) + 1 (j dim1) + 1 (p1)
+        //       + 1 (l_raw) = 7 draws, exercising both top-level branches
+        // (encircle/search vs spiral) and the search sub-branch's
+        // per-dimension index draw, while showing r1/r2/l_raw are each
+        // consumed exactly once per whale regardless of dimension count.
         let n = 2; let dim = 2;
         let p = SphereShifted::new(vec![0.0; dim], -5.0, 5.0);
         let space = p.space();
         let pop = pop_nd(n, dim);
 
-        let mut rng = RngStream::from_master(0, &[]);
+        let mut rng = RngStream::from_master(16, &[]);
         let rng_before = rng.clone();
         let mut evaluator = Evaluator::new(&p, 1000); // used=0, budget=1000 -> progress=0
         let mut bb = Blackboard::new();
@@ -239,15 +264,16 @@ mod tests {
         // overwhelming probability) diverge.
         let mut twin = rng_before;
         let _p0 = twin.next_f64();
-        // whale 0, dim 0: encircle
+        // whale 0: r1, r2 drawn once for the whole whale.
         let _r1 = twin.next_f64(); let _r2 = twin.next_f64();
-        // whale 0, dim 1: search (extra random-index draw)
-        let _r1 = twin.next_f64(); let _r2 = twin.next_f64(); let _j = twin.next_below(n as u64);
+        // whale 0, dim 0: search sub-branch, random-whale index draw.
+        let _j0 = twin.next_below(n as u64);
+        // whale 0, dim 1: search sub-branch again (A is the same scalar).
+        let _j1 = twin.next_below(n as u64);
         let _p1 = twin.next_f64();
-        // whale 1, dim 0: spiral
-        let _l0 = twin.next_f64();
-        // whale 1, dim 1: spiral
-        let _l1 = twin.next_f64();
+        // whale 1: l_raw drawn once for the whole whale (spiral branch);
+        // both dimensions reuse it, no further draws.
+        let _l = twin.next_f64();
 
         assert_eq!(rng.next_f64(), twin.next_f64(),
             "gen/woa must consume exactly the pinned draw sequence for this crafted two-whale case");

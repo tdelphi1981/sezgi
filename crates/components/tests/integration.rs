@@ -300,11 +300,12 @@ fn woa_solves_bbob_f1_dim5() {
     let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
     let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
     let gap = r.best_f - p.f_opt();
-    // Deterministic achieved gap at seed 42: gap ~= 0.0000038799 (WOA
-    // converges tightly on the separable, unimodal BBOB f1/Sphere in 20k
-    // evaluations). Anchored bound rounded up to the next 0.5 (0.5), giving
-    // ample (>=0.3) headroom, per convention (see gwo_solves_bbob_f1_dim5
-    // above).
+    // Deterministic achieved gap at seed 42: gap ~= 0.0002618594 (re-measured
+    // after the M2d-3 final review's per-whale draw-structure fix, since the
+    // RNG-stream trajectory changed; WOA still converges tightly on the
+    // separable, unimodal BBOB f1/Sphere in 20k evaluations). Anchored bound
+    // rounded up to the next 0.5 (0.5), giving ample (>=0.3) headroom, per
+    // convention (see gwo_solves_bbob_f1_dim5 above).
     assert!(gap < 0.5,
         "WOA should land close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap}");
 }

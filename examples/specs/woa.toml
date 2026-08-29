@@ -5,10 +5,11 @@
 # Component decomposition (see crates/components/src/woa.rs's module doc
 # for the pinned update rule and RNG-stream contract this preset enforces):
 #   - init:      init/uniform          -- uniform-random population in bounds
-#   - generator: gen/woa               -- pinned per-dimension encircle/
-#                                          search/spiral branch, recomputed
-#                                          per dimension (matches reference
-#                                          MATLAB, not a per-individual choice)
+#   - generator: gen/woa               -- pinned encircle/search/spiral
+#                                          branch; p/r1/r2/l drawn once per
+#                                          whale (matches reference MATLAB
+#                                          exactly -- only the random-leader
+#                                          index is drawn per dimension)
 #   - boundary:  boundary/clamp        -- clamps a stepped-out-of-bounds coord
 #   - replacer:  replace/generational  -- offspring become the whole
 #                                          population unconditionally (WOA is
