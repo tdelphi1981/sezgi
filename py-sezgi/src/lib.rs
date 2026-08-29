@@ -15,7 +15,7 @@ use sezgi_core::spec::AlgorithmSpec;
 use sezgi_problems::BbobProblem;
 use sezgi_stats::{
     bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman, paper_package,
-    plackett_luce, wilcoxon_signed_rank,
+    plackett_luce, wilcoxon_signed_rank, WilcoxonMethod,
 };
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
@@ -279,6 +279,13 @@ fn stats_wilcoxon(
     d.set_item("z", r.z)?;
     d.set_item("p_value", r.p_value)?;
     d.set_item("n_effective", r.n_effective)?;
+    d.set_item(
+        "method",
+        match r.method {
+            WilcoxonMethod::Exact => "exact",
+            WilcoxonMethod::NormalApprox => "normal_approx",
+        },
+    )?;
     Ok(d.into())
 }
 

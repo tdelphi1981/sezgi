@@ -86,8 +86,9 @@ def test_stats_bindings_smoke():
     a = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
     b = [1.5, 1.8, 3.5, 3.8, 4.8, 6.5]
     wr = sezgi.stats.wilcoxon(a, b)
-    assert set(wr.keys()) == {"w_statistic", "z", "p_value", "n_effective"}
+    assert set(wr.keys()) == {"w_statistic", "z", "p_value", "n_effective", "method"}
     assert isinstance(wr["n_effective"], int)
+    assert wr["method"] in {"exact", "normal_approx"}
 
     delta = sezgi.stats.cliffs_delta(a, b)
     assert isinstance(delta, float)
@@ -104,6 +105,23 @@ def test_stats_bindings_smoke():
     assert set(pl.keys()) == {"worths", "p_best", "iterations"}
     assert len(pl["worths"]) == 3
     assert isinstance(pl["iterations"], int)
+
+
+def test_wilcoxon_exact_small_n():
+    # Mirrors crates/stats/src/pairwise.rs::exact_small_n_no_ties_uses_exact_distribution.
+    # n=8, |d| ranks 1..8 (distinct), only the smallest-|d| pair (|d|=1) has
+    # the sign opposite the rest -> W- = 1, W+ = 35, W = 1. Exact two-sided
+    # p = min(1, 2 * count(sum <= 1) / 2^8) = 2*2/256 = 0.015625 (empty
+    # subset + {1}); see task-6-report.md for the full derivation and the
+    # independent SciPy cross-check.
+    a = [99.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0]
+    b = [100.0] * 8
+
+    wr = sezgi.stats.wilcoxon(a, b)
+    assert wr["method"] == "exact"
+    assert wr["w_statistic"] == 1.0
+    assert wr["p_value"] == 0.015625
+    assert wr["n_effective"] == 8
 
 
 def test_paper_package_latex_nonempty():

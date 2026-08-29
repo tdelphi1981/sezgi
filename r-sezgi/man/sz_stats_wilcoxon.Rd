@@ -13,8 +13,12 @@ sz_stats_wilcoxon(a, b)
 \item{b}{Numeric vector, same length as `a`.}
 }
 \value{
-A named list with `w_statistic`, `z`, `p_value`, `n_effective`
-  (mirrors py-sezgi's `stats_wilcoxon()` dict keys exactly).
+A named list with `w_statistic`, `z`, `p_value`, `n_effective`,
+  `method` (`"exact"` or `"normal_approx"`; mirrors py-sezgi's
+  `stats_wilcoxon()` dict keys exactly). `"exact"` is used when
+  `n_effective <= 25` and there are no zero differences or tied `|d|`
+  ranks; see `sezgi_stats::wilcoxon_signed_rank`'s doc comment for the
+  full eligibility rule (the exact p-value formula is semver-pinned).
 }
 \description{
 Wilcoxon signed-rank test for two paired samples (Pratt zero-handling and

@@ -329,8 +329,12 @@ NULL
 #'
 #' @param a Numeric vector.
 #' @param b Numeric vector, same length as `a`.
-#' @returns A named list with `w_statistic`, `z`, `p_value`, `n_effective`
-#'   (mirrors py-sezgi's `stats_wilcoxon()` dict keys exactly).
+#' @returns A named list with `w_statistic`, `z`, `p_value`, `n_effective`,
+#'   `method` (`"exact"` or `"normal_approx"`; mirrors py-sezgi's
+#'   `stats_wilcoxon()` dict keys exactly). `"exact"` is used when
+#'   `n_effective <= 25` and there are no zero differences or tied `|d|`
+#'   ranks; see `sezgi_stats::wilcoxon_signed_rank`'s doc comment for the
+#'   full eligibility rule (the exact p-value formula is semver-pinned).
 #' @export
 `sz_stats_wilcoxon` <- function(`a`, `b`) {
   .Call(savvy_sz_stats_wilcoxon__impl, `a`, `b`)

@@ -34,14 +34,22 @@ test_that("friedman matrix marshalling catches a transposition (2x3, asymmetric)
 })
 
 test_that("wilcoxon matches the pinned no-ties-no-zeros fixture (pairwise.rs::wilcoxon_no_ties_no_zeros)", {
+  # TASK 6 RE-PIN (M2d-1, flagged per the brief's disclosure rule): this
+  # fixture is n=10, t0=0, untied ranks -> now exact-eligible (n_effective
+  # = 10 <= 25), so p_value switched from the normal-approx value
+  # (0.8384637819224636, superseded) to the exact value below. z is
+  # unaffected (always computed via the normal formula). See
+  # pairwise.rs::wilcoxon_no_ties_no_zeros for the full derivation and the
+  # independent SciPy cross-check.
   a <- c(101, 98, 103, 96, 105, 94, 107, 92, 109, 90)
   b <- rep(100, 10)
   r <- sz_stats_wilcoxon(a, b)
-  expect_named(r, c("w_statistic", "z", "p_value", "n_effective"))
+  expect_named(r, c("w_statistic", "z", "p_value", "n_effective", "method"))
   expect_equal(r$n_effective, 10)
+  expect_equal(r$method, "exact")
   expect_equal(r$w_statistic, 25.0, tolerance = 1e-12)
   expect_equal(r$z, -0.20385887657505022, tolerance = 1e-6)
-  expect_equal(r$p_value, 0.8384637819224636, tolerance = 1e-6)
+  expect_equal(r$p_value, 0.845703125, tolerance = 1e-12)
 })
 
 test_that("wilcoxon matches the pinned Pratt zero-handling fixture (pairwise.rs::wilcoxon_pratt_zero_handling)", {
@@ -49,9 +57,23 @@ test_that("wilcoxon matches the pinned Pratt zero-handling fixture (pairwise.rs:
   b <- rep(100, 8)
   r <- sz_stats_wilcoxon(a, b)
   expect_equal(r$n_effective, 6)
+  expect_equal(r$method, "normal_approx") # zeros present -> not exact-eligible
   expect_equal(r$w_statistic, 14.0, tolerance = 1e-12)
   expect_equal(r$z, -0.2835524820033343, tolerance = 1e-6)
   expect_equal(r$p_value, 0.7767533567940004, tolerance = 1e-6)
+})
+
+test_that("wilcoxon reports method=exact for the pinned exact small-n fixture (pairwise.rs::exact_small_n_no_ties_uses_exact_distribution)", {
+  # n=8, |d| ranks 1..8 (distinct), only the smallest-|d| pair (|d|=1) has
+  # the sign opposite the rest -> W- = 1, W+ = 35, W = 1. Exact two-sided
+  # p = min(1, 2 * count(sum <= 1) / 2^8) = 2*2/256 = 0.015625.
+  a <- c(99, 102, 103, 104, 105, 106, 107, 108)
+  b <- rep(100, 8)
+  r <- sz_stats_wilcoxon(a, b)
+  expect_equal(r$method, "exact")
+  expect_equal(r$w_statistic, 1.0, tolerance = 1e-12)
+  expect_equal(r$p_value, 0.015625, tolerance = 1e-12)
+  expect_equal(r$n_effective, 8)
 })
 
 test_that("cliffs_delta matches the pinned known-value fixture (pairwise.rs::cliffs_delta_known_value)", {
@@ -166,8 +188,30 @@ test_that("paper_package matches the pinned 3x6 synthetic fixture (report.rs::pa
 })
 
 test_that("paper_package errors on too few problems (report.rs::paper_package_errors_on_too_few_problems)", {
+  # n = 1 problem: friedman() requires n >= 2 rows, so this still errors
+  # regardless of Wilcoxon eligibility (unlike the fixture below, which
+  # used to error here too before Task 6).
+  algo_names <- c("A", "B")
+  problem_names <- c("P1")
+  results <- rbind(c(1.0, 2.0))
+  expect_error(sz_stats_paper_package(algo_names, problem_names, results, rope = 0.1, samples = 100, seed = 777))
+})
+
+test_that("paper_package succeeds with few problems via exact wilcoxon (report.rs::paper_package_succeeds_with_few_problems_via_exact_wilcoxon)", {
+  # TASK 6 BEHAVIOR CHANGE (M2d-1, flagged per the brief's disclosure
+  # rule): this is the SAME fixture that used to be the "too few problems"
+  # error case above (3 problems, 2 algorithms). It used to error because
+  # the per-pair wilcoxon_signed_rank call has n_effective = 3 < 5, and
+  # pre-Task-6 that unconditionally errored. d = A - B = [-1.0, -0.3,
+  # -0.9] has no zeros and no tied |d| ranks, so this pair is now
+  # exact-eligible (n_effective=3 <= 25), and paper_package succeeds
+  # end-to-end. See report.rs's fixture of the same name for the full
+  # rationale.
   algo_names <- c("A", "B")
   problem_names <- c("P1", "P2", "P3")
   results <- rbind(c(1.0, 2.0), c(1.5, 1.8), c(1.2, 2.1))
-  expect_error(sz_stats_paper_package(algo_names, problem_names, results, rope = 0.1, samples = 100, seed = 777))
+  r <- sz_stats_paper_package(algo_names, problem_names, results, rope = 0.1, samples = 100, seed = 777)
+  expect_length(r$pairwise_wilcoxon_holm, 1) # C(2,2) = 1 pair
+  p <- r$pairwise_wilcoxon_holm[[1]][3]
+  expect_true(p >= 0.0 && p <= 1.0)
 })

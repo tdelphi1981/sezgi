@@ -5,6 +5,7 @@ use savvy::{
 use sezgi_stats::{
     bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman, paper_package, plackett_luce,
     wilcoxon_signed_rank, BayesSignedRankResult, FriedmanResult, PlackettLuceResult,
+    WilcoxonMethod,
 };
 
 /// Converts an R matrix (`RealSexp` with a `dim` attribute, R's column-major
@@ -152,15 +153,19 @@ fn sz_stats_friedman(m: RealSexp) -> savvy::Result<Sexp> {
 ///
 /// @param a Numeric vector.
 /// @param b Numeric vector, same length as `a`.
-/// @returns A named list with `w_statistic`, `z`, `p_value`, `n_effective`
-///   (mirrors py-sezgi's `stats_wilcoxon()` dict keys exactly).
+/// @returns A named list with `w_statistic`, `z`, `p_value`, `n_effective`,
+///   `method` (`"exact"` or `"normal_approx"`; mirrors py-sezgi's
+///   `stats_wilcoxon()` dict keys exactly). `"exact"` is used when
+///   `n_effective <= 25` and there are no zero differences or tied `|d|`
+///   ranks; see `sezgi_stats::wilcoxon_signed_rank`'s doc comment for the
+///   full eligibility rule (the exact p-value formula is semver-pinned).
 /// @export
 #[savvy]
 fn sz_stats_wilcoxon(a: RealSexp, b: RealSexp) -> savvy::Result<Sexp> {
     let av = a.as_slice();
     let bv = b.as_slice();
     let r = wilcoxon_signed_rank(av, bv).map_err(|e| savvy_err!("{e}"))?;
-    let mut out = OwnedListSexp::new(4, true)?;
+    let mut out = OwnedListSexp::new(5, true)?;
     out.set_name_and_value(0, "w_statistic", OwnedRealSexp::try_from_scalar(r.w_statistic)?)?;
     out.set_name_and_value(1, "z", OwnedRealSexp::try_from_scalar(r.z)?)?;
     out.set_name_and_value(2, "p_value", OwnedRealSexp::try_from_scalar(r.p_value)?)?;
@@ -169,6 +174,11 @@ fn sz_stats_wilcoxon(a: RealSexp, b: RealSexp) -> savvy::Result<Sexp> {
         "n_effective",
         OwnedRealSexp::try_from_scalar(r.n_effective as f64)?,
     )?;
+    let method = match r.method {
+        WilcoxonMethod::Exact => "exact",
+        WilcoxonMethod::NormalApprox => "normal_approx",
+    };
+    out.set_name_and_value(4, "method", OwnedStringSexp::try_from(method)?)?;
     Ok(out.into())
 }
 

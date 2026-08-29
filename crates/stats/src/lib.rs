@@ -18,7 +18,9 @@ pub mod report;
 pub mod special;
 
 pub use bayesian::{bayesian_signed_rank, plackett_luce, BayesSignedRankResult, PlackettLuceResult};
-pub use pairwise::{cliffs_delta, cliffs_magnitude, wilcoxon_signed_rank, WilcoxonResult};
+pub use pairwise::{
+    cliffs_delta, cliffs_magnitude, wilcoxon_signed_rank, WilcoxonMethod, WilcoxonResult,
+};
 pub use ranks::{friedman, hochberg, holm, nemenyi_cd, rank_matrix, FriedmanResult};
 pub use report::{paper_package, summary_table_latex, AlgorithmSummary, PaperPackage};
 pub use special::{chi_square_sf, erf, gamma_p, ln_gamma, normal_cdf, normal_sf};

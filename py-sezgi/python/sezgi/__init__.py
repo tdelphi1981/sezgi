@@ -73,6 +73,12 @@ def _bayesian_signed_rank(a, b, rope=0.0, samples=20000, seed=1):
 
 # Statistics namespace: mirrors crates/stats's public functions. Accepts
 # Python lists (list of lists for matrices) or numpy arrays.
+#
+# stats.wilcoxon(a, b) returns a dict with keys w_statistic, z, p_value,
+# n_effective, and method ("exact" or "normal_approx"). "exact" is used when
+# n_effective <= 25 and there are no zero differences or tied |d| ranks; the
+# exact p-value formula is semver-pinned (see
+# crates/stats/src/pairwise.rs::wilcoxon_signed_rank doc comment).
 stats = SimpleNamespace(
     friedman=_sezgi.stats_friedman,
     wilcoxon=_sezgi.stats_wilcoxon,
