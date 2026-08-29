@@ -437,6 +437,7 @@ name = "sezgi-stats"
 version = "0.1.0"
 dependencies = [
  "sezgi-core",
+ "thiserror",
 ]
 
 [[package]]
