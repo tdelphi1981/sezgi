@@ -21,7 +21,12 @@ sz_eval_session(
 
 \item{instance}{BBOB instance id (>= 1).}
 
-\item{budget}{Evaluation budget (non-negative).}
+\item{budget}{Evaluation budget (non-negative). Truncated toward zero if
+fractional (`as.integer`-style, via Rust's `f64 as u64` cast) rather
+than rejected -- an asymmetry with py-sezgi, whose `budget: u64`
+parameter type makes pyo3 reject a fractional Python value outright at
+the FFI boundary before this package's own cast ever runs. Not changed
+here; `f64_to_u64`'s strictness is owned by a later task.}
 
 \item{log_dir}{Optional directory: when given, IOH-profiler logging is
 wired up in the constructor, before any evaluation is possible
@@ -45,6 +50,14 @@ points an EXTERNAL algorithm supplies -- the spec's engine-inside-out
 promise. Mirrors py-sezgi's `sezgi.EvalSession`.
 }
 \details{
+The returned object is a reference (external-pointer) handle, not a
+value: assigning it to another variable (e.g. \code{s2 <- s}) does NOT
+copy the session -- both names alias the SAME mutable session, so a
+\code{$evaluate()} through either one advances the same counter and
+best. This is standard R external-pointer/environment behavior (the
+object literally IS an \code{environment}), not something specific to
+this package.
+
 The returned object exposes:
 \itemize{
   \item \code{$evaluate(x)} -- batch-evaluates `x` (a numeric matrix with

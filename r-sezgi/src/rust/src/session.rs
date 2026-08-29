@@ -73,8 +73,26 @@ fn session_finished_err() -> savvy::Error {
 /// preserved either way; `CoreSession::evaluate` itself is what checks each
 /// row's length against `dim` (`DimensionMismatch`), so this makes no
 /// assumption about a fixed row width.
+///
+/// A `data.frame` is ALSO a `VECSXP` (R's `list` representation) -- one
+/// element per COLUMN, not per point -- so `Sexp::is_list()` alone cannot
+/// tell it apart from the intended "list of points" shape. Left unchecked,
+/// a `data.frame` would silently be read column-wise (plausible-looking but
+/// wrong values, no warning: reported by review as a real footgun). So the
+/// `class` attribute is checked explicitly here and a `data.frame` is
+/// rejected with a message pointing at the fix (`as.matrix(x)`), before it
+/// ever reaches the list branch below.
 fn sexp_to_rows(x: Sexp) -> savvy::Result<Vec<Vec<f64>>> {
     if x.is_list() {
+        if let Some(classes) = x.get_class()
+            && classes.contains(&"data.frame")
+        {
+            return Err(savvy_err!(
+                "evaluate() does not accept a data.frame: it would be read column-wise, \
+                 not row-wise, silently producing wrong points -- pass a numeric matrix \
+                 instead, e.g. as.matrix(x) (rows = points)"
+            ));
+        }
         let list: ListSexp = x.try_into()?;
         let mut rows = Vec::with_capacity(list.len());
         for i in 0..list.len() {

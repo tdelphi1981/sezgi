@@ -81,6 +81,22 @@ test_that("dimension mismatch raises and does not count", {
   expect_equal(s$evals_used(), 0)
 })
 
+test_that("a data.frame is rejected instead of silently misread column-wise", {
+  # A data.frame is ALSO a VECSXP (R's `list` representation), one element
+  # per COLUMN -- so it would otherwise slip through the list-of-points
+  # branch and be read column-wise, producing plausible-looking but wrong
+  # values with no warning (regression fixture for a review finding).
+  s <- sz_eval_session(fid = 1, dim = 2, instance = 1, budget = 100)
+  df <- data.frame(a = c(0, 10), b = c(5, -5))
+  expect_error(s$evaluate(df), "data.frame")
+  expect_equal(s$evals_used(), 0)
+
+  # The fix: as.matrix(df) (rows = points) is accepted normally.
+  fs <- s$evaluate(as.matrix(df))
+  expect_length(fs, 2)
+  expect_equal(s$evals_used(), 2)
+})
+
 test_that("a non-finite row raises and does not count", {
   s <- sz_eval_session(fid = 1, dim = 2, instance = 1, budget = 100)
   for (bad in c(NaN, Inf, -Inf)) {
