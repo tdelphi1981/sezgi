@@ -219,6 +219,8 @@ pub enum ExperimentError {
     IohWrite(String),
     #[error("IOH log read error: {0}")]
     IohRead(String),
+    #[error("COCO export error: {0}")]
+    CocoExport(String),
 }
 
 const VALID_PRESET_KINDS: &[&str] = &[
