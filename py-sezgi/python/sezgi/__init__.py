@@ -2,7 +2,7 @@
 import json
 from types import SimpleNamespace
 
-from sezgi._sezgi import Problem, bbob, from_callable
+from sezgi._sezgi import Problem, EvalSession, bbob, from_callable
 from sezgi import _sezgi
 
 
@@ -195,5 +195,6 @@ stats = SimpleNamespace(
     paper_package=_paper_package,
 )
 
-__all__ = ["Problem", "bbob", "from_callable", "solve", "run_experiment", "presets", "stats",
-           "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf", "coco_export"]
+__all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_experiment", "presets",
+           "stats", "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf",
+           "coco_export"]

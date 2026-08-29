@@ -7,7 +7,7 @@ use sezgi_bench::{
     ecdf as bench_ecdf, ecdf_per_algo as bench_ecdf_per_algo, ioh_records as bench_ioh_records,
     per_budget_packages as bench_per_budget_packages, read_ioh_root,
     results_matrix as bench_results_matrix, run_experiment_logged, run_experiment_parallel,
-    run_experiment_sequential, run_experiment_with_checkpoint, Aggregate, EcdfCurve,
+    run_experiment_sequential, run_experiment_with_checkpoint, Aggregate, EcdfCurve, EvalSession,
     ExperimentSpec, IohLogger, RunKey, RunRecord,
 };
 use sezgi_components::{presets, register_builtins};
@@ -111,6 +111,95 @@ fn from_callable(f: Py<PyAny>, lo: f64, hi: f64, dim: usize) -> PyResult<PyProbl
     let space = SearchSpace::new(vec![Block::Float { lo, hi, n: dim }])
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(PyProblem { inner: Inner::Callable { f, space } })
+}
+
+/// Raised by every [`PyEvalSession`] method once the session has been
+/// [`PyEvalSession::finish`]ed (including a second call to `finish` itself).
+fn session_finished_err() -> PyErr {
+    PyValueError::new_err("session finished")
+}
+
+/// Python binding for [`sezgi_bench::EvalSession`] — the ask/tell core
+/// behind the spec's engine-inside-out promise: an external (here, pure
+/// Python) algorithm generates candidate points and this session stays the
+/// sole keeper of evaluation, tamper-proof counting, best-tracking and IOH
+/// logging.
+///
+/// `finish()` consumes the underlying Rust session (matching its own
+/// consuming signature); since `#[pymethods]` cannot take `self` by value
+/// through a Python handle, the consuming step is modeled with an
+/// `Option<EvalSession>` inner slot that `finish` takes, leaving `None`
+/// behind. Every method (including a second `finish()`) then raises
+/// `ValueError("session finished")` if called afterward.
+///
+/// `with_log` is wired up ONLY in the constructor, applied before any
+/// `evaluate()` call is possible from Python — so `EvalSession::with_log`'s
+/// own "called after evaluation has started" guard (`LogAfterEval`) is
+/// unreachable through this binding by construction; it exists purely as a
+/// Rust-level invariant, not a case Python callers can trigger.
+#[pyclass(name = "EvalSession")]
+struct PyEvalSession {
+    inner: Option<EvalSession>,
+}
+
+#[pymethods]
+impl PyEvalSession {
+    #[new]
+    #[pyo3(signature = (fid, dim, instance, budget, log_dir=None, algo_name="custom", seed=0))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        fid: u32,
+        dim: usize,
+        instance: u32,
+        budget: u64,
+        log_dir: Option<&str>,
+        algo_name: &str,
+        seed: u64,
+    ) -> PyResult<Self> {
+        let mut session = EvalSession::new_bbob(fid, dim, instance, budget)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if let Some(dir) = log_dir {
+            session = session
+                .with_log(Path::new(dir), algo_name, seed)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        }
+        Ok(Self { inner: Some(session) })
+    }
+
+    /// Batch-evaluates `xs` (a list of rows, each a list of `dim` floats).
+    /// All-or-nothing: on any error (dimension mismatch, a non-finite
+    /// coordinate, or budget overrun) nothing is counted.
+    fn evaluate(&mut self, xs: Vec<Vec<f64>>) -> PyResult<Vec<f64>> {
+        let session = self.inner.as_mut().ok_or_else(session_finished_err)?;
+        session.evaluate(&xs).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn evals_used(&self) -> PyResult<u64> {
+        Ok(self.inner.as_ref().ok_or_else(session_finished_err)?.evals_used())
+    }
+
+    fn budget(&self) -> PyResult<u64> {
+        Ok(self.inner.as_ref().ok_or_else(session_finished_err)?.budget())
+    }
+
+    /// `(x, f)` of the best evaluation seen so far, or `None` if nothing has
+    /// been evaluated yet.
+    fn best(&self) -> PyResult<Option<(Vec<f64>, f64)>> {
+        let session = self.inner.as_ref().ok_or_else(session_finished_err)?;
+        Ok(session.best().map(|(x, f)| (x.to_vec(), f)))
+    }
+
+    fn f_opt(&self) -> PyResult<f64> {
+        Ok(self.inner.as_ref().ok_or_else(session_finished_err)?.f_opt())
+    }
+
+    /// Flushes the IOH log (if logging was enabled) and consumes the
+    /// session. Any method call afterward, including a second `finish()`,
+    /// raises `ValueError("session finished")`.
+    fn finish(&mut self) -> PyResult<()> {
+        let session = self.inner.take().ok_or_else(session_finished_err)?;
+        session.finish().map_err(|e| PyValueError::new_err(e.to_string()))
+    }
 }
 
 fn registry() -> Registry {
@@ -730,6 +819,7 @@ fn preset_es_mu_plus_lambda(
 #[pymodule]
 fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyProblem>()?;
+    m.add_class::<PyEvalSession>()?;
     m.add_function(wrap_pyfunction!(bbob, m)?)?;
     m.add_function(wrap_pyfunction!(from_callable, m)?)?;
     m.add_function(wrap_pyfunction!(solve, m)?)?;
