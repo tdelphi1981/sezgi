@@ -8,6 +8,41 @@ use sezgi_core::space::BlockValues;
 use sezgi_core::spec::AlgorithmSpec;
 use sezgi_problems::BbobProblem;
 
+/// Casts a non-negative-checked, WHOLE-NUMBER-checked `f64` (as passed
+/// from R, which has no native unsigned integer type) to `u64`, rejecting
+/// negative, non-finite, or fractional values. Duplicated from the
+/// identically-named private helpers in `session.rs` / `experiment.rs` /
+/// `stats.rs` (no shared private cross-module import -- same "no shared
+/// private crate imports" rule as `parse_distribution`'s duplication
+/// between `solve.rs` and py-sezgi's `lib.rs`).
+///
+/// T11 fix round 1: every `sz_preset_*` builder and `sz_solve_bbob` in this
+/// file used to cast their `f64` params directly (`pop_size as usize`,
+/// `budget as u64`, `master_seed as u64`, `run_id as u64`), bypassing this
+/// helper entirely and silently truncating a fractional value -- the one
+/// place in the R binding surface the "no silent truncation path remains"
+/// contract (task 11, step 3) had missed. Every such cast in this file now
+/// routes through `f64_to_u64`/`f64_to_usize` below.
+fn f64_to_u64(name: &str, x: f64) -> savvy::Result<u64> {
+    if !x.is_finite() || x < 0.0 {
+        return Err(savvy_err!(
+            "{} must be a non-negative finite number, got {}",
+            name,
+            x
+        ));
+    }
+    if x.fract() != 0.0 {
+        return Err(savvy_err!("{} expected a whole number, got {}", name, x));
+    }
+    Ok(x as u64)
+}
+
+/// Same contract as [`f64_to_u64`], returning `usize` -- for `pop_size`/
+/// `dim`-typed params, which are consumed as `usize` on the Rust side.
+fn f64_to_usize(name: &str, x: f64) -> savvy::Result<usize> {
+    f64_to_u64(name, x).map(|v| v as usize)
+}
+
 /// Builds a DE/rand/1/bin algorithm spec (uniform init, clamp boundary,
 /// one-to-one-greedy replacement) as JSON, ready to pass to
 /// `sz_solve_bbob()`.
@@ -18,7 +53,7 @@ use sezgi_problems::BbobProblem;
 /// @export
 #[savvy]
 fn sz_preset_de_rand_1(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::de_rand_1(pop_size as usize, budget as u64).to_json();
+    let json = presets::de_rand_1(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -32,7 +67,7 @@ fn sz_preset_de_rand_1(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_de_best_1(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::de_best_1(pop_size as usize, budget as u64).to_json();
+    let json = presets::de_best_1(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -45,7 +80,7 @@ fn sz_preset_de_best_1(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_jde(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::jde(pop_size as usize, budget as u64).to_json();
+    let json = presets::jde(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -58,7 +93,7 @@ fn sz_preset_jde(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_ga_real(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::ga_real(pop_size as usize, budget as u64).to_json();
+    let json = presets::ga_real(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -71,7 +106,7 @@ fn sz_preset_ga_real(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_pso(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::pso(pop_size as usize, budget as u64).to_json();
+    let json = presets::pso(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -86,7 +121,7 @@ fn sz_preset_pso(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_gwo(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::gwo(pop_size as usize, budget as u64).to_json();
+    let json = presets::gwo(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -101,7 +136,7 @@ fn sz_preset_gwo(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_woa(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::woa(pop_size as usize, budget as u64).to_json();
+    let json = presets::woa(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -116,7 +151,7 @@ fn sz_preset_woa(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_harmony_search(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::harmony_search(pop_size as usize, budget as u64).to_json();
+    let json = presets::harmony_search(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -131,7 +166,7 @@ fn sz_preset_harmony_search(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_cuckoo_search(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::cuckoo_search(pop_size as usize, budget as u64).to_json();
+    let json = presets::cuckoo_search(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -148,7 +183,7 @@ fn sz_preset_cuckoo_search(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_goa(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::goa(pop_size as usize, budget as u64).to_json();
+    let json = presets::goa(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -160,7 +195,7 @@ fn sz_preset_goa(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_sa(budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::sa(budget as u64).to_json();
+    let json = presets::sa(f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -172,7 +207,7 @@ fn sz_preset_sa(budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_shade(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::shade(pop_size as usize, budget as u64).to_json();
+    let json = presets::shade(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -185,7 +220,7 @@ fn sz_preset_shade(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_lshade(dim: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::lshade(dim as usize, budget as u64).to_json();
+    let json = presets::lshade(f64_to_usize("dim", dim)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -198,7 +233,7 @@ fn sz_preset_lshade(dim: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_cmaes(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::cmaes(pop_size as usize, budget as u64).to_json();
+    let json = presets::cmaes(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -211,7 +246,7 @@ fn sz_preset_cmaes(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_cmaes_ipop(dim: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::cmaes_ipop(dim as usize, budget as u64).to_json();
+    let json = presets::cmaes_ipop(f64_to_usize("dim", dim)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -224,7 +259,7 @@ fn sz_preset_cmaes_ipop(dim: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_nelder_mead(dim: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::nelder_mead(dim as usize, budget as u64).to_json();
+    let json = presets::nelder_mead(f64_to_usize("dim", dim)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -237,7 +272,7 @@ fn sz_preset_nelder_mead(dim: f64, budget: f64) -> savvy::Result<Sexp> {
 /// @export
 #[savvy]
 fn sz_preset_random_search(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
-    let json = presets::random_search(pop_size as usize, budget as u64).to_json();
+    let json = presets::random_search(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
     json.try_into()
 }
 
@@ -308,7 +343,7 @@ fn sz_preset_es_mu_plus_lambda_raw(
 ) -> savvy::Result<Sexp> {
     let d = parse_distribution(dist, mean, sigma, loc, scale, alpha, nu)
         .map_err(|e| savvy_err!("{e}"))?;
-    let json = presets::es_mu_plus_lambda(pop_size as usize, budget as u64, d).to_json();
+    let json = presets::es_mu_plus_lambda(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?, d).to_json();
     json.try_into()
 }
 
@@ -360,8 +395,8 @@ fn sz_solve_bbob(
         .run(
             &problem,
             RunConfig {
-                master_seed: master_seed as u64,
-                run_id: run_id as u64,
+                master_seed: f64_to_u64("master_seed", master_seed)?,
+                run_id: f64_to_u64("run_id", run_id)?,
             },
             None,
         )
