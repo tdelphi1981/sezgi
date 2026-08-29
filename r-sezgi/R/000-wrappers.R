@@ -315,6 +315,19 @@ NULL
   .Call(savvy_sz_preset_shade__impl, `pop_size`, `budget`)
 }
 
+#' Builds a Whale Optimization Algorithm spec (Mirjalili & Lewis 2016 -- a
+#' labeled metaphor preset, see `crates/components/src/woa.rs`'s module doc
+#' for the tier note and citations) as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (school size). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_woa` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_woa__impl, `pop_size`, `budget`)
+}
+
 #' Reconstructs `RunRecord`s from an on-disk IOH archive at `log_root` (as
 #' written by `sz_run_experiment(..., log_dir = ...)`), one record per
 #' `(run, budget)` pair -- see `sezgi_bench::ioh_records`'s doc comment for

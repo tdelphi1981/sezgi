@@ -123,6 +123,29 @@ pub fn gwo(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Whale Optimization Algorithm (Mirjalili & Lewis 2016) -- a labeled
+/// metaphor preset (see `woa.rs`'s module doc for the tier note, citations
+/// and pinned draw order). Uniform init, `boundary/clamp` (same as `gwo`),
+/// unconditional generational replacement (`replace/generational` -- WOA is
+/// non-elitist by construction, same rationale as `gwo`/`pso`/`cma-es`).
+/// `pop_size` is the school size; canonical is 30 per the source paper.
+/// `min_pop = 2` (best-so-far plus at least one other whale), enforced via
+/// `AlgorithmSpec::validate`.
+pub fn woa(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "woa".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/woa", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),
