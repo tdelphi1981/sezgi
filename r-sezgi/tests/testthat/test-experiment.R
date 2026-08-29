@@ -78,7 +78,7 @@ test_that("journal resume rejects a real spec field change", {
   )
 })
 
-test_that("all 23 preset builders return parseable spec JSON", {
+test_that("all 24 preset builders return parseable spec JSON", {
   skip_if_not_installed("jsonlite")
   specs <- list(
     sz_preset_de_rand_1(10, 500), sz_preset_de_best_1(10, 500),
@@ -87,6 +87,7 @@ test_that("all 23 preset builders return parseable spec JSON", {
     sz_preset_harmony_search(10, 500), sz_preset_cuckoo_search(10, 500),
     sz_preset_goa(10, 500), sz_preset_sca(10, 500), sz_preset_jaya(10, 500),
     sz_preset_mfo(10, 500), sz_preset_ssa(10, 500), sz_preset_firefly(10, 500),
+    sz_preset_bat(10, 500),
     sz_preset_sa(500),
     sz_preset_shade(10, 500), sz_preset_lshade(5, 500),
     sz_preset_cmaes(10, 500), sz_preset_cmaes_ipop(5, 500),
@@ -170,6 +171,14 @@ test_that("ssa preset solves bbob f1 (M2d-4 Task 4)", {
 
 test_that("firefly preset solves bbob f1 (M2d-4 Task 5)", {
   spec <- sz_preset_firefly(25, 2000)
+  r <- sz_solve_bbob(spec, fid = 1L, dim = 5L, instance = 1L,
+                     master_seed = 1, run_id = 0)
+  expect_true(is.finite(r$best_f))
+  expect_true(r$evals > 0)
+})
+
+test_that("bat preset solves bbob f1 (M2d-4 Task 6)", {
+  spec <- sz_preset_bat(30, 2000)
   r <- sz_solve_bbob(spec, fid = 1L, dim = 5L, instance = 1L,
                      master_seed = 1, run_id = 0)
   expect_true(is.finite(r$best_f))

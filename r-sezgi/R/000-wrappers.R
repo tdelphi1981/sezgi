@@ -144,6 +144,22 @@ NULL
   .Call(savvy_sz_per_budget_packages_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`)
 }
 
+#' Builds a Bat Algorithm spec (Yang, X.-S. 2010, NICSO -- a labeled
+#' metaphor preset, see `crates/components/src/ba.rs`'s module doc for the
+#' tier note, citation, the verified `bat_algorithm.m` loop structure, the
+#' verified fixed-loudness/pulse-rate finding, the two composing
+#' sign-inversion deltas in the frequency draw and velocity term, and the
+#' design adjudication for the new `replace/bat-loudness-greedy`
+#' acceptance-coupled replacer) as JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (number of bats). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_bat` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_bat__impl, `pop_size`, `budget`)
+}
+
 #' Builds a (mu/mu_w,lambda)-CMA-ES algorithm spec as JSON, ready to pass to
 #' `sz_solve_bbob()`.
 #'

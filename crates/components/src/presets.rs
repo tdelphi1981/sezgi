@@ -365,6 +365,35 @@ pub fn firefly(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Bat Algorithm (Yang, X.-S. 2010, NICSO) -- a labeled metaphor preset (see
+/// `ba.rs`'s module doc for the full provenance extraction, the verified
+/// `bat_algorithm.m` loop structure, the verified fixed-loudness/pulse-rate
+/// finding that rules out the plan's sketched `A_i`/`r_i` decay dynamics,
+/// the two composing sign-inversion deltas in the frequency draw and
+/// velocity term, and the design adjudication for the new
+/// `replace/bat-loudness-greedy` acceptance-coupled replacer). Uniform init,
+/// `boundary/clamp` (same as `gwo`/`woa`/`sca`/`jaya`/`mfo`/`ssa`/`firefly`),
+/// `gen/ba` (owns the persisted `ba/velocity` blackboard state, no separate
+/// adapter -- same self-owning shape as `pso`) paired with the new
+/// `replace/bat-loudness-greedy` (fixed `loudness = BA_A0 = 0.5`, the
+/// verified source's own default). `pop_size` is the number of bats;
+/// canonical is 30 per this wave's convention (the source's own demo uses
+/// 20). `min_pop = 2`, enforced via `AlgorithmSpec::validate`.
+pub fn bat(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "bat".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/ba", serde_json::json!({})),
+            replacer: comp("replace/bat-loudness-greedy", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),

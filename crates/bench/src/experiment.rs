@@ -32,6 +32,7 @@
 //! | `mfo`                 | required                            | no |
 //! | `ssa`                 | required                            | no |
 //! | `firefly`             | required                            | no |
+//! | `bat`                 | required                            | no |
 //! | `shade`               | required                            | no |
 //! | `cmaes`               | required                            | no |
 //! | `random_search`       | required                            | no |
@@ -256,7 +257,7 @@ pub enum ExperimentError {
 
 const VALID_PRESET_KINDS: &[&str] = &[
     "de_rand_1", "de_best_1", "jde", "es_mu_plus_lambda", "ga_real", "pso", "gwo", "woa",
-    "harmony_search", "cuckoo_search", "goa", "sca", "jaya", "mfo", "ssa", "firefly", "shade", "cmaes", "random_search", "lshade", "cmaes_ipop",
+    "harmony_search", "cuckoo_search", "goa", "sca", "jaya", "mfo", "ssa", "firefly", "bat", "shade", "cmaes", "random_search", "lshade", "cmaes_ipop",
     "nelder_mead", "sa",
 ];
 
@@ -287,6 +288,7 @@ fn build_preset(kind: &str, pop_size: Option<usize>, dim: usize, budget: u64)
         "mfo" => presets::mfo(require_pop_size(kind, pop_size)?, budget),
         "ssa" => presets::ssa(require_pop_size(kind, pop_size)?, budget),
         "firefly" => presets::firefly(require_pop_size(kind, pop_size)?, budget),
+        "bat" => presets::bat(require_pop_size(kind, pop_size)?, budget),
         "shade" => presets::shade(require_pop_size(kind, pop_size)?, budget),
         "cmaes" => presets::cmaes(require_pop_size(kind, pop_size)?, budget),
         "random_search" => presets::random_search(require_pop_size(kind, pop_size)?, budget),

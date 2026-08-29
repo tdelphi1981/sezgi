@@ -93,6 +93,14 @@ def test_preset_firefly_is_dict_with_stages():
     assert spec["stages"][0]["replacer"]["kind"] == "replace/generational"
 
 
+def test_preset_bat_is_dict_with_stages():
+    """M2d-4 Task 6: sezgi.presets.bat() parses as JSON with the expected shape."""
+    spec = sezgi.presets.bat(pop_size=30, budget=2000)
+    assert spec["pop_size"] == 30
+    assert spec["stages"][0]["generator"]["kind"] == "gen/ba"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/bat-loudness-greedy"
+
+
 def test_bbob_solve_deterministic():
     p = sezgi.bbob(fid=1, dim=5, instance=1)
     spec = sezgi.presets.de_rand_1(pop_size=20, budget=2000)
@@ -203,6 +211,7 @@ def test_all_presets_solve_smoke():
         "mfo": sezgi.presets.mfo(pop_size=30, budget=budget),
         "ssa": sezgi.presets.ssa(pop_size=30, budget=budget),
         "firefly": sezgi.presets.firefly(pop_size=25, budget=budget),
+        "bat": sezgi.presets.bat(pop_size=30, budget=budget),
         "jde": sezgi.presets.jde(pop_size=20, budget=budget),
         "shade": sezgi.presets.shade(pop_size=20, budget=budget),
         "lshade": sezgi.presets.lshade(dim=dim, budget=budget),

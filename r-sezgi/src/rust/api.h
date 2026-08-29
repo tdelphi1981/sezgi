@@ -3,6 +3,7 @@ SEXP savvy_sz_bayesian_plackett_luce_raw__ffi(SEXP c_arg__rankings, SEXP c_arg__
 SEXP savvy_sz_coco_export__ffi(SEXP c_arg__log_root, SEXP c_arg__out_dir);
 SEXP savvy_sz_ecdf_raw__ffi(SEXP c_arg__log_root, SEXP c_arg__per_algo, SEXP c_arg__targets);
 SEXP savvy_sz_per_budget_packages_raw__ffi(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__master_seed, SEXP c_arg__aggregate);
+SEXP savvy_sz_preset_bat__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_cmaes__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_cmaes_ipop__ffi(SEXP c_arg__dim, SEXP c_arg__budget);
 SEXP savvy_sz_preset_cuckoo_search__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
