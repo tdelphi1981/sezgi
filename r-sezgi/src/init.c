@@ -114,6 +114,11 @@ SEXP savvy_sz_preset_harmony_search__impl(SEXP c_arg__pop_size, SEXP c_arg__budg
     return handle_result(res);
 }
 
+SEXP savvy_sz_preset_jaya__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_jaya__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_preset_jde__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_jde__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
@@ -266,6 +271,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_preset_goa__impl", (DL_FUNC) &savvy_sz_preset_goa__impl, 2},
     {"savvy_sz_preset_gwo__impl", (DL_FUNC) &savvy_sz_preset_gwo__impl, 2},
     {"savvy_sz_preset_harmony_search__impl", (DL_FUNC) &savvy_sz_preset_harmony_search__impl, 2},
+    {"savvy_sz_preset_jaya__impl", (DL_FUNC) &savvy_sz_preset_jaya__impl, 2},
     {"savvy_sz_preset_jde__impl", (DL_FUNC) &savvy_sz_preset_jde__impl, 2},
     {"savvy_sz_preset_lshade__impl", (DL_FUNC) &savvy_sz_preset_lshade__impl, 2},
     {"savvy_sz_preset_nelder_mead__impl", (DL_FUNC) &savvy_sz_preset_nelder_mead__impl, 2},

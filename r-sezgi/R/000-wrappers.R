@@ -285,6 +285,21 @@ NULL
   .Call(savvy_sz_preset_harmony_search__impl, `pop_size`, `budget`)
 }
 
+#' Builds a JAYA spec (Rao 2016 -- a labeled metaphor preset, see
+#' `crates/components/src/jaya.rs`'s module doc for the tier note,
+#' citation, the primary-paper-verified worked-example reproduction, the
+#' shared-per-dimension-per-generation `r1`/`r2` draw finding and the
+#' greedy-replacement delta vs mealpy's misleadingly-named `OriginalJA`) as
+#' JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (candidate count). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_jaya` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_jaya__impl, `pop_size`, `budget`)
+}
+
 #' Builds a jDE algorithm spec (self-adaptive F/CR DE) as JSON, ready to pass
 #' to `sz_solve_bbob()`.
 #'

@@ -484,3 +484,45 @@ fn sca_min_pop_2_enforced_by_spec_validation() {
         other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
     }
 }
+
+// ---- JAYA (M2d-4 Task 2) ----
+
+#[test]
+fn jaya_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::jaya(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Deterministic achieved gap at seed 42: gap ~= 0.0005521661213379048
+    // (JAYA converges tightly on the separable, unimodal BBOB f1/Sphere in
+    // 20k evaluations, pop 30 -- greedy same-index acceptance keeps every
+    // improvement, and the shared per-dimension r1/r2 draws still let each
+    // candidate individually converge toward best/away from worst).
+    // Anchored bound rounded up to the next 0.5 (0.5), giving ample
+    // (>=0.3) headroom, per convention (see sca_solves_bbob_f1_dim5 above).
+    assert!(gap < 0.5,
+        "JAYA should land close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap}");
+}
+
+#[test]
+fn jaya_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::jaya(1, 500); // below min_pop = 2 (best + worst)
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/jaya") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    // Also assert the underlying SpecError variant directly.
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/jaya");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}

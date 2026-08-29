@@ -203,6 +203,23 @@ fn sz_preset_sca(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds a JAYA spec (Rao 2016 -- a labeled metaphor preset, see
+/// `crates/components/src/jaya.rs`'s module doc for the tier note,
+/// citation, the primary-paper-verified worked-example reproduction, the
+/// shared-per-dimension-per-generation `r1`/`r2` draw finding and the
+/// greedy-replacement delta vs mealpy's misleadingly-named `OriginalJA`) as
+/// JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (candidate count). Canonical is 30.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_jaya(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::jaya(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
 /// Builds a simulated annealing (Metropolis, geometric cooling) algorithm
 /// spec as JSON, ready to pass to `sz_solve_bbob()`.
 ///

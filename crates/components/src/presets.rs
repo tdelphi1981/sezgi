@@ -255,6 +255,33 @@ pub fn sca(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// JAYA (Rao 2016) -- a labeled metaphor preset (see `jaya.rs`'s module doc
+/// for the tier note, citation, the primary-paper-verified worked-example
+/// reproduction, the shared-per-dimension-per-generation `r1`/`r2` draw
+/// finding and the greedy-replacement delta vs mealpy's misleadingly-named
+/// `OriginalJA`). Uniform init, `boundary/clamp` (same as `gwo`/`woa`/`sca`),
+/// greedy same-index replacement (`replace/one-to-one-greedy`, DE's kind,
+/// reused as-is -- the paper's own Fig. 1 flowchart and worked Table 3
+/// confirm per-candidate greedy acceptance). `pop_size` is the candidate
+/// count; canonical is 30 per this wave's convention (the paper itself uses
+/// a demonstration population of 5). `min_pop = 2` (needs a best AND a
+/// worst distinct selection for the update to be meaningful), enforced via
+/// `AlgorithmSpec::validate`.
+pub fn jaya(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "jaya".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/jaya", serde_json::json!({})),
+            replacer: comp("replace/one-to-one-greedy", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),
