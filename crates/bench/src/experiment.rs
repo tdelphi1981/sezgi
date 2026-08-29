@@ -202,6 +202,12 @@ pub enum ExperimentError {
     Problem(String),
     #[error("engine error: {0}")]
     Engine(String),
+    #[error("journal load error: {0}")]
+    JournalLoad(String),
+    #[error("journal write error: {0}")]
+    JournalWrite(String),
+    #[error("experiment spec has changed: expected hash {expected}, got {got}")]
+    ExperimentHashMismatch { expected: String, got: String },
 }
 
 const VALID_PRESET_KINDS: &[&str] = &[
