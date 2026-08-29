@@ -83,6 +83,17 @@ test_that("log_dir round trip is bit-identical at the full logged budget", {
   expect_false(grepl("NaN", pkgs[["500"]]$latex_summary, fixed = TRUE))
 })
 
+# M2d-3 Task 11: f64_to_u64 strictness (budgets family) -- a fractional
+# budget passed to sz_read_ioh_records() is now REJECTED ("expected a
+# whole number") instead of being silently truncated toward zero.
+test_that("a fractional budget is rejected by sz_read_ioh_records", {
+  log_dir <- file.path(tempfile(), "logs")
+  sz_run_experiment(tiny_experiment_toml(budgets = "[500]"), log_dir = log_dir, parallel = FALSE)
+
+  expect_error(sz_read_ioh_records(log_dir, 200.5), "expected a whole number")
+  expect_error(sz_read_ioh_records(log_dir, c(200, 400.5)), "expected a whole number")
+})
+
 test_that("a curtailed-budget view is present with evals capped at the budget", {
   # A budget SMALLER than the run's logged budget is a valid curtailed view
   # (present, no error), with evals = min(budget, run.evals) -- but is NOT
@@ -97,15 +108,40 @@ test_that("a curtailed-budget view is present with evals capped at the budget", 
   expect_true(all(curtailed$evals == 200))
 })
 
-test_that("sz_run_experiment rejects a multi-budget spec when log_dir is given", {
-  # CONTROLLER RULING (final review wave): the IOH archive records no
-  # budget, so a multi-budget spec logged via log_dir would produce
-  # indistinguishable runs per (instance, seed).
+test_that("sz_run_experiment allows a multi-budget spec when log_dir is given", {
+  # M2d-3: the multi-budget rejection was LIFTED. sz_run_experiment(...,
+  # log_dir = ...) now succeeds with more than one budget -- each budget's
+  # runs land as distinct archive entries (a `budget` meta key). Fix round
+  # 1: sz_read_ioh_records no longer collapses a multi-budget archive down
+  # to one (largest-budget) run before reading -- it returns each budget's
+  # OWN GENUINE run when the archive has one (see
+  # sezgi_bench::ioh_read::ioh_records's doc comment), so this now asserts
+  # the disk record at budget 200 is bit-identical to the runner's own
+  # in-memory budget-200 record, not merely present. Keys stay unique
+  # throughout regardless.
   log_dir <- file.path(tempfile(), "logs")
-  expect_error(
-    sz_run_experiment(tiny_experiment_toml(budgets = "[200, 400]"), log_dir = log_dir, parallel = FALSE),
-    regexp = "multiple budgets"
-  )
+  records <- sz_run_experiment(tiny_experiment_toml(budgets = "[200, 400]"), log_dir = log_dir, parallel = FALSE)
+  # 1 algo x 1 problem x 1 instance x 2 seeds x 2 budgets
+  expect_equal(nrow(records), 4)
+
+  disk <- sz_read_ioh_records(log_dir, c(200, 400))
+  # 1 instance x 2 seeds x 2 queried budgets -- each budget's own genuine
+  # run, no collapsing.
+  expect_equal(nrow(disk), 4)
+
+  key <- paste(disk$algo, disk$fid, disk$dim, disk$instance, disk$seed, disk$budget, sep = "|")
+  expect_equal(length(key), length(unique(key)))
+
+  # Fix round 1: every disk record, at BOTH budgets, must be bit-identical
+  # to the runner's own in-memory record at that SAME budget -- proving
+  # sz_read_ioh_records now uses the genuine run at each queried budget
+  # rather than a curtailed view of the largest-budget run.
+  key_records <- paste(records$algo, records$fid, records$dim, records$instance, records$seed, records$budget, sep = "|")
+  records <- records[order(key_records), ]
+  disk <- disk[order(key), ]
+  expect_identical(paste(records$algo, records$fid, records$dim, records$instance, records$seed, records$budget, sep = "|"),
+                    paste(disk$algo, disk$fid, disk$dim, disk$instance, disk$seed, disk$budget, sep = "|"))
+  expect_identical(records$best_f, disk$best_f)
 })
 
 # ---------------------------------------------------------------------

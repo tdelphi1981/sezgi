@@ -47,7 +47,7 @@
 //! analogous per-experiment precision setting).
 
 use crate::experiment::ExperimentError;
-use crate::ioh_read::IohScenario;
+use crate::ioh_read::{IohScenario, canonical_anytime};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -92,8 +92,15 @@ fn fmt_exp(value: f64, decimals: usize) -> String {
 /// — directory iteration / caller-supplied order is not something this
 /// module's output should depend on).
 pub fn coco_export(scenarios: &[IohScenario], out_dir: &Path) -> Result<Vec<PathBuf>, ExperimentError> {
+    // canonical_anytime FIRST (see crate::ioh_read's module doc, "Two
+    // canonicalization policies"): a COCO archive treats one (instance,
+    // seed) as one independent sample, so a multi-budget archive must
+    // export exactly one run per (instance, seed) — the largest-budget one.
+    let mut scenarios = scenarios.to_vec();
+    canonical_anytime(&mut scenarios)?;
+
     // ---- Up-front validation pass: every run needs f_opt + >=1 row. ----
-    for sc in scenarios {
+    for sc in &scenarios {
         for run in &sc.runs {
             if run.f_opt.is_none() {
                 return Err(coco_err(format!(
@@ -114,7 +121,7 @@ pub fn coco_export(scenarios: &[IohScenario], out_dir: &Path) -> Result<Vec<Path
 
     // ---- Group by (algo, fid); collect every dim's scenario. ----
     let mut groups: BTreeMap<(String, u32), Vec<&IohScenario>> = BTreeMap::new();
-    for sc in scenarios {
+    for sc in &scenarios {
         groups.entry((sc.algo.clone(), sc.fid)).or_default().push(sc);
     }
 
@@ -211,7 +218,7 @@ mod tests {
     use crate::ioh_read::{IohRun, read_ioh_root};
 
     fn run(instance: u32, f_opt: f64, rows: Vec<(u64, f64)>, evals: u64) -> IohRun {
-        IohRun { instance, seed: Some(1), f_opt: Some(f_opt), rows, evals }
+        IohRun { instance, seed: Some(1), f_opt: Some(f_opt), budget: None, rows, evals }
     }
 
     fn scenario(algo: &str, fid: u32, dim: usize, runs: Vec<IohRun>) -> IohScenario {
@@ -341,7 +348,7 @@ mod tests {
             "de",
             1,
             5,
-            vec![IohRun { instance: 3, seed: None, f_opt: None, rows: vec![(1, 5.0)], evals: 1 }],
+            vec![IohRun { instance: 3, seed: None, f_opt: None, budget: None, rows: vec![(1, 5.0)], evals: 1 }],
         )];
 
         let tmp = tempfile::tempdir().unwrap();
@@ -359,12 +366,58 @@ mod tests {
             "de",
             1,
             5,
-            vec![IohRun { instance: 4, seed: Some(1), f_opt: Some(0.0), rows: vec![], evals: 0 }],
+            vec![IohRun { instance: 4, seed: Some(1), f_opt: Some(0.0), budget: None, rows: vec![], evals: 0 }],
         )];
 
         let tmp = tempfile::tempdir().unwrap();
         let err = coco_export(&scenarios, tmp.path()).unwrap_err();
         assert!(err.to_string().contains("instance 4"));
+    }
+
+    /// M2d-3 Task 1 fix round 1: a multi-budget archive (two runs sharing
+    /// `(instance, seed)`, logged at budgets 200 and 400) must export
+    /// exactly ONE run per `(instance, seed)` — via `canonical_anytime`,
+    /// not two — so the `.info` summary line lists exactly one instance
+    /// token and the `.dat` file holds exactly one run block, never one per
+    /// budget the archive happened to also contain.
+    #[test]
+    fn coco_export_counts_each_instance_seed_once_on_a_multi_budget_archive() {
+        let scenarios = vec![scenario(
+            "de",
+            1,
+            5,
+            vec![
+                IohRun {
+                    instance: 1, seed: Some(1), f_opt: Some(0.0), budget: Some(200),
+                    rows: vec![(50, 20.0), (200, 12.0)], evals: 200,
+                },
+                IohRun {
+                    instance: 1, seed: Some(1), f_opt: Some(0.0), budget: Some(400),
+                    rows: vec![(50, 20.0), (200, 12.0), (400, 3.0)], evals: 400,
+                },
+            ],
+        )];
+
+        let tmp = tempfile::tempdir().unwrap();
+        coco_export(&scenarios, tmp.path()).unwrap();
+
+        let info = std::fs::read_to_string(tmp.path().join("de/bbobexp_f1.info")).unwrap();
+        let data_line = info.lines().nth(2).unwrap();
+        let token_count = data_line.split(", ").count() - 1; // minus the leading path token
+        assert_eq!(token_count, 1, "exactly one instance token, not one per budget: {data_line}");
+
+        let dat = std::fs::read_to_string(tmp.path().join("de/data_f1/bbobexp_f1_DIM5.dat")).unwrap();
+        let header = "% function evaluation | noise-free fitness - Fopt (0.000000000000000e+00) | best noise-free fitness - Fopt";
+        assert_eq!(
+            dat.matches(header).count(), 1,
+            "exactly one run block (the largest-budget run), not two: {dat}"
+        );
+        // The kept run must be the largest-budget (400) one: its final row
+        // (400, 3.0) must appear, the discarded 200-budget run's final row
+        // (200, 12.0) as a FINAL gap must not (12.0 does still appear as an
+        // intermediate row shared by both trajectories' prefixes, so assert
+        // on the row count instead — the 400-run has 3 rows, the 200-run 2).
+        assert_eq!(dat.lines().filter(|l| !l.starts_with('%')).count(), 3);
     }
 
     #[test]

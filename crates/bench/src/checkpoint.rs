@@ -185,7 +185,16 @@ pub fn load_journal(
 /// executed. Keep `log_dir` tied to a single, fresh, uninterrupted run of an
 /// experiment if the IOH tree must reflect the experiment in full; `None`
 /// disables IOH logging entirely (both bindings pass `None` until they wire
-/// this through).
+/// this through). A multi-budget `spec` is fully supported with `log_dir`
+/// (M2d-3 lifted the earlier single-budget restriction): each budget's runs
+/// land as distinct archive entries. What a later read does with those
+/// entries depends on the reader — see `crate::ioh_read`'s module doc,
+/// "Two canonicalization policies": [`crate::ioh_read::ioh_records`] prefers
+/// the genuine run at each queried budget (falling back to a curtailed view
+/// only for budgets the archive lacks), while
+/// [`crate::ioh_read::canonical_anytime`] (used by `ecdf`/`ecdf_per_algo`/
+/// `coco_export`) always canonicalizes to one run per `(instance, seed)` —
+/// the largest-budget one.
 pub fn run_experiment_with_checkpoint(
     spec: &ExperimentSpec,
     journal_path: &Path,
@@ -195,14 +204,6 @@ pub fn run_experiment_with_checkpoint(
 ) -> Result<Vec<RunRecord>, ExperimentError> {
     use rayon::prelude::*;
     use sezgi_core::component::Registry;
-
-    // Same restriction as `run_experiment_logged`: the IOH archive records
-    // no budget, so a multi-budget spec logged here would produce
-    // indistinguishable runs per (instance, seed) — see
-    // `ExperimentError::MultiBudgetLogging`'s doc comment.
-    if log_dir.is_some() && spec.budgets.len() > 1 {
-        return Err(ExperimentError::MultiBudgetLogging);
-    }
 
     let hash_str = spec_hash(spec);
 
@@ -932,11 +933,14 @@ mod tests {
         );
     }
 
-    /// CONTROLLER RULING: `run_experiment_with_checkpoint` must reject a
-    /// multi-budget spec when `log_dir` is `Some`, for the same reason as
-    /// `run_experiment_logged` — see that function's doc comment.
+    /// M2d-3: the multi-budget restriction was LIFTED — `log_dir` with a
+    /// multi-budget spec now works end to end through the checkpoint path
+    /// too, and a disk read back canonicalizes to unique, non-conflicting
+    /// keys the same way `run_experiment_logged`'s does (see
+    /// `crates/bench/src/experiment.rs`'s repurposed
+    /// `run_experiment_logged_allows_multiple_budgets` test).
     #[test]
-    fn checkpoint_rejects_multiple_budgets_with_log_dir() {
+    fn checkpoint_allows_multiple_budgets_with_log_dir() {
         let dir = TempDir::new().unwrap();
         let journal_path = dir.path().join("journal.jsonl");
         let log_dir = dir.path().join("logs");
@@ -944,15 +948,20 @@ mod tests {
         let mut spec = demo_spec();
         spec.budgets = vec![300, 600];
 
-        let err = run_experiment_with_checkpoint(
+        let records = run_experiment_with_checkpoint(
             &spec, &journal_path, false, None, Some(&log_dir),
-        ).unwrap_err();
-        assert!(matches!(err, ExperimentError::MultiBudgetLogging), "got {err:?}");
-        assert!(
-            err.to_string().contains("multiple budgets"),
-            "error message must mention 'multiple budgets', got: {err}"
-        );
-        assert!(!journal_path.exists(), "no journal must be created when the guard rejects the spec");
+        ).unwrap();
+        // demo_spec: 1 algo x 1 problem x 1 instance x 2 seeds x 2 budgets
+        assert_eq!(records.len(), 4);
+        assert!(journal_path.exists());
+
+        let scenarios = crate::ioh_read::read_ioh_root(&log_dir).unwrap();
+        let disk_records = crate::ioh_read::ioh_records(&scenarios, &[300, 600]).unwrap();
+        assert_eq!(disk_records.len(), 4);
+        let mut seen: std::collections::HashSet<RunKey> = std::collections::HashSet::new();
+        for r in &disk_records {
+            assert!(seen.insert(r.key.clone()), "duplicate key {} in disk records", r.key);
+        }
     }
 
     #[test]

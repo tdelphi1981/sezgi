@@ -47,6 +47,7 @@ fn ecdf_curve_to_list(curve: &EcdfCurve) -> savvy::Result<OwnedListSexp> {
 ///   uses `sezgi_bench::default_targets` (the COCO-convention 51-value
 ///   set).
 /// @returns A named list (see `per_algo`).
+/// @noRd
 #[savvy]
 fn sz_ecdf_raw(log_root: &str, per_algo: bool, targets: Option<RealSexp>) -> savvy::Result<Sexp> {
     let scenarios = read_ioh_root(Path::new(log_root)).map_err(|e| savvy_err!("{e}"))?;

@@ -2,7 +2,7 @@
 import json
 from types import SimpleNamespace
 
-from sezgi._sezgi import Problem, bbob, from_callable
+from sezgi._sezgi import Problem, EvalSession, bbob, from_callable
 from sezgi import _sezgi
 
 
@@ -155,6 +155,11 @@ presets = SimpleNamespace(
     lshade=_preset(_sezgi.preset_lshade),
     ga_real=_preset(_sezgi.preset_ga_real),
     pso=_preset(_sezgi.preset_pso),
+    gwo=_preset(_sezgi.preset_gwo),
+    woa=_preset(_sezgi.preset_woa),
+    harmony_search=_preset(_sezgi.preset_harmony_search),
+    cuckoo_search=_preset(_sezgi.preset_cuckoo_search),
+    goa=_preset(_sezgi.preset_goa),
     sa=_preset(_sezgi.preset_sa),
     random_search=_preset(_sezgi.preset_random_search),
     nelder_mead=_preset(_sezgi.preset_nelder_mead),
@@ -195,5 +200,6 @@ stats = SimpleNamespace(
     paper_package=_paper_package,
 )
 
-__all__ = ["Problem", "bbob", "from_callable", "solve", "run_experiment", "presets", "stats",
-           "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf", "coco_export"]
+__all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_experiment", "presets",
+           "stats", "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf",
+           "coco_export"]

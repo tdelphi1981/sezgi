@@ -74,6 +74,11 @@ SEXP savvy_sz_preset_cmaes_ipop__impl(SEXP c_arg__dim, SEXP c_arg__budget) {
     return handle_result(res);
 }
 
+SEXP savvy_sz_preset_cuckoo_search__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_cuckoo_search__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_preset_de_best_1__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_de_best_1__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
@@ -91,6 +96,21 @@ SEXP savvy_sz_preset_es_mu_plus_lambda_raw__impl(SEXP c_arg__pop_size, SEXP c_ar
 
 SEXP savvy_sz_preset_ga_real__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_ga_real__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_goa__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_goa__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_gwo__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_gwo__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_harmony_search__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_harmony_search__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
 }
 
@@ -126,6 +146,11 @@ SEXP savvy_sz_preset_sa__impl(SEXP c_arg__budget) {
 
 SEXP savvy_sz_preset_shade__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_shade__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_woa__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_woa__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
 }
 
@@ -184,6 +209,41 @@ SEXP savvy_sz_stats_wilcoxon__impl(SEXP c_arg__a, SEXP c_arg__b) {
     return handle_result(res);
 }
 
+SEXP savvy_EvalSession_best__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_best__ffi(self__);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_budget__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_budget__ffi(self__);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_evals_used__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_evals_used__ffi(self__);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_evaluate__impl(SEXP self__, SEXP c_arg__x) {
+    SEXP res = savvy_EvalSession_evaluate__ffi(self__, c_arg__x);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_f_opt__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_f_opt__ffi(self__);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_finish__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_finish__ffi(self__);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_new__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__budget, SEXP c_arg__algo_name, SEXP c_arg__seed, SEXP c_arg__log_dir) {
+    SEXP res = savvy_EvalSession_new__ffi(c_arg__fid, c_arg__dim, c_arg__instance, c_arg__budget, c_arg__algo_name, c_arg__seed, c_arg__log_dir);
+    return handle_result(res);
+}
+
 
 static const R_CallMethodDef CallEntries[] = {
     {"savvy_sezgi_version__impl", (DL_FUNC) &savvy_sezgi_version__impl, 0},
@@ -193,10 +253,14 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_per_budget_packages_raw__impl", (DL_FUNC) &savvy_sz_per_budget_packages_raw__impl, 13},
     {"savvy_sz_preset_cmaes__impl", (DL_FUNC) &savvy_sz_preset_cmaes__impl, 2},
     {"savvy_sz_preset_cmaes_ipop__impl", (DL_FUNC) &savvy_sz_preset_cmaes_ipop__impl, 2},
+    {"savvy_sz_preset_cuckoo_search__impl", (DL_FUNC) &savvy_sz_preset_cuckoo_search__impl, 2},
     {"savvy_sz_preset_de_best_1__impl", (DL_FUNC) &savvy_sz_preset_de_best_1__impl, 2},
     {"savvy_sz_preset_de_rand_1__impl", (DL_FUNC) &savvy_sz_preset_de_rand_1__impl, 2},
     {"savvy_sz_preset_es_mu_plus_lambda_raw__impl", (DL_FUNC) &savvy_sz_preset_es_mu_plus_lambda_raw__impl, 9},
     {"savvy_sz_preset_ga_real__impl", (DL_FUNC) &savvy_sz_preset_ga_real__impl, 2},
+    {"savvy_sz_preset_goa__impl", (DL_FUNC) &savvy_sz_preset_goa__impl, 2},
+    {"savvy_sz_preset_gwo__impl", (DL_FUNC) &savvy_sz_preset_gwo__impl, 2},
+    {"savvy_sz_preset_harmony_search__impl", (DL_FUNC) &savvy_sz_preset_harmony_search__impl, 2},
     {"savvy_sz_preset_jde__impl", (DL_FUNC) &savvy_sz_preset_jde__impl, 2},
     {"savvy_sz_preset_lshade__impl", (DL_FUNC) &savvy_sz_preset_lshade__impl, 2},
     {"savvy_sz_preset_nelder_mead__impl", (DL_FUNC) &savvy_sz_preset_nelder_mead__impl, 2},
@@ -204,6 +268,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_preset_random_search__impl", (DL_FUNC) &savvy_sz_preset_random_search__impl, 2},
     {"savvy_sz_preset_sa__impl", (DL_FUNC) &savvy_sz_preset_sa__impl, 1},
     {"savvy_sz_preset_shade__impl", (DL_FUNC) &savvy_sz_preset_shade__impl, 2},
+    {"savvy_sz_preset_woa__impl", (DL_FUNC) &savvy_sz_preset_woa__impl, 2},
     {"savvy_sz_read_ioh_records__impl", (DL_FUNC) &savvy_sz_read_ioh_records__impl, 2},
     {"savvy_sz_results_matrix_raw__impl", (DL_FUNC) &savvy_sz_results_matrix_raw__impl, 11},
     {"savvy_sz_run_experiment_raw__impl", (DL_FUNC) &savvy_sz_run_experiment_raw__impl, 5},
@@ -215,6 +280,13 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_stats_paper_package_raw__impl", (DL_FUNC) &savvy_sz_stats_paper_package_raw__impl, 6},
     {"savvy_sz_stats_plackett_luce__impl", (DL_FUNC) &savvy_sz_stats_plackett_luce__impl, 1},
     {"savvy_sz_stats_wilcoxon__impl", (DL_FUNC) &savvy_sz_stats_wilcoxon__impl, 2},
+    {"savvy_EvalSession_best__impl", (DL_FUNC) &savvy_EvalSession_best__impl, 1},
+    {"savvy_EvalSession_budget__impl", (DL_FUNC) &savvy_EvalSession_budget__impl, 1},
+    {"savvy_EvalSession_evals_used__impl", (DL_FUNC) &savvy_EvalSession_evals_used__impl, 1},
+    {"savvy_EvalSession_evaluate__impl", (DL_FUNC) &savvy_EvalSession_evaluate__impl, 2},
+    {"savvy_EvalSession_f_opt__impl", (DL_FUNC) &savvy_EvalSession_f_opt__impl, 1},
+    {"savvy_EvalSession_finish__impl", (DL_FUNC) &savvy_EvalSession_finish__impl, 1},
+    {"savvy_EvalSession_new__impl", (DL_FUNC) &savvy_EvalSession_new__impl, 7},
     {NULL, NULL, 0}
 };
 

@@ -203,6 +203,27 @@ test_that("paper_package errors on too few problems (report.rs::paper_package_er
   expect_error(sz_stats_paper_package(algo_names, problem_names, results, rope = 0.1, samples = 100, seed = 777))
 })
 
+# ---------------------------------------------------------------------
+# M2d-3 Task 11: f64_to_u64 strictness. A fractional `samples`/`seed`/
+# `burn_in` is now REJECTED ("expected a whole number") instead of being
+# silently truncated toward zero (Rust's `f64 as u64` cast) -- see
+# `src/rust/src/stats.rs`'s `f64_to_u64()`. Existing tests passing
+# integral doubles (the default case throughout this file) stay green.
+# ---------------------------------------------------------------------
+
+test_that("a fractional samples/seed is rejected, not silently truncated (samples/seed family)", {
+  a <- c(1.0, 2.0, 3.0)
+  b <- c(1.5, 1.8, 2.5)
+  expect_error(sz_stats_bayesian_signed_rank(a, b, samples = 100.5), "expected a whole number")
+  expect_error(sz_stats_bayesian_signed_rank(a, b, seed = 1.5), "expected a whole number")
+})
+
+test_that("a fractional burn_in is rejected (sz_bayesian_plackett_luce)", {
+  rankings <- list(c(1, 2, 3), c(1, 3, 2), c(2, 1, 3))
+  expect_error(sz_bayesian_plackett_luce(rankings, burn_in = 500.5), "expected a whole number")
+  expect_error(sz_bayesian_plackett_luce(rankings, samples = 2000.5), "expected a whole number")
+})
+
 test_that("paper_package succeeds with few problems via exact wilcoxon (report.rs::paper_package_succeeds_with_few_problems_via_exact_wilcoxon)", {
   # TASK 6 BEHAVIOR CHANGE (M2d-1, flagged per the brief's disclosure
   # rule): this is the SAME fixture that used to be the "too few problems"

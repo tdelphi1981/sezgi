@@ -1,0 +1,43 @@
+# Grasshopper Optimisation Algorithm (Saremi, Mirjalili & Lewis 2017) -- the
+# built-in `goa` preset (crates/components/src/presets.rs::goa), run through
+# `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# Component decomposition (see crates/components/src/goa.rs's module doc
+# for the pinned update rule, the IMPLEMENTER-VERIFY distance-normalization
+# resolution, and the zero-RNG-draw arithmetic-order contract):
+#   - init:      init/uniform          -- uniform-random swarm
+#   - generator: gen/goa               -- pairwise social-force update
+#                                          (Eq. 2.3/2.7/2.8), fully
+#                                          deterministic given the population
+#                                          and the progress-derived `c` --
+#                                          draws NOTHING from RNG
+#   - boundary:  boundary/clamp        -- clamps a swarm-term-stepped-out-of-
+#                                          bounds coord
+#   - replacer:  replace/generational  -- offspring become the whole
+#                                          population unconditionally (GOA is
+#                                          non-elitist by construction)
+#   - adapter:   none
+#
+# What this preset gives you that examples/python/goa.py + examples/r/goa.R
+# do NOT: a semver-pinned, VERIFIED-against-the-reference-implementation
+# arithmetic-order contract (the pairwise sum's j-ascending accumulation
+# order is itself part of the pin, since f64 addition is not associative),
+# IOH-profiler logging via `log_dir=`, and reproducibility across the whole
+# sezgi statistics pipeline. The pure scripts teach the SAME equations
+# (including the SAME verified [2,4)-bounded distance mapping) with nothing
+# but stdlib math -- useful for understanding the algorithm, not for
+# reproducible experiments.
+
+name = "goa-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "goa"
+preset = { kind = "goa", pop_size = 30 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]

@@ -71,6 +71,7 @@ NULL
 #' @returns A named list with `mean_worths`, `ci_low`, `ci_high`,
 #'   `p_best`, `samples` (mirrors py-sezgi's
 #'   `stats_bayesian_plackett_luce()` dict keys exactly).
+#' @noRd
 `sz_bayesian_plackett_luce_raw` <- function(`rankings`, `samples`, `burn_in`, `seed`) {
   .Call(savvy_sz_bayesian_plackett_luce_raw__impl, `rankings`, `samples`, `burn_in`, `seed`)
 }
@@ -108,6 +109,7 @@ NULL
 #'   uses `sezgi_bench::default_targets` (the COCO-convention 51-value
 #'   set).
 #' @returns A named list (see `per_algo`).
+#' @noRd
 `sz_ecdf_raw` <- function(`log_root`, `per_algo`, `targets` = NULL) {
   .Call(savvy_sz_ecdf_raw__impl, `log_root`, `per_algo`, `targets`)
 }
@@ -137,6 +139,7 @@ NULL
 #' @returns A named list, one entry per distinct budget in ascending order,
 #'   named by the budget (as a string); each value has exactly the shape
 #'   `sz_stats_paper_package_raw()` returns.
+#' @noRd
 `sz_per_budget_packages_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`) {
   .Call(savvy_sz_per_budget_packages_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`)
 }
@@ -161,6 +164,19 @@ NULL
 #' @export
 `sz_preset_cmaes_ipop` <- function(`dim`, `budget`) {
   .Call(savvy_sz_preset_cmaes_ipop__impl, `dim`, `budget`)
+}
+
+#' Builds a Cuckoo Search algorithm spec (Yang & Deb 2009 -- a labeled
+#' metaphor preset, see `crates/components/src/cs.rs`'s module doc for the
+#' tier note, citation and pinned draw order) as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (nest count). Canonical is 25.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_cuckoo_search` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_cuckoo_search__impl, `pop_size`, `budget`)
 }
 
 #' Builds a DE/best/1/bin algorithm spec (uniform init, clamp boundary,
@@ -212,6 +228,7 @@ NULL
 #' @param nu Student-t degrees of freedom (used only when `dist =
 #'   "student_t"`).
 #' @returns A character scalar with the algorithm spec as JSON.
+#' @noRd
 `sz_preset_es_mu_plus_lambda_raw` <- function(`pop_size`, `budget`, `dist`, `mean`, `sigma`, `loc`, `scale`, `alpha`, `nu`) {
   .Call(savvy_sz_preset_es_mu_plus_lambda_raw__impl, `pop_size`, `budget`, `dist`, `mean`, `sigma`, `loc`, `scale`, `alpha`, `nu`)
 }
@@ -225,6 +242,47 @@ NULL
 #' @export
 `sz_preset_ga_real` <- function(`pop_size`, `budget`) {
   .Call(savvy_sz_preset_ga_real__impl, `pop_size`, `budget`)
+}
+
+#' Builds a Grasshopper Optimisation Algorithm spec (Saremi, Mirjalili &
+#' Lewis 2017 -- a labeled metaphor preset, see
+#' `crates/components/src/goa.rs`'s module doc for the tier note, citation,
+#' the IMPLEMENTER-VERIFY distance-normalization resolution and the
+#' zero-RNG-draw arithmetic-order pin) as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (swarm size). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_goa` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_goa__impl, `pop_size`, `budget`)
+}
+
+#' Builds a Grey Wolf Optimizer algorithm spec (Mirjalili, Mirjalili & Lewis
+#' 2014 -- a labeled metaphor preset, see `crates/components/src/gwo.rs`'s
+#' module doc for the tier note and citations) as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (pack size). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_gwo` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_gwo__impl, `pop_size`, `budget`)
+}
+
+#' Builds a Harmony Search algorithm spec (Geem, Kim & Loganathan 2001 -- a
+#' labeled metaphor preset, see `crates/components/src/hs.rs`'s module doc
+#' for the tier note and citations) as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (Harmony Memory Size, HMS). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_harmony_search` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_harmony_search__impl, `pop_size`, `budget`)
 }
 
 #' Builds a jDE algorithm spec (self-adaptive F/CR DE) as JSON, ready to pass
@@ -302,6 +360,19 @@ NULL
   .Call(savvy_sz_preset_shade__impl, `pop_size`, `budget`)
 }
 
+#' Builds a Whale Optimization Algorithm spec (Mirjalili & Lewis 2016 -- a
+#' labeled metaphor preset, see `crates/components/src/woa.rs`'s module doc
+#' for the tier note and citations) as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (school size). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_woa` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_woa__impl, `pop_size`, `budget`)
+}
+
 #' Reconstructs `RunRecord`s from an on-disk IOH archive at `log_root` (as
 #' written by `sz_run_experiment(..., log_dir = ...)`), one record per
 #' `(run, budget)` pair -- see `sezgi_bench::ioh_records`'s doc comment for
@@ -341,6 +412,7 @@ NULL
 #' @returns A named list with `algo_names` (character vector),
 #'   `problem_labels` (character vector, `f{fid}d{dim}i{instance}`), and
 #'   `matrix` (numeric matrix, rows = problems, columns = algorithms).
+#' @noRd
 `sz_results_matrix_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`) {
   .Call(savvy_sz_results_matrix_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`)
 }
@@ -376,6 +448,8 @@ NULL
 #' from `spec` (the already-parsed `ExperimentSpec`), not from the raw
 #' `spec_toml` text, so whitespace/comment-only edits to `spec_toml` never
 #' invalidate a journal -- see `crates/bench/src/checkpoint.rs`.
+#'
+#' @noRd
 `sz_run_experiment_raw` <- function(`spec_toml`, `parallel`, `journal` = NULL, `threads` = NULL, `log_dir` = NULL) {
   .Call(savvy_sz_run_experiment_raw__impl, `spec_toml`, `parallel`, `journal`, `threads`, `log_dir`)
 }
@@ -416,6 +490,7 @@ NULL
 #'   Python and Rust.
 #' @returns A named list with `p_left`, `p_rope`, `p_right` (mirrors
 #'   py-sezgi's `stats_bayesian_signed_rank()` dict keys exactly).
+#' @noRd
 `sz_stats_bayesian_signed_rank_raw` <- function(`a`, `b`, `rope`, `samples`, `seed`) {
   .Call(savvy_sz_stats_bayesian_signed_rank_raw__impl, `a`, `b`, `rope`, `samples`, `seed`)
 }
@@ -484,6 +559,7 @@ NULL
 #'   `plackett_luce` (nested list: `worths`, `p_best`, `iterations`),
 #'   `latex_summary`, `latex_tests` (mirrors py-sezgi's
 #'   `stats_paper_package()` dict keys exactly).
+#' @noRd
 `sz_stats_paper_package_raw` <- function(`algo_names`, `problem_names`, `m`, `rope`, `samples`, `seed`) {
   .Call(savvy_sz_stats_paper_package_raw__impl, `algo_names`, `problem_names`, `m`, `rope`, `samples`, `seed`)
 }
@@ -519,4 +595,73 @@ NULL
   .Call(savvy_sz_stats_wilcoxon__impl, `a`, `b`)
 }
 
+### wrapper functions for EvalSession
+
+`EvalSession_best` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_best__impl, `self`)
+  }
+}
+
+`EvalSession_budget` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_budget__impl, `self`)
+  }
+}
+
+`EvalSession_evals_used` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_evals_used__impl, `self`)
+  }
+}
+
+`EvalSession_evaluate` <- function(self) {
+  function(`x`) {
+    .Call(savvy_EvalSession_evaluate__impl, `self`, `x`)
+  }
+}
+
+`EvalSession_f_opt` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_f_opt__impl, `self`)
+  }
+}
+
+`EvalSession_finish` <- function(self) {
+  function() {
+    invisible(.Call(savvy_EvalSession_finish__impl, `self`))
+  }
+}
+
+`.savvy_wrap_EvalSession` <- function(ptr) {
+  e <- new.env(parent = emptyenv())
+  e$.ptr <- ptr
+  e$`best` <- `EvalSession_best`(ptr)
+  e$`budget` <- `EvalSession_budget`(ptr)
+  e$`evals_used` <- `EvalSession_evals_used`(ptr)
+  e$`evaluate` <- `EvalSession_evaluate`(ptr)
+  e$`f_opt` <- `EvalSession_f_opt`(ptr)
+  e$`finish` <- `EvalSession_finish`(ptr)
+
+  class(e) <- c("sezgi::EvalSession", "EvalSession", "savvy_sezgi__sealed")
+  e
+}
+
+
+#' The ask/tell evaluation session -- see the module doc.
+`EvalSession` <- new.env(parent = emptyenv())
+
+### associated functions for EvalSession
+
+`EvalSession`$`new` <- function(`fid`, `dim`, `instance`, `budget`, `algo_name`, `seed`, `log_dir` = NULL) {
+  .savvy_wrap_EvalSession(.Call(savvy_EvalSession_new__impl, `fid`, `dim`, `instance`, `budget`, `algo_name`, `seed`, `log_dir`))
+}
+
+
+class(`EvalSession`) <- c("sezgi::EvalSession__bundle", "savvy_sezgi__sealed")
+
+#' @export
+`print.sezgi::EvalSession__bundle` <- function(x, ...) {
+  cat('sezgi::EvalSession\n')
+}
 

@@ -85,8 +85,13 @@ fn rankings_from_list(rankings: &ListSexp) -> savvy::Result<Vec<Vec<usize>>> {
     Ok(out)
 }
 
-/// Casts a non-negative-checked `f64` (as passed from R, which has no native
-/// unsigned integer type) to `u64`, rejecting negative or non-finite values.
+/// Casts a non-negative-checked, WHOLE-NUMBER-checked `f64` (as passed
+/// from R, which has no native unsigned integer type) to `u64`, rejecting
+/// negative, non-finite, or fractional values.
+///
+/// M2d-3: previously silently truncated a fractional `x` toward zero; now
+/// rejects it (see `session.rs`'s copy of this doc comment for the
+/// py-sezgi asymmetry this closes).
 fn f64_to_u64(name: &str, x: f64) -> savvy::Result<u64> {
     if !x.is_finite() || x < 0.0 {
         return Err(savvy_err!(
@@ -94,6 +99,9 @@ fn f64_to_u64(name: &str, x: f64) -> savvy::Result<u64> {
             name,
             x
         ));
+    }
+    if x.fract() != 0.0 {
+        return Err(savvy_err!("{} expected a whole number, got {}", name, x));
     }
     Ok(x as u64)
 }
@@ -184,6 +192,7 @@ fn bayes_pl_result_list(r: &BayesPlackettLuceResult) -> savvy::Result<OwnedListS
 /// @returns A named list with `mean_worths`, `ci_low`, `ci_high`,
 ///   `p_best`, `samples` (mirrors py-sezgi's
 ///   `stats_bayesian_plackett_luce()` dict keys exactly).
+/// @noRd
 #[savvy]
 fn sz_bayesian_plackett_luce_raw(
     rankings: ListSexp,
@@ -294,6 +303,7 @@ fn sz_stats_cliffs_magnitude(delta: f64) -> savvy::Result<Sexp> {
 ///   Python and Rust.
 /// @returns A named list with `p_left`, `p_rope`, `p_right` (mirrors
 ///   py-sezgi's `stats_bayesian_signed_rank()` dict keys exactly).
+/// @noRd
 #[savvy]
 fn sz_stats_bayesian_signed_rank_raw(
     a: RealSexp,
@@ -405,6 +415,7 @@ fn paper_package_to_list(pkg: &PaperPackage) -> savvy::Result<OwnedListSexp> {
 ///   `plackett_luce` (nested list: `worths`, `p_best`, `iterations`),
 ///   `latex_summary`, `latex_tests` (mirrors py-sezgi's
 ///   `stats_paper_package()` dict keys exactly).
+/// @noRd
 #[savvy]
 fn sz_stats_paper_package_raw(
     algo_names: StringSexp,
@@ -544,6 +555,7 @@ fn rows_to_matrix(rows: &[Vec<f64>]) -> savvy::Result<OwnedRealSexp> {
 /// @returns A named list with `algo_names` (character vector),
 ///   `problem_labels` (character vector, `f{fid}d{dim}i{instance}`), and
 ///   `matrix` (numeric matrix, rows = problems, columns = algorithms).
+/// @noRd
 #[allow(clippy::too_many_arguments)]
 #[savvy]
 fn sz_results_matrix_raw(
@@ -604,6 +616,7 @@ fn sz_results_matrix_raw(
 /// @returns A named list, one entry per distinct budget in ascending order,
 ///   named by the budget (as a string); each value has exactly the shape
 ///   `sz_stats_paper_package_raw()` returns.
+/// @noRd
 #[allow(clippy::too_many_arguments)]
 #[savvy]
 fn sz_per_budget_packages_raw(

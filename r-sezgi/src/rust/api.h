@@ -5,10 +5,14 @@ SEXP savvy_sz_ecdf_raw__ffi(SEXP c_arg__log_root, SEXP c_arg__per_algo, SEXP c_a
 SEXP savvy_sz_per_budget_packages_raw__ffi(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__master_seed, SEXP c_arg__aggregate);
 SEXP savvy_sz_preset_cmaes__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_cmaes_ipop__ffi(SEXP c_arg__dim, SEXP c_arg__budget);
+SEXP savvy_sz_preset_cuckoo_search__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_de_best_1__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_de_rand_1__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_es_mu_plus_lambda_raw__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget, SEXP c_arg__dist, SEXP c_arg__mean, SEXP c_arg__sigma, SEXP c_arg__loc, SEXP c_arg__scale, SEXP c_arg__alpha, SEXP c_arg__nu);
 SEXP savvy_sz_preset_ga_real__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_preset_goa__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_preset_gwo__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_preset_harmony_search__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_jde__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_lshade__ffi(SEXP c_arg__dim, SEXP c_arg__budget);
 SEXP savvy_sz_preset_nelder_mead__ffi(SEXP c_arg__dim, SEXP c_arg__budget);
@@ -16,6 +20,7 @@ SEXP savvy_sz_preset_pso__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_random_search__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_sa__ffi(SEXP c_arg__budget);
 SEXP savvy_sz_preset_shade__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_preset_woa__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_read_ioh_records__ffi(SEXP c_arg__log_root, SEXP c_arg__budgets);
 SEXP savvy_sz_results_matrix_raw__ffi(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__budget, SEXP c_arg__aggregate);
 SEXP savvy_sz_run_experiment_raw__ffi(SEXP c_arg__spec_toml, SEXP c_arg__parallel, SEXP c_arg__journal, SEXP c_arg__threads, SEXP c_arg__log_dir);
@@ -27,3 +32,12 @@ SEXP savvy_sz_stats_friedman__ffi(SEXP c_arg__m);
 SEXP savvy_sz_stats_paper_package_raw__ffi(SEXP c_arg__algo_names, SEXP c_arg__problem_names, SEXP c_arg__m, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__seed);
 SEXP savvy_sz_stats_plackett_luce__ffi(SEXP c_arg__rankings);
 SEXP savvy_sz_stats_wilcoxon__ffi(SEXP c_arg__a, SEXP c_arg__b);
+
+// methods and associated functions for EvalSession
+SEXP savvy_EvalSession_best__ffi(SEXP self__);
+SEXP savvy_EvalSession_budget__ffi(SEXP self__);
+SEXP savvy_EvalSession_evals_used__ffi(SEXP self__);
+SEXP savvy_EvalSession_evaluate__ffi(SEXP self__, SEXP c_arg__x);
+SEXP savvy_EvalSession_f_opt__ffi(SEXP self__);
+SEXP savvy_EvalSession_finish__ffi(SEXP self__);
+SEXP savvy_EvalSession_new__ffi(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__budget, SEXP c_arg__algo_name, SEXP c_arg__seed, SEXP c_arg__log_dir);

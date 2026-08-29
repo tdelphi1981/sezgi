@@ -78,18 +78,61 @@ test_that("journal resume rejects a real spec field change", {
   )
 })
 
-test_that("all 13 preset builders return parseable spec JSON", {
+test_that("all 18 preset builders return parseable spec JSON", {
   skip_if_not_installed("jsonlite")
   specs <- list(
     sz_preset_de_rand_1(10, 500), sz_preset_de_best_1(10, 500),
     sz_preset_jde(10, 500), sz_preset_ga_real(10, 500),
-    sz_preset_pso(10, 500), sz_preset_sa(500),
+    sz_preset_pso(10, 500), sz_preset_gwo(10, 500), sz_preset_woa(10, 500),
+    sz_preset_harmony_search(10, 500), sz_preset_cuckoo_search(10, 500),
+    sz_preset_goa(10, 500),
+    sz_preset_sa(500),
     sz_preset_shade(10, 500), sz_preset_lshade(5, 500),
     sz_preset_cmaes(10, 500), sz_preset_cmaes_ipop(5, 500),
     sz_preset_nelder_mead(5, 500), sz_preset_random_search(10, 500),
     sz_preset_es_mu_plus_lambda(10, 500)
   )
   for (s in specs) expect_silent(jsonlite::fromJSON(s))
+})
+
+test_that("gwo preset solves bbob f1 (M2d-3 Task 5)", {
+  spec <- sz_preset_gwo(30, 2000)
+  r <- sz_solve_bbob(spec, fid = 1L, dim = 5L, instance = 1L,
+                     master_seed = 1, run_id = 0)
+  expect_true(is.finite(r$best_f))
+  expect_true(r$evals > 0)
+})
+
+test_that("woa preset solves bbob f1 (M2d-3 Task 6)", {
+  spec <- sz_preset_woa(30, 2000)
+  r <- sz_solve_bbob(spec, fid = 1L, dim = 5L, instance = 1L,
+                     master_seed = 1, run_id = 0)
+  expect_true(is.finite(r$best_f))
+  expect_true(r$evals > 0)
+})
+
+test_that("harmony_search preset solves bbob f1 (M2d-3 Task 7)", {
+  spec <- sz_preset_harmony_search(30, 2000)
+  r <- sz_solve_bbob(spec, fid = 1L, dim = 5L, instance = 1L,
+                     master_seed = 1, run_id = 0)
+  expect_true(is.finite(r$best_f))
+  expect_true(r$evals > 0)
+})
+
+test_that("cuckoo_search preset solves bbob f1 (M2d-3 Task 8)", {
+  spec <- sz_preset_cuckoo_search(25, 2000)
+  r <- sz_solve_bbob(spec, fid = 1L, dim = 5L, instance = 1L,
+                     master_seed = 1, run_id = 0)
+  expect_true(is.finite(r$best_f))
+  expect_true(r$evals > 0)
+})
+
+test_that("goa preset solves bbob f1 (M2d-3 Task 9)", {
+  spec <- sz_preset_goa(30, 2000)
+  r <- sz_solve_bbob(spec, fid = 1L, dim = 5L, instance = 1L,
+                     master_seed = 1, run_id = 0)
+  expect_true(is.finite(r$best_f))
+  expect_true(r$evals > 0)
 })
 
 test_that("es_mu_plus_lambda default dist solves bbob f1 (M2d-1 Task 7)", {
@@ -157,6 +200,11 @@ test_that("sz_results_matrix errors on a missing cell", {
   incomplete <- df[!(df$algo == "rs" & df$instance == 3 & df$budget == 400), ]
 
   expect_error(sz_results_matrix(incomplete, budget = 400), "missing run record")
+})
+
+test_that("sz_results_matrix rejects a fractional budget (M2d-3 f64_to_u64 strictness)", {
+  df <- sz_run_experiment(reporting_grid_toml)
+  expect_error(sz_results_matrix(df, budget = 400.5), "expected a whole number")
 })
 
 test_that("sz_results_matrix and sz_per_budget_packages reject an unknown aggregate", {

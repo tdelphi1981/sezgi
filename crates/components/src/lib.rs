@@ -13,6 +13,11 @@ pub mod linalg;
 pub mod cma;
 pub mod restart;
 pub mod nm;
+pub mod gwo;
+pub mod woa;
+pub mod hs;
+pub mod cs;
+pub mod goa;
 
 use sezgi_core::component::Registry;
 
@@ -30,4 +35,9 @@ pub fn register_builtins(reg: &mut Registry) {
     cma::register(reg);
     restart::register(reg);
     nm::register(reg);
+    gwo::register(reg);
+    woa::register(reg);
+    hs::register(reg);
+    cs::register(reg);
+    goa::register(reg);
 }

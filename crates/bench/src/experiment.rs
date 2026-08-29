@@ -22,6 +22,11 @@
 //! | `es_mu_plus_lambda`   | required                            | no |
 //! | `ga_real`             | required                            | no |
 //! | `pso`                 | required                            | no |
+//! | `gwo`                 | required                            | no |
+//! | `woa`                 | required                            | no |
+//! | `harmony_search`      | required                            | no |
+//! | `cuckoo_search`       | required                            | no |
+//! | `goa`                 | required                            | no |
 //! | `shade`               | required                            | no |
 //! | `cmaes`               | required                            | no |
 //! | `random_search`       | required                            | no |
@@ -193,8 +198,21 @@ pub struct RunRecord {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExperimentError {
-    #[error("could not parse experiment spec: {0}")]
+    /// A TOML SYNTAX error -- the input could not even be deserialized (bad
+    /// punctuation, wrong value type for a field, unknown field, etc.).
+    /// M2d-3: previously this variant also carried semantic/validation
+    /// failures (empty `budgets`, unsupported suite, a problem with no
+    /// instances) from well-formed-but-invalid specs; those now use
+    /// [`ExperimentError::InvalidSpec`] instead, so a caller (or a human
+    /// reading the message) can tell "fix your TOML" from "fix your spec's
+    /// content" apart.
+    #[error("could not parse experiment spec (TOML syntax error): {0}")]
     Parse(String),
+    /// A semantic/validation error against a WELL-FORMED spec (parsed fine,
+    /// but its content is invalid) -- see [`ExperimentError::Parse`]'s doc
+    /// comment for the split this was carved out of.
+    #[error("invalid experiment spec: {0}")]
+    InvalidSpec(String),
     #[error("unknown preset kind `{kind}` (valid kinds: {valid})")]
     UnknownPresetKind { kind: String, valid: String },
     #[error("preset `{kind}` requires `pop_size` but none was given")]
@@ -221,15 +239,20 @@ pub enum ExperimentError {
     IohRead(String),
     #[error("COCO export error: {0}")]
     CocoExport(String),
-    #[error("IOH logging with multiple budgets is not supported: the archive cannot \
-             distinguish runs by budget. Log at the single largest budget and derive \
-             smaller budgets on read (ioh_records curtailed views).")]
-    MultiBudgetLogging,
+    #[error("EvalSession::evaluate: row {row} has dimension {got}, expected {expected}")]
+    DimensionMismatch { row: usize, expected: usize, got: usize },
+    #[error("EvalSession::evaluate: budget exceeded ({used}/{budget} used, {requested} requested)")]
+    BudgetExceeded { used: u64, budget: u64, requested: u64 },
+    #[error("EvalSession::evaluate: row {row} has a non-finite coordinate")]
+    NonFiniteInput { row: usize },
+    #[error("EvalSession::with_log must be called before any evaluation ({used} eval(s) already used)")]
+    LogAfterEval { used: u64 },
 }
 
 const VALID_PRESET_KINDS: &[&str] = &[
-    "de_rand_1", "de_best_1", "jde", "es_mu_plus_lambda", "ga_real", "pso",
-    "shade", "cmaes", "random_search", "lshade", "cmaes_ipop", "nelder_mead", "sa",
+    "de_rand_1", "de_best_1", "jde", "es_mu_plus_lambda", "ga_real", "pso", "gwo", "woa",
+    "harmony_search", "cuckoo_search", "goa", "shade", "cmaes", "random_search", "lshade", "cmaes_ipop",
+    "nelder_mead", "sa",
 ];
 
 fn require_pop_size(kind: &str, pop_size: Option<usize>) -> Result<usize, ExperimentError> {
@@ -249,6 +272,11 @@ fn build_preset(kind: &str, pop_size: Option<usize>, dim: usize, budget: u64)
             Distribution::Gaussian { mean: 0.0, sigma: 0.5 }),
         "ga_real" => presets::ga_real(require_pop_size(kind, pop_size)?, budget),
         "pso" => presets::pso(require_pop_size(kind, pop_size)?, budget),
+        "gwo" => presets::gwo(require_pop_size(kind, pop_size)?, budget),
+        "woa" => presets::woa(require_pop_size(kind, pop_size)?, budget),
+        "harmony_search" => presets::harmony_search(require_pop_size(kind, pop_size)?, budget),
+        "cuckoo_search" => presets::cuckoo_search(require_pop_size(kind, pop_size)?, budget),
+        "goa" => presets::goa(require_pop_size(kind, pop_size)?, budget),
         "shade" => presets::shade(require_pop_size(kind, pop_size)?, budget),
         "cmaes" => presets::cmaes(require_pop_size(kind, pop_size)?, budget),
         "random_search" => presets::random_search(require_pop_size(kind, pop_size)?, budget),
@@ -304,7 +332,7 @@ fn problem_label(fid: u32, dim: usize) -> String {
 /// so a bad combination fails fast, before any run is executed.
 pub fn enumerate(spec: &ExperimentSpec) -> Result<Vec<PlannedRun>, ExperimentError> {
     if spec.budgets.is_empty() {
-        return Err(ExperimentError::Parse("`budgets` must not be empty".into()));
+        return Err(ExperimentError::InvalidSpec("`budgets` must not be empty".into()));
     }
 
     let mut reg = Registry::new();
@@ -315,10 +343,10 @@ pub fn enumerate(spec: &ExperimentSpec) -> Result<Vec<PlannedRun>, ExperimentErr
     for algo in &spec.algorithms {
         for prob in &spec.problems {
             if prob.suite != "bbob" {
-                return Err(ExperimentError::Parse(format!(
+                return Err(ExperimentError::InvalidSpec(format!(
                     "unsupported suite `{}` (M2c supports `bbob` only)", prob.suite)));
             }
-            let instance = *prob.instances.first().ok_or_else(|| ExperimentError::Parse(
+            let instance = *prob.instances.first().ok_or_else(|| ExperimentError::InvalidSpec(
                 format!("problem {} has no instances", problem_label(prob.fid, prob.dim))))?;
             let problem = BbobProblem::new(prob.fid, prob.dim, instance)
                 .map_err(|e| ExperimentError::Problem(e.to_string()))?;
@@ -433,7 +461,9 @@ pub(crate) fn build_ioh_observers(
             ));
             loggers.len() - 1
         });
-        observers.push(loggers[idx].start_run_with(run.instance, run.seed, problem.f_opt()));
+        observers.push(loggers[idx].start_run_with(
+            run.instance, run.seed, problem.f_opt(), run.key.budget,
+        ));
     }
     Ok((loggers, observers))
 }
@@ -553,14 +583,20 @@ pub fn run_experiment_parallel(
 /// `RunRecord`s are bit-identical to [`run_experiment_sequential`]'s for the
 /// same `spec`.
 ///
-/// `spec.budgets.len() > 1` is rejected up front with
-/// [`ExperimentError::MultiBudgetLogging`]: the IOH archive records no
-/// budget, so the budget-200 and budget-400 runs of the same
-/// `(instance, seed)` would land as indistinguishable runs in one scenario,
-/// and a later `ioh_records` read would return duplicate keys with
-/// conflicting `best_f`, silently pooled by `results_matrix`. Log at the
-/// single largest budget and derive smaller budgets on read instead (see
-/// [`crate::ioh_read::ioh_records`]'s curtailed-view semantics).
+/// `spec.budgets.len() > 1` is fully supported (M2d-3): each budget is
+/// logged as its own run via [`build_ioh_observers`]'s
+/// `IohLogger::start_run_with(.., budget)` call, so the budget-200 and
+/// budget-400 runs of the same `(instance, seed)` land as DISTINCT run
+/// entries in the archive, each carrying its own `budget` meta key. A later
+/// read handles those distinct entries per its own policy — see
+/// `crate::ioh_read`'s module doc, "Two canonicalization policies":
+/// [`crate::ioh_read::ioh_records`] returns each budget's OWN genuine
+/// trajectory when the archive has one (falling back to a curtailed view of
+/// the largest-budget run only for a budget the archive lacks), while
+/// `ecdf`/`ecdf_per_algo`/`coco_export` canonicalize down to one run per
+/// `(instance, seed)` — the largest-budget one — via
+/// [`crate::ioh_read::canonical_anytime`]. Either way no duplicate key or
+/// conflicting `best_f` ever reaches a caller.
 ///
 /// A mid-run error drops every [`IohLogger`] without calling `finish()` on
 /// it, so no partial IOH tree is ever written for a run that didn't
@@ -572,10 +608,6 @@ pub fn run_experiment_logged(
     threads: Option<usize>,
 ) -> Result<(Vec<RunRecord>, Vec<IohFinish>), ExperimentError> {
     use rayon::prelude::*;
-
-    if spec.budgets.len() > 1 {
-        return Err(ExperimentError::MultiBudgetLogging);
-    }
 
     let planned = enumerate(spec)?;
 
@@ -763,6 +795,45 @@ mod tests {
         spec.algorithms[0].source = AlgoSource::Preset { kind: "bogus".into(), pop_size: Some(10) };
         let err = enumerate(&spec).unwrap_err();
         assert!(matches!(err, ExperimentError::UnknownPresetKind { .. }), "got {err:?}");
+    }
+
+    // M2d-3 Task 11: ExperimentError::Parse (TOML SYNTAX) vs
+    // ExperimentError::InvalidSpec (well-formed but semantically invalid)
+    // are now distinct variants -- previously both were the single
+    // overloaded `Parse` variant.
+
+    #[test]
+    fn genuine_toml_syntax_error_is_parse_not_invalid_spec() {
+        let err = ExperimentSpec::from_toml("this is not valid toml =====").unwrap_err();
+        assert!(matches!(err, ExperimentError::Parse(_)), "got {err:?}");
+        assert!(err.to_string().starts_with("could not parse experiment spec (TOML syntax error):"));
+    }
+
+    #[test]
+    fn empty_budgets_is_invalid_spec_not_parse() {
+        let mut spec = two_algo_spec();
+        spec.budgets = vec![];
+        let err = enumerate(&spec).unwrap_err();
+        assert!(matches!(err, ExperimentError::InvalidSpec(_)), "got {err:?}");
+        assert_eq!(err.to_string(), "invalid experiment spec: `budgets` must not be empty");
+    }
+
+    #[test]
+    fn unsupported_suite_is_invalid_spec_not_parse() {
+        let mut spec = two_algo_spec();
+        spec.problems[0].suite = "coco".into();
+        let err = enumerate(&spec).unwrap_err();
+        assert!(matches!(err, ExperimentError::InvalidSpec(_)), "got {err:?}");
+        assert!(err.to_string().contains("unsupported suite `coco`"));
+    }
+
+    #[test]
+    fn no_instances_is_invalid_spec_not_parse() {
+        let mut spec = two_algo_spec();
+        spec.problems[0].instances = vec![];
+        let err = enumerate(&spec).unwrap_err();
+        assert!(matches!(err, ExperimentError::InvalidSpec(_)), "got {err:?}");
+        assert!(err.to_string().contains("has no instances"));
     }
 
     #[test]
@@ -1006,23 +1077,31 @@ mod tests {
         }
     }
 
-    /// CONTROLLER RULING: a multi-budget spec logged via
-    /// `run_experiment_logged` must be rejected up front — the IOH archive
-    /// cannot distinguish runs by budget, so budget-200 and budget-400 runs
-    /// of the same (instance, seed) would land as indistinguishable runs in
-    /// one scenario.
+    /// M2d-3: the multi-budget rejection was LIFTED — a multi-budget spec
+    /// logged via `run_experiment_logged` now succeeds; each budget lands
+    /// as its own run, distinguished by the `budget` meta key
+    /// `IohLogger::start_run_with` now writes.
     #[test]
-    fn run_experiment_logged_rejects_multiple_budgets() {
+    fn run_experiment_logged_allows_multiple_budgets() {
         let mut spec = parallel_test_spec();
         spec.budgets = vec![300, 600];
 
         let tmp = tempfile::tempdir().unwrap();
-        let err = run_experiment_logged(&spec, tmp.path(), false, None).unwrap_err();
-        assert!(matches!(err, ExperimentError::MultiBudgetLogging), "got {err:?}");
-        assert!(
-            err.to_string().contains("multiple budgets"),
-            "error message must mention 'multiple budgets', got: {err}"
-        );
+        let (records, finishes) = run_experiment_logged(&spec, tmp.path(), false, None).unwrap();
+        // 2 algos x 1 problem x 2 instances x 2 seeds x 2 budgets
+        assert_eq!(records.len(), 16);
+        assert!(!finishes.is_empty());
+
+        let scenarios = crate::ioh_read::read_ioh_root(tmp.path()).unwrap();
+        // Every (instance, seed) pair was logged twice (once per budget), so
+        // ioh_records must still return unique, non-conflicting keys: each
+        // queried budget resolves to its own genuine run.
+        let disk_records = crate::ioh_read::ioh_records(&scenarios, &[300, 600]).unwrap();
+        assert_eq!(disk_records.len(), 16, "2 algos x 2 instances x 2 seeds x 2 queried budgets");
+        let mut seen: std::collections::HashSet<RunKey> = std::collections::HashSet::new();
+        for r in &disk_records {
+            assert!(seen.insert(r.key.clone()), "duplicate key {} in disk records", r.key);
+        }
     }
 
     #[test]

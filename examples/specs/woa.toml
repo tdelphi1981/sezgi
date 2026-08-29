@@ -1,0 +1,39 @@
+# Whale Optimization Algorithm (Mirjalili & Lewis 2016) -- the built-in
+# `woa` preset (crates/components/src/presets.rs::woa), run through
+# `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# Component decomposition (see crates/components/src/woa.rs's module doc
+# for the pinned update rule and RNG-stream contract this preset enforces):
+#   - init:      init/uniform          -- uniform-random population in bounds
+#   - generator: gen/woa               -- pinned encircle/search/spiral
+#                                          branch; p/r1/r2/l drawn once per
+#                                          whale (matches reference MATLAB
+#                                          exactly -- only the random-leader
+#                                          index is drawn per dimension)
+#   - boundary:  boundary/clamp        -- clamps a stepped-out-of-bounds coord
+#   - replacer:  replace/generational  -- offspring become the whole
+#                                          population unconditionally (WOA is
+#                                          non-elitist by construction)
+#   - adapter:   none
+#
+# What this preset gives you that examples/python/woa.py + examples/r/woa.R
+# do NOT: a bit-identical, semver-pinned RNG-stream contract (exact draw
+# order per (whale, dimension), including the branch-dependent draw count),
+# IOH-profiler logging via `log_dir=`, and reproducibility across the whole
+# sezgi statistics pipeline. The pure scripts teach the SAME equations with
+# nothing but a stdlib RNG -- useful for understanding the algorithm, not
+# for reproducible experiments.
+
+name = "woa-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "woa"
+preset = { kind = "woa", pop_size = 30 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]

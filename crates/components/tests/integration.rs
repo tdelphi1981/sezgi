@@ -250,3 +250,195 @@ fn nm_on_rosenbrock_2d() {
     let gap = r.best_f - p.f_opt();
     assert!(gap < 1e-4, "Nelder-Mead should solve the 2D Rosenbrock (f8) closely: gap={}", gap);
 }
+
+// ---- Grey Wolf Optimizer (M2d-3 Task 5) ----
+
+#[test]
+fn gwo_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::gwo(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Deterministic achieved gap at seed 42: gap ~= 0.0000045804 (GWO
+    // converges tightly on the separable, unimodal BBOB f1/Sphere in 20k
+    // evaluations). Anchored bound rounded up to the next 0.5 (0.5), giving
+    // ample (>=0.3) headroom, per convention (see
+    // shade_near_optimum_on_rastrigin above).
+    assert!(gap < 0.5,
+        "GWO should land close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap}");
+}
+
+#[test]
+fn gwo_min_pop_3_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::gwo(2, 500); // below min_pop = 3 (alpha/beta/delta)
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/gwo") && err_str.contains("3") && err_str.contains("2"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    // Also assert the underlying SpecError variant directly.
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/gwo");
+            assert_eq!(min_pop, 3);
+            assert_eq!(pop_size, 2);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+// ---- Whale Optimization Algorithm (M2d-3 Task 6) ----
+
+#[test]
+fn woa_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::woa(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Deterministic achieved gap at seed 42: gap ~= 0.0002618594 (re-measured
+    // after the M2d-3 final review's per-whale draw-structure fix, since the
+    // RNG-stream trajectory changed; WOA still converges tightly on the
+    // separable, unimodal BBOB f1/Sphere in 20k evaluations). Anchored bound
+    // rounded up to the next 0.5 (0.5), giving ample (>=0.3) headroom, per
+    // convention (see gwo_solves_bbob_f1_dim5 above).
+    assert!(gap < 0.5,
+        "WOA should land close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap}");
+}
+
+#[test]
+fn woa_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::woa(1, 500); // below min_pop = 2 (best-so-far + one other)
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/woa") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    // Also assert the underlying SpecError variant directly.
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/woa");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+// ---- Harmony Search (M2d-3 Task 7) ----
+
+#[test]
+fn harmony_search_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::harmony_search(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Deterministic achieved gap at seed 42: gap ~= 0.0000002829 (HS
+    // converges tightly on the separable, unimodal BBOB f1/Sphere in 20k
+    // evaluations, despite generating only one new harmony per generation).
+    // Anchored bound rounded up to the next 0.5 (0.5), giving ample
+    // (>=0.3) headroom, per convention (see gwo_solves_bbob_f1_dim5 above).
+    assert!(gap < 0.5,
+        "Harmony Search should land close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap}");
+}
+
+#[test]
+fn harmony_search_min_pop_1_validates_fine() {
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::harmony_search(1, 500); // min_pop = 1: smallest legal pop_size
+    assert!(spec.validate(&registry(), p.space()).is_ok(),
+        "harmony_search preset must validate fine at pop_size=1 (min_pop=1)");
+    let e = Engine::from_spec(&spec, &registry(), p.space());
+    assert!(e.is_ok(), "harmony_search preset must build an Engine fine at pop_size=1");
+}
+
+// ---- Cuckoo Search (M2d-3 Task 8) ----
+
+#[test]
+fn cuckoo_search_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::cuckoo_search(25, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Deterministic achieved gap at seed 42: gap ~= 0.0100989121 (CS
+    // converges on the separable, unimodal BBOB f1/Sphere in 20k
+    // evaluations, pop 25). Anchored bound rounded up to the next 0.5 (0.5),
+    // giving ample (>=0.3) headroom, per convention (see
+    // gwo_solves_bbob_f1_dim5 above).
+    assert!(gap < 0.5,
+        "Cuckoo Search should land close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap}");
+}
+
+#[test]
+fn cs_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::cuckoo_search(1, 500); // below min_pop = 2 (best-so-far + one other)
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/cuckoo_levy") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    // Also assert the underlying SpecError variant directly.
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/cuckoo_levy");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+// ---- Grasshopper Optimisation Algorithm (M2d-3 Task 9) ----
+
+#[test]
+fn goa_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::goa(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Deterministic achieved gap at seed 42: gap ~= 3.34e-12 (GOA converges
+    // EXTREMELY tightly on the separable, unimodal BBOB f1/Sphere in 20k
+    // evaluations, pop 30 -- tighter than GWO/WOA/HS/CS's ~1e-3..1e-2 gaps,
+    // consistent with `c` decaying to `cmin=1e-5` by the end of the budget,
+    // which collapses every offspring to within a vanishing perturbation of
+    // `X_best`). Anchored bound rounded up to the next 0.5 (0.5), giving
+    // ample (>=0.3) headroom, per convention (see gwo_solves_bbob_f1_dim5
+    // above).
+    assert!(gap < 0.5,
+        "GOA should land close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap}");
+}
+
+#[test]
+fn goa_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::goa(1, 500); // below min_pop = 2 (best-so-far + one other)
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/goa") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    // Also assert the underlying SpecError variant directly.
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/goa");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
