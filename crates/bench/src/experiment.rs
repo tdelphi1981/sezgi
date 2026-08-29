@@ -221,6 +221,10 @@ pub enum ExperimentError {
     IohRead(String),
     #[error("COCO export error: {0}")]
     CocoExport(String),
+    #[error("EvalSession::evaluate: row {row} has dimension {got}, expected {expected}")]
+    DimensionMismatch { row: usize, expected: usize, got: usize },
+    #[error("EvalSession::evaluate: budget exceeded ({used}/{budget} used, {requested} requested)")]
+    BudgetExceeded { used: u64, budget: u64, requested: u64 },
 }
 
 const VALID_PRESET_KINDS: &[&str] = &[

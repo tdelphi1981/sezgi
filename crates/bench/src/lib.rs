@@ -26,3 +26,6 @@ pub use checkpoint::{fnv1a_64, spec_hash, load_journal, run_experiment_with_chec
 
 pub mod reporting;
 pub use reporting::{Aggregate, per_budget_packages, results_matrix};
+
+pub mod session;
+pub use session::EvalSession;
