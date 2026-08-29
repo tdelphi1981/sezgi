@@ -308,6 +308,18 @@ pub fn read_ioh_root(root: &Path) -> Result<Vec<IohScenario>, ExperimentError> {
 /// the start. Callers wanting the reconstructed curtailed view and the live
 /// runner's own smaller-budget records to match bit-for-bit are asserting
 /// something this function does not promise.
+///
+/// For a `budget` LARGER than the run's own logged budget, `best_f` is the
+/// run's final recorded value and `evals_used` is `run.evals` (never
+/// `budget` itself, since `evals_used = min(budget, run.evals)`) — the same
+/// "run has already finished, no more evaluations happen" semantics the
+/// live runner itself exhibits once a run's own termination budget is
+/// reached, so this is silent, not an error.
+///
+/// `wall_secs` is always `0.0`: wall-clock time is not recorded in the
+/// on-disk IOH log, so it cannot be reconstructed here; this is an inert
+/// placeholder rather than a real measurement, and the reporting pipeline
+/// (`results_matrix`/`per_budget_packages`) never reads this field.
 pub fn ioh_records(scenarios: &[IohScenario], budgets: &[u64]) -> Result<Vec<RunRecord>, ExperimentError> {
     let mut records = Vec::new();
     for sc in scenarios {

@@ -94,6 +94,11 @@ fn missing_f_opt_err(run: &IohRun, sc: &IohScenario) -> ExperimentError {
 /// PINNED (see the module doc): denominator = `(total runs) *
 /// targets.len()`; a pair that never hits its target still counts in the
 /// denominator. Errors (mentioning `"f_opt"`) if any run lacks `f_opt`.
+///
+/// Empty `scenarios` or empty `targets` yield an empty curve
+/// (`evals: []`, `proportion: []`) by construction, not an error: with
+/// `total_pairs == 0` the hit-collection loop never runs, so there is no
+/// division to perform and nothing to report.
 pub fn ecdf(scenarios: &[IohScenario], targets: &[f64]) -> Result<EcdfCurve, ExperimentError> {
     let mut total_pairs: u64 = 0;
     let mut hits: Vec<u64> = Vec::new();
