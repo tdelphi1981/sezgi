@@ -47,7 +47,7 @@
 //! analogous per-experiment precision setting).
 
 use crate::experiment::ExperimentError;
-use crate::ioh_read::IohScenario;
+use crate::ioh_read::{IohScenario, dedupe_runs};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -92,8 +92,13 @@ fn fmt_exp(value: f64, decimals: usize) -> String {
 /// — directory iteration / caller-supplied order is not something this
 /// module's output should depend on).
 pub fn coco_export(scenarios: &[IohScenario], out_dir: &Path) -> Result<Vec<PathBuf>, ExperimentError> {
+    // dedupe_runs FIRST (see its doc comment): a multi-budget archive must
+    // export exactly one run per (instance, seed) — the largest-budget one.
+    let mut scenarios = scenarios.to_vec();
+    dedupe_runs(&mut scenarios)?;
+
     // ---- Up-front validation pass: every run needs f_opt + >=1 row. ----
-    for sc in scenarios {
+    for sc in &scenarios {
         for run in &sc.runs {
             if run.f_opt.is_none() {
                 return Err(coco_err(format!(
@@ -114,7 +119,7 @@ pub fn coco_export(scenarios: &[IohScenario], out_dir: &Path) -> Result<Vec<Path
 
     // ---- Group by (algo, fid); collect every dim's scenario. ----
     let mut groups: BTreeMap<(String, u32), Vec<&IohScenario>> = BTreeMap::new();
-    for sc in scenarios {
+    for sc in &scenarios {
         groups.entry((sc.algo.clone(), sc.fid)).or_default().push(sc);
     }
 
@@ -211,7 +216,7 @@ mod tests {
     use crate::ioh_read::{IohRun, read_ioh_root};
 
     fn run(instance: u32, f_opt: f64, rows: Vec<(u64, f64)>, evals: u64) -> IohRun {
-        IohRun { instance, seed: Some(1), f_opt: Some(f_opt), rows, evals }
+        IohRun { instance, seed: Some(1), f_opt: Some(f_opt), budget: None, rows, evals }
     }
 
     fn scenario(algo: &str, fid: u32, dim: usize, runs: Vec<IohRun>) -> IohScenario {
@@ -341,7 +346,7 @@ mod tests {
             "de",
             1,
             5,
-            vec![IohRun { instance: 3, seed: None, f_opt: None, rows: vec![(1, 5.0)], evals: 1 }],
+            vec![IohRun { instance: 3, seed: None, f_opt: None, budget: None, rows: vec![(1, 5.0)], evals: 1 }],
         )];
 
         let tmp = tempfile::tempdir().unwrap();
@@ -359,7 +364,7 @@ mod tests {
             "de",
             1,
             5,
-            vec![IohRun { instance: 4, seed: Some(1), f_opt: Some(0.0), rows: vec![], evals: 0 }],
+            vec![IohRun { instance: 4, seed: Some(1), f_opt: Some(0.0), budget: None, rows: vec![], evals: 0 }],
         )];
 
         let tmp = tempfile::tempdir().unwrap();

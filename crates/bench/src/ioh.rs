@@ -9,6 +9,8 @@ struct RunData {
     seed: u64,
     f_opt: f64,                  // f64::NAN means "unknown" (legacy `start_run` path):
                                   // never serialized — see `finish()`.
+    budget: u64,                 // meaningless (never serialized) when f_opt is NaN —
+                                  // see `finish()`'s single NaN-gated omission block.
     rows: Vec<(u64, f64)>,       // improvement rows
     last: Option<(u64, f64)>,    // final eval (always written)
     evals: u64,
@@ -57,22 +59,29 @@ impl IohLogger {
                fid, fname: fname.into(), dim, runs: vec![] }
     }
 
-    /// Legacy entry point (M2c): no seed/f_opt known at call time. Delegates
-    /// to [`Self::start_run_with`] with `seed = 0` and `f_opt = f64::NAN`;
-    /// `finish()` omits the `"seed"`/`"f_opt"` meta keys for such a run
-    /// (NaN is never serialized into JSON), keeping the meta backward-
-    /// compatible with pre-M2d readers.
+    /// Legacy entry point (M2c): no seed/f_opt/budget known at call time.
+    /// Delegates to [`Self::start_run_with`] with `seed = 0`,
+    /// `f_opt = f64::NAN`, and `budget = 0`; `finish()` omits the
+    /// `"seed"`/`"f_opt"`/`"budget"` meta keys for such a run (NaN is never
+    /// serialized into JSON, and the omission is gated on that same NaN
+    /// check, so `budget` is dropped alongside them even though it carries
+    /// no sentinel of its own), keeping the meta backward-compatible with
+    /// pre-M2d readers.
     pub fn start_run(&mut self, instance: u32) -> IohRunObserver {
-        self.start_run_with(instance, 0, f64::NAN)
+        self.start_run_with(instance, 0, f64::NAN, 0)
     }
 
-    /// Starts a run with its master `seed` and the problem instance's known
-    /// `f_opt`, both of which `finish()` writes into that run's meta entry.
-    /// Pass `f_opt = f64::NAN` only via [`Self::start_run`] (legacy path);
-    /// a caller that knows the real f_opt must always pass it here.
-    pub fn start_run_with(&mut self, instance: u32, seed: u64, f_opt: f64) -> IohRunObserver {
+    /// Starts a run with its master `seed`, the problem instance's known
+    /// `f_opt`, and the run's `budget` (its `AlgorithmSpec::termination.budget`),
+    /// all three of which `finish()` writes into that run's meta entry —
+    /// `budget` is what lets [`crate::ioh_read::dedupe_runs`] tell apart
+    /// multiple runs of the same `(instance, seed)` logged at different
+    /// budgets, keeping the largest (a curtailed view subsumes a smaller
+    /// one). Pass `f_opt = f64::NAN` only via [`Self::start_run`] (legacy
+    /// path); a caller that knows the real f_opt must always pass it here.
+    pub fn start_run_with(&mut self, instance: u32, seed: u64, f_opt: f64, budget: u64) -> IohRunObserver {
         let data = Arc::new(Mutex::new(RunData {
-            instance, seed, f_opt, rows: vec![], last: None, evals: 0, best: None }));
+            instance, seed, f_opt, budget, rows: vec![], last: None, evals: 0, best: None }));
         self.runs.push(data.clone());
         IohRunObserver { data, prev_best: None }
     }
@@ -132,11 +141,12 @@ impl IohLogger {
                 "instance": d.instance, "evals": d.evals,
                 "best": {"evals": be, "y": by},
             });
-            // NaN f_opt marks the legacy `start_run` path: omit both keys
-            // rather than ever serializing a NaN into JSON.
+            // NaN f_opt marks the legacy `start_run` path: omit all three
+            // keys rather than ever serializing a NaN into JSON.
             if !d.f_opt.is_nan() {
                 entry["seed"] = serde_json::json!(d.seed);
                 entry["f_opt"] = serde_json::json!(d.f_opt);
+                entry["budget"] = serde_json::json!(d.budget);
             }
             runs_json.push(entry);
         }
@@ -288,16 +298,17 @@ mod tests {
     }
 
     #[test]
-    fn start_run_with_writes_seed_and_f_opt() {
+    fn start_run_with_writes_seed_and_f_opt_and_budget() {
         let tmp = tempfile::tempdir().unwrap();
         let mut lg = IohLogger::new(tmp.path(), "a", "s", 1, "Sphere", 3);
-        { let mut o = lg.start_run_with(1, 42, -12.5); o.on_eval(1, 5.0, 5.0); }
+        { let mut o = lg.start_run_with(1, 42, -12.5, 300); o.on_eval(1, 5.0, 5.0); }
         let fin = lg.finish().unwrap();
         let meta: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(&fin.meta_path).unwrap()).unwrap();
         let run0 = &meta["scenarios"][0]["runs"][0];
         assert_eq!(run0["seed"], 42);
         assert_eq!(run0["f_opt"], -12.5);
+        assert_eq!(run0["budget"], 300);
     }
 
     #[test]
@@ -365,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_start_run_omits_seed_and_f_opt_keys() {
+    fn legacy_start_run_omits_seed_and_f_opt_and_budget_keys() {
         let tmp = tempfile::tempdir().unwrap();
         let mut lg = IohLogger::new(tmp.path(), "a", "s", 1, "Sphere", 3);
         { let mut o = lg.start_run(1); o.on_eval(1, 5.0, 5.0); }
@@ -375,5 +386,6 @@ mod tests {
         let run0 = meta["scenarios"][0]["runs"][0].as_object().unwrap();
         assert!(!run0.contains_key("seed"), "legacy run must not carry a seed key");
         assert!(!run0.contains_key("f_opt"), "legacy run must not carry an f_opt key (NaN never serialized)");
+        assert!(!run0.contains_key("budget"), "legacy run must not carry a budget key");
     }
 }

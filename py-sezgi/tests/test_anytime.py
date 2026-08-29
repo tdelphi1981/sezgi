@@ -132,16 +132,28 @@ def test_read_ioh_records_curtailed_view_present_and_evals_used_capped(tmp_path)
         assert r["evals_used"] == 200
 
 
-def test_run_experiment_rejects_multiple_budgets_with_log_dir(tmp_path):
-    """CONTROLLER RULING (final review wave): the IOH archive records no
-    budget, so run_experiment(..., log_dir=...) must reject a multi-budget
-    spec up front rather than silently pooling conflicting best_f values
-    under duplicate (instance, seed) keys."""
+def test_run_experiment_allows_multiple_budgets_with_log_dir(tmp_path):
+    """M2d-3: the multi-budget rejection was LIFTED. run_experiment(...,
+    log_dir=...) now succeeds with more than one budget -- each budget's
+    runs land as distinct archive entries (a `budget` meta key), and
+    read_ioh_records canonicalizes them back to one run per (instance,
+    seed) internally (see sezgi_bench::ioh_read::dedupe_runs), so a
+    multi-budget read still returns unique (algo, fid, dim, instance, seed,
+    budget) keys with no conflicting best_f."""
     spec_toml = tiny_experiment_toml(budgets="[200, 400]")
     log_dir = str(tmp_path / "logs")
 
-    with pytest.raises(ValueError, match="multiple budgets"):
-        sezgi.run_experiment(spec_toml, log_dir=log_dir, parallel=False)
+    records = sezgi.run_experiment(spec_toml, log_dir=log_dir, parallel=False)
+    # 1 algo x 1 problem x 1 instance x 2 seeds x 2 budgets
+    assert len(records) == 4
+
+    disk = sezgi.read_ioh_records(log_dir, [200, 400])
+    # 1 instance x 2 seeds x 2 queried budgets (both raw runs collapse to
+    # one per (instance, seed) internally before the two budgets are read)
+    assert len(disk) == 4
+
+    keys = [(r["algo"], r["fid"], r["dim"], r["instance"], r["seed"], r["budget"]) for r in disk]
+    assert len(keys) == len(set(keys)), "no duplicate (instance, seed, budget) keys"
 
 
 # ---------------------------------------------------------------------

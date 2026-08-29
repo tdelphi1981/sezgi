@@ -142,7 +142,7 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
                 let mut lg = IohLogger::new(std::path::Path::new(dir), &name,
                     "sezgi-bbob", p.fid(), p.name(),
                     p.space().dim());
-                let obs = lg.start_run_with(p.instance, master_seed, p.f_opt());
+                let obs = lg.start_run_with(p.instance, master_seed, p.f_opt(), spec.termination.budget);
                 // Logger observer is Rust-native (no GIL needed); GIL is released for the run.
                 let r = run_with_bridge(py, || run(p, Some(Box::new(obs))))?;
                 let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;

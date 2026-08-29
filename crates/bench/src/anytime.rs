@@ -25,7 +25,7 @@
 //!   never contributes a step), so the curve need not reach `1.0`.
 
 use crate::experiment::ExperimentError;
-use crate::ioh_read::{IohRun, IohScenario};
+use crate::ioh_read::{IohRun, IohScenario, dedupe_runs};
 
 /// COCO-convention default target precisions: `10^(2 - 0.2*k)` for
 /// `k = 0..=50` — 51 values, descending from `1e2` to `1e-8`.
@@ -99,11 +99,19 @@ fn missing_f_opt_err(run: &IohRun, sc: &IohScenario) -> ExperimentError {
 /// (`evals: []`, `proportion: []`) by construction, not an error: with
 /// `total_pairs == 0` the hit-collection loop never runs, so there is no
 /// division to perform and nothing to report.
+///
+/// [`dedupe_runs`] is applied to (a private clone of) `scenarios` FIRST, so
+/// a multi-budget archive counts each `(instance, seed)` pair exactly
+/// once in the denominator — the largest-budget run's trajectory, not one
+/// entry per budget it was logged at.
 pub fn ecdf(scenarios: &[IohScenario], targets: &[f64]) -> Result<EcdfCurve, ExperimentError> {
+    let mut scenarios = scenarios.to_vec();
+    dedupe_runs(&mut scenarios)?;
+
     let mut total_pairs: u64 = 0;
     let mut hits: Vec<u64> = Vec::new();
 
-    for sc in scenarios {
+    for sc in &scenarios {
         for run in &sc.runs {
             let f_opt = run.f_opt.ok_or_else(|| missing_f_opt_err(run, sc))?;
             for &target in targets {
@@ -145,8 +153,11 @@ pub fn ecdf_per_algo(
     scenarios: &[IohScenario],
     targets: &[f64],
 ) -> Result<Vec<(String, EcdfCurve)>, ExperimentError> {
+    let mut scenarios = scenarios.to_vec();
+    dedupe_runs(&mut scenarios)?;
+
     let mut order: Vec<String> = Vec::new();
-    for sc in scenarios {
+    for sc in &scenarios {
         if !order.contains(&sc.algo) {
             order.push(sc.algo.clone());
         }
@@ -157,6 +168,7 @@ pub fn ecdf_per_algo(
         .map(|algo| {
             let group: Vec<IohScenario> =
                 scenarios.iter().filter(|sc| sc.algo == algo).cloned().collect();
+            // Already deduped above; `ecdf`'s own dedupe pass is a no-op here.
             let curve = ecdf(&group, targets)?;
             Ok((algo, curve))
         })
@@ -191,7 +203,7 @@ mod tests {
 
     #[test]
     fn hit_time_requires_f_opt() {
-        let run = IohRun { instance: 1, seed: None, f_opt: None, rows: vec![(1, 5.0)], evals: 1 };
+        let run = IohRun { instance: 1, seed: None, f_opt: None, budget: None, rows: vec![(1, 5.0)], evals: 1 };
         let sc = scenario_of(vec![run]);
 
         let err = ecdf(&[sc], &[1.0]).unwrap_err();
@@ -211,6 +223,7 @@ mod tests {
             instance: 1,
             seed: Some(11),
             f_opt: Some(0.0),
+            budget: None,
             rows: vec![(1, 50.0), (3, 5.0), (10, 0.05)],
             evals: 10,
         };
@@ -218,6 +231,7 @@ mod tests {
             instance: 2,
             seed: Some(22),
             f_opt: Some(0.0),
+            budget: None,
             rows: vec![(2, 8.0), (7, 0.5)],
             evals: 7,
         };
@@ -289,5 +303,41 @@ mod tests {
                 curve.proportion
             );
         }
+    }
+
+    /// Denominator check (M2d-3 Task 1, step 1c): a multi-budget archive
+    /// with duplicate `(instance, seed)` runs (one logged at budget 200,
+    /// one at budget 400, same seed/instance) must be counted ONCE in the
+    /// ECDF denominator via `ecdf`'s internal `dedupe_runs` call — not
+    /// once per budget it happens to have been logged at.
+    #[test]
+    fn ecdf_counts_each_instance_seed_once_on_a_multi_budget_archive() {
+        let dup_short = IohRun {
+            instance: 1, seed: Some(1), f_opt: Some(0.0), budget: Some(200),
+            rows: vec![(1, 50.0)], evals: 200,
+        };
+        let dup_long = IohRun {
+            instance: 1, seed: Some(1), f_opt: Some(0.0), budget: Some(400),
+            rows: vec![(1, 50.0), (3, 5.0)], evals: 400,
+        };
+        let solo = IohRun {
+            instance: 2, seed: Some(2), f_opt: Some(0.0), budget: None,
+            rows: vec![(1, 8.0)], evals: 1,
+        };
+        let sc = scenario_of(vec![dup_short, dup_long, solo]);
+        let targets = vec![10.0];
+
+        // Denominator = (deduped run count) * targets.len() = 2 * 1 = 2, not
+        // 3 * 1 = 3 (which is what an un-deduped denominator would give).
+        // Both runs hit target 10.0 immediately (dup_long's first row is
+        // still 50.0 > 10.0, but its second row 5.0 <= 10.0 at eval 3; solo's
+        // 8.0 <= 10.0 at eval 1), so the final proportion must reach exactly
+        // 1.0 with a deduped denominator of 2, never 2/3.
+        let curve = ecdf(&[sc], &targets).unwrap();
+        assert_eq!(
+            *curve.proportion.last().unwrap(), 1.0,
+            "final proportion must be 1.0 under a deduped denominator of 2 (not 2/3 under 3): {:?}",
+            curve.proportion,
+        );
     }
 }

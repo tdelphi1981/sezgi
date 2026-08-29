@@ -97,15 +97,25 @@ test_that("a curtailed-budget view is present with evals capped at the budget", 
   expect_true(all(curtailed$evals == 200))
 })
 
-test_that("sz_run_experiment rejects a multi-budget spec when log_dir is given", {
-  # CONTROLLER RULING (final review wave): the IOH archive records no
-  # budget, so a multi-budget spec logged via log_dir would produce
-  # indistinguishable runs per (instance, seed).
+test_that("sz_run_experiment allows a multi-budget spec when log_dir is given", {
+  # M2d-3: the multi-budget rejection was LIFTED. sz_run_experiment(...,
+  # log_dir = ...) now succeeds with more than one budget -- each budget's
+  # runs land as distinct archive entries (a `budget` meta key), and
+  # sz_read_ioh_records canonicalizes them back to one run per (instance,
+  # seed) internally (see sezgi_bench::ioh_read::dedupe_runs), so a
+  # multi-budget read still returns unique (algo, fid, dim, instance, seed,
+  # budget) keys with no conflicting best_f.
   log_dir <- file.path(tempfile(), "logs")
-  expect_error(
-    sz_run_experiment(tiny_experiment_toml(budgets = "[200, 400]"), log_dir = log_dir, parallel = FALSE),
-    regexp = "multiple budgets"
-  )
+  records <- sz_run_experiment(tiny_experiment_toml(budgets = "[200, 400]"), log_dir = log_dir, parallel = FALSE)
+  # 1 algo x 1 problem x 1 instance x 2 seeds x 2 budgets
+  expect_equal(nrow(records), 4)
+
+  disk <- sz_read_ioh_records(log_dir, c(200, 400))
+  # 1 instance x 2 seeds x 2 queried budgets
+  expect_equal(nrow(disk), 4)
+
+  key <- paste(disk$algo, disk$fid, disk$dim, disk$instance, disk$seed, disk$budget, sep = "|")
+  expect_equal(length(key), length(unique(key)))
 })
 
 # ---------------------------------------------------------------------

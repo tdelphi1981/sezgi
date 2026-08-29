@@ -55,6 +55,7 @@
 
 use crate::experiment::{ExperimentError, RunKey, RunRecord};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// One run within an [`IohScenario`], reconstructed from a `.dat` run
@@ -67,6 +68,13 @@ pub struct IohRun {
     pub seed: Option<u64>,
     /// `None` for a legacy log whose meta entry omitted `f_opt`.
     pub f_opt: Option<f64>,
+    /// `None` for a legacy log whose meta entry omitted `budget` — either a
+    /// pre-M2d-3 archive (no `start_run_with` budget parameter existed yet)
+    /// or a fully-legacy [`crate::ioh::IohLogger::start_run`] entry (which
+    /// omits `seed`/`f_opt`/`budget` together). See [`dedupe_runs`] for how
+    /// a missing `budget` is handled when disambiguating same-`(instance,
+    /// seed)` runs.
+    pub budget: Option<u64>,
     /// Improvement rows (plus the always-written final row) exactly as
     /// parsed from the `.dat` run block, in file order.
     pub rows: Vec<(u64, f64)>,
@@ -119,6 +127,8 @@ struct MetaRun {
     seed: Option<u64>,
     #[serde(default)]
     f_opt: Option<f64>,
+    #[serde(default)]
+    budget: Option<u64>,
     // `best` (evals/y) is written by `finish()` but not needed by any
     // `IohRun` field; left undeclared so serde ignores it.
 }
@@ -225,6 +235,7 @@ pub fn read_ioh_root(root: &Path) -> Result<Vec<IohScenario>, ExperimentError> {
                         instance: mr.instance,
                         seed: mr.seed,
                         f_opt: mr.f_opt,
+                        budget: mr.budget,
                         rows,
                         evals: mr.evals,
                     })
@@ -241,6 +252,85 @@ pub fn read_ioh_root(root: &Path) -> Result<Vec<IohScenario>, ExperimentError> {
         }
     }
     Ok(scenarios)
+}
+
+// ---------------------------------------------------------------------
+// Dedupe (M2d-3 Task 1): canonicalize multi-budget archives to one run
+// per (instance, seed) — the single canonicalization point [`ecdf`],
+// [`ecdf_per_algo`], [`coco_export`], and [`ioh_records`] all call first.
+// ---------------------------------------------------------------------
+
+/// Canonicalizes `scenarios` in place so that, within each scenario, every
+/// `(instance, seed)` pair maps to exactly one run.
+///
+/// A budget-aware archive (written since M2d-3, via
+/// [`crate::ioh::IohLogger::start_run_with`]'s `budget` parameter) can
+/// legitimately hold MULTIPLE runs sharing the same `(instance, seed)` —
+/// one per budget the spec swept over, each a fully independent trajectory
+/// (see `run_experiment_logged`'s doc comment on why running each queried
+/// budget as its own `PlannedRun`, rather than deriving smaller budgets
+/// from one big run, is how sezgi avoids budget-adaptive-schedule
+/// divergence). For each such group, this function keeps ONLY the run with
+/// the LARGEST `budget` — its trajectory strictly subsumes every smaller
+/// budget's curtailed view (see [`ioh_records`]'s doc comment) — and drops
+/// the rest.
+///
+/// A group of size 1 is always left as-is, `budget` present or not (a
+/// single run is never ambiguous, `budget`-carrying or legacy).
+///
+/// A group of size > 1 where ANY member's `budget` is `None` is an ERROR
+/// (message contains `"ambiguous"`): this is a pre-M2d-3 archive whose
+/// duplicate `(instance, seed)` runs cannot be told apart — the archive
+/// must be re-logged with a budget-aware `start_run_with` call, or read as
+/// a genuinely single-budget archive (whose `run_experiment_logged` call
+/// never produces duplicate `(instance, seed)` runs in the first place).
+// `&mut Vec<_>` (not `&mut [_]`) is the pinned interface (M2d-3 task brief):
+// canonicalization is in-place mutation of `scenarios`, and `&mut Vec` is
+// what every call site already owns (a `to_vec()`'d clone or a caller's
+// owned archive) — clippy's `ptr_arg` suggestion would just push the same
+// `&mut Vec` at the call site into a `.as_mut_slice()`, with no meaningful
+// prevention gained.
+#[allow(clippy::ptr_arg)]
+pub fn dedupe_runs(scenarios: &mut Vec<IohScenario>) -> Result<(), ExperimentError> {
+    for sc in scenarios.iter_mut() {
+        // Group run indices by (instance, seed), preserving first-seen
+        // group order for a deterministic result.
+        let mut order: Vec<(u32, Option<u64>)> = Vec::new();
+        let mut groups: HashMap<(u32, Option<u64>), Vec<usize>> = HashMap::new();
+        for (i, run) in sc.runs.iter().enumerate() {
+            let key = (run.instance, run.seed);
+            if !groups.contains_key(&key) {
+                order.push(key);
+            }
+            groups.entry(key).or_default().push(i);
+        }
+
+        let mut kept: Vec<usize> = Vec::with_capacity(order.len());
+        for key in &order {
+            let idxs = &groups[key];
+            if idxs.len() == 1 {
+                kept.push(idxs[0]);
+                continue;
+            }
+            if idxs.iter().any(|&i| sc.runs[i].budget.is_none()) {
+                return Err(ExperimentError::IohRead(format!(
+                    "{}/f{}d{}: ambiguous pre-M2d-3 archive: {} runs share instance {} \
+                     seed {:?} with no budget key to disambiguate them — re-log with a \
+                     budget-aware archive (IohLogger::start_run_with) or read a \
+                     single-budget archive",
+                    sc.algo, sc.fid, sc.dim, idxs.len(), key.0, key.1,
+                )));
+            }
+            let winner = *idxs.iter()
+                .max_by_key(|&&i| sc.runs[i].budget.expect("checked Some above"))
+                .expect("idxs is non-empty");
+            kept.push(winner);
+        }
+        kept.sort_unstable();
+
+        sc.runs = kept.into_iter().map(|i| sc.runs[i].clone()).collect();
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------
@@ -320,9 +410,19 @@ pub fn read_ioh_root(root: &Path) -> Result<Vec<IohScenario>, ExperimentError> {
 /// on-disk IOH log, so it cannot be reconstructed here; this is an inert
 /// placeholder rather than a real measurement, and the reporting pipeline
 /// (`results_matrix`/`per_budget_packages`) never reads this field.
+///
+/// [`dedupe_runs`] is applied to (a private clone of) `scenarios` FIRST, so
+/// a multi-budget archive (one written since M2d-3 with duplicate
+/// `(instance, seed)` runs across budgets) is canonicalized to one run per
+/// `(instance, seed)` — the largest-budget one — before any record is
+/// built; the returned `RunKey`s are therefore always unique per queried
+/// budget, never duplicated with conflicting `best_f`.
 pub fn ioh_records(scenarios: &[IohScenario], budgets: &[u64]) -> Result<Vec<RunRecord>, ExperimentError> {
+    let mut scenarios = scenarios.to_vec();
+    dedupe_runs(&mut scenarios)?;
+
     let mut records = Vec::new();
-    for sc in scenarios {
+    for sc in &scenarios {
         for run in &sc.runs {
             let run_label = format!("{}/f{}d{}i{}", sc.algo, sc.fid, sc.dim, run.instance);
             let seed = run.seed.ok_or_else(|| ExperimentError::IohRead(format!(
@@ -468,6 +568,7 @@ mod tests {
             for (planned_run, ioh_run) in runs.iter().zip(&sc.runs) {
                 assert_eq!(ioh_run.instance, planned_run.instance);
                 assert_eq!(ioh_run.seed, Some(planned_run.seed));
+                assert_eq!(ioh_run.budget, Some(planned_run.key.budget));
 
                 let problem = sezgi_problems::BbobProblem::new(
                     planned_run.fid, planned_run.dim, planned_run.instance,
@@ -592,6 +693,7 @@ mod tests {
         assert_eq!(run0.instance, 7);
         assert_eq!(run0.seed, None);
         assert_eq!(run0.f_opt, None);
+        assert_eq!(run0.budget, None);
         assert_eq!(run0.rows, vec![(1, 5.0)]);
     }
 
@@ -606,7 +708,7 @@ mod tests {
             fid: 1,
             fname: "Sphere".into(),
             dim: 5,
-            runs: vec![IohRun { instance: 1, seed, f_opt, rows, evals }],
+            runs: vec![IohRun { instance: 1, seed, f_opt, budget: None, rows, evals }],
         }
     }
 
@@ -749,5 +851,135 @@ mod tests {
                 "budget {budget}: latex_tests must be NaN-free: {}", pkg.latex_tests
             );
         }
+    }
+
+    // -------------------------------------------------------------
+    // dedupe_runs / multi-budget logging (M2d-3 Task 1)
+    // -------------------------------------------------------------
+
+    /// CORE test: `run_experiment_logged` with TWO budgets — previously
+    /// rejected by the (now-removed) `MultiBudgetLogging` guard — succeeds,
+    /// and the resulting archive is unambiguous end to end: `read_ioh_root`
+    /// plus `dedupe_runs` collapses each `(instance, seed)` pair down to
+    /// its one largest-budget run, and `ioh_records` (which dedupes
+    /// internally) returns unique `RunKey`s with no conflicting `best_f`
+    /// for the same key. This is the M2d-2 final-review probe scenario the
+    /// multi-budget guard was originally added to guard against.
+    #[test]
+    fn multi_budget_logging_dedupes_to_unique_records() {
+        let spec = ExperimentSpec {
+            name: "multi-budget-probe".into(),
+            seeds: vec![101, 202],
+            budgets: vec![200, 400],
+            algorithms: vec![
+                AlgoEntry {
+                    name: "de".into(),
+                    source: AlgoSource::Preset { kind: "de_rand_1".into(), pop_size: Some(8) },
+                },
+                AlgoEntry {
+                    name: "rs".into(),
+                    source: AlgoSource::Preset { kind: "random_search".into(), pop_size: Some(8) },
+                },
+            ],
+            problems: vec![ProblemEntry {
+                suite: "bbob".into(), fid: 1, dim: 5, instances: vec![1, 2, 3, 4, 5],
+            }],
+        };
+
+        let tmp = tempfile::tempdir().unwrap();
+        let (runner_records, _finishes) = run_experiment_logged(&spec, tmp.path(), false, None).unwrap();
+        // 2 algos x 5 instances x 2 seeds x 2 budgets
+        assert_eq!(runner_records.len(), 40);
+
+        let raw_scenarios = read_ioh_root(tmp.path()).unwrap();
+        assert_eq!(raw_scenarios.len(), 2, "one scenario per algo");
+        for sc in &raw_scenarios {
+            // 5 instances x 2 seeds x 2 budgets: both budgets' runs present
+            // pre-dedupe, i.e. duplicate (instance, seed) pairs on disk.
+            assert_eq!(sc.runs.len(), 20);
+        }
+
+        // read_ioh_root + dedupe_runs: exactly one run per (instance, seed),
+        // and it must be the larger-budget (400) one.
+        let mut deduped = raw_scenarios.clone();
+        dedupe_runs(&mut deduped).unwrap();
+        for sc in &deduped {
+            assert_eq!(sc.runs.len(), 10, "5 instances x 2 seeds, one run each after dedupe");
+            for run in &sc.runs {
+                assert_eq!(run.budget, Some(400), "dedupe must keep the largest-budget run");
+            }
+        }
+
+        // ioh_records dedupes internally, so passing the RAW (non-deduped)
+        // scenarios must still yield unique (key -> best_f) pairs: 2 algos x
+        // 10 (instance, seed) groups x 2 queried budgets = 40 records, 40
+        // unique keys, and every key's best_f must agree with the runner's
+        // own in-memory record at the run's actual, full (400) budget.
+        let records = ioh_records(&raw_scenarios, &[200, 400]).unwrap();
+        assert_eq!(records.len(), 40);
+
+        let mut seen: HashMap<RunKey, f64> = HashMap::new();
+        for r in &records {
+            let prior = seen.insert(r.key.clone(), r.best_f);
+            assert!(prior.is_none(), "duplicate key {} with conflicting best_f", r.key);
+        }
+        assert_eq!(seen.len(), 40, "all 40 keys must be unique");
+
+        let runner_by_key: HashMap<RunKey, f64> =
+            runner_records.iter().map(|r| (r.key.clone(), r.best_f)).collect();
+        for r in records.iter().filter(|r| r.key.budget == 400) {
+            let expected = runner_by_key.get(&r.key)
+                .unwrap_or_else(|| panic!("no runner record for key {}", r.key));
+            assert_eq!(
+                r.best_f.to_bits(), expected.to_bits(),
+                "budget-400 disk record must be bit-identical to the runner's for {}", r.key,
+            );
+        }
+    }
+
+    /// Legacy ambiguity: a hand-written meta with two runs sharing the same
+    /// `(instance, seed)` and neither carrying a `budget` key (a pre-M2d-3
+    /// archive) is genuinely ambiguous — `dedupe_runs` must error, matching
+    /// "ambiguous", rather than silently picking one or pooling both.
+    #[test]
+    fn dedupe_runs_errors_on_ambiguous_duplicate_without_budget() {
+        let mut scenarios = vec![IohScenario {
+            algo: "de".into(),
+            suite: "sezgi-bbob".into(),
+            fid: 1,
+            fname: "Sphere".into(),
+            dim: 5,
+            runs: vec![
+                IohRun { instance: 1, seed: Some(42), f_opt: Some(0.0), budget: None,
+                          rows: vec![(1, 5.0)], evals: 1 },
+                IohRun { instance: 1, seed: Some(42), f_opt: Some(0.0), budget: None,
+                          rows: vec![(1, 3.0)], evals: 1 },
+            ],
+        }];
+
+        let err = dedupe_runs(&mut scenarios).unwrap_err();
+        assert!(err.to_string().contains("ambiguous"), "error must mention 'ambiguous': {err}");
+    }
+
+    /// Regression guard alongside the ambiguity test above: a single
+    /// legacy run (no duplicate, no budget) is never ambiguous and must
+    /// read through `dedupe_runs` unchanged.
+    #[test]
+    fn dedupe_runs_leaves_single_legacy_run_without_budget_untouched() {
+        let mut scenarios = vec![IohScenario {
+            algo: "de".into(),
+            suite: "sezgi-bbob".into(),
+            fid: 1,
+            fname: "Sphere".into(),
+            dim: 5,
+            runs: vec![IohRun {
+                instance: 1, seed: None, f_opt: None, budget: None,
+                rows: vec![(1, 5.0)], evals: 1,
+            }],
+        }];
+
+        dedupe_runs(&mut scenarios).unwrap();
+        assert_eq!(scenarios[0].runs.len(), 1, "a single run is never ambiguous");
+        assert_eq!(scenarios[0].runs[0].budget, None);
     }
 }

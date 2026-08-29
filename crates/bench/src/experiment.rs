@@ -221,10 +221,6 @@ pub enum ExperimentError {
     IohRead(String),
     #[error("COCO export error: {0}")]
     CocoExport(String),
-    #[error("IOH logging with multiple budgets is not supported: the archive cannot \
-             distinguish runs by budget. Log at the single largest budget and derive \
-             smaller budgets on read (ioh_records curtailed views).")]
-    MultiBudgetLogging,
 }
 
 const VALID_PRESET_KINDS: &[&str] = &[
@@ -433,7 +429,9 @@ pub(crate) fn build_ioh_observers(
             ));
             loggers.len() - 1
         });
-        observers.push(loggers[idx].start_run_with(run.instance, run.seed, problem.f_opt()));
+        observers.push(loggers[idx].start_run_with(
+            run.instance, run.seed, problem.f_opt(), run.key.budget,
+        ));
     }
     Ok((loggers, observers))
 }
@@ -553,14 +551,16 @@ pub fn run_experiment_parallel(
 /// `RunRecord`s are bit-identical to [`run_experiment_sequential`]'s for the
 /// same `spec`.
 ///
-/// `spec.budgets.len() > 1` is rejected up front with
-/// [`ExperimentError::MultiBudgetLogging`]: the IOH archive records no
-/// budget, so the budget-200 and budget-400 runs of the same
-/// `(instance, seed)` would land as indistinguishable runs in one scenario,
-/// and a later `ioh_records` read would return duplicate keys with
-/// conflicting `best_f`, silently pooled by `results_matrix`. Log at the
-/// single largest budget and derive smaller budgets on read instead (see
-/// [`crate::ioh_read::ioh_records`]'s curtailed-view semantics).
+/// `spec.budgets.len() > 1` is fully supported (M2d-3): each budget is
+/// logged as its own run via [`build_ioh_observers`]'s
+/// `IohLogger::start_run_with(.., budget)` call, so the budget-200 and
+/// budget-400 runs of the same `(instance, seed)` land as DISTINCT run
+/// entries in the archive, each carrying its own `budget` meta key. A later
+/// read (`ioh_records`, `ecdf`, `ecdf_per_algo`, `coco_export`) canonicalizes
+/// them back down to one run per `(instance, seed)` via
+/// [`crate::ioh_read::dedupe_runs`] (keeping the largest-budget one — a
+/// curtailed view subsumes a smaller one), so no duplicate key or
+/// conflicting `best_f` ever reaches a caller.
 ///
 /// A mid-run error drops every [`IohLogger`] without calling `finish()` on
 /// it, so no partial IOH tree is ever written for a run that didn't
@@ -572,10 +572,6 @@ pub fn run_experiment_logged(
     threads: Option<usize>,
 ) -> Result<(Vec<RunRecord>, Vec<IohFinish>), ExperimentError> {
     use rayon::prelude::*;
-
-    if spec.budgets.len() > 1 {
-        return Err(ExperimentError::MultiBudgetLogging);
-    }
 
     let planned = enumerate(spec)?;
 
@@ -1006,23 +1002,31 @@ mod tests {
         }
     }
 
-    /// CONTROLLER RULING: a multi-budget spec logged via
-    /// `run_experiment_logged` must be rejected up front — the IOH archive
-    /// cannot distinguish runs by budget, so budget-200 and budget-400 runs
-    /// of the same (instance, seed) would land as indistinguishable runs in
-    /// one scenario.
+    /// M2d-3: the multi-budget rejection was LIFTED — a multi-budget spec
+    /// logged via `run_experiment_logged` now succeeds; each budget lands
+    /// as its own run, distinguished by the `budget` meta key
+    /// `IohLogger::start_run_with` now writes.
     #[test]
-    fn run_experiment_logged_rejects_multiple_budgets() {
+    fn run_experiment_logged_allows_multiple_budgets() {
         let mut spec = parallel_test_spec();
         spec.budgets = vec![300, 600];
 
         let tmp = tempfile::tempdir().unwrap();
-        let err = run_experiment_logged(&spec, tmp.path(), false, None).unwrap_err();
-        assert!(matches!(err, ExperimentError::MultiBudgetLogging), "got {err:?}");
-        assert!(
-            err.to_string().contains("multiple budgets"),
-            "error message must mention 'multiple budgets', got: {err}"
-        );
+        let (records, finishes) = run_experiment_logged(&spec, tmp.path(), false, None).unwrap();
+        // 2 algos x 1 problem x 2 instances x 2 seeds x 2 budgets
+        assert_eq!(records.len(), 16);
+        assert!(!finishes.is_empty());
+
+        let scenarios = crate::ioh_read::read_ioh_root(tmp.path()).unwrap();
+        // Every (instance, seed) pair was logged twice (once per budget) --
+        // pre-dedupe -- so ioh_records must still return unique, non-
+        // conflicting keys once it canonicalizes via dedupe_runs internally.
+        let disk_records = crate::ioh_read::ioh_records(&scenarios, &[300, 600]).unwrap();
+        assert_eq!(disk_records.len(), 16, "2 algos x 2 instances x 2 seeds x 2 queried budgets");
+        let mut seen: std::collections::HashSet<RunKey> = std::collections::HashSet::new();
+        for r in &disk_records {
+            assert!(seen.insert(r.key.clone()), "duplicate key {} in disk records", r.key);
+        }
     }
 
     #[test]
