@@ -7,11 +7,13 @@ use sezgi_core::space::{BlockValues, Genotype};
 /// preset**: faithful to the primary source's equations, with a pinned
 /// deterministic draw order and property tests, but NOT validated against
 /// the paper's (or any other publication's) reported benchmark numbers. See
-/// Camacho-Villalón, Birattari & Stützle (ANTS 2020 / *ITOR*) for the
-/// equivalence critique showing GWO's update mechanism is, component for
+/// the equivalence critique showing GWO's update mechanism is, component for
 /// component, a relabeled special case of older PSO-family search
 /// operators — cited here conservatively, as background on why this is
-/// "labeled metaphor" rather than a mechanism sezgi treats as novel.
+/// "labeled metaphor" rather than a mechanism sezgi treats as novel:
+/// Camacho-Villalón, Dorigo & Stützle (ANTS 2020, three-algorithm study);
+/// Camacho-Villalón, Dorigo & Stützle (*ITOR* journal extension, six
+/// algorithms).
 ///
 /// **Pinned update rule** (part of the RNG-stream contract):
 /// - `a = 2 − 2·progress`, where `progress = ctx.eval.used() / ctx.eval.budget()`
