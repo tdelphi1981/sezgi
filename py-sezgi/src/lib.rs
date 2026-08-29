@@ -1,8 +1,11 @@
-use numpy::{PyArray2, PyReadonlyArray1};
+use numpy::{PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use sezgi_bench::IohLogger;
+use sezgi_bench::{
+    run_experiment_parallel, run_experiment_sequential, run_experiment_with_checkpoint,
+    ExperimentSpec, IohLogger,
+};
 use sezgi_components::{presets, register_builtins};
 use sezgi_core::component::Registry;
 use sezgi_core::engine::{Engine, RunConfig};
@@ -10,7 +13,12 @@ use sezgi_core::problem::Problem;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 use sezgi_core::spec::AlgorithmSpec;
 use sezgi_problems::BbobProblem;
+use sezgi_stats::{
+    bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman, paper_package,
+    plackett_luce, wilcoxon_signed_rank,
+};
 use std::panic::{self, AssertUnwindSafe};
+use std::path::Path;
 
 enum Inner {
     Bbob(BbobProblem),
@@ -162,8 +170,240 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
     Ok(d.into())
 }
 
+/// Runs an [`ExperimentSpec`] (parsed from `spec_toml`) and returns its
+/// `RunRecord`s as a list of dicts. `journal=None` runs via
+/// `run_experiment_parallel`/`run_experiment_sequential` (chosen by
+/// `parallel`); `journal=Some(path)` runs via
+/// `run_experiment_with_checkpoint`, which resumes from — and appends to —
+/// an existing journal file at `path`. The GIL is released
+/// (`py.allow_threads`) for the duration of the run: experiment problems
+/// are bbob-only (no Python callbacks), so no Python object is touched
+/// while the GIL is released.
+#[pyfunction]
+#[pyo3(signature = (spec_toml, journal=None, parallel=true, threads=None))]
+fn run_experiment(
+    py: Python<'_>,
+    spec_toml: &str,
+    journal: Option<&str>,
+    parallel: bool,
+    threads: Option<usize>,
+) -> PyResult<Py<PyList>> {
+    let spec = ExperimentSpec::from_toml(spec_toml)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let records = if let Some(journal_path) = journal {
+        let path = Path::new(journal_path);
+        py.allow_threads(|| {
+            run_experiment_with_checkpoint(&spec, spec_toml, path, parallel, threads)
+        })
+    } else if parallel {
+        py.allow_threads(|| run_experiment_parallel(&spec, threads))
+    } else {
+        py.allow_threads(|| run_experiment_sequential(&spec, |_| {}))
+    }
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let mut rows = Vec::with_capacity(records.len());
+    for r in records {
+        let d = PyDict::new(py);
+        d.set_item("algo", &r.key.algo)?;
+        d.set_item("fid", r.key.fid)?;
+        d.set_item("dim", r.key.dim)?;
+        d.set_item("instance", r.key.instance)?;
+        d.set_item("seed", r.key.seed)?;
+        d.set_item("budget", r.key.budget)?;
+        d.set_item("best_f", r.best_f)?;
+        d.set_item("f_opt", r.f_opt)?;
+        d.set_item("gap", r.best_f - r.f_opt)?;
+        d.set_item("evals_used", r.evals_used)?;
+        d.set_item("wall_secs", r.wall_secs)?;
+        rows.push(d);
+    }
+    Ok(PyList::new(py, rows)?.into())
+}
+
+// ---------------------------------------------------------------------
+// Statistics bindings (sezgi.stats)
+// ---------------------------------------------------------------------
+
+/// Extracts a `Vec<f64>` from either a Python list/sequence of floats or a
+/// 1-D numpy float64 array (tried first, falling back to plain `extract`).
+fn extract_f64_vec(obj: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+    if let Ok(ro) = obj.extract::<PyReadonlyArray1<f64>>() {
+        return Ok(ro.as_array().iter().copied().collect());
+    }
+    obj.extract::<Vec<f64>>()
+}
+
+/// Extracts a results matrix (`Vec<Vec<f64>>`) from either a Python list of
+/// lists (rows may themselves be numpy arrays) or a 2-D numpy float64
+/// array.
+fn extract_matrix(obj: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<f64>>> {
+    if let Ok(ro) = obj.extract::<PyReadonlyArray2<f64>>() {
+        let arr = ro.as_array();
+        let mut out = Vec::with_capacity(arr.nrows());
+        for row in arr.rows() {
+            out.push(row.to_vec());
+        }
+        return Ok(out);
+    }
+    let mut result = Vec::new();
+    for item in obj.try_iter()? {
+        result.push(extract_f64_vec(&item?)?);
+    }
+    Ok(result)
+}
+
+#[pyfunction]
+fn stats_friedman(py: Python<'_>, results: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    let matrix = extract_matrix(results)?;
+    let r = friedman(&matrix).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let d = PyDict::new(py);
+    d.set_item("statistic", r.statistic)?;
+    d.set_item("p_value", r.p_value)?;
+    d.set_item("mean_ranks", PyList::new(py, &r.mean_ranks)?)?;
+    Ok(d.into())
+}
+
+#[pyfunction]
+fn stats_wilcoxon(
+    py: Python<'_>,
+    a: &Bound<'_, PyAny>,
+    b: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyDict>> {
+    let av = extract_f64_vec(a)?;
+    let bv = extract_f64_vec(b)?;
+    let r = wilcoxon_signed_rank(&av, &bv).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let d = PyDict::new(py);
+    d.set_item("w_statistic", r.w_statistic)?;
+    d.set_item("z", r.z)?;
+    d.set_item("p_value", r.p_value)?;
+    d.set_item("n_effective", r.n_effective)?;
+    Ok(d.into())
+}
+
+#[pyfunction]
+fn stats_cliffs_delta(a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<f64> {
+    let av = extract_f64_vec(a)?;
+    let bv = extract_f64_vec(b)?;
+    Ok(cliffs_delta(&av, &bv))
+}
+
+#[pyfunction]
+fn stats_cliffs_magnitude(delta: f64) -> &'static str {
+    cliffs_magnitude(delta)
+}
+
+#[pyfunction]
+#[pyo3(signature = (a, b, rope=0.0, samples=20000, seed=1))]
+fn stats_bayesian_signed_rank(
+    py: Python<'_>,
+    a: &Bound<'_, PyAny>,
+    b: &Bound<'_, PyAny>,
+    rope: f64,
+    samples: u64,
+    seed: u64,
+) -> PyResult<Py<PyDict>> {
+    let av = extract_f64_vec(a)?;
+    let bv = extract_f64_vec(b)?;
+    let r = bayesian_signed_rank(&av, &bv, rope, samples, seed)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let d = PyDict::new(py);
+    d.set_item("p_left", r.p_left)?;
+    d.set_item("p_rope", r.p_rope)?;
+    d.set_item("p_right", r.p_right)?;
+    Ok(d.into())
+}
+
+#[pyfunction]
+fn stats_plackett_luce(py: Python<'_>, rankings: Vec<Vec<usize>>) -> PyResult<Py<PyDict>> {
+    let r = plackett_luce(&rankings).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let d = PyDict::new(py);
+    d.set_item("worths", PyList::new(py, &r.worths)?)?;
+    d.set_item("p_best", PyList::new(py, &r.p_best)?)?;
+    d.set_item("iterations", r.iterations)?;
+    Ok(d.into())
+}
+
+#[pyfunction]
+#[pyo3(signature = (algo_names, problem_names, results, rope=0.0, samples=20000, seed=1))]
+fn stats_paper_package(
+    py: Python<'_>,
+    algo_names: Vec<String>,
+    problem_names: Vec<String>,
+    results: &Bound<'_, PyAny>,
+    rope: f64,
+    samples: u64,
+    seed: u64,
+) -> PyResult<Py<PyDict>> {
+    let matrix = extract_matrix(results)?;
+    let pkg = paper_package(&algo_names, &problem_names, &matrix, rope, samples, seed)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let d = PyDict::new(py);
+
+    let friedman_d = PyDict::new(py);
+    friedman_d.set_item("statistic", pkg.friedman.statistic)?;
+    friedman_d.set_item("p_value", pkg.friedman.p_value)?;
+    friedman_d.set_item("mean_ranks", PyList::new(py, &pkg.friedman.mean_ranks)?)?;
+    d.set_item("friedman", friedman_d)?;
+
+    d.set_item("nemenyi_cd", pkg.nemenyi_cd)?;
+
+    let pw_list = PyList::empty(py);
+    for &(i, j, p) in &pkg.pairwise_wilcoxon_holm {
+        let row = PyList::empty(py);
+        row.append(i)?;
+        row.append(j)?;
+        row.append(p)?;
+        pw_list.append(row)?;
+    }
+    d.set_item("pairwise_wilcoxon_holm", pw_list)?;
+
+    let cliffs_list = PyList::empty(py);
+    for &(i, j, delta) in &pkg.cliffs {
+        let row = PyList::empty(py);
+        row.append(i)?;
+        row.append(j)?;
+        row.append(delta)?;
+        cliffs_list.append(row)?;
+    }
+    d.set_item("cliffs", cliffs_list)?;
+
+    let bayes_list = PyList::empty(py);
+    for (i, j, res) in &pkg.bayes {
+        let bd = PyDict::new(py);
+        bd.set_item("p_left", res.p_left)?;
+        bd.set_item("p_rope", res.p_rope)?;
+        bd.set_item("p_right", res.p_right)?;
+        let row = PyList::empty(py);
+        row.append(*i)?;
+        row.append(*j)?;
+        row.append(bd)?;
+        bayes_list.append(row)?;
+    }
+    d.set_item("bayes", bayes_list)?;
+
+    let pl_d = PyDict::new(py);
+    pl_d.set_item("worths", PyList::new(py, &pkg.plackett_luce.worths)?)?;
+    pl_d.set_item("p_best", PyList::new(py, &pkg.plackett_luce.p_best)?)?;
+    pl_d.set_item("iterations", pkg.plackett_luce.iterations)?;
+    d.set_item("plackett_luce", pl_d)?;
+
+    d.set_item("latex_summary", pkg.latex_summary.clone())?;
+    d.set_item("latex_tests", pkg.latex_tests.clone())?;
+
+    Ok(d.into())
+}
+
 #[pyfunction] fn preset_de_rand_1(pop_size: usize, budget: u64) -> String {
     presets::de_rand_1(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_de_best_1(pop_size: usize, budget: u64) -> String {
+    presets::de_best_1(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_jde(pop_size: usize, budget: u64) -> String {
+    presets::jde(pop_size, budget).to_json()
 }
 #[pyfunction] fn preset_ga_real(pop_size: usize, budget: u64) -> String {
     presets::ga_real(pop_size, budget).to_json()
@@ -171,6 +411,32 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
 #[pyfunction] fn preset_pso(pop_size: usize, budget: u64) -> String {
     presets::pso(pop_size, budget).to_json()
 }
+#[pyfunction] fn preset_sa(budget: u64) -> String {
+    presets::sa(budget).to_json()
+}
+#[pyfunction] fn preset_shade(pop_size: usize, budget: u64) -> String {
+    presets::shade(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_lshade(dim: usize, budget: u64) -> String {
+    presets::lshade(dim, budget).to_json()
+}
+#[pyfunction] fn preset_cmaes(pop_size: usize, budget: u64) -> String {
+    presets::cmaes(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_cmaes_ipop(dim: usize, budget: u64) -> String {
+    presets::cmaes_ipop(dim, budget).to_json()
+}
+#[pyfunction] fn preset_nelder_mead(dim: usize, budget: u64) -> String {
+    presets::nelder_mead(dim, budget).to_json()
+}
+#[pyfunction] fn preset_random_search(pop_size: usize, budget: u64) -> String {
+    presets::random_search(pop_size, budget).to_json()
+}
+// preset_es_mu_plus_lambda is intentionally NOT exposed here: its Rust
+// signature takes a `Distribution` (an enum with nested params, e.g.
+// gaussian mean/sigma), which does not have a clean pyfunction argument
+// mapping. Bridging it (accepting a JSON-encoded dist, or a richer PyO3
+// type) is deferred to M2d.
 
 #[pymodule]
 fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -178,8 +444,25 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bbob, m)?)?;
     m.add_function(wrap_pyfunction!(from_callable, m)?)?;
     m.add_function(wrap_pyfunction!(solve, m)?)?;
+    m.add_function(wrap_pyfunction!(run_experiment, m)?)?;
+    m.add_function(wrap_pyfunction!(stats_friedman, m)?)?;
+    m.add_function(wrap_pyfunction!(stats_wilcoxon, m)?)?;
+    m.add_function(wrap_pyfunction!(stats_cliffs_delta, m)?)?;
+    m.add_function(wrap_pyfunction!(stats_cliffs_magnitude, m)?)?;
+    m.add_function(wrap_pyfunction!(stats_bayesian_signed_rank, m)?)?;
+    m.add_function(wrap_pyfunction!(stats_plackett_luce, m)?)?;
+    m.add_function(wrap_pyfunction!(stats_paper_package, m)?)?;
     m.add_function(wrap_pyfunction!(preset_de_rand_1, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_de_best_1, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_jde, m)?)?;
     m.add_function(wrap_pyfunction!(preset_ga_real, m)?)?;
     m.add_function(wrap_pyfunction!(preset_pso, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_sa, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_shade, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_lshade, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_cmaes, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_cmaes_ipop, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_nelder_mead, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_random_search, m)?)?;
     Ok(())
 }

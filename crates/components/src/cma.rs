@@ -185,10 +185,8 @@ impl Generator for CmaGenerator {
     }
 
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "gen/cma",
-            supported_blocks: SupportedBlocks::Only(vec!["float"]),
-            requires: vec![],
-            provides: vec![
+        ComponentMeta::new("gen/cma", SupportedBlocks::Only(vec!["float"]))
+            .with_provides(vec![
                 StateReq::of::<Vec<f64>>("cma_mean"),
                 StateReq::of::<f64>("cma_sigma"),
                 StateReq::of::<Vec<Vec<f64>>>("cma_cov"),
@@ -198,7 +196,8 @@ impl Generator for CmaGenerator {
                 StateReq::of::<Vec<Vec<f64>>>("cma_eig_b"),
                 StateReq::of::<Vec<f64>>("cma_eig_d"),
                 StateReq::of::<Vec<Vec<f64>>>("cma_ys"),
-            ] }
+            ])
+            .with_min_pop(2)
     }
 }
 
@@ -412,9 +411,8 @@ impl Replacer for CmaUpdateReplacer {
     }
 
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "replace/cma-update",
-            supported_blocks: SupportedBlocks::Only(vec!["float"]),
-            requires: vec![
+        ComponentMeta::new("replace/cma-update", SupportedBlocks::Only(vec!["float"]))
+            .with_requires(vec![
                 StateReq::of::<Vec<f64>>("cma_mean"),
                 StateReq::of::<f64>("cma_sigma"),
                 StateReq::of::<Vec<Vec<f64>>>("cma_cov"),
@@ -424,8 +422,7 @@ impl Replacer for CmaUpdateReplacer {
                 StateReq::of::<Vec<Vec<f64>>>("cma_eig_b"),
                 StateReq::of::<Vec<f64>>("cma_eig_d"),
                 StateReq::of::<Vec<Vec<f64>>>("cma_ys"),
-            ],
-            provides: vec![] }
+            ])
     }
 }
 

@@ -60,6 +60,8 @@ pub enum SpecError {
     StateTypeMismatch { key: String, expected: String, found: String },
     #[error("spec must contain at least one stage")]
     EmptyStages,
+    #[error("component `{kind}` requires population size >= {min_pop}, but pop_size is {pop_size}")]
+    PopulationTooSmall { kind: String, min_pop: usize, pop_size: usize },
 }
 
 impl AlgorithmSpec {
@@ -121,6 +123,16 @@ impl AlgorithmSpec {
                 }
             }
         }
+        // (4) minimum population size
+        for m in &metas {
+            if self.pop_size < m.min_pop {
+                return Err(SpecError::PopulationTooSmall {
+                    kind: m.kind.to_string(),
+                    min_pop: m.min_pop,
+                    pop_size: self.pop_size,
+                });
+            }
+        }
         Ok(())
     }
 }
@@ -137,9 +149,8 @@ mod tests {
     impl Generator for FloatOnlyGen {
         fn generate(&self, _p: &crate::problem::Population, _c: &mut Ctx) -> Vec<Genotype> { vec![] }
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta { kind: "float-only",
-                supported_blocks: SupportedBlocks::Only(vec!["float"]),
-                requires: vec![StateReq::of::<Vec<f64>>("velocity")], provides: vec![] }
+            ComponentMeta::new("float-only", SupportedBlocks::Only(vec!["float"]))
+                .with_requires(vec![StateReq::of::<Vec<f64>>("velocity")])
         }
     }
     struct NoopReplacer;
@@ -147,24 +158,22 @@ mod tests {
         fn replace(&self, _p: &mut crate::problem::Population, _i: Vec<Genotype>,
                    _f: Vec<f64>, _c: &mut Ctx) {}
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta { kind: "noop", supported_blocks: SupportedBlocks::All,
-                requires: vec![], provides: vec![] }
+            ComponentMeta::new("noop", SupportedBlocks::All)
         }
     }
     struct VelInit;
     impl Initializer for VelInit {
         fn initialize(&self, _n: usize, _c: &mut Ctx) -> Vec<Genotype> { vec![] }
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta { kind: "vel-init", supported_blocks: SupportedBlocks::All,
-                requires: vec![], provides: vec![StateReq::of::<Vec<f64>>("velocity")] }
+            ComponentMeta::new("vel-init", SupportedBlocks::All)
+                .with_provides(vec![StateReq::of::<Vec<f64>>("velocity")])
         }
     }
     struct NoopBoundary;
     impl BoundaryHandler for NoopBoundary {
         fn repair(&self, _g: &mut Genotype, _s: &SearchSpace, _c: &mut Ctx) {}
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta { kind: "noop-b", supported_blocks: SupportedBlocks::All,
-                requires: vec![], provides: vec![] }
+            ComponentMeta::new("noop-b", SupportedBlocks::All)
         }
     }
 
@@ -233,8 +242,7 @@ mod tests {
         impl Initializer for PlainInit {
             fn initialize(&self, _n: usize, _c: &mut Ctx) -> Vec<Genotype> { vec![] }
             fn meta(&self) -> ComponentMeta {
-                ComponentMeta { kind: "plain", supported_blocks: SupportedBlocks::All,
-                    requires: vec![], provides: vec![] }
+                ComponentMeta::new("plain", SupportedBlocks::All)
             }
         }
         r.register_initializer("plain", |_| Ok(Box::new(PlainInit)));
@@ -249,6 +257,39 @@ mod tests {
         let mut s = spec("vel-init");
         s.stages[0].generator.kind = "yok".into();
         assert!(matches!(s.validate(&registry(), &space), Err(SpecError::Component(_))));
+    }
+
+    /// Mirrors `presets::de_rand_1`'s shape (a `gen/de`-like generator with
+    /// `min_pop: 4`, paired with a greedy replacer) without depending on the
+    /// `components` crate (which itself depends on `core`). `pop_size: 3` is
+    /// below `min_pop`, so `validate`'s check (4) must reject it with
+    /// `PopulationTooSmall` — before the generator's own runtime assert
+    /// (`pop.len() >= 4`) ever gets a chance to fire.
+    struct DeShapedGen;
+    impl Generator for DeShapedGen {
+        fn generate(&self, _p: &crate::problem::Population, _c: &mut Ctx) -> Vec<Genotype> { vec![] }
+        fn meta(&self) -> ComponentMeta {
+            ComponentMeta::new("gen/de", SupportedBlocks::Only(vec!["float"])).with_min_pop(4)
+        }
+    }
+
+    #[test]
+    fn population_too_small_rejected() {
+        let mut r = registry();
+        r.register_generator("gen/de", |_| Ok(Box::new(DeShapedGen)));
+        let space = SearchSpace::new(vec![Block::Float { lo: 0.0, hi: 1.0, n: 2 }]).unwrap();
+        let mut s = spec("vel-init");
+        s.pop_size = 3;
+        s.stages[0].generator = ComponentSpec { kind: "gen/de".into(), params: serde_json::json!({}) };
+        let e = s.validate(&r, &space);
+        match e {
+            Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+                assert_eq!(kind, "gen/de");
+                assert_eq!(min_pop, 4);
+                assert_eq!(pop_size, 3);
+            }
+            other => panic!("expected PopulationTooSmall, got {other:?}"),
+        }
     }
 
     #[test]

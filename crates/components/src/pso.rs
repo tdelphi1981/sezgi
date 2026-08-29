@@ -49,14 +49,12 @@ impl Generator for PsoGenerator {
         }).collect()
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "gen/pso",
-            supported_blocks: SupportedBlocks::Only(vec!["float"]),
-            requires: vec![],
-            provides: vec![
+        ComponentMeta::new("gen/pso", SupportedBlocks::Only(vec!["float"]))
+            .with_provides(vec![
                 StateReq::of::<Vec<Vec<f64>>>("pso_velocity"),
                 StateReq::of::<Vec<Vec<f64>>>("pso_pbest"),
                 StateReq::of::<Vec<f64>>("pso_pbest_f"),
-            ] }
+            ])
     }
 }
 
@@ -81,13 +79,12 @@ impl Replacer for PsoCommit {
         pop.fitness = of;
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "replace/pso-commit",
-            supported_blocks: SupportedBlocks::Only(vec!["float"]),
-            requires: vec![
+        ComponentMeta::new("replace/pso-commit", SupportedBlocks::Only(vec!["float"]))
+            .with_requires(vec![
                 StateReq::of::<Vec<Vec<f64>>>("pso_velocity"),
                 StateReq::of::<Vec<Vec<f64>>>("pso_pbest"),
                 StateReq::of::<Vec<f64>>("pso_pbest_f"),
-            ], provides: vec![] }
+            ])
     }
 }
 

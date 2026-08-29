@@ -24,9 +24,43 @@ pub struct ComponentMeta {
     pub supported_blocks: SupportedBlocks,
     pub requires: Vec<StateReq>,
     pub provides: Vec<StateReq>,
+    /// Smallest population size this component can operate on. Checked by
+    /// `AlgorithmSpec::validate` (static, pre-run) as well as by each
+    /// component's own runtime assertions (dynamic backstop, since some
+    /// requirements — e.g. Nelder-Mead's `pop_size >= dim + 1` — depend on
+    /// the search space and can't be expressed as a fixed constant here).
+    pub min_pop: usize,
 }
 
 impl ComponentMeta {
+    /// Start a meta with empty `requires`/`provides` and `min_pop: 1`. Chain
+    /// `.with_requires(..)`, `.with_provides(..)`, `.with_min_pop(..)` to set
+    /// only the fields that differ from those defaults.
+    pub fn new(kind: &'static str, supported_blocks: SupportedBlocks) -> Self {
+        Self {
+            kind,
+            supported_blocks,
+            requires: vec![],
+            provides: vec![],
+            min_pop: 1,
+        }
+    }
+
+    pub fn with_requires(mut self, requires: Vec<StateReq>) -> Self {
+        self.requires = requires;
+        self
+    }
+
+    pub fn with_provides(mut self, provides: Vec<StateReq>) -> Self {
+        self.provides = provides;
+        self
+    }
+
+    pub fn with_min_pop(mut self, min_pop: usize) -> Self {
+        self.min_pop = min_pop;
+        self
+    }
+
     pub fn supports_block(&self, tag: &str) -> bool {
         match &self.supported_blocks {
             SupportedBlocks::All => true,
@@ -162,12 +196,7 @@ mod tests {
                 .collect()
         }
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta {
-                kind: "dummy-init",
-                supported_blocks: SupportedBlocks::Only(vec!["float"]),
-                requires: vec![],
-                provides: vec![],
-            }
+            ComponentMeta::new("dummy-init", SupportedBlocks::Only(vec!["float"]))
         }
     }
 

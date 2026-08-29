@@ -101,6 +101,35 @@ def test_cross_language_determinism():
         "Python trajectory diverged from the Rust golden value"
 
 
+def test_all_presets_solve_smoke():
+    """M2c Task 1: every newly-exposed preset bridge solves bbob f1 (dim 5)
+    with a small budget without error, and produces a finite, actually-used
+    result. `es_mu_plus_lambda` is intentionally excluded (not bridged; see
+    __init__.py's presets docstring)."""
+    dim = 5
+    p = sezgi.bbob(fid=1, dim=dim, instance=1)
+    budget = 2000
+
+    specs = {
+        "de_best_1": sezgi.presets.de_best_1(pop_size=20, budget=budget),
+        "jde": sezgi.presets.jde(pop_size=20, budget=budget),
+        "shade": sezgi.presets.shade(pop_size=20, budget=budget),
+        "lshade": sezgi.presets.lshade(dim=dim, budget=budget),
+        "cmaes": sezgi.presets.cmaes(pop_size=8, budget=budget),
+        "cmaes_ipop": sezgi.presets.cmaes_ipop(dim=dim, budget=budget),
+        "sa": sezgi.presets.sa(budget=budget),
+        "random_search": sezgi.presets.random_search(pop_size=20, budget=budget),
+        "nelder_mead": sezgi.presets.nelder_mead(dim=dim, budget=budget),
+    }
+
+    for name, spec in specs.items():
+        r = sezgi.solve(spec, p, master_seed=42)
+        assert r["evals_used"] > 0, f"{name}: no evaluations were used"
+        assert r["best_f"] == r["best_f"], f"{name}: best_f is NaN"  # NaN check
+        assert r["best_f"] not in (float("inf"), float("-inf")), \
+            f"{name}: best_f is not finite ({r['best_f']})"
+
+
 def test_log_dir_reports_skipped_runs(tmp_path):
     p = sezgi.bbob(fid=1, dim=5, instance=1)
     spec = sezgi.presets.de_rand_1(20, 1000)

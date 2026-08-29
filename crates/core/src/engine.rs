@@ -237,8 +237,7 @@ mod tests {
             (0..n).map(|_| uniform_sample(ctx.space, ctx.rng)).collect()
         }
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta { kind: "u-init", supported_blocks: SupportedBlocks::All,
-                requires: vec![], provides: vec![] }
+            ComponentMeta::new("u-init", SupportedBlocks::All)
         }
     }
     struct Resample;
@@ -247,8 +246,7 @@ mod tests {
             (0..pop.len()).map(|_| uniform_sample(ctx.space, ctx.rng)).collect()
         }
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta { kind: "resample", supported_blocks: SupportedBlocks::All,
-                requires: vec![], provides: vec![] }
+            ComponentMeta::new("resample", SupportedBlocks::All)
         }
     }
     struct Greedy;
@@ -260,16 +258,14 @@ mod tests {
             }
         }
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta { kind: "greedy", supported_blocks: SupportedBlocks::All,
-                requires: vec![], provides: vec![] }
+            ComponentMeta::new("greedy", SupportedBlocks::All)
         }
     }
     struct NoB;
     impl BoundaryHandler for NoB {
         fn repair(&self, _g: &mut Genotype, _s: &SearchSpace, _c: &mut Ctx) {}
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta { kind: "no-b", supported_blocks: SupportedBlocks::All,
-                requires: vec![], provides: vec![] }
+            ComponentMeta::new("no-b", SupportedBlocks::All)
         }
     }
 
@@ -350,8 +346,7 @@ mod tests {
             pop.fitness = off_fit;
         }
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta { kind: "unconditional", supported_blocks: SupportedBlocks::All,
-                requires: vec![], provides: vec![] }
+            ComponentMeta::new("unconditional", SupportedBlocks::All)
         }
     }
 
@@ -442,8 +437,8 @@ mod tests {
             self.0.store(new_val, std::sync::atomic::Ordering::SeqCst);
         }
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta { kind: "count-adapter", supported_blocks: SupportedBlocks::All,
-                requires: vec![], provides: vec![StateReq::of::<u64>("adapt_count")] }
+            ComponentMeta::new("count-adapter", SupportedBlocks::All)
+                .with_provides(vec![StateReq::of::<u64>("adapt_count")])
         }
     }
 
@@ -470,8 +465,7 @@ mod tests {
             if ctx.iteration == 3 { Some(RestartDirective { new_pop_size: self.new_pop_size }) } else { None }
         }
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta { kind: "fire-at-3", supported_blocks: SupportedBlocks::All,
-                requires: vec![], provides: vec![] }
+            ComponentMeta::new("fire-at-3", SupportedBlocks::All)
         }
     }
 
@@ -481,8 +475,7 @@ mod tests {
             *self.0.lock().unwrap() = pop.len();
         }
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta { kind: "size-probe", supported_blocks: SupportedBlocks::All,
-                requires: vec![], provides: vec![] }
+            ComponentMeta::new("size-probe", SupportedBlocks::All)
         }
     }
 
@@ -555,8 +548,8 @@ mod tests {
             }
         }
         fn meta(&self) -> ComponentMeta {
-            ComponentMeta { kind: "every-two-iters", supported_blocks: SupportedBlocks::All,
-                requires: vec![], provides: vec![StateReq::of::<u64>("restart_counter")] }
+            ComponentMeta::new("every-two-iters", SupportedBlocks::All)
+                .with_provides(vec![StateReq::of::<u64>("restart_counter")])
         }
     }
 

@@ -56,12 +56,7 @@ impl Replacer for MetropolisReplacer {
     }
 
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta {
-            kind: "replace/metropolis",
-            supported_blocks: SupportedBlocks::All,
-            requires: vec![],
-            provides: vec![],
-        }
+        ComponentMeta::new("replace/metropolis", SupportedBlocks::All)
     }
 }
 

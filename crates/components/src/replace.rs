@@ -28,8 +28,7 @@ impl Replacer for OneToOneGreedy {
         one_to_one(pop, oi, of);
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "replace/one-to-one-greedy",
-            supported_blocks: SupportedBlocks::All, requires: vec![], provides: vec![] }
+        ComponentMeta::new("replace/one-to-one-greedy", SupportedBlocks::All)
     }
 }
 
@@ -39,8 +38,7 @@ impl Replacer for MuPlusLambda {
         mu_plus_lambda(pop, oi, of);
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "replace/mu-plus-lambda",
-            supported_blocks: SupportedBlocks::All, requires: vec![], provides: vec![] }
+        ComponentMeta::new("replace/mu-plus-lambda", SupportedBlocks::All)
     }
 }
 

@@ -37,7 +37,7 @@ impl EvalObserver for IohRunObserver {
         let mut d = self.data.lock().unwrap();
         d.evals = eval_index;
         d.last = Some((eval_index, best_so_far));
-        let improved = self.prev_best.map_or(true, |p| best_so_far < p);
+        let improved = self.prev_best.is_none_or(|p| best_so_far < p);
         if improved {
             d.rows.push((eval_index, best_so_far));
             d.best = Some((eval_index, best_so_far));

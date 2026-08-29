@@ -97,9 +97,7 @@ impl Generator for GaRealGenerator {
         out
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta { kind: "gen/ga-real",
-            supported_blocks: SupportedBlocks::Only(vec!["float"]),
-            requires: vec![], provides: vec![] }
+        ComponentMeta::new("gen/ga-real", SupportedBlocks::Only(vec!["float"]))
     }
 }
 
