@@ -26,11 +26,16 @@
 #'   Results are bit-identical to the sequential (`FALSE`) run.
 #' @param threads Optional rayon thread-pool size (`NULL` uses rayon's
 #'   default).
+#' @param log_dir Optional directory: when given, every run this call
+#'   actually EXECUTES is also logged in IOH-profiler format under that
+#'   directory (a run resumed from `journal` was executed in a PRIOR call
+#'   and is never re-logged). Read back with `sz_read_ioh_records()`.
 #' @returns A data.frame with one row per run and columns `algo`, `fid`,
 #'   `dim`, `instance`, `seed`, `budget`, `best_f`, `f_opt`, `evals`.
 #' @export
-sz_run_experiment <- function(spec_toml, journal = NULL, parallel = TRUE, threads = NULL) {
-  sz_run_experiment_raw(spec_toml, parallel, journal, threads)
+sz_run_experiment <- function(spec_toml, journal = NULL, parallel = TRUE, threads = NULL,
+                               log_dir = NULL) {
+  sz_run_experiment_raw(spec_toml, parallel, journal, threads, log_dir)
 }
 
 #' Build a `sezgi_stats`-shaped results matrix for one `budget` from a

@@ -3,8 +3,11 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use sezgi_bench::{
-    per_budget_packages as bench_per_budget_packages, results_matrix as bench_results_matrix,
-    run_experiment_parallel, run_experiment_sequential, run_experiment_with_checkpoint, Aggregate,
+    coco_export as bench_coco_export, default_targets as bench_default_targets,
+    ecdf as bench_ecdf, ecdf_per_algo as bench_ecdf_per_algo, ioh_records as bench_ioh_records,
+    per_budget_packages as bench_per_budget_packages, read_ioh_root,
+    results_matrix as bench_results_matrix, run_experiment_logged, run_experiment_parallel,
+    run_experiment_sequential, run_experiment_with_checkpoint, Aggregate, EcdfCurve,
     ExperimentSpec, IohLogger, RunKey, RunRecord,
 };
 use sezgi_components::{presets, register_builtins};
@@ -16,8 +19,8 @@ use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 use sezgi_core::spec::AlgorithmSpec;
 use sezgi_problems::BbobProblem;
 use sezgi_stats::{
-    bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman, paper_package,
-    plackett_luce, wilcoxon_signed_rank, PaperPackage, WilcoxonMethod,
+    bayesian_plackett_luce, bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman,
+    paper_package, plackett_luce, wilcoxon_signed_rank, PaperPackage, WilcoxonMethod,
 };
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
@@ -139,7 +142,7 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
                 let mut lg = IohLogger::new(std::path::Path::new(dir), &name,
                     "sezgi-bbob", p.fid(), p.name(),
                     p.space().dim());
-                let obs = lg.start_run(p.instance);
+                let obs = lg.start_run_with(p.instance, master_seed, p.f_opt());
                 // Logger observer is Rust-native (no GIL needed); GIL is released for the run.
                 let r = run_with_bridge(py, || run(p, Some(Box::new(obs))))?;
                 let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -172,6 +175,28 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
     Ok(d.into())
 }
 
+/// Builds a record dict from a [`RunRecord`], with the SAME shape
+/// `run_experiment` returns (keys: `algo, fid, dim, instance, seed, budget,
+/// best_f, f_opt, gap, evals_used, wall_secs`). Shared by `run_experiment`
+/// and `read_ioh_records` so a disk-reconstructed record and a freshly-run
+/// one are interchangeable to any downstream consumer (e.g.
+/// `per_budget_packages`).
+fn record_to_dict<'py>(py: Python<'py>, r: &RunRecord) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("algo", &r.key.algo)?;
+    d.set_item("fid", r.key.fid)?;
+    d.set_item("dim", r.key.dim)?;
+    d.set_item("instance", r.key.instance)?;
+    d.set_item("seed", r.key.seed)?;
+    d.set_item("budget", r.key.budget)?;
+    d.set_item("best_f", r.best_f)?;
+    d.set_item("f_opt", r.f_opt)?;
+    d.set_item("gap", r.best_f - r.f_opt)?;
+    d.set_item("evals_used", r.evals_used)?;
+    d.set_item("wall_secs", r.wall_secs)?;
+    Ok(d)
+}
+
 /// Runs an [`ExperimentSpec`] (parsed from `spec_toml`) and returns its
 /// `RunRecord`s as a list of dicts. `journal=None` runs via
 /// `run_experiment_parallel`/`run_experiment_sequential` (chosen by
@@ -186,23 +211,34 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
 /// from `spec` (the already-parsed `ExperimentSpec`), not from the raw
 /// `spec_toml` text, so whitespace/comment-only edits to `spec_toml` never
 /// invalidate a journal — see `crates/bench/src/checkpoint.rs`.
+///
+/// `log_dir`: when given, every run this call actually EXECUTES is also
+/// logged in IOH-profiler format under that directory (via
+/// `run_experiment_logged` when there is no `journal`, or via
+/// `run_experiment_with_checkpoint`'s own `log_dir` pass-through when there
+/// is — see that function's doc comment: a run resumed from the journal was
+/// executed in a PRIOR process and is never re-logged).
 #[pyfunction]
-#[pyo3(signature = (spec_toml, journal=None, parallel=true, threads=None))]
+#[pyo3(signature = (spec_toml, journal=None, parallel=true, threads=None, log_dir=None))]
 fn run_experiment(
     py: Python<'_>,
     spec_toml: &str,
     journal: Option<&str>,
     parallel: bool,
     threads: Option<usize>,
+    log_dir: Option<&str>,
 ) -> PyResult<Py<PyList>> {
     let spec = ExperimentSpec::from_toml(spec_toml)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let log_dir_path = log_dir.map(Path::new);
 
     let records = if let Some(journal_path) = journal {
         let path = Path::new(journal_path);
         py.allow_threads(|| {
-            run_experiment_with_checkpoint(&spec, path, parallel, threads)
+            run_experiment_with_checkpoint(&spec, path, parallel, threads, log_dir_path)
         })
+    } else if let Some(dir) = log_dir_path {
+        py.allow_threads(|| run_experiment_logged(&spec, dir, parallel, threads).map(|(r, _)| r))
     } else if parallel {
         py.allow_threads(|| run_experiment_parallel(&spec, threads))
     } else {
@@ -211,22 +247,95 @@ fn run_experiment(
     .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     let mut rows = Vec::with_capacity(records.len());
-    for r in records {
-        let d = PyDict::new(py);
-        d.set_item("algo", &r.key.algo)?;
-        d.set_item("fid", r.key.fid)?;
-        d.set_item("dim", r.key.dim)?;
-        d.set_item("instance", r.key.instance)?;
-        d.set_item("seed", r.key.seed)?;
-        d.set_item("budget", r.key.budget)?;
-        d.set_item("best_f", r.best_f)?;
-        d.set_item("f_opt", r.f_opt)?;
-        d.set_item("gap", r.best_f - r.f_opt)?;
-        d.set_item("evals_used", r.evals_used)?;
-        d.set_item("wall_secs", r.wall_secs)?;
-        rows.push(d);
+    for r in &records {
+        rows.push(record_to_dict(py, r)?);
     }
     Ok(PyList::new(py, rows)?.into())
+}
+
+// ---------------------------------------------------------------------
+// Analysis cluster bindings (M2d-2 Task 7): on-disk IOH archives ->
+// records / ECDF curves / COCO export.
+// ---------------------------------------------------------------------
+
+/// Reconstructs [`RunRecord`]s from an on-disk IOH archive at `log_root`
+/// (as written by `run_experiment(..., log_dir=...)` or `solve(...,
+/// log_dir=...)`), one record per `(run, budget)` pair — see
+/// [`sezgi_bench::ioh_records`]'s doc comment for the exact `best_f`/
+/// `evals_used` semantics and the curtailed-view-vs-independent-run
+/// distinction for budgets smaller than a run's logged budget.
+///
+/// Returns the SAME record-dict shape `run_experiment` returns (via
+/// [`record_to_dict`]), so `per_budget_packages`/`results_matrix` accept it
+/// unchanged.
+#[pyfunction]
+fn read_ioh_records(py: Python<'_>, log_root: &str, budgets: Vec<u64>) -> PyResult<Py<PyList>> {
+    let scenarios =
+        read_ioh_root(Path::new(log_root)).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let records = bench_ioh_records(&scenarios, &budgets)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let mut rows = Vec::with_capacity(records.len());
+    for r in &records {
+        rows.push(record_to_dict(py, r)?);
+    }
+    Ok(PyList::new(py, rows)?.into())
+}
+
+/// Builds an `{"evals": [...], "proportion": [...]}` dict from an
+/// [`EcdfCurve`].
+fn ecdf_curve_to_dict<'py>(py: Python<'py>, curve: &EcdfCurve) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("evals", PyList::new(py, &curve.evals)?)?;
+    d.set_item("proportion", PyList::new(py, &curve.proportion)?)?;
+    Ok(d)
+}
+
+/// ECDF/anytime curve(s) over the IOH archive at `log_root` — see
+/// [`sezgi_bench::ecdf`]/[`sezgi_bench::ecdf_per_algo`].
+///
+/// `targets`: precision targets; `None` uses [`sezgi_bench::default_targets`]
+/// (the COCO-convention 51-value set).
+/// `per_algo`: `True` (default) returns a list of `(algo, curve_dict)` pairs
+/// (first-appearance order, one curve per distinct algo in the archive);
+/// `False` returns a single pooled `curve_dict` over every scenario.
+/// Each `curve_dict` is `{"evals": [...], "proportion": [...]}`.
+#[pyfunction]
+#[pyo3(signature = (log_root, targets=None, per_algo=true))]
+fn ecdf(py: Python<'_>, log_root: &str, targets: Option<Vec<f64>>, per_algo: bool) -> PyResult<Py<PyAny>> {
+    let scenarios =
+        read_ioh_root(Path::new(log_root)).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let targets = targets.unwrap_or_else(bench_default_targets);
+
+    if per_algo {
+        let curves = bench_ecdf_per_algo(&scenarios, &targets)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let out = PyList::empty(py);
+        for (algo, curve) in &curves {
+            // Tuple, not a 2-element list, per the docstring ("a list of
+            // `(algo, curve_dict)` pairs").
+            let row = (algo.clone(), ecdf_curve_to_dict(py, curve)?);
+            out.append(row)?;
+        }
+        Ok(out.into_any().unbind())
+    } else {
+        let curve = bench_ecdf(&scenarios, &targets)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(ecdf_curve_to_dict(py, &curve)?.into_any().unbind())
+    }
+}
+
+/// Exports the IOH archive at `log_root` as a COCO/BBOB "old format"
+/// archive rooted at `out_dir` — see [`sezgi_bench::coco_export`]. Returns
+/// the list of written file paths (as strings), sorted for determinism.
+#[pyfunction]
+fn coco_export(py: Python<'_>, log_root: &str, out_dir: &str) -> PyResult<Py<PyList>> {
+    let scenarios =
+        read_ioh_root(Path::new(log_root)).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let written = bench_coco_export(&scenarios, Path::new(out_dir))
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let paths: Vec<String> = written.iter().map(|p| p.display().to_string()).collect();
+    Ok(PyList::new(py, paths)?.into())
 }
 
 // ---------------------------------------------------------------------
@@ -336,6 +445,26 @@ fn stats_plackett_luce(py: Python<'_>, rankings: Vec<Vec<usize>>) -> PyResult<Py
     d.set_item("worths", PyList::new(py, &r.worths)?)?;
     d.set_item("p_best", PyList::new(py, &r.p_best)?)?;
     d.set_item("iterations", r.iterations)?;
+    Ok(d.into())
+}
+
+#[pyfunction]
+#[pyo3(signature = (rankings, samples=2000, burn_in=500, seed=1))]
+fn stats_bayesian_plackett_luce(
+    py: Python<'_>,
+    rankings: Vec<Vec<usize>>,
+    samples: u64,
+    burn_in: u64,
+    seed: u64,
+) -> PyResult<Py<PyDict>> {
+    let r = bayesian_plackett_luce(&rankings, samples, burn_in, seed)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let d = PyDict::new(py);
+    d.set_item("mean_worths", PyList::new(py, &r.mean_worths)?)?;
+    d.set_item("ci_low", PyList::new(py, &r.ci_low)?)?;
+    d.set_item("ci_high", PyList::new(py, &r.ci_high)?)?;
+    d.set_item("p_best", PyList::new(py, &r.p_best)?)?;
+    d.set_item("samples", r.samples)?;
     Ok(d.into())
 }
 
@@ -605,12 +734,16 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(from_callable, m)?)?;
     m.add_function(wrap_pyfunction!(solve, m)?)?;
     m.add_function(wrap_pyfunction!(run_experiment, m)?)?;
+    m.add_function(wrap_pyfunction!(read_ioh_records, m)?)?;
+    m.add_function(wrap_pyfunction!(ecdf, m)?)?;
+    m.add_function(wrap_pyfunction!(coco_export, m)?)?;
     m.add_function(wrap_pyfunction!(stats_friedman, m)?)?;
     m.add_function(wrap_pyfunction!(stats_wilcoxon, m)?)?;
     m.add_function(wrap_pyfunction!(stats_cliffs_delta, m)?)?;
     m.add_function(wrap_pyfunction!(stats_cliffs_magnitude, m)?)?;
     m.add_function(wrap_pyfunction!(stats_bayesian_signed_rank, m)?)?;
     m.add_function(wrap_pyfunction!(stats_plackett_luce, m)?)?;
+    m.add_function(wrap_pyfunction!(stats_bayesian_plackett_luce, m)?)?;
     m.add_function(wrap_pyfunction!(stats_paper_package, m)?)?;
     m.add_function(wrap_pyfunction!(results_matrix, m)?)?;
     m.add_function(wrap_pyfunction!(per_budget_packages, m)?)?;

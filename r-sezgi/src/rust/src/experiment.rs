@@ -1,5 +1,9 @@
-use savvy::{savvy, savvy_err, OwnedIntegerSexp, OwnedListSexp, OwnedRealSexp, OwnedStringSexp, Sexp};
+use savvy::{
+    savvy, savvy_err, OwnedIntegerSexp, OwnedListSexp, OwnedRealSexp, OwnedStringSexp, RealSexp,
+    Sexp,
+};
 use sezgi_bench::{
+    ioh_records as bench_ioh_records, read_ioh_root, run_experiment_logged,
     run_experiment_parallel, run_experiment_sequential, run_experiment_with_checkpoint,
     ExperimentSpec, RunRecord,
 };
@@ -71,6 +75,12 @@ fn records_to_data_frame(records: &[RunRecord]) -> savvy::Result<Sexp> {
 ///   supported savvy scalar arg type, so this comes in as `i32` and is cast;
 ///   negative values are rejected explicitly (savvy has no unsigned integer
 ///   scalar type to enforce this at the signature level).
+/// @param log_dir Optional directory to log every run this call actually
+///   EXECUTES in IOH-profiler format (via `run_experiment_logged` when
+///   there is no `journal`, or via `run_experiment_with_checkpoint`'s own
+///   `log_dir` pass-through when there is -- see that function's doc
+///   comment: a run resumed from the journal was executed in a PRIOR
+///   process and is never re-logged).
 /// @returns A data.frame with one row per run.
 ///
 /// The journal's spec hash is computed by `run_experiment_with_checkpoint`
@@ -83,6 +93,7 @@ fn sz_run_experiment_raw(
     parallel: bool,
     journal: Option<&str>,
     threads: Option<i32>,
+    log_dir: Option<&str>,
 ) -> savvy::Result<Sexp> {
     let spec = ExperimentSpec::from_toml(spec_toml).map_err(|e| savvy_err!("{e}"))?;
     let threads = match threads {
@@ -90,16 +101,67 @@ fn sz_run_experiment_raw(
         Some(t) => Some(t as usize),
         None => None,
     };
+    let log_dir_path = log_dir.map(Path::new);
 
     let records = if let Some(journal_path) = journal {
         let path = Path::new(journal_path);
-        run_experiment_with_checkpoint(&spec, path, parallel, threads)
+        run_experiment_with_checkpoint(&spec, path, parallel, threads, log_dir_path)
+    } else if let Some(dir) = log_dir_path {
+        run_experiment_logged(&spec, dir, parallel, threads).map(|(r, _)| r)
     } else if parallel {
         run_experiment_parallel(&spec, threads)
     } else {
         run_experiment_sequential(&spec, |_| {})
     }
     .map_err(|e| savvy_err!("{e}"))?;
+
+    records_to_data_frame(&records)
+}
+
+/// Casts a non-negative-checked `f64` (as passed from R, which has no
+/// native unsigned integer type) to `u64`, rejecting negative or
+/// non-finite values. Duplicated from the identically-named private
+/// helper in `stats.rs` (no shared private cross-module import -- same
+/// "no shared private crate imports" rule as `parse_distribution`'s
+/// duplication between `solve.rs` and py-sezgi's `lib.rs`).
+fn f64_to_u64(name: &str, x: f64) -> savvy::Result<u64> {
+    if !x.is_finite() || x < 0.0 {
+        return Err(savvy_err!(
+            "{} must be a non-negative finite number, got {}",
+            name,
+            x
+        ));
+    }
+    Ok(x as u64)
+}
+
+/// Reconstructs `RunRecord`s from an on-disk IOH archive at `log_root` (as
+/// written by `sz_run_experiment(..., log_dir = ...)`), one record per
+/// `(run, budget)` pair -- see `sezgi_bench::ioh_records`'s doc comment for
+/// the exact `best_f`/`evals_used` semantics and the curtailed-view-vs-
+/// independent-run distinction for budgets smaller than a run's logged
+/// budget.
+///
+/// Returns the SAME data.frame shape `sz_run_experiment()` returns (via
+/// [`records_to_data_frame`]), so `sz_results_matrix()`/
+/// `sz_per_budget_packages()` accept it unchanged.
+///
+/// @param log_root Path to the IOH archive directory (as passed to
+///   `sz_run_experiment(..., log_dir = ...)`).
+/// @param budgets Numeric vector of evaluation budgets to reconstruct
+///   records at.
+/// @returns A data.frame with the same columns as `sz_run_experiment()`.
+/// @export
+#[savvy]
+fn sz_read_ioh_records(log_root: &str, budgets: RealSexp) -> savvy::Result<Sexp> {
+    let budgets_u: Vec<u64> = budgets
+        .as_slice()
+        .iter()
+        .map(|&b| f64_to_u64("budgets", b))
+        .collect::<savvy::Result<Vec<u64>>>()?;
+
+    let scenarios = read_ioh_root(Path::new(log_root)).map_err(|e| savvy_err!("{e}"))?;
+    let records = bench_ioh_records(&scenarios, &budgets_u).map_err(|e| savvy_err!("{e}"))?;
 
     records_to_data_frame(&records)
 }

@@ -50,3 +50,28 @@ sz_stats_bayesian_signed_rank <- function(a, b, rope = 0, samples = 20000, seed 
 sz_stats_paper_package <- function(algo_names, problem_names, m, rope = 0, samples = 20000, seed = 1) {
   sz_stats_paper_package_raw(algo_names, problem_names, m, rope, samples, seed)
 }
+
+#' Bayesian Plackett-Luce posterior via Gibbs sampling.
+#'
+#' Mirrors py-sezgi's `stats.bayesian_plackett_luce()`. Caron & Doucet
+#' (2012) latent exponential-race Gibbs augmentation under independent
+#' `Gamma(1, 1)` priors; see `crates/stats/src/bayesian.rs` for the full
+#' PINNED sampler and determinism guarantees. The same `(rankings, samples,
+#' burn_in, seed)` always produces a bit-identical result -- R calls the
+#' exact same seeded Rust core as Python and Rust.
+#'
+#' @param rankings A `list` of integer (or integer-valued numeric) vectors,
+#'   each a full ranking of the same `k` items as **1-based item ids**
+#'   (same convention as `sz_stats_plackett_luce()`; converted to 0-based
+#'   indices via the SAME converter). Best (rank 1) first.
+#' @param samples Number of post-burn-in Gibbs iterations to record.
+#'   Default 2000.
+#' @param burn_in Number of initial Gibbs iterations to discard. Default
+#'   500.
+#' @param seed Master RNG seed. Default 1.
+#' @returns A named list with `mean_worths`, `ci_low`, `ci_high`, `p_best`,
+#'   `samples`.
+#' @export
+sz_bayesian_plackett_luce <- function(rankings, samples = 2000, burn_in = 500, seed = 1) {
+  sz_bayesian_plackett_luce_raw(rankings, samples, burn_in, seed)
+}

@@ -44,6 +44,21 @@ SEXP savvy_sezgi_version__impl(void) {
     return handle_result(res);
 }
 
+SEXP savvy_sz_bayesian_plackett_luce_raw__impl(SEXP c_arg__rankings, SEXP c_arg__samples, SEXP c_arg__burn_in, SEXP c_arg__seed) {
+    SEXP res = savvy_sz_bayesian_plackett_luce_raw__ffi(c_arg__rankings, c_arg__samples, c_arg__burn_in, c_arg__seed);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_coco_export__impl(SEXP c_arg__log_root, SEXP c_arg__out_dir) {
+    SEXP res = savvy_sz_coco_export__ffi(c_arg__log_root, c_arg__out_dir);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_ecdf_raw__impl(SEXP c_arg__log_root, SEXP c_arg__per_algo, SEXP c_arg__targets) {
+    SEXP res = savvy_sz_ecdf_raw__ffi(c_arg__log_root, c_arg__per_algo, c_arg__targets);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_per_budget_packages_raw__impl(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__master_seed, SEXP c_arg__aggregate) {
     SEXP res = savvy_sz_per_budget_packages_raw__ffi(c_arg__algo, c_arg__fid, c_arg__dim, c_arg__instance, c_arg__seed, c_arg__budget_col, c_arg__best_f, c_arg__f_opt, c_arg__evals, c_arg__rope, c_arg__samples, c_arg__master_seed, c_arg__aggregate);
     return handle_result(res);
@@ -114,13 +129,18 @@ SEXP savvy_sz_preset_shade__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     return handle_result(res);
 }
 
+SEXP savvy_sz_read_ioh_records__impl(SEXP c_arg__log_root, SEXP c_arg__budgets) {
+    SEXP res = savvy_sz_read_ioh_records__ffi(c_arg__log_root, c_arg__budgets);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_results_matrix_raw__impl(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__budget, SEXP c_arg__aggregate) {
     SEXP res = savvy_sz_results_matrix_raw__ffi(c_arg__algo, c_arg__fid, c_arg__dim, c_arg__instance, c_arg__seed, c_arg__budget_col, c_arg__best_f, c_arg__f_opt, c_arg__evals, c_arg__budget, c_arg__aggregate);
     return handle_result(res);
 }
 
-SEXP savvy_sz_run_experiment_raw__impl(SEXP c_arg__spec_toml, SEXP c_arg__parallel, SEXP c_arg__journal, SEXP c_arg__threads) {
-    SEXP res = savvy_sz_run_experiment_raw__ffi(c_arg__spec_toml, c_arg__parallel, c_arg__journal, c_arg__threads);
+SEXP savvy_sz_run_experiment_raw__impl(SEXP c_arg__spec_toml, SEXP c_arg__parallel, SEXP c_arg__journal, SEXP c_arg__threads, SEXP c_arg__log_dir) {
+    SEXP res = savvy_sz_run_experiment_raw__ffi(c_arg__spec_toml, c_arg__parallel, c_arg__journal, c_arg__threads, c_arg__log_dir);
     return handle_result(res);
 }
 
@@ -167,6 +187,9 @@ SEXP savvy_sz_stats_wilcoxon__impl(SEXP c_arg__a, SEXP c_arg__b) {
 
 static const R_CallMethodDef CallEntries[] = {
     {"savvy_sezgi_version__impl", (DL_FUNC) &savvy_sezgi_version__impl, 0},
+    {"savvy_sz_bayesian_plackett_luce_raw__impl", (DL_FUNC) &savvy_sz_bayesian_plackett_luce_raw__impl, 4},
+    {"savvy_sz_coco_export__impl", (DL_FUNC) &savvy_sz_coco_export__impl, 2},
+    {"savvy_sz_ecdf_raw__impl", (DL_FUNC) &savvy_sz_ecdf_raw__impl, 3},
     {"savvy_sz_per_budget_packages_raw__impl", (DL_FUNC) &savvy_sz_per_budget_packages_raw__impl, 13},
     {"savvy_sz_preset_cmaes__impl", (DL_FUNC) &savvy_sz_preset_cmaes__impl, 2},
     {"savvy_sz_preset_cmaes_ipop__impl", (DL_FUNC) &savvy_sz_preset_cmaes_ipop__impl, 2},
@@ -181,8 +204,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_preset_random_search__impl", (DL_FUNC) &savvy_sz_preset_random_search__impl, 2},
     {"savvy_sz_preset_sa__impl", (DL_FUNC) &savvy_sz_preset_sa__impl, 1},
     {"savvy_sz_preset_shade__impl", (DL_FUNC) &savvy_sz_preset_shade__impl, 2},
+    {"savvy_sz_read_ioh_records__impl", (DL_FUNC) &savvy_sz_read_ioh_records__impl, 2},
     {"savvy_sz_results_matrix_raw__impl", (DL_FUNC) &savvy_sz_results_matrix_raw__impl, 11},
-    {"savvy_sz_run_experiment_raw__impl", (DL_FUNC) &savvy_sz_run_experiment_raw__impl, 4},
+    {"savvy_sz_run_experiment_raw__impl", (DL_FUNC) &savvy_sz_run_experiment_raw__impl, 5},
     {"savvy_sz_solve_bbob__impl", (DL_FUNC) &savvy_sz_solve_bbob__impl, 6},
     {"savvy_sz_stats_bayesian_signed_rank_raw__impl", (DL_FUNC) &savvy_sz_stats_bayesian_signed_rank_raw__impl, 5},
     {"savvy_sz_stats_cliffs_delta__impl", (DL_FUNC) &savvy_sz_stats_cliffs_delta__impl, 2},

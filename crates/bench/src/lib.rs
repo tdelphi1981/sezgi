@@ -1,12 +1,22 @@
 pub mod ioh;
 pub use ioh::{IohFinish, IohLogger, IohRunObserver};
 
+pub mod ioh_read;
+pub use ioh_read::{IohRun, IohScenario, ioh_records, read_ioh_root};
+
+pub mod anytime;
+pub use anytime::{EcdfCurve, default_targets, ecdf, ecdf_per_algo, hit_time};
+
+pub mod coco;
+pub use coco::coco_export;
+
 pub mod manifest;
 
 pub mod experiment;
 pub use experiment::{
     AlgoEntry, AlgoSource, ExperimentError, ExperimentSpec, PlannedRun, ProblemEntry,
-    RunKey, RunRecord, enumerate, run_experiment_parallel, run_experiment_sequential,
+    RunKey, RunRecord, enumerate, run_experiment_logged, run_experiment_parallel,
+    run_experiment_sequential,
 };
 
 pub mod checkpoint;

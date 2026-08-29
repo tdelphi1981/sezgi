@@ -67,6 +67,59 @@ budget standing in for all of them. `sezgi.results_matrix(records, budget)`
 is available separately if you need just the `(algo_names, problem_labels,
 matrix)` triple for one budget (e.g. to feed a custom analysis).
 
+## Anytime analysis: IOH logs, ECDF, COCO export (M2d-2)
+
+Pass `log_dir=` to `run_experiment` to also write an IOH-profiler-format
+log tree (readable directly by IOHinspector/IOHanalyzer) alongside the
+in-memory records, then read anytime-performance curves, export a
+COCO/BBOB archive, or reconstruct records straight off disk.
+
+IOH logging supports only a SINGLE budget: the on-disk archive records no
+budget, so it cannot tell apart two runs of the same `(instance, seed)`
+logged at different budgets. `run_experiment(..., log_dir=...)` (and the
+`log_dir` pass-through on the checkpoint path) raises `ValueError` naming
+"multiple budgets" if `spec_toml` declares more than one. Log at the single
+largest budget you need instead, and derive any smaller budgets on read via
+`read_ioh_records`:
+
+    import sezgi
+
+    # Multi-budget specs (like `spec_toml` above) can't be logged directly --
+    # log at the largest budget only, then derive [1000, 5000] on read.
+    single_budget_toml = spec_toml.replace("budgets = [1000, 5000]", "budgets = [5000]")
+
+    records = sezgi.run_experiment(single_budget_toml, log_dir="logs/", parallel=False)
+
+    # ECDF (anytime performance) curves, one per algorithm by default.
+    curves = sezgi.ecdf("logs/")
+    for algo, curve in curves:
+        print(algo, curve["evals"][-1], curve["proportion"][-1])
+
+    # COCO/BBOB "old format" export, ready for cocopp post-processing.
+    written = sezgi.coco_export("logs/", "coco_out/")
+
+    # Reconstruct RunRecords directly from the on-disk archive -- no
+    # in-memory `records` object required -- deriving BOTH original budgets
+    # from the single largest-budget archive that was actually logged.
+    disk_records = sezgi.read_ioh_records("logs/", [1000, 5000])
+
+    # Same record-dict shape run_experiment returns, so it feeds straight
+    # into per_budget_packages (or results_matrix) unchanged.
+    packages = sezgi.per_budget_packages(disk_records, rope=0.01, samples=10000, seed=42)
+
+This makes the on-disk IOH archive a first-class, self-contained
+alternative to the in-memory `records` list: a single `log_dir=` run today
+can be re-analyzed later (different targets, a different budget subset, a
+COCO export for a separate tool) without re-running any algorithm, by
+reading `logs/` back with `read_ioh_records`/`ecdf`/`coco_export` alone.
+
+R mirrors this exactly with `sz_` names: `sz_run_experiment(spec_toml,
+log_dir = "logs/")` writes the same IOH tree, `sz_ecdf("logs/")` returns
+the same per-algorithm curves as a named list, `sz_coco_export("logs/",
+"coco_out/")` writes the same COCO archive, and `sz_read_ioh_records("logs/",
+2000)` reconstructs the same data.frame shape `sz_run_experiment` returns,
+feeding directly into `sz_per_budget_packages`/`sz_results_matrix`.
+
 ## Quickstart (R)
 
 Install from the repo root (the Rust core builds via `cargo` on install):
@@ -128,7 +181,7 @@ just the `(algo_names, problem_labels, matrix)` triple for one budget.
 
 ## Status
 
-M2d-1 (R frontend + exact-Wilcoxon + canonical spec hashing) **complete** — savvy-based R bindings mirroring py-sezgi (13 presets, `sz_run_experiment`, `sz_results_matrix`/`sz_per_budget_packages`, full stats namespace), exact small-n Wilcoxon signed-rank distribution, canonical spec-hash checkpointing in both bindings. See `docs/DECISIONS.md` for the full M2d-1 record. Next: M2d-2 (ECDF/anytime analysis, COCO export, example triplets, Bayesian PL posterior, IOH-driven stats input, R-callback problems). License: MIT.
+M2d-2 (IOH anytime logging + analysis, COCO export, Bayesian Plackett–Luce) **complete** — `run_experiment(..., log_dir=)`/`sz_run_experiment(..., log_dir = )` write a self-contained IOH-profiler-format log tree; `ecdf`/`sz_ecdf` compute anytime-performance curves and `coco_export`/`sz_coco_export` export a `cocopp`-loadable COCO/BBOB archive straight from that tree; `read_ioh_records`/`sz_read_ioh_records` reconstruct run records from disk alone, feeding `per_budget_packages`/`sz_per_budget_packages` unchanged; full Bayesian Plackett–Luce posterior via Gibbs sampling (`stats.bayesian_plackett_luce`/`sz_bayesian_plackett_luce`), replacing the M2d-1 point estimate. See `docs/DECISIONS.md` for the full M2d-2 record. Next: M2d-3 (example triplets: GWO/WOA/HS/CS/GOA, problem-evaluate/ask-tell FFI, `R CMD check --as-cran` + CRAN vendoring dry run). License: MIT.
 
 ## Algorithms
 

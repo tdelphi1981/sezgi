@@ -1,4 +1,7 @@
 SEXP savvy_sezgi_version__ffi(void);
+SEXP savvy_sz_bayesian_plackett_luce_raw__ffi(SEXP c_arg__rankings, SEXP c_arg__samples, SEXP c_arg__burn_in, SEXP c_arg__seed);
+SEXP savvy_sz_coco_export__ffi(SEXP c_arg__log_root, SEXP c_arg__out_dir);
+SEXP savvy_sz_ecdf_raw__ffi(SEXP c_arg__log_root, SEXP c_arg__per_algo, SEXP c_arg__targets);
 SEXP savvy_sz_per_budget_packages_raw__ffi(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__master_seed, SEXP c_arg__aggregate);
 SEXP savvy_sz_preset_cmaes__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_cmaes_ipop__ffi(SEXP c_arg__dim, SEXP c_arg__budget);
@@ -13,8 +16,9 @@ SEXP savvy_sz_preset_pso__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_random_search__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_sa__ffi(SEXP c_arg__budget);
 SEXP savvy_sz_preset_shade__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_read_ioh_records__ffi(SEXP c_arg__log_root, SEXP c_arg__budgets);
 SEXP savvy_sz_results_matrix_raw__ffi(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__budget, SEXP c_arg__aggregate);
-SEXP savvy_sz_run_experiment_raw__ffi(SEXP c_arg__spec_toml, SEXP c_arg__parallel, SEXP c_arg__journal, SEXP c_arg__threads);
+SEXP savvy_sz_run_experiment_raw__ffi(SEXP c_arg__spec_toml, SEXP c_arg__parallel, SEXP c_arg__journal, SEXP c_arg__threads, SEXP c_arg__log_dir);
 SEXP savvy_sz_solve_bbob__ffi(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__master_seed, SEXP c_arg__run_id);
 SEXP savvy_sz_stats_bayesian_signed_rank_raw__ffi(SEXP c_arg__a, SEXP c_arg__b, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__seed);
 SEXP savvy_sz_stats_cliffs_delta__ffi(SEXP c_arg__a, SEXP c_arg__b);
