@@ -45,6 +45,18 @@ NULL
   .Call(savvy_sezgi_version__impl)
 }
 
+#' Builds a DE/best/1/bin algorithm spec (uniform init, clamp boundary,
+#' one-to-one-greedy replacement) as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_de_best_1` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_de_best_1__impl, `pop_size`, `budget`)
+}
+
 #' Builds a DE/rand/1/bin algorithm spec (uniform init, clamp boundary,
 #' one-to-one-greedy replacement) as JSON, ready to pass to
 #' `sz_solve_bbob()`.

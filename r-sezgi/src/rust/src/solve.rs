@@ -21,6 +21,20 @@ fn sz_preset_de_rand_1(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds a DE/best/1/bin algorithm spec (uniform init, clamp boundary,
+/// one-to-one-greedy replacement) as JSON, ready to pass to
+/// `sz_solve_bbob()`.
+///
+/// @param pop_size Population size.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_de_best_1(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::de_best_1(pop_size as usize, budget as u64).to_json();
+    json.try_into()
+}
+
 fn registry() -> Registry {
     let mut r = Registry::new();
     register_builtins(&mut r);
