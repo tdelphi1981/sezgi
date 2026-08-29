@@ -10,8 +10,8 @@ serde_json = "1"
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 sezgi-problems = { path = "../problems" }
+sezgi-components = { path = "../components" }
 thiserror = "2"
 
 [dev-dependencies]
 tempfile = "3"
-sezgi-components = { path = "../components" }
