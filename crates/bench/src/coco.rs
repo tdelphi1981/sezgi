@@ -15,6 +15,11 @@
 //!   dim, holding one run BLOCK per run (each block starting with the
 //!   repeated `%`-comment header line), one row per improvement record in
 //!   [`IohRun::rows`].
+//! - `<out>/<algo>/data_f<fid>/bbobexp_f<fid>_DIM<dim>.tdat` — a byte-
+//!   identical companion to the `.dat` file above (same stem, same
+//!   directory). `cocopp`'s loader hard-requires this file alongside every
+//!   `.dat` and refuses to post-process an archive missing it; see the
+//!   `// sezgi simplification:` tag at the write site in [`coco_export`].
 //!
 //! ## `// sezgi simplification:` tags
 //!
@@ -160,8 +165,28 @@ pub fn coco_export(scenarios: &[IohScenario], out_dir: &Path) -> Result<Vec<Path
                 let final_gap = final_raw_y - f_opt;
                 tokens.push(format!("{}:{}|{}", run.instance, run.evals, fmt_exp(final_gap, 1)));
             }
-            std::fs::write(&dat_path, dat).map_err(coco_err)?;
-            written.push(dat_path);
+            std::fs::write(&dat_path, &dat).map_err(coco_err)?;
+            written.push(dat_path.clone());
+
+            // sezgi simplification: .tdat mirrors .dat improvement rows;
+            // reference COCO triggers on eval-count milestones. cocopp's
+            // loader (`cocopp/pproc.py`, `DataSet.__init__`) hard-requires a
+            // `.tdat` (target-triggered) companion alongside every `.dat`
+            // (evaluation-triggered) file — same directory, same stem,
+            // derived by replacing the `.dat` extension — and warns/aborts
+            // post-processing entirely if none is found. The reference tool
+            // populates `.tdat` by re-sampling the run at function-value
+            // (target) milestones rather than eval-count milestones; sezgi's
+            // `IohRun::rows` only ever records eval-triggered improvement
+            // events (see module doc), so there is no distinct target-
+            // triggered sequence to emit. We mirror the `.dat` rows verbatim
+            // instead of a real re-sampling: both readers key off the same
+            // column indices (`BBOBOldDataFormat`: evals at index 0,
+            // best-fitness gap at index 2), so this is loadable without
+            // being a faithful re-sampling.
+            let tdat_path = dat_path.with_extension("tdat");
+            std::fs::write(&tdat_path, &dat).map_err(coco_err)?;
+            written.push(tdat_path);
 
             info.push_str(", ");
             info.push_str(&tokens.join(", "));
@@ -264,6 +289,11 @@ mod tests {
              {header}\n30 5.000000000e+00 5.000000000e+00\n"
         );
         assert_eq!(dat, expected);
+
+        // .tdat companion mirrors the .dat content byte-for-byte (same
+        // stem, same directory) — cocopp's loader hard-requires it.
+        let tdat = std::fs::read_to_string(tmp.path().join("de/data_f1/bbobexp_f1_DIM5.tdat")).unwrap();
+        assert_eq!(tdat, dat);
     }
 
     #[test]
@@ -286,6 +316,8 @@ mod tests {
 
         assert!(written.contains(&tmp.path().join("de/data_f1/bbobexp_f1_DIM5.dat")));
         assert!(written.contains(&tmp.path().join("de/data_f1/bbobexp_f1_DIM10.dat")));
+        assert!(written.contains(&tmp.path().join("de/data_f1/bbobexp_f1_DIM5.tdat")));
+        assert!(written.contains(&tmp.path().join("de/data_f1/bbobexp_f1_DIM10.tdat")));
     }
 
     #[test]
@@ -299,6 +331,8 @@ mod tests {
         let written = coco_export(&scenarios, tmp.path()).unwrap();
         assert!(written.contains(&tmp.path().join("de/bbobexp_f1.info")));
         assert!(written.contains(&tmp.path().join("de/bbobexp_f2.info")));
+        assert!(written.contains(&tmp.path().join("de/data_f1/bbobexp_f1_DIM5.tdat")));
+        assert!(written.contains(&tmp.path().join("de/data_f2/bbobexp_f2_DIM5.tdat")));
     }
 
     #[test]
@@ -357,5 +391,6 @@ mod tests {
         }
         assert!(out_dir.path().join("de/bbobexp_f1.info").exists());
         assert!(out_dir.path().join("de/data_f1/bbobexp_f1_DIM5.dat").exists());
+        assert!(out_dir.path().join("de/data_f1/bbobexp_f1_DIM5.tdat").exists());
     }
 }
