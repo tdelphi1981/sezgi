@@ -21,12 +21,11 @@ sz_eval_session(
 
 \item{instance}{BBOB instance id (>= 1).}
 
-\item{budget}{Evaluation budget (non-negative). Truncated toward zero if
-fractional (`as.integer`-style, via Rust's `f64 as u64` cast) rather
-than rejected -- an asymmetry with py-sezgi, whose `budget: u64`
-parameter type makes pyo3 reject a fractional Python value outright at
-the FFI boundary before this package's own cast ever runs. Not changed
-here; `f64_to_u64`'s strictness is owned by a later task.}
+\item{budget}{Evaluation budget (non-negative whole number). A fractional
+value is REJECTED (M2d-3: `f64_to_u64` now errors with "expected a
+whole number" instead of truncating toward zero), matching py-sezgi's
+`budget: u64` parameter, whose type makes pyo3 reject a fractional
+Python value outright at the FFI boundary.}
 
 \item{log_dir}{Optional directory: when given, IOH-profiler logging is
 wired up in the constructor, before any evaluation is possible

@@ -42,12 +42,18 @@ use savvy::{savvy, savvy_err, ListSexp, NullSexp, NumericSexp, OwnedListSexp, Ow
 use sezgi_bench::EvalSession as CoreSession;
 use std::path::Path;
 
-/// Casts a non-negative-checked `f64` (as passed from R, which has no native
-/// unsigned integer type) to `u64`, rejecting negative or non-finite values.
-/// Duplicated from the identically-named private helpers in `stats.rs` /
-/// `experiment.rs` -- no shared private cross-module import, same rule as
-/// `parse_distribution`'s duplication between `solve.rs` and py-sezgi's
-/// `lib.rs`.
+/// Casts a non-negative-checked, WHOLE-NUMBER-checked `f64` (as passed from
+/// R, which has no native unsigned integer type) to `u64`, rejecting
+/// negative, non-finite, or fractional values. Duplicated from the
+/// identically-named private helpers in `stats.rs` / `experiment.rs` -- no
+/// shared private cross-module import, same rule as `parse_distribution`'s
+/// duplication between `solve.rs` and py-sezgi's `lib.rs`.
+///
+/// M2d-3: previously silently truncated a fractional `x` toward zero (an
+/// asymmetry with py-sezgi, whose `u64`-typed parameters make pyo3 reject a
+/// fractional Python value outright at the FFI boundary). Now rejects it
+/// the same way pyo3 does, so `sz_eval_session(budget = 10.5)` errors
+/// instead of silently running a budget-10 session.
 fn f64_to_u64(name: &str, x: f64) -> savvy::Result<u64> {
     if !x.is_finite() || x < 0.0 {
         return Err(savvy_err!(
@@ -55,6 +61,9 @@ fn f64_to_u64(name: &str, x: f64) -> savvy::Result<u64> {
             name,
             x
         ));
+    }
+    if x.fract() != 0.0 {
+        return Err(savvy_err!("{} expected a whole number, got {}", name, x));
     }
     Ok(x as u64)
 }

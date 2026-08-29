@@ -202,6 +202,11 @@ test_that("sz_results_matrix errors on a missing cell", {
   expect_error(sz_results_matrix(incomplete, budget = 400), "missing run record")
 })
 
+test_that("sz_results_matrix rejects a fractional budget (M2d-3 f64_to_u64 strictness)", {
+  df <- sz_run_experiment(reporting_grid_toml)
+  expect_error(sz_results_matrix(df, budget = 400.5), "expected a whole number")
+})
+
 test_that("sz_results_matrix and sz_per_budget_packages reject an unknown aggregate", {
   df <- sz_run_experiment(reporting_grid_toml)
   expect_error(sz_results_matrix(df, budget = 400, aggregate = "bogus"), "unknown aggregate")

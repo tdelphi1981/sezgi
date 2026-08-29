@@ -122,6 +122,22 @@ test_that("any method after finish raises", {
   expect_error(s$finish(), "session finished")
 })
 
+# M2d-3 Task 11: f64_to_u64 strictness -- the T4 deferred minor. A
+# fractional `budget`/`seed` used to be silently truncated toward zero
+# (Rust's `f64 as u64` cast), an asymmetry with py-sezgi (whose `u64`
+# parameter types make pyo3 reject a fractional Python value outright).
+# Now REJECTED with "expected a whole number", matching py-sezgi.
+test_that("a fractional budget/seed is rejected by the EvalSession constructor", {
+  expect_error(
+    sz_eval_session(fid = 1, dim = 2, instance = 1, budget = 10.5),
+    "expected a whole number"
+  )
+  expect_error(
+    sz_eval_session(fid = 1, dim = 2, instance = 1, budget = 10, seed = 1.5),
+    "expected a whole number"
+  )
+})
+
 test_that("finish without logging is ok", {
   s <- sz_eval_session(fid = 1, dim = 2, instance = 1, budget = 10)
   s$evaluate(points_list(c(0, 0)))

@@ -198,8 +198,21 @@ pub struct RunRecord {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExperimentError {
-    #[error("could not parse experiment spec: {0}")]
+    /// A TOML SYNTAX error -- the input could not even be deserialized (bad
+    /// punctuation, wrong value type for a field, unknown field, etc.).
+    /// M2d-3: previously this variant also carried semantic/validation
+    /// failures (empty `budgets`, unsupported suite, a problem with no
+    /// instances) from well-formed-but-invalid specs; those now use
+    /// [`ExperimentError::InvalidSpec`] instead, so a caller (or a human
+    /// reading the message) can tell "fix your TOML" from "fix your spec's
+    /// content" apart.
+    #[error("could not parse experiment spec (TOML syntax error): {0}")]
     Parse(String),
+    /// A semantic/validation error against a WELL-FORMED spec (parsed fine,
+    /// but its content is invalid) -- see [`ExperimentError::Parse`]'s doc
+    /// comment for the split this was carved out of.
+    #[error("invalid experiment spec: {0}")]
+    InvalidSpec(String),
     #[error("unknown preset kind `{kind}` (valid kinds: {valid})")]
     UnknownPresetKind { kind: String, valid: String },
     #[error("preset `{kind}` requires `pop_size` but none was given")]
@@ -319,7 +332,7 @@ fn problem_label(fid: u32, dim: usize) -> String {
 /// so a bad combination fails fast, before any run is executed.
 pub fn enumerate(spec: &ExperimentSpec) -> Result<Vec<PlannedRun>, ExperimentError> {
     if spec.budgets.is_empty() {
-        return Err(ExperimentError::Parse("`budgets` must not be empty".into()));
+        return Err(ExperimentError::InvalidSpec("`budgets` must not be empty".into()));
     }
 
     let mut reg = Registry::new();
@@ -330,10 +343,10 @@ pub fn enumerate(spec: &ExperimentSpec) -> Result<Vec<PlannedRun>, ExperimentErr
     for algo in &spec.algorithms {
         for prob in &spec.problems {
             if prob.suite != "bbob" {
-                return Err(ExperimentError::Parse(format!(
+                return Err(ExperimentError::InvalidSpec(format!(
                     "unsupported suite `{}` (M2c supports `bbob` only)", prob.suite)));
             }
-            let instance = *prob.instances.first().ok_or_else(|| ExperimentError::Parse(
+            let instance = *prob.instances.first().ok_or_else(|| ExperimentError::InvalidSpec(
                 format!("problem {} has no instances", problem_label(prob.fid, prob.dim))))?;
             let problem = BbobProblem::new(prob.fid, prob.dim, instance)
                 .map_err(|e| ExperimentError::Problem(e.to_string()))?;
@@ -782,6 +795,45 @@ mod tests {
         spec.algorithms[0].source = AlgoSource::Preset { kind: "bogus".into(), pop_size: Some(10) };
         let err = enumerate(&spec).unwrap_err();
         assert!(matches!(err, ExperimentError::UnknownPresetKind { .. }), "got {err:?}");
+    }
+
+    // M2d-3 Task 11: ExperimentError::Parse (TOML SYNTAX) vs
+    // ExperimentError::InvalidSpec (well-formed but semantically invalid)
+    // are now distinct variants -- previously both were the single
+    // overloaded `Parse` variant.
+
+    #[test]
+    fn genuine_toml_syntax_error_is_parse_not_invalid_spec() {
+        let err = ExperimentSpec::from_toml("this is not valid toml =====").unwrap_err();
+        assert!(matches!(err, ExperimentError::Parse(_)), "got {err:?}");
+        assert!(err.to_string().starts_with("could not parse experiment spec (TOML syntax error):"));
+    }
+
+    #[test]
+    fn empty_budgets_is_invalid_spec_not_parse() {
+        let mut spec = two_algo_spec();
+        spec.budgets = vec![];
+        let err = enumerate(&spec).unwrap_err();
+        assert!(matches!(err, ExperimentError::InvalidSpec(_)), "got {err:?}");
+        assert_eq!(err.to_string(), "invalid experiment spec: `budgets` must not be empty");
+    }
+
+    #[test]
+    fn unsupported_suite_is_invalid_spec_not_parse() {
+        let mut spec = two_algo_spec();
+        spec.problems[0].suite = "coco".into();
+        let err = enumerate(&spec).unwrap_err();
+        assert!(matches!(err, ExperimentError::InvalidSpec(_)), "got {err:?}");
+        assert!(err.to_string().contains("unsupported suite `coco`"));
+    }
+
+    #[test]
+    fn no_instances_is_invalid_spec_not_parse() {
+        let mut spec = two_algo_spec();
+        spec.problems[0].instances = vec![];
+        let err = enumerate(&spec).unwrap_err();
+        assert!(matches!(err, ExperimentError::InvalidSpec(_)), "got {err:?}");
+        assert!(err.to_string().contains("has no instances"));
     }
 
     #[test]

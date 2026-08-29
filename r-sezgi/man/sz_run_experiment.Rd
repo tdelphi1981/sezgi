@@ -17,8 +17,8 @@ sz_run_experiment(
 \item{spec_toml}{Experiment spec as TOML. Schema (see
 `crates/bench/src/experiment.rs`): top-level `name` (string), `seeds`
 (integer array), `budgets` (integer array); one or more `[[algorithms]]`
-tables, each with a `name` and either `preset = { kind = "...",
-pop_size = ... }` (pop_size optional/ignored for dim-linked presets:
+tables, each with a `name` and either `preset = \{ kind = "...",
+pop_size = ... \}` (pop_size optional/ignored for dim-linked presets:
 `lshade`, `cmaes_ipop`, `nelder_mead`, `sa`) or `spec_toml = "..."`; one
 or more `[[problems]]` tables, each with `suite = "bbob"`, `fid`
 (integer), `dim` (integer), `instances` (integer array).}

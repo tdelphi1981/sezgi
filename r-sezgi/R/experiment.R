@@ -14,8 +14,8 @@
 #' @param spec_toml Experiment spec as TOML. Schema (see
 #'   `crates/bench/src/experiment.rs`): top-level `name` (string), `seeds`
 #'   (integer array), `budgets` (integer array); one or more `[[algorithms]]`
-#'   tables, each with a `name` and either `preset = { kind = "...",
-#'   pop_size = ... }` (pop_size optional/ignored for dim-linked presets:
+#'   tables, each with a `name` and either `preset = \{ kind = "...",
+#'   pop_size = ... \}` (pop_size optional/ignored for dim-linked presets:
 #'   `lshade`, `cmaes_ipop`, `nelder_mead`, `sa`) or `spec_toml = "..."`; one
 #'   or more `[[problems]]` tables, each with `suite = "bbob"`, `fid`
 #'   (integer), `dim` (integer), `instances` (integer array).
@@ -50,8 +50,8 @@ sz_run_experiment <- function(spec_toml, journal = NULL, parallel = TRUE, thread
 #' @param aggregate How to combine a (problem, algorithm) cell's per-seed
 #'   gaps (`best_f - f_opt`) into one number: `"mean"` or `"median"`.
 #' @returns A named list with `algo_names` (character vector),
-#'   `problem_labels` (character vector, `f{fid}d{dim}i{instance}`, ordered
-#'   by first appearance in `df`), and `matrix` (numeric matrix, rows =
+#'   `problem_labels` (character vector, `f\{fid\}d\{dim\}i\{instance\}`,
+#'   ordered by first appearance in `df`), and `matrix` (numeric matrix, rows =
 #'   problems, columns = algorithms; `matrix[i, j]` is the aggregated gap of
 #'   `algo_names[j]` on `problem_labels[i]`). Errors if a (problem,
 #'   algorithm) pair present for one algorithm/problem is missing for

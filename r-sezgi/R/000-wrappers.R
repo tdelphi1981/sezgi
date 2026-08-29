@@ -71,6 +71,7 @@ NULL
 #' @returns A named list with `mean_worths`, `ci_low`, `ci_high`,
 #'   `p_best`, `samples` (mirrors py-sezgi's
 #'   `stats_bayesian_plackett_luce()` dict keys exactly).
+#' @noRd
 `sz_bayesian_plackett_luce_raw` <- function(`rankings`, `samples`, `burn_in`, `seed`) {
   .Call(savvy_sz_bayesian_plackett_luce_raw__impl, `rankings`, `samples`, `burn_in`, `seed`)
 }
@@ -108,6 +109,7 @@ NULL
 #'   uses `sezgi_bench::default_targets` (the COCO-convention 51-value
 #'   set).
 #' @returns A named list (see `per_algo`).
+#' @noRd
 `sz_ecdf_raw` <- function(`log_root`, `per_algo`, `targets` = NULL) {
   .Call(savvy_sz_ecdf_raw__impl, `log_root`, `per_algo`, `targets`)
 }
@@ -137,6 +139,7 @@ NULL
 #' @returns A named list, one entry per distinct budget in ascending order,
 #'   named by the budget (as a string); each value has exactly the shape
 #'   `sz_stats_paper_package_raw()` returns.
+#' @noRd
 `sz_per_budget_packages_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`) {
   .Call(savvy_sz_per_budget_packages_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`)
 }
@@ -225,6 +228,7 @@ NULL
 #' @param nu Student-t degrees of freedom (used only when `dist =
 #'   "student_t"`).
 #' @returns A character scalar with the algorithm spec as JSON.
+#' @noRd
 `sz_preset_es_mu_plus_lambda_raw` <- function(`pop_size`, `budget`, `dist`, `mean`, `sigma`, `loc`, `scale`, `alpha`, `nu`) {
   .Call(savvy_sz_preset_es_mu_plus_lambda_raw__impl, `pop_size`, `budget`, `dist`, `mean`, `sigma`, `loc`, `scale`, `alpha`, `nu`)
 }
@@ -408,6 +412,7 @@ NULL
 #' @returns A named list with `algo_names` (character vector),
 #'   `problem_labels` (character vector, `f{fid}d{dim}i{instance}`), and
 #'   `matrix` (numeric matrix, rows = problems, columns = algorithms).
+#' @noRd
 `sz_results_matrix_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`) {
   .Call(savvy_sz_results_matrix_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`)
 }
@@ -443,6 +448,8 @@ NULL
 #' from `spec` (the already-parsed `ExperimentSpec`), not from the raw
 #' `spec_toml` text, so whitespace/comment-only edits to `spec_toml` never
 #' invalidate a journal -- see `crates/bench/src/checkpoint.rs`.
+#'
+#' @noRd
 `sz_run_experiment_raw` <- function(`spec_toml`, `parallel`, `journal` = NULL, `threads` = NULL, `log_dir` = NULL) {
   .Call(savvy_sz_run_experiment_raw__impl, `spec_toml`, `parallel`, `journal`, `threads`, `log_dir`)
 }
@@ -483,6 +490,7 @@ NULL
 #'   Python and Rust.
 #' @returns A named list with `p_left`, `p_rope`, `p_right` (mirrors
 #'   py-sezgi's `stats_bayesian_signed_rank()` dict keys exactly).
+#' @noRd
 `sz_stats_bayesian_signed_rank_raw` <- function(`a`, `b`, `rope`, `samples`, `seed`) {
   .Call(savvy_sz_stats_bayesian_signed_rank_raw__impl, `a`, `b`, `rope`, `samples`, `seed`)
 }
@@ -551,6 +559,7 @@ NULL
 #'   `plackett_luce` (nested list: `worths`, `p_best`, `iterations`),
 #'   `latex_summary`, `latex_tests` (mirrors py-sezgi's
 #'   `stats_paper_package()` dict keys exactly).
+#' @noRd
 `sz_stats_paper_package_raw` <- function(`algo_names`, `problem_names`, `m`, `rope`, `samples`, `seed`) {
   .Call(savvy_sz_stats_paper_package_raw__impl, `algo_names`, `problem_names`, `m`, `rope`, `samples`, `seed`)
 }

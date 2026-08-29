@@ -83,6 +83,17 @@ test_that("log_dir round trip is bit-identical at the full logged budget", {
   expect_false(grepl("NaN", pkgs[["500"]]$latex_summary, fixed = TRUE))
 })
 
+# M2d-3 Task 11: f64_to_u64 strictness (budgets family) -- a fractional
+# budget passed to sz_read_ioh_records() is now REJECTED ("expected a
+# whole number") instead of being silently truncated toward zero.
+test_that("a fractional budget is rejected by sz_read_ioh_records", {
+  log_dir <- file.path(tempfile(), "logs")
+  sz_run_experiment(tiny_experiment_toml(budgets = "[500]"), log_dir = log_dir, parallel = FALSE)
+
+  expect_error(sz_read_ioh_records(log_dir, 200.5), "expected a whole number")
+  expect_error(sz_read_ioh_records(log_dir, c(200, 400.5)), "expected a whole number")
+})
+
 test_that("a curtailed-budget view is present with evals capped at the budget", {
   # A budget SMALLER than the run's logged budget is a valid curtailed view
   # (present, no error), with evals = min(budget, run.evals) -- but is NOT

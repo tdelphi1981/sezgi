@@ -293,6 +293,7 @@ fn parse_distribution(
 /// @param nu Student-t degrees of freedom (used only when `dist =
 ///   "student_t"`).
 /// @returns A character scalar with the algorithm spec as JSON.
+/// @noRd
 #[savvy]
 fn sz_preset_es_mu_plus_lambda_raw(
     pop_size: f64,

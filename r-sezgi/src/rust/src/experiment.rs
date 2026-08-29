@@ -87,6 +87,8 @@ fn records_to_data_frame(records: &[RunRecord]) -> savvy::Result<Sexp> {
 /// from `spec` (the already-parsed `ExperimentSpec`), not from the raw
 /// `spec_toml` text, so whitespace/comment-only edits to `spec_toml` never
 /// invalidate a journal -- see `crates/bench/src/checkpoint.rs`.
+///
+/// @noRd
 #[savvy]
 fn sz_run_experiment_raw(
     spec_toml: &str,
@@ -118,12 +120,17 @@ fn sz_run_experiment_raw(
     records_to_data_frame(&records)
 }
 
-/// Casts a non-negative-checked `f64` (as passed from R, which has no
-/// native unsigned integer type) to `u64`, rejecting negative or
-/// non-finite values. Duplicated from the identically-named private
-/// helper in `stats.rs` (no shared private cross-module import -- same
-/// "no shared private crate imports" rule as `parse_distribution`'s
-/// duplication between `solve.rs` and py-sezgi's `lib.rs`).
+/// Casts a non-negative-checked, WHOLE-NUMBER-checked `f64` (as passed
+/// from R, which has no native unsigned integer type) to `u64`, rejecting
+/// negative, non-finite, or fractional values. Duplicated from the
+/// identically-named private helper in `stats.rs` / `session.rs` (no
+/// shared private cross-module import -- same "no shared private crate
+/// imports" rule as `parse_distribution`'s duplication between `solve.rs`
+/// and py-sezgi's `lib.rs`).
+///
+/// M2d-3: previously silently truncated a fractional `x` toward zero; now
+/// rejects it (see `session.rs`'s copy of this doc comment for the
+/// py-sezgi asymmetry this closes).
 fn f64_to_u64(name: &str, x: f64) -> savvy::Result<u64> {
     if !x.is_finite() || x < 0.0 {
         return Err(savvy_err!(
@@ -131,6 +138,9 @@ fn f64_to_u64(name: &str, x: f64) -> savvy::Result<u64> {
             name,
             x
         ));
+    }
+    if x.fract() != 0.0 {
+        return Err(savvy_err!("{} expected a whole number, got {}", name, x));
     }
     Ok(x as u64)
 }
