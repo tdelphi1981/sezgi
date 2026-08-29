@@ -194,6 +194,25 @@ pub fn cmaes_ipop(dim: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Nelder–Mead simplex (M2b Task 13; see `nm.rs`'s module doc for the
+/// standard coefficients and the batch-engine state-machine adaptation).
+/// `pop_size` is fixed to `dim + 1` (the population IS the simplex).
+pub fn nelder_mead(dim: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "nelder-mead".into(),
+        pop_size: dim + 1,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/nelder-mead", serde_json::json!({})),
+            replacer: comp("replace/nelder-mead", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn random_search(pop_size: usize, budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "random-search".into(),

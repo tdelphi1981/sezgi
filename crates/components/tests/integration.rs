@@ -229,3 +229,24 @@ fn cmaes_ipop_escapes_multimodal() {
     assert!(ipop_gap < 1.5,
         "CMA-ES/IPOP should land close to the Rastrigin optimum: ipop_gap={ipop_gap} plain_gap={plain_gap}");
 }
+
+// ---- Nelder-Mead simplex (M2b Task 13) ----
+
+#[test]
+fn nm_converges_on_sphere() {
+    let p = SphereShifted::new(vec![1.5, -0.5, 2.0, -3.0, 0.25], -5.0, 5.0);
+    let spec = presets::nelder_mead(5, 5_000);
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    assert!(r.best_f < 1e-6, "Nelder-Mead should converge tightly on the sphere: {}", r.best_f);
+}
+
+#[test]
+fn nm_on_rosenbrock_2d() {
+    let p = BbobProblem::new(8, 2, 1).unwrap();
+    let spec = presets::nelder_mead(2, 10_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    assert!(gap < 1e-4, "Nelder-Mead should solve the 2D Rosenbrock (f8) closely: gap={}", gap);
+}
