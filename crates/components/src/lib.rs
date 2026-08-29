@@ -16,6 +16,7 @@ pub mod nm;
 pub mod gwo;
 pub mod woa;
 pub mod hs;
+pub mod cs;
 
 use sezgi_core::component::Registry;
 
@@ -36,4 +37,5 @@ pub fn register_builtins(reg: &mut Registry) {
     gwo::register(reg);
     woa::register(reg);
     hs::register(reg);
+    cs::register(reg);
 }

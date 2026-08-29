@@ -78,13 +78,13 @@ test_that("journal resume rejects a real spec field change", {
   )
 })
 
-test_that("all 16 preset builders return parseable spec JSON", {
+test_that("all 17 preset builders return parseable spec JSON", {
   skip_if_not_installed("jsonlite")
   specs <- list(
     sz_preset_de_rand_1(10, 500), sz_preset_de_best_1(10, 500),
     sz_preset_jde(10, 500), sz_preset_ga_real(10, 500),
     sz_preset_pso(10, 500), sz_preset_gwo(10, 500), sz_preset_woa(10, 500),
-    sz_preset_harmony_search(10, 500),
+    sz_preset_harmony_search(10, 500), sz_preset_cuckoo_search(10, 500),
     sz_preset_sa(500),
     sz_preset_shade(10, 500), sz_preset_lshade(5, 500),
     sz_preset_cmaes(10, 500), sz_preset_cmaes_ipop(5, 500),
@@ -112,6 +112,14 @@ test_that("woa preset solves bbob f1 (M2d-3 Task 6)", {
 
 test_that("harmony_search preset solves bbob f1 (M2d-3 Task 7)", {
   spec <- sz_preset_harmony_search(30, 2000)
+  r <- sz_solve_bbob(spec, fid = 1L, dim = 5L, instance = 1L,
+                     master_seed = 1, run_id = 0)
+  expect_true(is.finite(r$best_f))
+  expect_true(r$evals > 0)
+})
+
+test_that("cuckoo_search preset solves bbob f1 (M2d-3 Task 8)", {
+  spec <- sz_preset_cuckoo_search(25, 2000)
   r <- sz_solve_bbob(spec, fid = 1L, dim = 5L, instance = 1L,
                      master_seed = 1, run_id = 0)
   expect_true(is.finite(r$best_f))

@@ -158,6 +158,7 @@ presets = SimpleNamespace(
     gwo=_preset(_sezgi.preset_gwo),
     woa=_preset(_sezgi.preset_woa),
     harmony_search=_preset(_sezgi.preset_harmony_search),
+    cuckoo_search=_preset(_sezgi.preset_cuckoo_search),
     sa=_preset(_sezgi.preset_sa),
     random_search=_preset(_sezgi.preset_random_search),
     nelder_mead=_preset(_sezgi.preset_nelder_mead),

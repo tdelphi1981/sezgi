@@ -120,6 +120,21 @@ fn sz_preset_harmony_search(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds a Cuckoo Search algorithm spec (Yang & Deb 2009 -- a labeled
+/// metaphor preset, see `crates/components/src/cs.rs`'s module doc for the
+/// tier note, citation and pinned draw order) as JSON, ready to pass to
+/// `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (nest count). Canonical is 25.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_cuckoo_search(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::cuckoo_search(pop_size as usize, budget as u64).to_json();
+    json.try_into()
+}
+
 /// Builds a simulated annealing (Metropolis, geometric cooling) algorithm
 /// spec as JSON, ready to pass to `sz_solve_bbob()`.
 ///

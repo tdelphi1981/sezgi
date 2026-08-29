@@ -163,6 +163,19 @@ NULL
   .Call(savvy_sz_preset_cmaes_ipop__impl, `dim`, `budget`)
 }
 
+#' Builds a Cuckoo Search algorithm spec (Yang & Deb 2009 -- a labeled
+#' metaphor preset, see `crates/components/src/cs.rs`'s module doc for the
+#' tier note, citation and pinned draw order) as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (nest count). Canonical is 25.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_cuckoo_search` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_cuckoo_search__impl, `pop_size`, `budget`)
+}
+
 #' Builds a DE/best/1/bin algorithm spec (uniform init, clamp boundary,
 #' one-to-one-greedy replacement) as JSON, ready to pass to
 #' `sz_solve_bbob()`.
