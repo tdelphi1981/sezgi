@@ -44,6 +44,14 @@ def test_preset_cuckoo_search_is_dict_with_stages():
     assert spec["stages"][0]["adapter"]["kind"] == "adapter/abandon-worst-fraction"
 
 
+def test_preset_goa_is_dict_with_stages():
+    """M2d-3 Task 9: sezgi.presets.goa() parses as JSON with the expected shape."""
+    spec = sezgi.presets.goa(pop_size=30, budget=2000)
+    assert spec["pop_size"] == 30
+    assert spec["stages"][0]["generator"]["kind"] == "gen/goa"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/generational"
+
+
 def test_bbob_solve_deterministic():
     p = sezgi.bbob(fid=1, dim=5, instance=1)
     spec = sezgi.presets.de_rand_1(pop_size=20, budget=2000)
@@ -148,6 +156,7 @@ def test_all_presets_solve_smoke():
         "woa": sezgi.presets.woa(pop_size=30, budget=budget),
         "harmony_search": sezgi.presets.harmony_search(pop_size=30, budget=budget),
         "cuckoo_search": sezgi.presets.cuckoo_search(pop_size=25, budget=budget),
+        "goa": sezgi.presets.goa(pop_size=30, budget=budget),
         "jde": sezgi.presets.jde(pop_size=20, budget=budget),
         "shade": sezgi.presets.shade(pop_size=20, budget=budget),
         "lshade": sezgi.presets.lshade(dim=dim, budget=budget),

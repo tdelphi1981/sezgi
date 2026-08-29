@@ -135,6 +135,23 @@ fn sz_preset_cuckoo_search(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds a Grasshopper Optimisation Algorithm spec (Saremi, Mirjalili &
+/// Lewis 2017 -- a labeled metaphor preset, see
+/// `crates/components/src/goa.rs`'s module doc for the tier note, citation,
+/// the IMPLEMENTER-VERIFY distance-normalization resolution and the
+/// zero-RNG-draw arithmetic-order pin) as JSON, ready to pass to
+/// `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (swarm size). Canonical is 30.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_goa(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::goa(pop_size as usize, budget as u64).to_json();
+    json.try_into()
+}
+
 /// Builds a simulated annealing (Metropolis, geometric cooling) algorithm
 /// spec as JSON, ready to pass to `sz_solve_bbob()`.
 ///

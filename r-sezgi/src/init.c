@@ -99,6 +99,11 @@ SEXP savvy_sz_preset_ga_real__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     return handle_result(res);
 }
 
+SEXP savvy_sz_preset_goa__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_goa__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_preset_gwo__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_gwo__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
@@ -253,6 +258,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_preset_de_rand_1__impl", (DL_FUNC) &savvy_sz_preset_de_rand_1__impl, 2},
     {"savvy_sz_preset_es_mu_plus_lambda_raw__impl", (DL_FUNC) &savvy_sz_preset_es_mu_plus_lambda_raw__impl, 9},
     {"savvy_sz_preset_ga_real__impl", (DL_FUNC) &savvy_sz_preset_ga_real__impl, 2},
+    {"savvy_sz_preset_goa__impl", (DL_FUNC) &savvy_sz_preset_goa__impl, 2},
     {"savvy_sz_preset_gwo__impl", (DL_FUNC) &savvy_sz_preset_gwo__impl, 2},
     {"savvy_sz_preset_harmony_search__impl", (DL_FUNC) &savvy_sz_preset_harmony_search__impl, 2},
     {"savvy_sz_preset_jde__impl", (DL_FUNC) &savvy_sz_preset_jde__impl, 2},

@@ -204,6 +204,33 @@ pub fn cuckoo_search(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Grasshopper Optimisation Algorithm (Saremi, Mirjalili & Lewis 2017) -- a
+/// labeled metaphor preset (see `goa.rs`'s module doc for the tier note,
+/// citation, the IMPLEMENTER-VERIFY distance-normalization resolution and
+/// the zero-RNG-draw arithmetic-order pin). Uniform init, `boundary/clamp`
+/// (same as `gwo`/`woa`/`harmony_search`/`cuckoo_search` -- the swarm term
+/// can push a coordinate outside `[lo, hi]`), unconditional generational
+/// replacement (`replace/generational`, GWO's kind, reused as-is -- GOA is
+/// non-elitist by construction, same rationale as `gwo`/`woa`/`pso`/
+/// `cma-es`). `pop_size` is the swarm size; canonical is 30 per the source
+/// paper. `min_pop = 2` (needs a best-so-far distinct from `i` for the
+/// swarm interaction term to be meaningful), enforced via
+/// `AlgorithmSpec::validate`.
+pub fn goa(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "goa".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/goa", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),

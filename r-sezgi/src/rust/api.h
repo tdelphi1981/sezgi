@@ -10,6 +10,7 @@ SEXP savvy_sz_preset_de_best_1__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_de_rand_1__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_es_mu_plus_lambda_raw__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget, SEXP c_arg__dist, SEXP c_arg__mean, SEXP c_arg__sigma, SEXP c_arg__loc, SEXP c_arg__scale, SEXP c_arg__alpha, SEXP c_arg__nu);
 SEXP savvy_sz_preset_ga_real__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_preset_goa__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_gwo__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_harmony_search__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_jde__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);

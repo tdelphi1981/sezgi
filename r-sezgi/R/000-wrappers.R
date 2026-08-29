@@ -240,6 +240,21 @@ NULL
   .Call(savvy_sz_preset_ga_real__impl, `pop_size`, `budget`)
 }
 
+#' Builds a Grasshopper Optimisation Algorithm spec (Saremi, Mirjalili &
+#' Lewis 2017 -- a labeled metaphor preset, see
+#' `crates/components/src/goa.rs`'s module doc for the tier note, citation,
+#' the IMPLEMENTER-VERIFY distance-normalization resolution and the
+#' zero-RNG-draw arithmetic-order pin) as JSON, ready to pass to
+#' `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (swarm size). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_goa` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_goa__impl, `pop_size`, `budget`)
+}
+
 #' Builds a Grey Wolf Optimizer algorithm spec (Mirjalili, Mirjalili & Lewis
 #' 2014 -- a labeled metaphor preset, see `crates/components/src/gwo.rs`'s
 #' module doc for the tier note and citations) as JSON, ready to pass to
