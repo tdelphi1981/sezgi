@@ -31,15 +31,15 @@
 //! else. A `.dat` file whose block count does not match its scenario's
 //! `runs` array length is treated as corrupt (an error naming the file).
 //!
-//! Note: [`crate::ioh::IohLogger::finish`] currently names the meta file
-//! from `(fid, fname)` alone, not `dim`, so two `finish()` calls for the
-//! same `(algo, fid)` at different `dim`s target the same meta path and
-//! the later call's write overwrites the earlier one's `scenarios` entry
-//! (the `.dat` files, whose names DO embed `dim`, are unaffected). This
-//! reader has no such limitation — it reads whatever `scenarios` entries
-//! a meta file actually contains — but a caller relying on multiple dims
-//! of the same `(algo, fid)` surviving on disk needs that write-side
-//! collision fixed first.
+//! Note: the meta file is named from `(fid, fname)` alone, not `dim` — one
+//! meta file per `(algo, fid)`, per the IOH convention. [`crate::ioh::IohLogger::finish`]
+//! MERGES into it rather than overwriting: two `finish()` calls for the
+//! same `(algo, fid)` at different `dim`s both leave their scenario in the
+//! same meta file's `scenarios[]` array (keyed by `dimension`; re-`finish()`ing
+//! the same dim replaces that entry rather than duplicating it), so
+//! [`read_ioh_root`] sees every dimension's scenario for that `(algo, fid)` —
+//! it simply iterates whatever `scenarios[]` entries a meta file contains,
+//! producing one [`IohScenario`] per entry.
 
 use crate::experiment::ExperimentError;
 use serde::Deserialize;
@@ -354,6 +354,56 @@ mod tests {
                     assert_eq!(e1, e2);
                     assert_eq!(y1.to_bits(), y2.to_bits(), "raw_y bits must match exactly");
                 }
+            }
+        }
+    }
+
+    /// Regression for the multi-dim meta-collision bug: `run_experiment_logged`
+    /// swept over one fid at TWO dims used to lose all but the
+    /// last-finished dim's meta scenario (the dim-5 `.dat` orphaned,
+    /// `read_ioh_root` silently returning only one scenario). `finish()`
+    /// now merges into the shared `(algo, fid)` meta file instead of
+    /// overwriting it, so both dims' scenarios must come back.
+    #[test]
+    fn multi_dim_same_fid_both_scenarios_survive_end_to_end() {
+        let spec = ExperimentSpec {
+            name: "multi-dim".into(),
+            seeds: vec![11, 22],
+            budgets: vec![300],
+            algorithms: vec![AlgoEntry {
+                name: "de".into(),
+                source: AlgoSource::Preset { kind: "de_rand_1".into(), pop_size: Some(6) },
+            }],
+            problems: vec![
+                ProblemEntry { suite: "bbob".into(), fid: 1, dim: 5, instances: vec![1] },
+                ProblemEntry { suite: "bbob".into(), fid: 1, dim: 10, instances: vec![1] },
+            ],
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        run_experiment_logged(&spec, tmp.path(), false, None).unwrap();
+
+        let scenarios = read_ioh_root(tmp.path()).unwrap();
+        assert_eq!(scenarios.len(), 2, "both dims of the same (algo, fid) must survive");
+
+        let dims: Vec<usize> = {
+            let mut d: Vec<usize> = scenarios.iter().map(|s| s.dim).collect();
+            d.sort();
+            d
+        };
+        assert_eq!(dims, vec![5, 10]);
+
+        for dim in [5usize, 10usize] {
+            let sc = scenarios.iter().find(|s| s.dim == dim).unwrap();
+            assert_eq!(sc.fid, 1);
+            assert_eq!(sc.algo, "de");
+            // Both seeds' runs present for this dim, each with its seed
+            // and f_opt intact.
+            assert_eq!(sc.runs.len(), 2, "dim {dim} must keep both runs");
+            let expected_f_opt = sezgi_problems::BbobProblem::new(1, dim, 1).unwrap().f_opt();
+            for (run, &seed) in sc.runs.iter().zip(&[11u64, 22u64]) {
+                assert_eq!(run.seed, Some(seed));
+                assert_eq!(run.f_opt.map(f64::to_bits), Some(expected_f_opt.to_bits()));
+                assert!(!run.rows.is_empty(), "dim {dim} run must have data rows");
             }
         }
     }
