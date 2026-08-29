@@ -101,6 +101,28 @@ pub fn pso(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Grey Wolf Optimizer (Mirjalili, Mirjalili & Lewis 2014) -- a labeled
+/// metaphor preset (see `gwo.rs`'s module doc for the tier note, citations
+/// and pinned draw order). Uniform init, `boundary/clamp` (same as `pso`),
+/// unconditional generational replacement (`replace/generational` -- GWO is
+/// non-elitist by construction, same rationale as `pso`/`cma-es`).
+/// `pop_size` is the pack size; canonical is 30 per the source paper.
+/// `min_pop = 3` (alpha/beta/delta), enforced via `AlgorithmSpec::validate`.
+pub fn gwo(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "gwo".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/gwo", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),

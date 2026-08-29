@@ -250,3 +250,43 @@ fn nm_on_rosenbrock_2d() {
     let gap = r.best_f - p.f_opt();
     assert!(gap < 1e-4, "Nelder-Mead should solve the 2D Rosenbrock (f8) closely: gap={}", gap);
 }
+
+// ---- Grey Wolf Optimizer (M2d-3 Task 5) ----
+
+#[test]
+fn gwo_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::gwo(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Deterministic achieved gap at seed 42: gap ~= 0.0000045804 (GWO
+    // converges tightly on the separable, unimodal BBOB f1/Sphere in 20k
+    // evaluations). Anchored bound rounded up to the next 0.5 (0.5), giving
+    // ample (>=0.3) headroom, per convention (see
+    // shade_near_optimum_on_rastrigin above).
+    assert!(gap < 0.5,
+        "GWO should land close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap}");
+}
+
+#[test]
+fn gwo_min_pop_3_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::gwo(2, 500); // below min_pop = 3 (alpha/beta/delta)
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/gwo") && err_str.contains("3") && err_str.contains("2"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    // Also assert the underlying SpecError variant directly.
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/gwo");
+            assert_eq!(min_pop, 3);
+            assert_eq!(pop_size, 2);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}

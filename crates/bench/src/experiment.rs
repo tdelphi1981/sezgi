@@ -22,6 +22,7 @@
 //! | `es_mu_plus_lambda`   | required                            | no |
 //! | `ga_real`             | required                            | no |
 //! | `pso`                 | required                            | no |
+//! | `gwo`                 | required                            | no |
 //! | `shade`               | required                            | no |
 //! | `cmaes`               | required                            | no |
 //! | `random_search`       | required                            | no |
@@ -232,7 +233,7 @@ pub enum ExperimentError {
 }
 
 const VALID_PRESET_KINDS: &[&str] = &[
-    "de_rand_1", "de_best_1", "jde", "es_mu_plus_lambda", "ga_real", "pso",
+    "de_rand_1", "de_best_1", "jde", "es_mu_plus_lambda", "ga_real", "pso", "gwo",
     "shade", "cmaes", "random_search", "lshade", "cmaes_ipop", "nelder_mead", "sa",
 ];
 
@@ -253,6 +254,7 @@ fn build_preset(kind: &str, pop_size: Option<usize>, dim: usize, budget: u64)
             Distribution::Gaussian { mean: 0.0, sigma: 0.5 }),
         "ga_real" => presets::ga_real(require_pop_size(kind, pop_size)?, budget),
         "pso" => presets::pso(require_pop_size(kind, pop_size)?, budget),
+        "gwo" => presets::gwo(require_pop_size(kind, pop_size)?, budget),
         "shade" => presets::shade(require_pop_size(kind, pop_size)?, budget),
         "cmaes" => presets::cmaes(require_pop_size(kind, pop_size)?, budget),
         "random_search" => presets::random_search(require_pop_size(kind, pop_size)?, budget),

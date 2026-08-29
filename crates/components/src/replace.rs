@@ -42,9 +42,34 @@ impl Replacer for MuPlusLambda {
     }
 }
 
+/// Unconditional generational replacement: the offspring become the new
+/// population outright (no per-individual fitness comparison, no coupled
+/// blackboard state). Added for `gen/gwo` (Task 5, M2d-3), after checking
+/// that no existing kind fits: `replace/one-to-one-greedy` only keeps an
+/// offspring when it beats its parent, `replace/mu-plus-lambda` is elitist
+/// (selects the best `mu` from the combined pool), and the only other
+/// unconditional replacer in this crate -- `replace/pso-commit` (`pso.rs`)
+/// and `replace/cma-update` (`cma.rs`) -- both bundle algorithm-specific
+/// bookkeeping (pbest/velocity, CMA state) that a plain GWO spec doesn't
+/// provide, so their `meta().requires` would fail spec validation. This is
+/// therefore a new, clearly-named, state-free kind, reusable by any future
+/// non-elitist metaphor preset that needs unconditional replacement without
+/// extra coupling.
+pub struct Generational;
+impl Replacer for Generational {
+    fn replace(&self, pop: &mut Population, oi: Vec<Genotype>, of: Vec<f64>, _c: &mut Ctx) {
+        pop.individuals = oi;
+        pop.fitness = of;
+    }
+    fn meta(&self) -> ComponentMeta {
+        ComponentMeta::new("replace/generational", SupportedBlocks::All)
+    }
+}
+
 pub fn register(reg: &mut Registry) {
     reg.register_replacer("replace/one-to-one-greedy", |_| Ok(Box::new(OneToOneGreedy)));
     reg.register_replacer("replace/mu-plus-lambda", |_| Ok(Box::new(MuPlusLambda)));
+    reg.register_replacer("replace/generational", |_| Ok(Box::new(Generational)));
 }
 
 #[cfg(test)]

@@ -75,6 +75,21 @@ fn sz_preset_pso(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds a Grey Wolf Optimizer algorithm spec (Mirjalili, Mirjalili & Lewis
+/// 2014 -- a labeled metaphor preset, see `crates/components/src/gwo.rs`'s
+/// module doc for the tier note and citations) as JSON, ready to pass to
+/// `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (pack size). Canonical is 30.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_gwo(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::gwo(pop_size as usize, budget as u64).to_json();
+    json.try_into()
+}
+
 /// Builds a simulated annealing (Metropolis, geometric cooling) algorithm
 /// spec as JSON, ready to pass to `sz_solve_bbob()`.
 ///
