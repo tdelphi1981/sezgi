@@ -492,6 +492,33 @@ pub fn hho(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Ant Lion Optimizer (Mirjalili 2015) -- a labeled metaphor preset (see
+/// `alo.rs`'s module doc for the full provenance extraction against the
+/// author's own `ALO.m`/`Random_walk_around_antlion.m`/
+/// `RouletteWheelSelection.m`, the faithful-full-walk cost decision, the
+/// elitism design adjudication -- reusing `replace/mu-plus-lambda` as-is,
+/// no blackboard state needed -- and the negative-fitness roulette-weight
+/// simplification). Uniform init, `boundary/clamp` (same as every other
+/// preset in this crate), `gen/alo` paired with `replace/mu-plus-lambda`
+/// (ES's kind, reused as-is -- `ALO.m`'s own antlion-update merge-sort-
+/// truncate mechanism, verified to be exactly this shape). `pop_size` is
+/// the ant/antlion count; canonical is 25 per this wave's convention.
+/// `min_pop = 2`, enforced via `AlgorithmSpec::validate`.
+pub fn alo(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "alo".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/alo", serde_json::json!({})),
+            replacer: comp("replace/mu-plus-lambda", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),

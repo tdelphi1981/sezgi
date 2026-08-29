@@ -846,3 +846,61 @@ fn hho_min_pop_2_enforced_by_spec_validation() {
         other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
     }
 }
+
+// ---- ALO / Ant Lion Optimizer (M2d-4 Task 10, faithful full-walk
+// construction -- see alo.rs's module doc's "Cost design" section) ----
+
+#[test]
+fn alo_is_a_single_stage_generational_spec() {
+    let spec = presets::alo(25, 2000);
+    assert_eq!(spec.stages.len(), 1);
+    assert_eq!(spec.stages[0].generator.kind, "gen/alo");
+    // The elitism adjudication (see alo.rs's module doc): the antlion
+    // population itself is the persisted memory, via mu-plus-lambda's
+    // merge-sort-truncate -- no blackboard state, no new replacer.
+    assert_eq!(spec.stages[0].replacer.kind, "replace/mu-plus-lambda");
+}
+
+#[test]
+fn alo_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::alo(25, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop 25/budget 20k: ~1.28e-13 (essentially
+    // converged to double-precision resolution) -- despite this instance's
+    // negative f_opt (~-125.95, so fitness is negative throughout almost
+    // the entire run, exercising alo_roulette_weights's negative-fitness
+    // floor-shift branch, not just the literal-reciprocal common case), the
+    // elite-walk term (RE, always toward the current best-ever via
+    // mu-plus-lambda's elitist merge) and the shrinking I-ratio bounds
+    // still drive convergence past double-precision resolution well within
+    // 20k evaluations on the separable, unimodal BBOB f1/Sphere. Anchored
+    // bound rounded up to the next 0.5 above the measured value (0.5),
+    // matching this wave's other anchored-threshold tests' bound; ample
+    // (>=0.3) headroom.
+    assert!(gap < 0.5,
+        "alo should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+#[test]
+fn alo_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::alo(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/alo") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/alo");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}

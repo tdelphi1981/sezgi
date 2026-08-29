@@ -351,6 +351,25 @@ fn sz_preset_hho(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds an Ant Lion Optimizer spec (Mirjalili 2015, Advances in
+/// Engineering Software -- a labeled metaphor preset; see
+/// `crates/components/src/alo.rs`'s module doc for the full provenance
+/// extraction against the author's own `ALO.m`/`Random_walk_around_
+/// antlion.m`/`RouletteWheelSelection.m`, the faithful-full-walk cost
+/// decision, and the elitism design adjudication -- the antlion population
+/// itself is the persisted memory via `replace/mu-plus-lambda`, no
+/// blackboard state needed) as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (ant/antlion count). Canonical is 25.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_alo(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::alo(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
 /// Builds a simulated annealing (Metropolis, geometric cooling) algorithm
 /// spec as JSON, ready to pass to `sz_solve_bbob()`.
 ///

@@ -36,6 +36,7 @@
 //! | `fpa`                 | required                            | no |
 //! | `tlbo`                | required                            | no |
 //! | `hho`                 | required                            | no |
+//! | `alo`                 | required                            | no |
 //! | `shade`               | required                            | no |
 //! | `cmaes`               | required                            | no |
 //! | `random_search`       | required                            | no |
@@ -260,7 +261,7 @@ pub enum ExperimentError {
 
 const VALID_PRESET_KINDS: &[&str] = &[
     "de_rand_1", "de_best_1", "jde", "es_mu_plus_lambda", "ga_real", "pso", "gwo", "woa",
-    "harmony_search", "cuckoo_search", "goa", "sca", "jaya", "mfo", "ssa", "firefly", "bat", "fpa", "tlbo", "hho", "shade", "cmaes", "random_search", "lshade", "cmaes_ipop",
+    "harmony_search", "cuckoo_search", "goa", "sca", "jaya", "mfo", "ssa", "firefly", "bat", "fpa", "tlbo", "hho", "alo", "shade", "cmaes", "random_search", "lshade", "cmaes_ipop",
     "nelder_mead", "sa",
 ];
 
@@ -295,6 +296,7 @@ fn build_preset(kind: &str, pop_size: Option<usize>, dim: usize, budget: u64)
         "fpa" => presets::fpa(require_pop_size(kind, pop_size)?, budget),
         "tlbo" => presets::tlbo(require_pop_size(kind, pop_size)?, budget),
         "hho" => presets::hho(require_pop_size(kind, pop_size)?, budget),
+        "alo" => presets::alo(require_pop_size(kind, pop_size)?, budget),
         "shade" => presets::shade(require_pop_size(kind, pop_size)?, budget),
         "cmaes" => presets::cmaes(require_pop_size(kind, pop_size)?, budget),
         "random_search" => presets::random_search(require_pop_size(kind, pop_size)?, budget),

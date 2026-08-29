@@ -144,6 +144,23 @@ NULL
   .Call(savvy_sz_per_budget_packages_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`)
 }
 
+#' Builds an Ant Lion Optimizer spec (Mirjalili 2015, Advances in
+#' Engineering Software -- a labeled metaphor preset; see
+#' `crates/components/src/alo.rs`'s module doc for the full provenance
+#' extraction against the author's own `ALO.m`/`Random_walk_around_
+#' antlion.m`/`RouletteWheelSelection.m`, the faithful-full-walk cost
+#' decision, and the elitism design adjudication -- the antlion population
+#' itself is the persisted memory via `replace/mu-plus-lambda`, no
+#' blackboard state needed) as JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (ant/antlion count). Canonical is 25.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_alo` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_alo__impl, `pop_size`, `budget`)
+}
+
 #' Builds a Bat Algorithm spec (Yang, X.-S. 2010, NICSO -- a labeled
 #' metaphor preset, see `crates/components/src/ba.rs`'s module doc for the
 #' tier note, citation, the verified `bat_algorithm.m` loop structure, the

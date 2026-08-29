@@ -78,7 +78,7 @@ test_that("journal resume rejects a real spec field change", {
   )
 })
 
-test_that("all 27 preset builders return parseable spec JSON", {
+test_that("all 28 preset builders return parseable spec JSON", {
   skip_if_not_installed("jsonlite")
   specs <- list(
     sz_preset_de_rand_1(10, 500), sz_preset_de_best_1(10, 500),
@@ -90,6 +90,7 @@ test_that("all 27 preset builders return parseable spec JSON", {
     sz_preset_bat(10, 500), sz_preset_fpa(10, 500),
     sz_preset_tlbo(10, 500),
     sz_preset_hho(10, 500),
+    sz_preset_alo(10, 500),
     sz_preset_sa(500),
     sz_preset_shade(10, 500), sz_preset_lshade(5, 500),
     sz_preset_cmaes(10, 500), sz_preset_cmaes_ipop(5, 500),
@@ -214,6 +215,19 @@ test_that("hho preset solves bbob f1 (M2d-4 Task 9, escape-energy tree with in-g
   spec <- jsonlite::fromJSON(spec_json)
   expect_equal(spec$stages$generator$kind, "gen/hho")
   expect_equal(spec$stages$replacer$kind, "replace/generational")
+
+  r <- sz_solve_bbob(spec_json, fid = 1L, dim = 5L, instance = 1L,
+                     master_seed = 1, run_id = 0)
+  expect_true(is.finite(r$best_f))
+  expect_true(r$evals > 0)
+})
+
+test_that("alo preset solves bbob f1 (M2d-4 Task 10, faithful full-walk construction)", {
+  skip_if_not_installed("jsonlite")
+  spec_json <- sz_preset_alo(25, 2000)
+  spec <- jsonlite::fromJSON(spec_json)
+  expect_equal(spec$stages$generator$kind, "gen/alo")
+  expect_equal(spec$stages$replacer$kind, "replace/mu-plus-lambda")
 
   r <- sz_solve_bbob(spec_json, fid = 1L, dim = 5L, instance = 1L,
                      master_seed = 1, run_id = 0)
