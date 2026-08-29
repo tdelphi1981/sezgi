@@ -37,7 +37,15 @@ use sezgi_core::state::StateReq;
 ///   TryContractOutside / TryContractInside until the next Reflect.
 /// - `nm_reflected`: `Vec<f64>` (len `dim`) — the Reflect phase's `x_r`,
 ///   needed by TryExpand (`x_e = c + γ(x_r − c)`) and TryContractOutside
-///   (`x_c = c + ρ(x_r − c)`).
+///   (`x_c = c + ρ(x_r − c)`). The generator's own `generate` call stores a
+///   *pre-repair* value here (it has no way to see the engine's boundary
+///   repair, which runs after `generate` and before `evaluate`/`replace`);
+///   `replace/nelder-mead`'s Reflect branch overwrites this entry with the
+///   *repaired* offspring it actually receives before consulting the
+///   decision table, so every later insertion of `x_r` (TryExpand's
+///   reject-expansion branch included) uses the genotype the evaluated
+///   fitness actually belongs to. See the "reflected point is stored
+///   post-repair" note on `NmReplacer::replace` below.
 /// - `nm_reflected_f`: `f64` — `x_r`'s fitness, only known once `replace`
 ///   sees the evaluated Reflect offspring; needed by TryExpand's
 ///   best-of-two comparison and TryContractOutside's `f_c ≤ f_r` test.
@@ -200,6 +208,16 @@ impl Generator for NmGenerator {
 /// table, applied to whichever phase `gen/nelder-mead` just produced
 /// offspring for — see the module doc for the full blackboard contract and
 /// the batch-engine state-machine framing.
+///
+/// **Reflected point is stored post-repair.** The Reflect branch (`nm_phase
+/// == 0`) overwrites `nm_reflected` with the offspring it is actually
+/// handed (`oi[0]`) before consulting the decision table, rather than
+/// trusting the pre-repair value `gen/nelder-mead` wrote. The engine repairs
+/// offspring in place between `generate` and `evaluate`/`replace`, so `oi[0]`
+/// is the post-repair, in-bounds point whose fitness is `of[0]`; keeping
+/// `nm_reflected` in sync with it means every later insertion of `x_r`
+/// (e.g. TryExpand's reject-expansion branch) stays genotype↔fitness
+/// consistent under boundary clamping.
 pub struct NmReplacer;
 
 impl Replacer for NmReplacer {
@@ -213,6 +231,17 @@ impl Replacer for NmReplacer {
             0 => {
                 let worst_idx = *ctx.bb.get::<usize>("nm_worst_idx")
                     .expect("replace/nelder-mead: Reflect requires nm_worst_idx");
+                // `oi[0]` is the offspring the replacer actually receives, i.e.
+                // POST-repair (the engine repairs offspring in place between
+                // `generate` and `evaluate`/`replace`). The generator's own
+                // `nm_reflected` write happened before that repair, so it can
+                // disagree with the point `f_r` was actually evaluated at.
+                // Overwrite it here, before the decision table below, so every
+                // later use of x_r (including TryExpand's reject-expansion
+                // branch, which reconstructs a genotype straight from
+                // `nm_reflected`) stays genotype/fitness-consistent and inside
+                // the search space.
+                ctx.bb.insert("nm_reflected", float_view(&oi[0]).clone());
                 let f_r = of[0];
                 let f_worst = pop.fitness[worst_idx];
                 let f_best = pop.fitness.iter().cloned().fold(f64::INFINITY, f64::min);
@@ -349,9 +378,10 @@ mod tests {
         (p, Blackboard::new(), RngStream::from_master(42, &[]))
     }
 
-    /// Hand-derived (see task-13-report.md for the full derivation): starting
-    /// simplex v0=(1,0) f=1, v1=(0,1) f=1, v2=(1,1) f=2 on f(x)=x·x, driven
-    /// through its first four phase transitions.
+    /// Hand-derived (the arithmetic for each step is spelled out in the
+    /// per-round comments below): starting simplex v0=(1,0) f=1, v1=(0,1)
+    /// f=1, v2=(1,1) f=2 on f(x)=x·x, driven through its first four phase
+    /// transitions.
     #[test]
     fn nm_hand_derived_first_four_transitions() {
         let (p, mut bb, mut rng) = ctx_pieces();
@@ -608,6 +638,52 @@ mod tests {
             assert_eq!(*ctx.bb.get::<u8>("nm_phase").unwrap(), 4);
         }
         assert_eq!(pop.fitness, vec![0.0, 3.0, 10.0]);
+    }
+
+    /// The replacer must trust the offspring it is actually handed (which,
+    /// in the real engine, is POST-repair), not whatever `nm_reflected`
+    /// value the generator wrote pre-repair. Simulate that divergence by
+    /// hand: seed `nm_reflected` with a bogus "pre-repair" value the
+    /// generator supposedly computed, then call `replace` with a `oi[0]`
+    /// that differs (standing in for the engine's boundary-repaired point).
+    /// After `replace`, `nm_reflected` must equal the offspring `replace`
+    /// received, not the stale pre-repair value.
+    #[test]
+    fn reflect_stores_repaired_point() {
+        let (p, mut bb, mut rng) = ctx_pieces();
+        let space = p.space();
+        let mut evaluator = Evaluator::new(&p, 1000);
+
+        let pop_before = vec![0.0, 1.0, 10.0]; // f_best=0.0
+        let mut pop = Population {
+            individuals: vec![g(&[0.0, 0.0]), g(&[1.0, 1.0]), g(&[2.0, 2.0])],
+            fitness: pop_before,
+        };
+
+        // Hand-build the blackboard state gen/nelder-mead would have left
+        // after a Reflect call, but with nm_reflected set to a stale
+        // "pre-repair" value that does NOT match the offspring replace is
+        // about to receive (simulating the generator's pre-repair x_r being
+        // clamped by the engine's boundary repair before replace sees it).
+        bb.insert("nm_phase", 0u8);
+        bb.insert("nm_worst_idx", 2usize);
+        bb.insert("nm_centroid", vec![0.5, 0.5]);
+        bb.insert("nm_reflected", vec![99.0, 99.0]); // stale pre-repair value
+
+        let repaired_offspring = g(&[-1.0, -1.0]); // what replace actually receives
+        let f_r = -50.0; // f_r < f_best=0.0 -> TryExpand path, stores nm_reflected_f
+
+        let rep = NmReplacer;
+        let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
+        rep.replace(&mut pop, vec![repaired_offspring.clone()], vec![f_r], &mut ctx);
+
+        assert_eq!(*ctx.bb.get::<u8>("nm_phase").unwrap(), 1, "f_r < f_best routes to TryExpand");
+        assert_eq!(
+            ctx.bb.get::<Vec<f64>>("nm_reflected").unwrap(),
+            float_view(&repaired_offspring),
+            "nm_reflected must be overwritten with the REPLACER-received (post-repair) offspring, \
+             not the generator's stale pre-repair value"
+        );
     }
 
     #[test]

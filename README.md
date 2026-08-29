@@ -49,3 +49,5 @@ sezgi M2b ships 13 reference algorithm presets (with Rust function names):
 | Simulated Annealing | `presets::sa` |
 | Nelder–Mead Simplex | `presets::nelder_mead` |
 | Random Search (baseline) | `presets::random_search` |
+
+Python bindings currently expose `de_rand_1`, `ga_real` and `pso`; the remaining presets reach Python in M2c.

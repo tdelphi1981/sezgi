@@ -295,13 +295,13 @@ mod tests {
         let point = plateau_point();
         let pop = Population { individuals: vec![point.clone(); 20], fitness: vec![0.0; 20] };
 
-        ev.evaluate(&[point.clone()]).unwrap(); // used=1
+        ev.evaluate(std::slice::from_ref(&point)).unwrap(); // used=1
         {
             let mut ctx = Ctx { space, rng: &mut rng, bb: &mut bb, eval: &mut ev, iteration: 0 };
             assert!(restart.check(&pop, &mut ctx).is_none(), "lazy init");
         }
 
-        ev.evaluate(&[point.clone()]).unwrap(); // used=2, delta=1 >= patience(1)
+        ev.evaluate(std::slice::from_ref(&point)).unwrap(); // used=2, delta=1 >= patience(1)
         let d1 = {
             let mut ctx = Ctx { space, rng: &mut rng, bb: &mut bb, eval: &mut ev, iteration: 1 };
             restart.check(&pop, &mut ctx).expect("first fire")
@@ -309,7 +309,7 @@ mod tests {
         assert_eq!(d1.new_pop_size, 8, "odd restart_count (1) uses the small base population");
         assert_eq!(*bb.get::<u64>("restart_count").unwrap(), 1);
 
-        ev.evaluate(&[point.clone()]).unwrap(); // used=3, delta=1 >= patience(1)
+        ev.evaluate(std::slice::from_ref(&point)).unwrap(); // used=3, delta=1 >= patience(1)
         let d2 = {
             let mut ctx = Ctx { space, rng: &mut rng, bb: &mut bb, eval: &mut ev, iteration: 2 };
             restart.check(&pop, &mut ctx).expect("second fire")

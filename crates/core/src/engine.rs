@@ -547,7 +547,7 @@ mod tests {
                 None => { ctx.bb.insert("restart_counter", 1u64); 1 }
             };
             self.observed.lock().unwrap().push(count);
-            if ctx.iteration > 0 && ctx.iteration % 2 == 0 {
+            if ctx.iteration > 0 && ctx.iteration.is_multiple_of(2) {
                 self.fires.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Some(RestartDirective { new_pop_size: pop.len() })
             } else {

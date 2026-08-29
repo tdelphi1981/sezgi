@@ -9,9 +9,10 @@ use sezgi_core::state::StateReq;
 /// "Completely Derandomized Self-Adaptation in Evolution Strategies", plus
 /// Hansen's 2016 tutorial for the exact constant formulas used here).
 ///
-/// **Four documented sezgi deviations from textbook CMA-ES** (two algorithmic
-/// simplifications, two added numerical/boundary guards — full reasoning at
-/// each site's own doc comment; this is just the inventory):
+/// **Six documented sezgi deviations from textbook CMA-ES** (two algorithmic
+/// simplifications, two added numerical/boundary guards, two plain numerical
+/// guards against non-finite blowup — full reasoning at each site's own doc
+/// comment; this is just the inventory):
 /// 1. **Positive weights only.** The recombination/rank-μ weights `w_1..w_μ`
 ///    are all positive (computed only for the best `μ = ⌊λ/2⌋` offspring, per
 ///    the classic (μ/μ_w,λ) scheme) — no negative weights / active
@@ -38,6 +39,17 @@ use sezgi_core::state::StateReq;
 ///    `C`, `ps`, `pc`, and `gen` are all frozen for that round rather than
 ///    adapted on noise; the population is still replaced unconditionally
 ///    either way (see `replace`'s doc comment).
+/// 5. **Sigma clamp.** After the CSA step-size update, `sigma` is clamped to
+///    `[1e-12, 1e12]` (see `replace`) — guards against underflow-to-zero
+///    (a zero step size freezes sampling permanently) and against runaway
+///    growth under a diverging evolution path, without changing behavior
+///    anywhere sigma would naturally stay in-range.
+/// 6. **Eigenvalue floor.** Eigenvalues from `linalg::eigh_jacobi` are
+///    floored to `1e-20` before the `sqrt` that produces `cma_eig_d` (see
+///    `generate`, below) — guards against a negative or zero eigenvalue
+///    (numerically singular `C`, or roundoff producing a tiny negative
+///    value for a true-zero eigenvalue) turning the corresponding
+///    `sqrt` into `NaN` and poisoning every subsequent sample.
 ///
 /// **Blackboard state** (all owned by `gen/cma`; required by
 /// `replace/cma-update`):
@@ -115,6 +127,8 @@ fn coordinate_bounds(space: &SearchSpace) -> Vec<(f64, f64)> {
 
 impl Generator for CmaGenerator {
     fn generate(&self, pop: &Population, ctx: &mut Ctx) -> Vec<Genotype> {
+        assert!(pop.len() >= 2,
+            "gen/cma requires a population of at least 2 (lambda={})", pop.len());
         let lambda = pop.len();
         let d = Self::float_view(&pop.individuals[0]).len();
 
@@ -368,7 +382,11 @@ impl Replacer for CmaUpdateReplacer {
             linalg::vec_outer_add(&mut c_new, c.c_mu * c.weights[k], &ys[idx]);
         }
 
-        // Symmetrize.
+        // Symmetrize. Each iteration mutates two distinct rows (i and j>i)
+        // at once, which an iterator adaptor can't express without an
+        // explicit disjoint-borrow split — the index form is the correct
+        // one here.
+        #[allow(clippy::needless_range_loop)]
         for i in 0..d {
             for j in (i + 1)..d {
                 let avg = (c_new[i][j] + c_new[j][i]) / 2.0;
@@ -438,8 +456,32 @@ mod tests {
         assert!(CmaGenerator::from_params(&serde_json::json!({"sigma0": "nope"})).is_err());
     }
 
-    /// Hand-derived (see task-11-report.md for the full derivation): for
-    /// d=10, lambda=10 (mu=5), the Hansen-tutorial-formula constants.
+    #[test]
+    #[should_panic(expected = "at least 2")]
+    fn small_population_panics() {
+        use sezgi_core::problem::Population;
+
+        let p = SphereShifted::new(vec![0.0], -5.0, 5.0);
+        let space = p.space();
+        let mut evaluator = Evaluator::new(&p, 100);
+        let mut rng = RngStream::from_master(42, &[]);
+        let mut bb = Blackboard::new();
+        let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
+
+        // Single-individual population (lambda=1) to trigger the panic.
+        let pop = Population {
+            individuals: vec![Genotype { blocks: vec![BlockValues::Float(vec![0.0])] }],
+            fitness: vec![0.0],
+        };
+
+        let gen = CmaGenerator::from_params(&serde_json::json!({})).unwrap();
+        let _ = gen.generate(&pop, &mut ctx);
+    }
+
+    /// Hand-derived from Hansen's 2016 tutorial formulas for d=10, lambda=10
+    /// (mu=5): weights via the log-rank recombination formula, then mu_eff,
+    /// c_sigma, d_sigma, c_c, c_1, c_mu, and e_norm (`E||N(0,I_d)||`) each
+    /// from their closed-form expression in terms of `(d, mu, mu_eff)`.
     #[test]
     fn cma_constants_match_hansen_for_d10_lambda10() {
         let c = cma_constants(10, 10);
@@ -546,9 +588,11 @@ mod tests {
 
         // C stays symmetric.
         let c = ctx.bb.get::<Vec<Vec<f64>>>("cma_cov").unwrap();
-        for i in 0..d { for j in 0..d {
-            assert!((c[i][j] - c[j][i]).abs() < 1e-15, "C must be symmetric at [{i}][{j}]");
-        }}
+        for (i, row) in c.iter().enumerate() {
+            for (j, &val) in row.iter().enumerate() {
+                assert!((val - c[j][i]).abs() < 1e-15, "C must be symmetric at [{i}][{j}]");
+            }
+        }
 
         let sigma = *ctx.bb.get::<f64>("cma_sigma").unwrap();
         assert!(sigma > 0.0 && sigma.is_finite());

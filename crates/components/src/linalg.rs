@@ -17,7 +17,7 @@ pub fn eigh_jacobi(a: &[Vec<f64>]) -> (Vec<f64>, Vec<Vec<f64>>) {
     }
 
     // Create mutable copy of A
-    let mut a = a.iter().map(|row| row.clone()).collect::<Vec<_>>();
+    let mut a = a.to_vec();
 
     // Initialize eigenvector matrix V to identity
     let mut v = (0..d)
@@ -55,7 +55,13 @@ pub fn eigh_jacobi(a: &[Vec<f64>]) -> (Vec<f64>, Vec<Vec<f64>>) {
                     let c = 1.0 / (t * t + 1.0).sqrt();
                     let s = t * c;
 
-                    // Apply rotation to A: rows and columns p, q
+                    // Apply rotation to A: rows and columns p, q. Each iteration
+                    // writes into row i (a[i][p], a[i][q]) *and* mirrors those
+                    // values into rows p and q (a[p][i], a[q][i]) to keep A
+                    // explicitly symmetric — three simultaneously-live mutable
+                    // row borrows, which an iterator adaptor can't express, so
+                    // the index form is the correct one here.
+                    #[allow(clippy::needless_range_loop)]
                     for i in 0..d {
                         if i != p && i != q {
                             let a_ip = a[i][p];
@@ -76,11 +82,11 @@ pub fn eigh_jacobi(a: &[Vec<f64>]) -> (Vec<f64>, Vec<Vec<f64>>) {
                     a[q][p] = 0.0;
 
                     // Update eigenvector matrix V: columns p, q
-                    for i in 0..d {
-                        let v_ip = v[i][p];
-                        let v_iq = v[i][q];
-                        v[i][p] = c * v_ip - s * v_iq;
-                        v[i][q] = s * v_ip + c * v_iq;
+                    for row in &mut v {
+                        let v_ip = row[p];
+                        let v_iq = row[q];
+                        row[p] = c * v_ip - s * v_iq;
+                        row[q] = s * v_ip + c * v_iq;
                     }
                 }
 
@@ -181,20 +187,14 @@ mod tests {
         let d = a.len();
         for j in 0..d {
             // Norm of column j should be 1
-            let mut norm = 0.0;
-            for i in 0..d {
-                norm += eigenvectors[i][j] * eigenvectors[i][j];
-            }
+            let norm: f64 = eigenvectors.iter().map(|row| row[j] * row[j]).sum();
             assert_almost_equal(norm, 1.0, tol);
         }
 
         // V^T * V should be I
         for i in 0..d {
             for j in 0..d {
-                let mut dot = 0.0;
-                for k in 0..d {
-                    dot += eigenvectors[k][i] * eigenvectors[k][j];
-                }
+                let dot: f64 = eigenvectors.iter().map(|row| row[i] * row[j]).sum();
                 let expected = if i == j { 1.0 } else { 0.0 };
                 assert_almost_equal(dot, expected, tol);
             }
@@ -215,11 +215,11 @@ mod tests {
         // Expected eigenvector directions (up to sign):
         // λ=1: (1,-1)/√2
         // λ=3: (1,1)/√2
-        let v1_expected = vec![1.0 / 2.0_f64.sqrt(), -1.0 / 2.0_f64.sqrt()];
-        let v3_expected = vec![1.0 / 2.0_f64.sqrt(), 1.0 / 2.0_f64.sqrt()];
+        let v1_expected = [1.0 / 2.0_f64.sqrt(), -1.0 / 2.0_f64.sqrt()];
+        let v3_expected = [1.0 / 2.0_f64.sqrt(), 1.0 / 2.0_f64.sqrt()];
 
-        let v1_actual = vec![eigenvectors[0][0], eigenvectors[1][0]];
-        let v3_actual = vec![eigenvectors[0][1], eigenvectors[1][1]];
+        let v1_actual = [eigenvectors[0][0], eigenvectors[1][0]];
+        let v3_actual = [eigenvectors[0][1], eigenvectors[1][1]];
 
         // Check dot product (up to sign)
         let mut dot1 = 0.0;
@@ -265,10 +265,7 @@ mod tests {
         // Test: V^T * V ≈ I (orthonormality)
         for i in 0..d {
             for j in 0..d {
-                let mut dot = 0.0;
-                for k in 0..d {
-                    dot += eigenvectors[k][i] * eigenvectors[k][j];
-                }
+                let dot: f64 = eigenvectors.iter().map(|row| row[i] * row[j]).sum();
                 let expected = if i == j { 1.0 } else { 0.0 };
                 assert_almost_equal(dot, expected, tol);
             }
@@ -288,7 +285,7 @@ mod tests {
         let a = vec![vec![2.0, 1.0], vec![3.0, 4.0]];
         let x = vec![1.0, 2.0];
         let y = mat_vec(&a, &x);
-        assert_vec_almost_equal(&y, &vec![4.0, 11.0], tol);
+        assert_vec_almost_equal(&y, &[4.0, 11.0], tol);
 
         // Test vec_outer_add
         let mut c = vec![vec![0.0, 0.0], vec![0.0, 0.0]];
