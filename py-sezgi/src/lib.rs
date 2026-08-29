@@ -3,8 +3,9 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use sezgi_bench::{
-    run_experiment_parallel, run_experiment_sequential, run_experiment_with_checkpoint,
-    ExperimentSpec, IohLogger,
+    per_budget_packages as bench_per_budget_packages, results_matrix as bench_results_matrix,
+    run_experiment_parallel, run_experiment_sequential, run_experiment_with_checkpoint, Aggregate,
+    ExperimentSpec, IohLogger, RunKey, RunRecord,
 };
 use sezgi_components::{presets, register_builtins};
 use sezgi_core::component::Registry;
@@ -16,7 +17,7 @@ use sezgi_core::spec::AlgorithmSpec;
 use sezgi_problems::BbobProblem;
 use sezgi_stats::{
     bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman, paper_package,
-    plackett_luce, wilcoxon_signed_rank, WilcoxonMethod,
+    plackett_luce, wilcoxon_signed_rank, PaperPackage, WilcoxonMethod,
 };
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
@@ -333,21 +334,10 @@ fn stats_plackett_luce(py: Python<'_>, rankings: Vec<Vec<usize>>) -> PyResult<Py
     Ok(d.into())
 }
 
-#[pyfunction]
-#[pyo3(signature = (algo_names, problem_names, results, rope=0.0, samples=20000, seed=1))]
-fn stats_paper_package(
-    py: Python<'_>,
-    algo_names: Vec<String>,
-    problem_names: Vec<String>,
-    results: &Bound<'_, PyAny>,
-    rope: f64,
-    samples: u64,
-    seed: u64,
-) -> PyResult<Py<PyDict>> {
-    let matrix = extract_matrix(results)?;
-    let pkg = paper_package(&algo_names, &problem_names, &matrix, rope, samples, seed)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
-
+/// Builds the dict mirroring `stats_paper_package`'s return shape from an
+/// already-computed [`PaperPackage`]. Shared by `stats_paper_package` and
+/// `per_budget_packages` so both produce identically-shaped package dicts.
+fn paper_package_to_dict(py: Python<'_>, pkg: &PaperPackage) -> PyResult<Py<PyDict>> {
     let d = PyDict::new(py);
 
     let friedman_d = PyDict::new(py);
@@ -402,6 +392,122 @@ fn stats_paper_package(
     d.set_item("latex_tests", pkg.latex_tests.clone())?;
 
     Ok(d.into())
+}
+
+#[pyfunction]
+#[pyo3(signature = (algo_names, problem_names, results, rope=0.0, samples=20000, seed=1))]
+fn stats_paper_package(
+    py: Python<'_>,
+    algo_names: Vec<String>,
+    problem_names: Vec<String>,
+    results: &Bound<'_, PyAny>,
+    rope: f64,
+    samples: u64,
+    seed: u64,
+) -> PyResult<Py<PyDict>> {
+    let matrix = extract_matrix(results)?;
+    let pkg = paper_package(&algo_names, &problem_names, &matrix, rope, samples, seed)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    paper_package_to_dict(py, &pkg)
+}
+
+// ---------------------------------------------------------------------
+// Reporting bindings (sezgi.results_matrix / sezgi.per_budget_packages)
+// ---------------------------------------------------------------------
+
+/// Parses an aggregate string (`"mean"` | `"median"`) into
+/// [`sezgi_bench::Aggregate`], raising `ValueError` on anything else.
+fn parse_aggregate(aggregate: &str) -> PyResult<Aggregate> {
+    match aggregate {
+        "mean" => Ok(Aggregate::Mean),
+        "median" => Ok(Aggregate::Median),
+        other => Err(PyValueError::new_err(format!(
+            "unknown aggregate `{other}` (expected \"mean\" or \"median\")"
+        ))),
+    }
+}
+
+/// Rebuilds `RunRecord`s from the record dicts `run_experiment` returns
+/// (fields `algo, fid, dim, instance, seed, budget, best_f, f_opt,
+/// evals_used`; `wall_secs` is read if present, defaulted to `0.0`
+/// otherwise — it plays no role in `results_matrix`/`per_budget_packages`).
+fn records_from_pylist(records: &Bound<'_, PyAny>) -> PyResult<Vec<RunRecord>> {
+    let mut out = Vec::new();
+    for item in records.try_iter()? {
+        let item = item?;
+        let d = item.downcast::<PyDict>().map_err(|_| {
+            PyValueError::new_err("records must be a list of dicts (as returned by run_experiment)")
+        })?;
+        let get = |k: &str| -> PyResult<Bound<'_, PyAny>> {
+            d.get_item(k)?.ok_or_else(|| PyValueError::new_err(format!("record is missing field `{k}`")))
+        };
+        let key = RunKey {
+            algo: get("algo")?.extract::<String>()?,
+            fid: get("fid")?.extract::<u32>()?,
+            dim: get("dim")?.extract::<usize>()?,
+            instance: get("instance")?.extract::<u32>()?,
+            seed: get("seed")?.extract::<u64>()?,
+            budget: get("budget")?.extract::<u64>()?,
+        };
+        let evals_used = get("evals_used")?.extract::<u64>()?;
+        let wall_secs = match d.get_item("wall_secs")? {
+            Some(v) => v.extract::<f64>()?,
+            None => 0.0,
+        };
+        out.push(RunRecord {
+            key,
+            best_f: get("best_f")?.extract::<f64>()?,
+            f_opt: get("f_opt")?.extract::<f64>()?,
+            evals_used,
+            wall_secs,
+        });
+    }
+    Ok(out)
+}
+
+/// Returns `(algo_names, problem_labels, matrix)` for one `budget` — see
+/// `sezgi_bench::reporting::results_matrix`. `records` is the list of dicts
+/// `run_experiment` returns (or any list of dicts with the same fields).
+#[pyfunction]
+#[pyo3(signature = (records, budget, aggregate="mean"))]
+fn results_matrix(
+    records: &Bound<'_, PyAny>,
+    budget: u64,
+    aggregate: &str,
+) -> PyResult<(Vec<String>, Vec<String>, Vec<Vec<f64>>)> {
+    let recs = records_from_pylist(records)?;
+    let agg = parse_aggregate(aggregate)?;
+    bench_results_matrix(&recs, budget, agg).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Returns a list of `(budget, package_dict)` pairs, one per distinct
+/// budget present in `records`, in ascending budget order — see
+/// `sezgi_bench::reporting::per_budget_packages`. Each `package_dict` has
+/// exactly the shape `stats_paper_package` returns.
+#[pyfunction]
+#[pyo3(signature = (records, rope=0.0, samples=20000, seed=1, aggregate="mean"))]
+fn per_budget_packages(
+    py: Python<'_>,
+    records: &Bound<'_, PyAny>,
+    rope: f64,
+    samples: u64,
+    seed: u64,
+    aggregate: &str,
+) -> PyResult<Py<PyList>> {
+    let recs = records_from_pylist(records)?;
+    let agg = parse_aggregate(aggregate)?;
+    let packages = bench_per_budget_packages(&recs, rope, samples, seed, agg)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let out = PyList::empty(py);
+    for (budget, pkg) in &packages {
+        let pkg_dict = paper_package_to_dict(py, pkg)?;
+        let row = PyList::empty(py);
+        row.append(*budget)?;
+        row.append(pkg_dict)?;
+        out.append(row)?;
+    }
+    Ok(out.into())
 }
 
 #[pyfunction] fn preset_de_rand_1(pop_size: usize, budget: u64) -> String {
@@ -498,6 +604,8 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(stats_bayesian_signed_rank, m)?)?;
     m.add_function(wrap_pyfunction!(stats_plackett_luce, m)?)?;
     m.add_function(wrap_pyfunction!(stats_paper_package, m)?)?;
+    m.add_function(wrap_pyfunction!(results_matrix, m)?)?;
+    m.add_function(wrap_pyfunction!(per_budget_packages, m)?)?;
     m.add_function(wrap_pyfunction!(preset_de_rand_1, m)?)?;
     m.add_function(wrap_pyfunction!(preset_de_best_1, m)?)?;
     m.add_function(wrap_pyfunction!(preset_jde, m)?)?;

@@ -2,9 +2,13 @@ use savvy::{
     savvy, savvy_err, ListSexp, NumericSexp, OwnedListSexp, OwnedRealSexp, OwnedStringSexp,
     RealSexp, Sexp, StringSexp,
 };
+use sezgi_bench::{
+    per_budget_packages as bench_per_budget_packages, results_matrix as bench_results_matrix,
+    Aggregate, RunKey, RunRecord,
+};
 use sezgi_stats::{
     bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman, paper_package, plackett_luce,
-    wilcoxon_signed_rank, BayesSignedRankResult, FriedmanResult, PlackettLuceResult,
+    wilcoxon_signed_rank, BayesSignedRankResult, FriedmanResult, PaperPackage, PlackettLuceResult,
     WilcoxonMethod,
 };
 
@@ -262,6 +266,52 @@ fn sz_stats_plackett_luce(rankings: ListSexp) -> savvy::Result<Sexp> {
     Ok(pl_result_list(&r)?.into())
 }
 
+/// Builds the named list mirroring `sz_stats_paper_package_raw`'s return
+/// shape from an already-computed [`PaperPackage`]. Shared with
+/// `sz_per_budget_packages_raw` so both produce identically-shaped package
+/// lists (mirrors py-sezgi's `paper_package_to_dict` split).
+fn paper_package_to_list(pkg: &PaperPackage) -> savvy::Result<OwnedListSexp> {
+    let mut out = OwnedListSexp::new(8, true)?;
+    out.set_name_and_value(0, "friedman", friedman_result_list(&pkg.friedman)?)?;
+    out.set_name_and_value(1, "nemenyi_cd", OwnedRealSexp::try_from_scalar(pkg.nemenyi_cd)?)?;
+
+    let mut pw = OwnedListSexp::new(pkg.pairwise_wilcoxon_holm.len(), false)?;
+    for (idx, &(i, j, p)) in pkg.pairwise_wilcoxon_holm.iter().enumerate() {
+        pw.set_value(idx, OwnedRealSexp::try_from_slice([i as f64, j as f64, p])?)?;
+    }
+    out.set_name_and_value(2, "pairwise_wilcoxon_holm", pw)?;
+
+    let mut cl = OwnedListSexp::new(pkg.cliffs.len(), false)?;
+    for (idx, &(i, j, delta)) in pkg.cliffs.iter().enumerate() {
+        cl.set_value(idx, OwnedRealSexp::try_from_slice([i as f64, j as f64, delta])?)?;
+    }
+    out.set_name_and_value(3, "cliffs", cl)?;
+
+    let mut bl = OwnedListSexp::new(pkg.bayes.len(), false)?;
+    for (idx, (i, j, res)) in pkg.bayes.iter().enumerate() {
+        let mut entry = OwnedListSexp::new(3, false)?;
+        entry.set_value(0, OwnedRealSexp::try_from_scalar(*i as f64)?)?;
+        entry.set_value(1, OwnedRealSexp::try_from_scalar(*j as f64)?)?;
+        entry.set_value(2, bayes_result_list(res)?)?;
+        bl.set_value(idx, entry)?;
+    }
+    out.set_name_and_value(4, "bayes", bl)?;
+
+    out.set_name_and_value(5, "plackett_luce", pl_result_list(&pkg.plackett_luce)?)?;
+    out.set_name_and_value(
+        6,
+        "latex_summary",
+        OwnedStringSexp::try_from(pkg.latex_summary.as_str())?,
+    )?;
+    out.set_name_and_value(
+        7,
+        "latex_tests",
+        OwnedStringSexp::try_from(pkg.latex_tests.as_str())?,
+    )?;
+
+    Ok(out)
+}
+
 /// Computes a comprehensive statistical analysis package for algorithm
 /// comparison (Friedman, Nemenyi CD, pairwise Wilcoxon+Holm, Cliff's delta,
 /// Bayesian signed-rank, Plackett-Luce, and LaTeX tables; see
@@ -311,43 +361,217 @@ fn sz_stats_paper_package_raw(
     let pkg = paper_package(&algos, &problems, &matrix, rope, samples_u, seed_u)
         .map_err(|e| savvy_err!("{e}"))?;
 
-    let mut out = OwnedListSexp::new(8, true)?;
-    out.set_name_and_value(0, "friedman", friedman_result_list(&pkg.friedman)?)?;
-    out.set_name_and_value(1, "nemenyi_cd", OwnedRealSexp::try_from_scalar(pkg.nemenyi_cd)?)?;
+    Ok(paper_package_to_list(&pkg)?.into())
+}
 
-    let mut pw = OwnedListSexp::new(pkg.pairwise_wilcoxon_holm.len(), false)?;
-    for (idx, &(i, j, p)) in pkg.pairwise_wilcoxon_holm.iter().enumerate() {
-        pw.set_value(idx, OwnedRealSexp::try_from_slice([i as f64, j as f64, p])?)?;
+// ---------------------------------------------------------------------
+// Reporting bindings (sz_results_matrix / sz_per_budget_packages)
+// ---------------------------------------------------------------------
+
+/// Parses an aggregate string (`"mean"` | `"median"`) into
+/// [`sezgi_bench::Aggregate`], raising a savvy error matching "unknown
+/// aggregate" on anything else.
+fn parse_aggregate(aggregate: &str) -> savvy::Result<Aggregate> {
+    match aggregate {
+        "mean" => Ok(Aggregate::Mean),
+        "median" => Ok(Aggregate::Median),
+        other => Err(savvy_err!(
+            "unknown aggregate `{}` (expected \"mean\" or \"median\")",
+            other
+        )),
     }
-    out.set_name_and_value(2, "pairwise_wilcoxon_holm", pw)?;
+}
 
-    let mut cl = OwnedListSexp::new(pkg.cliffs.len(), false)?;
-    for (idx, &(i, j, delta)) in pkg.cliffs.iter().enumerate() {
-        cl.set_value(idx, OwnedRealSexp::try_from_slice([i as f64, j as f64, delta])?)?;
+/// Rebuilds `RunRecord`s from a `data.frame`'s columns, as returned by
+/// `sz_run_experiment()`: `algo, fid, dim, instance, seed, budget, best_f,
+/// f_opt, evals`. `wall_secs` is not a column of that data.frame, so it is
+/// always defaulted to `0.0` -- it plays no role in
+/// `results_matrix`/`per_budget_packages`.
+#[allow(clippy::too_many_arguments)]
+fn records_from_columns(
+    algo: &StringSexp,
+    fid: &RealSexp,
+    dim: &RealSexp,
+    instance: &RealSexp,
+    seed: &RealSexp,
+    budget: &RealSexp,
+    best_f: &RealSexp,
+    f_opt: &RealSexp,
+    evals: &RealSexp,
+) -> savvy::Result<Vec<RunRecord>> {
+    let n = algo.len();
+    for (name, len) in [
+        ("fid", fid.len()),
+        ("dim", dim.len()),
+        ("instance", instance.len()),
+        ("seed", seed.len()),
+        ("budget", budget.len()),
+        ("best_f", best_f.len()),
+        ("f_opt", f_opt.len()),
+        ("evals", evals.len()),
+    ] {
+        if len != n {
+            return Err(savvy_err!(
+                "column `{}` has length {} but `algo` has length {} (all columns must have the same length)",
+                name, len, n
+            ));
+        }
     }
-    out.set_name_and_value(3, "cliffs", cl)?;
 
-    let mut bl = OwnedListSexp::new(pkg.bayes.len(), false)?;
-    for (idx, (i, j, res)) in pkg.bayes.iter().enumerate() {
-        let mut entry = OwnedListSexp::new(3, false)?;
-        entry.set_value(0, OwnedRealSexp::try_from_scalar(*i as f64)?)?;
-        entry.set_value(1, OwnedRealSexp::try_from_scalar(*j as f64)?)?;
-        entry.set_value(2, bayes_result_list(res)?)?;
-        bl.set_value(idx, entry)?;
+    let algo_s = algo.to_vec();
+    let fid_s = fid.as_slice();
+    let dim_s = dim.as_slice();
+    let instance_s = instance.as_slice();
+    let seed_s = seed.as_slice();
+    let budget_s = budget.as_slice();
+    let best_f_s = best_f.as_slice();
+    let f_opt_s = f_opt.as_slice();
+    let evals_s = evals.as_slice();
+
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        out.push(RunRecord {
+            key: RunKey {
+                algo: algo_s[i].to_string(),
+                fid: f64_to_u64("fid", fid_s[i])? as u32,
+                dim: f64_to_u64("dim", dim_s[i])? as usize,
+                instance: f64_to_u64("instance", instance_s[i])? as u32,
+                seed: f64_to_u64("seed", seed_s[i])?,
+                budget: f64_to_u64("budget", budget_s[i])?,
+            },
+            best_f: best_f_s[i],
+            f_opt: f_opt_s[i],
+            evals_used: f64_to_u64("evals", evals_s[i])?,
+            wall_secs: 0.0,
+        });
     }
-    out.set_name_and_value(4, "bayes", bl)?;
+    Ok(out)
+}
 
-    out.set_name_and_value(5, "plackett_luce", pl_result_list(&pkg.plackett_luce)?)?;
-    out.set_name_and_value(
-        6,
-        "latex_summary",
-        OwnedStringSexp::try_from(pkg.latex_summary.as_str())?,
+/// Converts a `Vec<Vec<f64>>` (rows = problems, columns = algorithms) into
+/// an R matrix -- the inverse of [`matrix_to_rows`].
+fn rows_to_matrix(rows: &[Vec<f64>]) -> savvy::Result<OwnedRealSexp> {
+    let nrow = rows.len();
+    let ncol = rows.first().map_or(0, |r| r.len());
+    let mut data = vec![0.0_f64; nrow * ncol];
+    for (r, row) in rows.iter().enumerate() {
+        for (c, &v) in row.iter().enumerate() {
+            data[c * nrow + r] = v;
+        }
+    }
+    let mut out = OwnedRealSexp::try_from_slice(data.as_slice())?;
+    out.set_dim(&[nrow, ncol])?;
+    Ok(out)
+}
+
+/// Builds a `sezgi_stats`-shaped results matrix for one `budget` from a
+/// `sz_run_experiment()` data.frame's columns -- see
+/// `sezgi_bench::reporting::results_matrix`.
+///
+/// This is the raw savvy-generated binding; the public R entry point with
+/// R-native defaults is the hand-written wrapper `sz_results_matrix()` in
+/// `R/experiment.R`, which extracts these columns from a data.frame and
+/// calls this function.
+///
+/// @param algo Character vector (the `algo` column).
+/// @param fid,dim,instance,seed,budget_col,best_f,f_opt,evals Numeric
+///   vectors (the correspondingly-named columns; `budget_col` avoids a name
+///   clash with the scalar `budget` argument below).
+/// @param budget Only rows with this budget are used.
+/// @param aggregate `"mean"` or `"median"`.
+/// @returns A named list with `algo_names` (character vector),
+///   `problem_labels` (character vector, `f{fid}d{dim}i{instance}`), and
+///   `matrix` (numeric matrix, rows = problems, columns = algorithms).
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn sz_results_matrix_raw(
+    algo: StringSexp,
+    fid: RealSexp,
+    dim: RealSexp,
+    instance: RealSexp,
+    seed: RealSexp,
+    budget_col: RealSexp,
+    best_f: RealSexp,
+    f_opt: RealSexp,
+    evals: RealSexp,
+    budget: f64,
+    aggregate: &str,
+) -> savvy::Result<Sexp> {
+    let records = records_from_columns(
+        &algo, &fid, &dim, &instance, &seed, &budget_col, &best_f, &f_opt, &evals,
     )?;
-    out.set_name_and_value(
-        7,
-        "latex_tests",
-        OwnedStringSexp::try_from(pkg.latex_tests.as_str())?,
-    )?;
+    let agg = parse_aggregate(aggregate)?;
+    let budget_u = f64_to_u64("budget", budget)?;
 
+    let (algo_names, problem_labels, matrix) = bench_results_matrix(&records, budget_u, agg)
+        .map_err(|e| savvy_err!("{e}"))?;
+
+    let mut out = OwnedListSexp::new(3, true)?;
+    out.set_name_and_value(0, "algo_names", OwnedStringSexp::try_from(algo_names.as_slice())?)?;
+    out.set_name_and_value(
+        1,
+        "problem_labels",
+        OwnedStringSexp::try_from(problem_labels.as_slice())?,
+    )?;
+    out.set_name_and_value(2, "matrix", rows_to_matrix(&matrix)?)?;
+    Ok(out.into())
+}
+
+/// Builds one `sezgi_stats::PaperPackage` PER DISTINCT BUDGET present in a
+/// `sz_run_experiment()` data.frame's columns, in ascending budget order --
+/// see `sezgi_bench::reporting::per_budget_packages`. Per Piotrowski et al.
+/// (2025), algorithm rankings can flip across budgets, so this makes
+/// multi-budget reporting the default rather than a single, arbitrarily
+/// chosen budget's report.
+///
+/// This is the raw savvy-generated binding; the public R entry point with
+/// R-native defaults is the hand-written wrapper `sz_per_budget_packages()`
+/// in `R/experiment.R`, which extracts these columns from a data.frame and
+/// calls this function.
+///
+/// @param algo Character vector (the `algo` column).
+/// @param fid,dim,instance,seed,budget_col,best_f,f_opt,evals Numeric
+///   vectors (the correspondingly-named columns).
+/// @param rope Region of practical equivalence half-width (>= 0) for the
+///   Bayesian signed-rank test, forwarded to every budget's package.
+/// @param samples Number of Monte Carlo samples per pair (double, cast to
+///   `u64`).
+/// @param seed Master RNG seed (double, cast to `u64`), forwarded to every
+///   budget's package.
+/// @param aggregate `"mean"` or `"median"`.
+/// @returns A named list, one entry per distinct budget in ascending order,
+///   named by the budget (as a string); each value has exactly the shape
+///   `sz_stats_paper_package_raw()` returns.
+#[allow(clippy::too_many_arguments)]
+#[savvy]
+fn sz_per_budget_packages_raw(
+    algo: StringSexp,
+    fid: RealSexp,
+    dim: RealSexp,
+    instance: RealSexp,
+    seed: RealSexp,
+    budget_col: RealSexp,
+    best_f: RealSexp,
+    f_opt: RealSexp,
+    evals: RealSexp,
+    rope: f64,
+    samples: f64,
+    master_seed: f64,
+    aggregate: &str,
+) -> savvy::Result<Sexp> {
+    let records = records_from_columns(
+        &algo, &fid, &dim, &instance, &seed, &budget_col, &best_f, &f_opt, &evals,
+    )?;
+    let agg = parse_aggregate(aggregate)?;
+    let samples_u = f64_to_u64("samples", samples)?;
+    let seed_u = f64_to_u64("seed", master_seed)?;
+
+    let packages = bench_per_budget_packages(&records, rope, samples_u, seed_u, agg)
+        .map_err(|e| savvy_err!("{e}"))?;
+
+    let mut out = OwnedListSexp::new(packages.len(), true)?;
+    for (idx, (budget, pkg)) in packages.iter().enumerate() {
+        out.set_name_and_value(idx, budget.to_string().as_str(), paper_package_to_list(pkg)?)?;
+    }
     Ok(out.into())
 }

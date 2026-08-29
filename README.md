@@ -48,42 +48,24 @@ Run multiple algorithms across multiple problems, seeds, and budgets with a TOML
     """
     
     # Run experiment (TOML grid × seeds × budgets × instances)
-    results = sezgi.run_experiment(spec_toml, parallel=True)
-    
-    # Statistics for ONE budget at a time: filter records first, then
-    # aggregate the mean gap per (instance, algorithm) cell. The Wilcoxon
-    # tests inside paper_package need at least 5 problem rows, hence
-    # 5 instances above.
-    budget = 5000
-    records = [r for r in results if r["budget"] == budget]
-    instances = sorted(set(r["instance"] for r in records))
-    algos = ["de", "cmaes"]
-    results_matrix = [
-        [
-            sum(r["gap"] for r in records 
-                if r["instance"] == inst and r["algo"] == algo) 
-            / sum(1 for r in records 
-                if r["instance"] == inst and r["algo"] == algo)
-            for algo in algos
-        ]
-        for inst in instances
-    ]
-    
-    # Generate statistical summary with LaTeX tables
-    pkg = sezgi.stats.paper_package(
-        algo_names=["DE", "CMA-ES"],
-        problem_names=[f"instance_{i}" for i in instances],
-        results=results_matrix,
-        rope=0.01,
-        samples=10000,
-        seed=42
-    )
-    
-    print(pkg["latex_summary"])  # Friedman ranks + pairwise Wilcoxon–Holm
+    records = sezgi.run_experiment(spec_toml, parallel=True)
 
-Compare algorithms per budget, never pooled across budgets: rankings can flip
-between small and large budgets (Piotrowski et al. 2025), so repeat the
-analysis above for each budget of interest.
+    # One paper_package PER DISTINCT BUDGET present in records, in ascending
+    # budget order — no hand-rolled filtering/aggregation needed. The
+    # Wilcoxon tests inside each package need at least 5 problem rows, hence
+    # 5 instances above.
+    packages = sezgi.per_budget_packages(records, rope=0.01, samples=10000, seed=42)
+
+    for budget, pkg in packages:
+        print(f"--- budget={budget} ---")
+        print(pkg["latex_summary"])  # Friedman ranks + pairwise Wilcoxon–Holm
+
+`per_budget_packages` reports statistics per budget, never pooled across
+budgets: rankings can flip between small and large budgets (Piotrowski et al.
+2025), so each budget gets its own package rather than one arbitrarily-chosen
+budget standing in for all of them. `sezgi.results_matrix(records, budget)`
+is available separately if you need just the `(algo_names, problem_labels,
+matrix)` triple for one budget (e.g. to feed a custom analysis).
 
 ## Development
 

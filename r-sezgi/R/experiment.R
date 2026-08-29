@@ -32,3 +32,54 @@
 sz_run_experiment <- function(spec_toml, journal = NULL, parallel = TRUE, threads = NULL) {
   sz_run_experiment_raw(spec_toml, parallel, journal, threads)
 }
+
+#' Build a `sezgi_stats`-shaped results matrix for one `budget` from a
+#' `sz_run_experiment()` data.frame.
+#'
+#' Mirrors py-sezgi's `results_matrix()`.
+#'
+#' @param df A data.frame as returned by `sz_run_experiment()` (columns
+#'   `algo`, `fid`, `dim`, `instance`, `seed`, `budget`, `best_f`, `f_opt`,
+#'   `evals`).
+#' @param budget Only rows with this budget are used.
+#' @param aggregate How to combine a (problem, algorithm) cell's per-seed
+#'   gaps (`best_f - f_opt`) into one number: `"mean"` or `"median"`.
+#' @returns A named list with `algo_names` (character vector),
+#'   `problem_labels` (character vector, `f{fid}d{dim}i{instance}`, ordered
+#'   by first appearance in `df`), and `matrix` (numeric matrix, rows =
+#'   problems, columns = algorithms; `matrix[i, j]` is the aggregated gap of
+#'   `algo_names[j]` on `problem_labels[i]`). Errors if a (problem,
+#'   algorithm) pair present for one algorithm/problem is missing for
+#'   another at this budget (an incomplete experiment).
+#' @export
+sz_results_matrix <- function(df, budget, aggregate = "mean") {
+  sz_results_matrix_raw(df$algo, df$fid, df$dim, df$instance, df$seed, df$budget,
+                         df$best_f, df$f_opt, df$evals, budget, aggregate)
+}
+
+#' Build one paper-package statistics list PER DISTINCT BUDGET present in a
+#' `sz_run_experiment()` data.frame, in ascending budget order.
+#'
+#' Mirrors py-sezgi's `per_budget_packages()`. Piotrowski et al. (2025) show
+#' algorithm rankings on benchmark comparisons can flip depending on which
+#' evaluation budget is examined, so this makes multi-budget reporting the
+#' default rather than a single, arbitrarily-chosen budget's report:
+#' compare algorithms per budget, never pooled across budgets.
+#'
+#' @param df A data.frame as returned by `sz_run_experiment()`.
+#' @param rope Region of practical equivalence half-width (>= 0) for the
+#'   Bayesian signed-rank test, forwarded to every budget's package.
+#'   Default 0.
+#' @param samples Number of Monte Carlo samples per pair. Default 20000.
+#' @param seed Master RNG seed, forwarded to every budget's package.
+#'   Default 1.
+#' @param aggregate How to combine a (problem, algorithm) cell's per-seed
+#'   gaps: `"mean"` or `"median"`. Default `"mean"`.
+#' @returns A named list, one entry per distinct budget in ascending order,
+#'   named by the budget (as a string); each value has exactly the shape
+#'   `sz_stats_paper_package()` returns.
+#' @export
+sz_per_budget_packages <- function(df, rope = 0, samples = 20000, seed = 1, aggregate = "mean") {
+  sz_per_budget_packages_raw(df$algo, df$fid, df$dim, df$instance, df$seed, df$budget,
+                              df$best_f, df$f_opt, df$evals, rope, samples, seed, aggregate)
+}

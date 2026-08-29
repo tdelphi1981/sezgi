@@ -133,6 +133,75 @@ def test_wilcoxon_exact_small_n():
     assert wr["n_effective"] == 8
 
 
+def reporting_grid_toml():
+    """2 algos x f1 x 5 instances x 2 seeds x 2 budgets -- the grid used by
+    the results_matrix/per_budget_packages tests (M2d-1 Task 8), matching
+    the README experiments quickstart."""
+    return """
+        name = "reporting-grid"
+        seeds = [1, 2]
+        budgets = [400, 800]
+
+        [[algorithms]]
+        name = "de"
+        preset = { kind = "de_rand_1", pop_size = 8 }
+
+        [[algorithms]]
+        name = "rs"
+        preset = { kind = "random_search", pop_size = 8 }
+
+        [[problems]]
+        suite = "bbob"
+        fid = 1
+        dim = 5
+        instances = [1, 2, 3, 4, 5]
+    """
+
+
+def test_results_matrix_shape_and_labels():
+    records = sezgi.run_experiment(reporting_grid_toml(), parallel=True)
+    algo_names, problem_labels, matrix = sezgi.results_matrix(records, budget=400)
+
+    assert algo_names == ["de", "rs"]
+    assert problem_labels == ["f1d5i1", "f1d5i2", "f1d5i3", "f1d5i4", "f1d5i5"]
+    assert len(matrix) == 5, "one row per problem"
+    assert all(len(row) == 2 for row in matrix), "one column per algorithm"
+
+
+def test_per_budget_packages_ascending_and_no_nan():
+    records = sezgi.run_experiment(reporting_grid_toml(), parallel=True)
+    packages = sezgi.per_budget_packages(records)
+
+    assert len(packages) == 2, "one package per distinct budget"
+    budgets = [b for b, _ in packages]
+    assert budgets == sorted(budgets), "ascending budget order"
+    assert budgets == [400, 800]
+
+    for _, pkg in packages:
+        assert "NaN" not in pkg["latex_summary"]
+        assert set(pkg.keys()) == {
+            "friedman", "nemenyi_cd", "pairwise_wilcoxon_holm", "cliffs",
+            "bayes", "plackett_luce", "latex_summary", "latex_tests",
+        }, "package dict must match stats.paper_package's shape exactly"
+
+
+def test_results_matrix_missing_cell_raises():
+    records = sezgi.run_experiment(reporting_grid_toml(), parallel=True)
+    incomplete = [r for r in records
+                  if not (r["algo"] == "rs" and r["instance"] == 3 and r["budget"] == 400)]
+
+    with pytest.raises(ValueError, match="missing run record"):
+        sezgi.results_matrix(incomplete, budget=400)
+
+
+def test_results_matrix_unknown_aggregate_raises():
+    records = sezgi.run_experiment(reporting_grid_toml(), parallel=True)
+    with pytest.raises(ValueError, match="unknown aggregate"):
+        sezgi.results_matrix(records, budget=400, aggregate="bogus")
+    with pytest.raises(ValueError, match="unknown aggregate"):
+        sezgi.per_budget_packages(records, aggregate="bogus")
+
+
 def test_paper_package_latex_nonempty():
     algo_names = ["A", "B", "C"]
     problem_names = [f"P{i}" for i in range(6)]

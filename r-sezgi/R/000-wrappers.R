@@ -45,6 +45,35 @@ NULL
   .Call(savvy_sezgi_version__impl)
 }
 
+#' Builds one `sezgi_stats::PaperPackage` PER DISTINCT BUDGET present in a
+#' `sz_run_experiment()` data.frame's columns, in ascending budget order --
+#' see `sezgi_bench::reporting::per_budget_packages`. Per Piotrowski et al.
+#' (2025), algorithm rankings can flip across budgets, so this makes
+#' multi-budget reporting the default rather than a single, arbitrarily
+#' chosen budget's report.
+#'
+#' This is the raw savvy-generated binding; the public R entry point with
+#' R-native defaults is the hand-written wrapper `sz_per_budget_packages()`
+#' in `R/experiment.R`, which extracts these columns from a data.frame and
+#' calls this function.
+#'
+#' @param algo Character vector (the `algo` column).
+#' @param fid,dim,instance,seed,budget_col,best_f,f_opt,evals Numeric
+#'   vectors (the correspondingly-named columns).
+#' @param rope Region of practical equivalence half-width (>= 0) for the
+#'   Bayesian signed-rank test, forwarded to every budget's package.
+#' @param samples Number of Monte Carlo samples per pair (double, cast to
+#'   `u64`).
+#' @param seed Master RNG seed (double, cast to `u64`), forwarded to every
+#'   budget's package.
+#' @param aggregate `"mean"` or `"median"`.
+#' @returns A named list, one entry per distinct budget in ascending order,
+#'   named by the budget (as a string); each value has exactly the shape
+#'   `sz_stats_paper_package_raw()` returns.
+`sz_per_budget_packages_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`) {
+  .Call(savvy_sz_per_budget_packages_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`)
+}
+
 #' Builds a (mu/mu_w,lambda)-CMA-ES algorithm spec as JSON, ready to pass to
 #' `sz_solve_bbob()`.
 #'
@@ -204,6 +233,28 @@ NULL
 #' @export
 `sz_preset_shade` <- function(`pop_size`, `budget`) {
   .Call(savvy_sz_preset_shade__impl, `pop_size`, `budget`)
+}
+
+#' Builds a `sezgi_stats`-shaped results matrix for one `budget` from a
+#' `sz_run_experiment()` data.frame's columns -- see
+#' `sezgi_bench::reporting::results_matrix`.
+#'
+#' This is the raw savvy-generated binding; the public R entry point with
+#' R-native defaults is the hand-written wrapper `sz_results_matrix()` in
+#' `R/experiment.R`, which extracts these columns from a data.frame and
+#' calls this function.
+#'
+#' @param algo Character vector (the `algo` column).
+#' @param fid,dim,instance,seed,budget_col,best_f,f_opt,evals Numeric
+#'   vectors (the correspondingly-named columns; `budget_col` avoids a name
+#'   clash with the scalar `budget` argument below).
+#' @param budget Only rows with this budget are used.
+#' @param aggregate `"mean"` or `"median"`.
+#' @returns A named list with `algo_names` (character vector),
+#'   `problem_labels` (character vector, `f{fid}d{dim}i{instance}`), and
+#'   `matrix` (numeric matrix, rows = problems, columns = algorithms).
+`sz_results_matrix_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`) {
+  .Call(savvy_sz_results_matrix_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`)
 }
 
 #' Runs an [`ExperimentSpec`] (parsed from `spec_toml`) and returns its
