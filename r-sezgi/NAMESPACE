@@ -2,10 +2,12 @@
 
 S3method("$<-",savvy_sezgi__sealed)
 S3method("[[<-",savvy_sezgi__sealed)
+S3method(print,"sezgi::EvalSession__bundle")
 export(sezgi_version)
 export(sz_bayesian_plackett_luce)
 export(sz_coco_export)
 export(sz_ecdf)
+export(sz_eval_session)
 export(sz_per_budget_packages)
 export(sz_preset_cmaes)
 export(sz_preset_cmaes_ipop)

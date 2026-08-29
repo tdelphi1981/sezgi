@@ -184,6 +184,41 @@ SEXP savvy_sz_stats_wilcoxon__impl(SEXP c_arg__a, SEXP c_arg__b) {
     return handle_result(res);
 }
 
+SEXP savvy_EvalSession_best__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_best__ffi(self__);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_budget__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_budget__ffi(self__);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_evals_used__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_evals_used__ffi(self__);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_evaluate__impl(SEXP self__, SEXP c_arg__x) {
+    SEXP res = savvy_EvalSession_evaluate__ffi(self__, c_arg__x);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_f_opt__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_f_opt__ffi(self__);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_finish__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_finish__ffi(self__);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_new__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__budget, SEXP c_arg__algo_name, SEXP c_arg__seed, SEXP c_arg__log_dir) {
+    SEXP res = savvy_EvalSession_new__ffi(c_arg__fid, c_arg__dim, c_arg__instance, c_arg__budget, c_arg__algo_name, c_arg__seed, c_arg__log_dir);
+    return handle_result(res);
+}
+
 
 static const R_CallMethodDef CallEntries[] = {
     {"savvy_sezgi_version__impl", (DL_FUNC) &savvy_sezgi_version__impl, 0},
@@ -215,6 +250,13 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_stats_paper_package_raw__impl", (DL_FUNC) &savvy_sz_stats_paper_package_raw__impl, 6},
     {"savvy_sz_stats_plackett_luce__impl", (DL_FUNC) &savvy_sz_stats_plackett_luce__impl, 1},
     {"savvy_sz_stats_wilcoxon__impl", (DL_FUNC) &savvy_sz_stats_wilcoxon__impl, 2},
+    {"savvy_EvalSession_best__impl", (DL_FUNC) &savvy_EvalSession_best__impl, 1},
+    {"savvy_EvalSession_budget__impl", (DL_FUNC) &savvy_EvalSession_budget__impl, 1},
+    {"savvy_EvalSession_evals_used__impl", (DL_FUNC) &savvy_EvalSession_evals_used__impl, 1},
+    {"savvy_EvalSession_evaluate__impl", (DL_FUNC) &savvy_EvalSession_evaluate__impl, 2},
+    {"savvy_EvalSession_f_opt__impl", (DL_FUNC) &savvy_EvalSession_f_opt__impl, 1},
+    {"savvy_EvalSession_finish__impl", (DL_FUNC) &savvy_EvalSession_finish__impl, 1},
+    {"savvy_EvalSession_new__impl", (DL_FUNC) &savvy_EvalSession_new__impl, 7},
     {NULL, NULL, 0}
 };
 

@@ -519,4 +519,73 @@ NULL
   .Call(savvy_sz_stats_wilcoxon__impl, `a`, `b`)
 }
 
+### wrapper functions for EvalSession
+
+`EvalSession_best` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_best__impl, `self`)
+  }
+}
+
+`EvalSession_budget` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_budget__impl, `self`)
+  }
+}
+
+`EvalSession_evals_used` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_evals_used__impl, `self`)
+  }
+}
+
+`EvalSession_evaluate` <- function(self) {
+  function(`x`) {
+    .Call(savvy_EvalSession_evaluate__impl, `self`, `x`)
+  }
+}
+
+`EvalSession_f_opt` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_f_opt__impl, `self`)
+  }
+}
+
+`EvalSession_finish` <- function(self) {
+  function() {
+    invisible(.Call(savvy_EvalSession_finish__impl, `self`))
+  }
+}
+
+`.savvy_wrap_EvalSession` <- function(ptr) {
+  e <- new.env(parent = emptyenv())
+  e$.ptr <- ptr
+  e$`best` <- `EvalSession_best`(ptr)
+  e$`budget` <- `EvalSession_budget`(ptr)
+  e$`evals_used` <- `EvalSession_evals_used`(ptr)
+  e$`evaluate` <- `EvalSession_evaluate`(ptr)
+  e$`f_opt` <- `EvalSession_f_opt`(ptr)
+  e$`finish` <- `EvalSession_finish`(ptr)
+
+  class(e) <- c("sezgi::EvalSession", "EvalSession", "savvy_sezgi__sealed")
+  e
+}
+
+
+#' The ask/tell evaluation session -- see the module doc.
+`EvalSession` <- new.env(parent = emptyenv())
+
+### associated functions for EvalSession
+
+`EvalSession`$`new` <- function(`fid`, `dim`, `instance`, `budget`, `algo_name`, `seed`, `log_dir` = NULL) {
+  .savvy_wrap_EvalSession(.Call(savvy_EvalSession_new__impl, `fid`, `dim`, `instance`, `budget`, `algo_name`, `seed`, `log_dir`))
+}
+
+
+class(`EvalSession`) <- c("sezgi::EvalSession__bundle", "savvy_sezgi__sealed")
+
+#' @export
+`print.sezgi::EvalSession__bundle` <- function(x, ...) {
+  cat('sezgi::EvalSession\n')
+}
 

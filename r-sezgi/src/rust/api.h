@@ -27,3 +27,12 @@ SEXP savvy_sz_stats_friedman__ffi(SEXP c_arg__m);
 SEXP savvy_sz_stats_paper_package_raw__ffi(SEXP c_arg__algo_names, SEXP c_arg__problem_names, SEXP c_arg__m, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__seed);
 SEXP savvy_sz_stats_plackett_luce__ffi(SEXP c_arg__rankings);
 SEXP savvy_sz_stats_wilcoxon__ffi(SEXP c_arg__a, SEXP c_arg__b);
+
+// methods and associated functions for EvalSession
+SEXP savvy_EvalSession_best__ffi(SEXP self__);
+SEXP savvy_EvalSession_budget__ffi(SEXP self__);
+SEXP savvy_EvalSession_evals_used__ffi(SEXP self__);
+SEXP savvy_EvalSession_evaluate__ffi(SEXP self__, SEXP c_arg__x);
+SEXP savvy_EvalSession_f_opt__ffi(SEXP self__);
+SEXP savvy_EvalSession_finish__ffi(SEXP self__);
+SEXP savvy_EvalSession_new__ffi(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__budget, SEXP c_arg__algo_name, SEXP c_arg__seed, SEXP c_arg__log_dir);
