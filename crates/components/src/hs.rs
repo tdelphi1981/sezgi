@@ -244,6 +244,60 @@ mod tests {
     }
 
     #[test]
+    fn draw_count_all_three_sub_branches_in_one_generate_call() {
+        // Crafted case: dim=3, pop n=4, master seed=4. Traced by hand
+        // against the raw RngStream sequence (independent of
+        // HsGenerator::generate's code, using only the pinned draw-order
+        // contract: u1; then, if u1<hmcr, j, u2, [u3]; else u4) at hmcr=0.9,
+        // par=0.3, this exact (seed, dim, pop_len) combination hits all
+        // three sub-branches, one per dimension, in this order:
+        //   d0: u1 < 0.9 (memory) -> j, u2 < 0.3 (pitch) -> u3   [4 draws: memory+pitch]
+        //   d1: u1 < 0.9 (memory) -> j, u2 >= 0.3 (no pitch)     [3 draws: memory-no-pitch]
+        //   d2: u1 >= 0.9 (random) -> u4                         [2 draws: random]
+        // Total = 4 + 3 + 2 = 9 draws, exercising every branch pinned on
+        // `hs_dim_step`'s doc comment through the REAL `generate()` path
+        // (not `hs_dim_step` called directly), at the preset's pinned
+        // hmcr=0.9/par=0.3 -- not a forced hmcr=0.0/1.0 limit.
+        let n = 4; let dim = 3;
+        let p = SphereShifted::new(vec![0.0; dim], -5.0, 5.0);
+        let space = p.space();
+        let pop = pop_nd(n, dim);
+
+        let mut rng = RngStream::from_master(4, &[]);
+        let rng_before = rng.clone();
+        let mut evaluator = Evaluator::new(&p, 1000);
+        let mut bb = Blackboard::new();
+        let off = {
+            let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
+            HsGenerator.generate(&pop, &mut ctx)
+        };
+        assert_eq!(off.len(), 1);
+
+        // Twin stream: hand-replay the exact 9-draw sequence derived above
+        // (branch structure known in advance from the RNG trace, not from
+        // reading generate()'s code) on a clone of the pre-generate rng,
+        // then compare the NEXT draw from each stream -- if generate()
+        // consumed a different number/kind of draws for any dimension, the
+        // two streams would (with overwhelming probability) diverge.
+        let mut twin = rng_before;
+        // d0: memory + pitch adjustment (4 draws)
+        let _u1_0 = twin.next_f64();
+        let _j_0 = twin.next_below(n as u64);
+        let _u2_0 = twin.next_f64();
+        let _u3_0 = twin.next_f64();
+        // d1: memory, no pitch adjustment (3 draws)
+        let _u1_1 = twin.next_f64();
+        let _j_1 = twin.next_below(n as u64);
+        let _u2_1 = twin.next_f64();
+        // d2: random selection (2 draws)
+        let _u1_2 = twin.next_f64();
+        let _u4_2 = twin.next_f64();
+
+        assert_eq!(rng.next_f64(), twin.next_f64(),
+            "gen/hs must consume exactly the pinned draw sequence for this crafted case, exercising memory+pitch, memory-no-pitch AND random branches in one generate() call");
+    }
+
+    #[test]
     fn draw_count_memory_branch_with_and_without_pitch_adjustment() {
         // Crafted case: dim=2, pop n=3, master seed=5. Trace the raw
         // RngStream sequence to determine, independently of the
