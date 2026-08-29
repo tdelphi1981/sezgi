@@ -11,3 +11,6 @@ pub use experiment::{
 
 pub mod checkpoint;
 pub use checkpoint::{fnv1a_64, spec_hash, load_journal, run_experiment_with_checkpoint};
+
+pub mod reporting;
+pub use reporting::{Aggregate, per_budget_packages, results_matrix};

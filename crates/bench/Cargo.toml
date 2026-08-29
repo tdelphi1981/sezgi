@@ -12,6 +12,7 @@ toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 sezgi-problems = { path = "../problems" }
 sezgi-components = { path = "../components" }
+sezgi-stats = { path = "../stats" }
 thiserror = "2"
 rayon = "1"
 

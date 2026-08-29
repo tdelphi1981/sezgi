@@ -208,6 +208,10 @@ pub enum ExperimentError {
     JournalWrite(String),
     #[error("experiment spec has changed: expected hash {expected}, got {got}")]
     ExperimentHashMismatch { expected: String, got: String },
+    #[error("missing run record for algorithm `{algo}` on problem `{problem}` at budget {budget} (incomplete experiment)")]
+    MissingCell { algo: String, problem: String, budget: u64 },
+    #[error("stats error while building the paper package for budget {budget}: {source}")]
+    Stats { budget: u64, #[source] source: sezgi_stats::StatsError },
 }
 
 const VALID_PRESET_KINDS: &[&str] = &[

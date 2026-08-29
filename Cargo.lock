@@ -450,6 +450,7 @@ dependencies = [
  "sezgi-components",
  "sezgi-core",
  "sezgi-problems",
+ "sezgi-stats",
  "tempfile",
  "thiserror",
  "toml",
