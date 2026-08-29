@@ -135,11 +135,14 @@ def test_read_ioh_records_curtailed_view_present_and_evals_used_capped(tmp_path)
 def test_run_experiment_allows_multiple_budgets_with_log_dir(tmp_path):
     """M2d-3: the multi-budget rejection was LIFTED. run_experiment(...,
     log_dir=...) now succeeds with more than one budget -- each budget's
-    runs land as distinct archive entries (a `budget` meta key), and
-    read_ioh_records canonicalizes them back to one run per (instance,
-    seed) internally (see sezgi_bench::ioh_read::dedupe_runs), so a
-    multi-budget read still returns unique (algo, fid, dim, instance, seed,
-    budget) keys with no conflicting best_f."""
+    runs land as distinct archive entries (a `budget` meta key). Fix round
+    1: read_ioh_records no longer collapses a multi-budget archive down to
+    one (largest-budget) run before reading -- it returns each budget's OWN
+    GENUINE run when the archive has one (see
+    sezgi_bench::ioh_read::ioh_records's doc comment), so this now asserts
+    the disk record at budget 200 is bit-identical to the runner's own
+    in-memory budget-200 record, not merely present. Keys stay unique
+    throughout regardless."""
     spec_toml = tiny_experiment_toml(budgets="[200, 400]")
     log_dir = str(tmp_path / "logs")
 
@@ -148,12 +151,31 @@ def test_run_experiment_allows_multiple_budgets_with_log_dir(tmp_path):
     assert len(records) == 4
 
     disk = sezgi.read_ioh_records(log_dir, [200, 400])
-    # 1 instance x 2 seeds x 2 queried budgets (both raw runs collapse to
-    # one per (instance, seed) internally before the two budgets are read)
+    # 1 instance x 2 seeds x 2 queried budgets -- each budget's own genuine
+    # run, no collapsing.
     assert len(disk) == 4
 
     keys = [(r["algo"], r["fid"], r["dim"], r["instance"], r["seed"], r["budget"]) for r in disk]
     assert len(keys) == len(set(keys)), "no duplicate (instance, seed, budget) keys"
+
+    # Fix round 1: every disk record, at BOTH budgets, must be bit-identical
+    # to the runner's own in-memory record at that SAME budget -- proving
+    # read_ioh_records now uses the genuine run at each queried budget
+    # rather than a curtailed view of the largest-budget run.
+    records_by_key = {
+        (r["algo"], r["fid"], r["dim"], r["instance"], r["seed"], r["budget"]): r
+        for r in records
+    }
+    disk_by_key = {
+        (r["algo"], r["fid"], r["dim"], r["instance"], r["seed"], r["budget"]): r
+        for r in disk
+    }
+    assert set(records_by_key) == set(disk_by_key)
+    for key, mem_rec in records_by_key.items():
+        disk_rec = disk_by_key[key]
+        assert struct.pack("<d", mem_rec["best_f"]) == struct.pack("<d", disk_rec["best_f"]), (
+            f"genuine run at budget {key[-1]} must be bit-identical for {key}"
+        )
 
 
 # ---------------------------------------------------------------------

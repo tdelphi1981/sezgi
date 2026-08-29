@@ -52,6 +52,56 @@
 //! comment for the exact `best_f`/`evals_used` semantics and — important —
 //! the curtailed-view-vs-independent-run distinction for budgets smaller
 //! than a run's logged budget.
+//!
+//! ## Two canonicalization policies for a multi-budget archive (M2d-3 Task
+//! ## 1, fix round 1 — READ THIS before calling either)
+//!
+//! A budget-aware archive (logged via [`crate::ioh::IohLogger::start_run_with`]
+//! with a spec sweeping over more than one budget) can legitimately hold
+//! MULTIPLE runs sharing the same `(instance, seed)` — one per budget the
+//! spec swept over, each a genuinely independent trajectory (see
+//! `run_experiment_logged`'s doc comment on why each queried budget is run
+//! as its own `PlannedRun` rather than derived from one larger run). An
+//! earlier version of this module collapsed every such archive down to one
+//! run per `(instance, seed)` — the largest-budget one — everywhere,
+//! reasoning that a curtailed view of the larger run "strictly subsumes"
+//! what a smaller, independent run would have produced. That reasoning is
+//! WRONG for budget-adaptive presets (e.g. `lshade`'s population-shrinking
+//! schedule, which reads the run's OWN termination budget to plan its
+//! trajectory): an independent run planned at budget 200 can reach a
+//! genuinely different (often better) `best_f` than the same trajectory
+//! recorded at budget 400 and then curtailed to its evals-<=200 prefix — see
+//! [`ioh_records`]'s doc comment for the concrete counter-example. Silently
+//! discarding the genuine 200-budget run to keep only the 400-budget one
+//! therefore threw away real data and defeated the purpose of lifting the
+//! single-budget logging restriction. This module now applies two
+//! DIFFERENT, deliberately named policies, chosen per consumer:
+//!
+//! - [`ioh_records`] (feeds [`crate::reporting::results_matrix`]/
+//!   `per_budget_packages`, and any paper-facing per-budget comparison):
+//!   for each requested budget, uses the EXACT-budget genuine run when the
+//!   archive has one, and only falls back to a curtailed view of the
+//!   largest-budget run when no genuine run was logged at that budget. A
+//!   multi-budget archive therefore contributes ITS OWN genuine trajectory
+//!   at each budget it was actually logged at — no data is discarded.
+//! - [`canonical_anytime`] (used by [`ecdf`](crate::anytime::ecdf)/
+//!   [`ecdf_per_algo`](crate::anytime::ecdf_per_algo)/
+//!   [`coco_export`](crate::coco::coco_export)): reduces each
+//!   `(instance, seed)` group down to exactly ONE run — the largest-budget
+//!   one. This is a deliberate POLICY choice, not the old "subsumes"
+//!   reasoning: an ECDF/anytime curve or a COCO archive is a distribution
+//!   over independent seeds, and same-seed runs at different budgets are
+//!   CORRELATED pseudo-replicates (they share the same RNG stream up to
+//!   whatever schedule divergence their budget introduces) rather than
+//!   independent samples — counting each budget's run as a separate
+//!   "replicate" would inflate the sample and double-count a seed. The
+//!   longest available trajectory is kept because it is the most complete
+//!   anytime view available for that seed.
+//!
+//! Both policies first reject a true same-budget duplicate — see
+//! [`dedupe_same_budget`] — since that case is genuinely ambiguous (no
+//! `budget` value to break the tie on, or two runs claiming the identical
+//! budget) rather than a matter of policy.
 
 use crate::experiment::{ExperimentError, RunKey, RunRecord};
 use serde::Deserialize;
@@ -71,9 +121,9 @@ pub struct IohRun {
     /// `None` for a legacy log whose meta entry omitted `budget` — either a
     /// pre-M2d-3 archive (no `start_run_with` budget parameter existed yet)
     /// or a fully-legacy [`crate::ioh::IohLogger::start_run`] entry (which
-    /// omits `seed`/`f_opt`/`budget` together). See [`dedupe_runs`] for how
-    /// a missing `budget` is handled when disambiguating same-`(instance,
-    /// seed)` runs.
+    /// omits `seed`/`f_opt`/`budget` together). See [`dedupe_same_budget`]
+    /// and [`canonical_anytime`] for how a missing `budget` is handled when
+    /// disambiguating same-`(instance, seed)` runs.
     pub budget: Option<u64>,
     /// Improvement rows (plus the always-written final row) exactly as
     /// parsed from the `.dat` run block, in file order.
@@ -255,35 +305,37 @@ pub fn read_ioh_root(root: &Path) -> Result<Vec<IohScenario>, ExperimentError> {
 }
 
 // ---------------------------------------------------------------------
-// Dedupe (M2d-3 Task 1): canonicalize multi-budget archives to one run
-// per (instance, seed) — the single canonicalization point [`ecdf`],
-// [`ecdf_per_algo`], [`coco_export`], and [`ioh_records`] all call first.
+// Canonicalization (M2d-3 Task 1, fix round 1): two different policies for
+// telling apart same-`(instance, seed)` runs across budgets — see the
+// module doc's "Two canonicalization policies" section for the rationale.
 // ---------------------------------------------------------------------
 
-/// Canonicalizes `scenarios` in place so that, within each scenario, every
-/// `(instance, seed)` pair maps to exactly one run.
+/// Validates `scenarios` in place: within each scenario, no two runs may
+/// share the same `(instance, seed, budget)` triple.
 ///
 /// A budget-aware archive (written since M2d-3, via
 /// [`crate::ioh::IohLogger::start_run_with`]'s `budget` parameter) can
 /// legitimately hold MULTIPLE runs sharing the same `(instance, seed)` —
-/// one per budget the spec swept over, each a fully independent trajectory
-/// (see `run_experiment_logged`'s doc comment on why running each queried
-/// budget as its own `PlannedRun`, rather than deriving smaller budgets
-/// from one big run, is how sezgi avoids budget-adaptive-schedule
-/// divergence). For each such group, this function keeps ONLY the run with
-/// the LARGEST `budget` — its trajectory strictly subsumes every smaller
-/// budget's curtailed view (see [`ioh_records`]'s doc comment) — and drops
-/// the rest.
+/// one per budget the spec swept over, each a genuinely independent
+/// trajectory (see `run_experiment_logged`'s doc comment on why running
+/// each queried budget as its own `PlannedRun`, rather than deriving
+/// smaller budgets from one big run, is how sezgi avoids budget-adaptive-
+/// schedule divergence). Runs at DIFFERENT budgets are all preserved
+/// unchanged — this function only ever rejects, it never drops a run.
 ///
-/// A group of size 1 is always left as-is, `budget` present or not (a
-/// single run is never ambiguous, `budget`-carrying or legacy).
+/// A group of runs sharing the same `(instance, seed, budget)` — including
+/// `budget = None` — is genuinely AMBIGUOUS and an ERROR (message contains
+/// `"ambiguous"`): either two runs were logged at the identical budget for
+/// the same `(instance, seed)` (which `run_experiment_logged`'s enumeration
+/// never produces on its own — this indicates a hand-assembled or corrupted
+/// archive), or the archive is a pre-M2d-3 log whose duplicate
+/// `(instance, seed)` runs carry no `budget` key to disambiguate them at
+/// all. Either way there is no principled way to pick a winner; the archive
+/// must be re-logged with a budget-aware `start_run_with` call (or without
+/// duplicate `(instance, seed)` runs in the first place).
 ///
-/// A group of size > 1 where ANY member's `budget` is `None` is an ERROR
-/// (message contains `"ambiguous"`): this is a pre-M2d-3 archive whose
-/// duplicate `(instance, seed)` runs cannot be told apart — the archive
-/// must be re-logged with a budget-aware `start_run_with` call, or read as
-/// a genuinely single-budget archive (whose `run_experiment_logged` call
-/// never produces duplicate `(instance, seed)` runs in the first place).
+/// A group of size 1 is always fine, `budget` present or not (a single run
+/// is never ambiguous, `budget`-carrying or legacy).
 // `&mut Vec<_>` (not `&mut [_]`) is the pinned interface (M2d-3 task brief):
 // canonicalization is in-place mutation of `scenarios`, and `&mut Vec` is
 // what every call site already owns (a `to_vec()`'d clone or a caller's
@@ -291,7 +343,52 @@ pub fn read_ioh_root(root: &Path) -> Result<Vec<IohScenario>, ExperimentError> {
 // `&mut Vec` at the call site into a `.as_mut_slice()`, with no meaningful
 // prevention gained.
 #[allow(clippy::ptr_arg)]
-pub fn dedupe_runs(scenarios: &mut Vec<IohScenario>) -> Result<(), ExperimentError> {
+pub fn dedupe_same_budget(scenarios: &mut Vec<IohScenario>) -> Result<(), ExperimentError> {
+    for sc in scenarios.iter_mut() {
+        // Group run indices by (instance, seed, budget); a group larger
+        // than 1 is, by construction, a duplicate at the SAME budget value
+        // (including budget = None) — genuinely ambiguous, never a matter
+        // of policy.
+        let mut groups: HashMap<(u32, Option<u64>, Option<u64>), Vec<usize>> = HashMap::new();
+        for (i, run) in sc.runs.iter().enumerate() {
+            groups.entry((run.instance, run.seed, run.budget)).or_default().push(i);
+        }
+        for ((instance, seed, budget), idxs) in &groups {
+            if idxs.len() > 1 {
+                return Err(ExperimentError::IohRead(format!(
+                    "{}/f{}d{}: ambiguous archive: {} runs share instance {instance} \
+                     seed {seed:?} budget {budget:?} with no way to disambiguate them — \
+                     re-log with a budget-aware archive (IohLogger::start_run_with) giving \
+                     each run a distinct budget, or remove the duplicate",
+                    sc.algo, sc.fid, sc.dim, idxs.len(),
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Canonicalizes `scenarios` in place so that, within each scenario, every
+/// `(instance, seed)` pair maps to exactly one run — the run with the
+/// LARGEST `budget`.
+///
+/// This is the POLICY used by [`ecdf`](crate::anytime::ecdf)/
+/// [`ecdf_per_algo`](crate::anytime::ecdf_per_algo)/
+/// [`coco_export`](crate::coco::coco_export), which each treat one
+/// `(instance, seed)` as one independent sample: same-seed runs logged at
+/// different budgets are correlated pseudo-replicates of that ONE sample,
+/// not additional independent ones, so only the longest — most complete —
+/// trajectory is kept. See the module doc's "Two canonicalization
+/// policies" section for why this differs from [`ioh_records`]'s policy,
+/// which instead prefers the genuine run at each queried budget.
+///
+/// [`dedupe_same_budget`] is applied first, so a true same-budget duplicate
+/// is still rejected as ambiguous rather than silently broken by whichever
+/// run [`Iterator::max_by_key`] happens to keep on a tie.
+#[allow(clippy::ptr_arg)]
+pub fn canonical_anytime(scenarios: &mut Vec<IohScenario>) -> Result<(), ExperimentError> {
+    dedupe_same_budget(scenarios)?;
+
     for sc in scenarios.iter_mut() {
         // Group run indices by (instance, seed), preserving first-seen
         // group order for a deterministic result.
@@ -312,6 +409,11 @@ pub fn dedupe_runs(scenarios: &mut Vec<IohScenario>) -> Result<(), ExperimentErr
                 kept.push(idxs[0]);
                 continue;
             }
+            // dedupe_same_budget already rejected a same-budget duplicate,
+            // so any remaining group of size > 1 has distinct budgets —
+            // except a legacy budget=None entry can still collide with
+            // itself only (size 1), so a >1 group here always has budgets
+            // to compare; guard defensively all the same.
             if idxs.iter().any(|&i| sc.runs[i].budget.is_none()) {
                 return Err(ExperimentError::IohRead(format!(
                     "{}/f{}d{}: ambiguous pre-M2d-3 archive: {} runs share instance {} \
@@ -338,104 +440,166 @@ pub fn dedupe_runs(scenarios: &mut Vec<IohScenario>) -> Result<(), ExperimentErr
 // ---------------------------------------------------------------------
 
 /// Reconstructs [`RunRecord`]s from on-disk [`IohScenario`]s, for every
-/// `(run, budget)` pair — one record per run per requested budget — so the
-/// result feeds [`crate::reporting::results_matrix`]/
-/// [`crate::reporting::per_budget_packages`] UNCHANGED, exactly as if it had
-/// come from [`crate::experiment::run_experiment_sequential`] et al.
+/// `((instance, seed), budget)` pair — one record per `(instance, seed)`
+/// present, per requested budget — so the result feeds
+/// [`crate::reporting::results_matrix`]/[`crate::reporting::per_budget_packages`]
+/// UNCHANGED, exactly as if it had come from
+/// [`crate::experiment::run_experiment_sequential`] et al.
+///
+/// ## Which run backs a given `(instance, seed, budget)` record: genuine
+/// ## first, curtailed fallback
+///
+/// A multi-budget archive can hold several runs for the same
+/// `(instance, seed)`, one per budget it was logged at (see the module
+/// doc's "Two canonicalization policies" section). For each requested
+/// `budget`, this function:
+/// 1. uses the run whose OWN `budget` meta key EQUALS the requested budget,
+///    if the archive has one — its full, genuine trajectory, never
+///    curtailed; otherwise
+/// 2. falls back to a CURTAILED VIEW of the run with the LARGEST `budget`
+///    among that `(instance, seed)`'s runs — see the next section for what
+///    that means and does NOT guarantee.
+///
+/// [`dedupe_same_budget`] is applied to (a private clone of) `scenarios`
+/// FIRST, so a true same-budget duplicate is rejected as ambiguous before
+/// step 1 could pick between two contradictory genuine candidates; distinct
+/// budgets are otherwise all preserved and available to step 1.
 ///
 /// ## `best_f` semantics: best-so-far AT that budget
 ///
 /// A run's [`IohRun::rows`] are improvement rows (plus the always-written
 /// final row) in file order — `evals` strictly increasing, `raw_y`
-/// non-increasing (each row only records a NEW best). For a requested
-/// `budget`, `best_f` is the `raw_y` of the LAST row with `evals <= budget`:
-/// because the sequence is monotone, that row's `raw_y` is not merely *a*
-/// value seen by that budget, it IS the best value seen by that budget — no
-/// later (higher-eval) row within the budget could have a smaller `raw_y`
-/// without having been recorded as an improvement row itself. It is an
-/// error — naming the run and the budget — for a run to have NO row with
-/// `evals <= budget` (the run's first recorded eval count already exceeds
-/// the budget, so no best-so-far value exists at that budget).
+/// non-increasing (each row only records a NEW best). Given the source run
+/// selected above, `best_f` is the `raw_y` of the LAST row with
+/// `evals <= budget`: because the sequence is monotone, that row's `raw_y`
+/// is not merely *a* value seen by that budget, it IS the best value seen
+/// by that budget — no later (higher-eval) row within the budget could have
+/// a smaller `raw_y` without having been recorded as an improvement row
+/// itself. It is an error — naming the run and the budget — for the
+/// selected run to have NO row with `evals <= budget` (its first recorded
+/// eval count already exceeds the budget, so no best-so-far value exists at
+/// that budget).
 ///
-/// `evals_used = min(budget, run.evals)`: the run may have used fewer than
-/// `budget` evaluations in total (if it terminated early), in which case
-/// `evals_used` reports the run's actual eval count rather than overstating
-/// it as `budget`.
+/// `evals_used = min(budget, source_run.evals)`: the run may have used
+/// fewer than `budget` evaluations in total (if it terminated early), in
+/// which case `evals_used` reports the run's actual eval count rather than
+/// overstating it as `budget`.
 ///
-/// `f_opt` and `seed` are both taken from the run's meta and are REQUIRED —
-/// `None` (a legacy archive written via `IohLogger::start_run` rather than
-/// `start_run_with`) is an error naming the missing key, since `RunKey.seed`
-/// and `RunRecord.f_opt` are non-optional. [`ioh_records`] therefore only
-/// accepts SELF-CONTAINED archives (every run meta carries `seed`+`f_opt`).
+/// `f_opt` and `seed` are both taken from the selected run's meta and are
+/// REQUIRED — `None` (a legacy archive written via `IohLogger::start_run`
+/// rather than `start_run_with`) is an error naming the missing key, since
+/// `RunKey.seed` and `RunRecord.f_opt` are non-optional. [`ioh_records`]
+/// therefore only accepts SELF-CONTAINED archives (every run meta carries
+/// `seed`+`f_opt`).
 ///
 /// ## Curtailed view vs. independent run — READ THIS before comparing
 /// ## against records from the live runner
 ///
-/// For a budget EQUAL TO the run's actual logged budget, the reconstructed
-/// `best_f` is bit-identical to what the runner returned in memory (both
-/// are the same trajectory's final best-so-far value) — the disk round trip
-/// loses nothing.
+/// For a requested budget with a GENUINE run at that exact budget (step 1
+/// above — which now includes every budget the archive was actually logged
+/// at, not just the largest), the reconstructed `best_f` is bit-identical
+/// to what the runner returned in memory for that same budget (both are the
+/// same trajectory's final best-so-far value) — the disk round trip loses
+/// nothing, for EVERY logged budget, not only the largest one.
 ///
-/// For a budget SMALLER than the run's logged budget, `ioh_records` returns
-/// a CURTAILED VIEW: it truncates the SAME trajectory (the one recorded at
-/// the larger, actual budget) to the prefix visible by the smaller budget.
-/// This is semantically a DIFFERENT thing from what
-/// [`crate::experiment::enumerate`] produces for that smaller budget as an
-/// independent [`crate::experiment::PlannedRun`]: `budget` is part of
-/// [`RunKey`], but `run_id` is derived only from the seed's index in
-/// `ExperimentSpec::seeds` (see `enumerate`), NOT from budget — so the
-/// runner's smaller-budget run reuses the very same RNG stream, but as a
-/// SEPARATE `Engine::run` invocation whose `AlgorithmSpec::termination.budget`
-/// is set to the smaller value up front. For most presets this changes
-/// nothing beyond where the run stops (so the trajectories usually agree on
-/// their shared prefix) — but any budget-adaptive component (e.g. a mutation
-/// or population schedule that reads `termination.budget` to plan its
-/// trajectory over the FULL run, such as `lshade`'s population-shrinking
-/// schedule) can make the independent smaller-budget run diverge from the
-/// larger run's prefix. Curtailing a trajectory recorded at budget B to a
-/// view at budget b < B is therefore NOT guaranteed to equal — and must
-/// never be asserted equal to — an independent run planned at budget b from
-/// the start. Callers wanting the reconstructed curtailed view and the live
-/// runner's own smaller-budget records to match bit-for-bit are asserting
-/// something this function does not promise.
+/// For a requested budget with NO genuine run at that exact budget,
+/// `ioh_records` falls back (step 2) to a CURTAILED VIEW: it truncates a
+/// DIFFERENT run — the one recorded at the largest available budget — to
+/// the prefix visible by the requested, smaller budget. This is
+/// semantically a DIFFERENT thing from what [`crate::experiment::enumerate`]
+/// would produce for that budget as an independent
+/// [`crate::experiment::PlannedRun`]: `budget` is part of [`RunKey`], but
+/// `run_id` is derived only from the seed's index in
+/// `ExperimentSpec::seeds` (see `enumerate`), NOT from budget — so an
+/// independent run at that budget would reuse the very same RNG stream, but
+/// as a SEPARATE `Engine::run` invocation whose
+/// `AlgorithmSpec::termination.budget` is set to that value up front. For
+/// most presets this changes nothing beyond where the run stops (so the
+/// trajectories usually agree on their shared prefix) — but any
+/// budget-adaptive component (e.g. a mutation or population schedule that
+/// reads `termination.budget` to plan its trajectory over the FULL run,
+/// such as `lshade`'s population-shrinking schedule) can make an
+/// independent run at that budget diverge from the larger run's prefix,
+/// often substantially: e.g. an independent `lshade` run at budget 200 can
+/// reach a materially different (and often BETTER, since its population
+/// schedule shrinks appropriately for the shorter run) `best_f` than the
+/// SAME `lshade` trajectory logged at budget 400 and curtailed to its
+/// evals-<=200 prefix. A curtailed fallback view is therefore NOT
+/// guaranteed to equal — and must never be asserted equal to — an
+/// independent run planned at that budget from the start. This is exactly
+/// why step 1 above always prefers a genuine run when the archive has one:
+/// the fallback is a last resort for budgets the archive was never actually
+/// logged at, not a substitute for logging the budget you need. Callers
+/// wanting a curtailed fallback view and the live runner's own records at
+/// that budget to match bit-for-bit are asserting something this function
+/// does not promise.
 ///
-/// For a `budget` LARGER than the run's own logged budget, `best_f` is the
-/// run's final recorded value and `evals_used` is `run.evals` (never
-/// `budget` itself, since `evals_used = min(budget, run.evals)`) — the same
-/// "run has already finished, no more evaluations happen" semantics the
-/// live runner itself exhibits once a run's own termination budget is
-/// reached, so this is silent, not an error.
+/// For a `budget` LARGER than the selected run's own logged budget,
+/// `best_f` is the run's final recorded value and `evals_used` is
+/// `run.evals` (never `budget` itself, since
+/// `evals_used = min(budget, run.evals)`) — the same "run has already
+/// finished, no more evaluations happen" semantics the live runner itself
+/// exhibits once a run's own termination budget is reached, so this is
+/// silent, not an error.
 ///
 /// `wall_secs` is always `0.0`: wall-clock time is not recorded in the
 /// on-disk IOH log, so it cannot be reconstructed here; this is an inert
 /// placeholder rather than a real measurement, and the reporting pipeline
 /// (`results_matrix`/`per_budget_packages`) never reads this field.
 ///
-/// [`dedupe_runs`] is applied to (a private clone of) `scenarios` FIRST, so
-/// a multi-budget archive (one written since M2d-3 with duplicate
-/// `(instance, seed)` runs across budgets) is canonicalized to one run per
-/// `(instance, seed)` — the largest-budget one — before any record is
-/// built; the returned `RunKey`s are therefore always unique per queried
-/// budget, never duplicated with conflicting `best_f`.
+/// Because every `(instance, seed)` group contributes at most one record
+/// per requested budget (step 1's exact match and step 2's fallback are
+/// mutually exclusive per budget), the returned `RunKey`s are always unique
+/// per queried budget, never duplicated with conflicting `best_f`.
 pub fn ioh_records(scenarios: &[IohScenario], budgets: &[u64]) -> Result<Vec<RunRecord>, ExperimentError> {
     let mut scenarios = scenarios.to_vec();
-    dedupe_runs(&mut scenarios)?;
+    dedupe_same_budget(&mut scenarios)?;
 
     let mut records = Vec::new();
     for sc in &scenarios {
-        for run in &sc.runs {
-            let run_label = format!("{}/f{}d{}i{}", sc.algo, sc.fid, sc.dim, run.instance);
-            let seed = run.seed.ok_or_else(|| ExperimentError::IohRead(format!(
-                "{run_label}: missing `seed` in meta (ioh_records requires self-contained \
-                 archives written by IohLogger::start_run_with)"
-            )))?;
-            let f_opt = run.f_opt.ok_or_else(|| ExperimentError::IohRead(format!(
-                "{run_label}/s{seed}: missing `f_opt` in meta (ioh_records requires \
-                 self-contained archives written by IohLogger::start_run_with)"
-            )))?;
+        // Group run indices by (instance, seed), preserving first-seen
+        // group order for a deterministic result — a group may hold several
+        // runs (one per logged budget) after M2d-3.
+        let mut order: Vec<(u32, Option<u64>)> = Vec::new();
+        let mut groups: HashMap<(u32, Option<u64>), Vec<usize>> = HashMap::new();
+        for (i, run) in sc.runs.iter().enumerate() {
+            let key = (run.instance, run.seed);
+            if !groups.contains_key(&key) {
+                order.push(key);
+            }
+            groups.entry(key).or_default().push(i);
+        }
+
+        for key in &order {
+            let instance = key.0;
+            let idxs = &groups[key];
+            let group_runs: Vec<&IohRun> = idxs.iter().map(|&i| &sc.runs[i]).collect();
 
             for &budget in budgets {
-                let best_f = run.rows.iter()
+                // Step 1: genuine run logged at exactly this budget.
+                // Step 2: fallback to the largest-budget run's curtailed
+                // view (dedupe_same_budget guarantees at most one exact
+                // match, so this is unambiguous).
+                let source: &IohRun = group_runs.iter()
+                    .find(|r| r.budget == Some(budget))
+                    .copied()
+                    .unwrap_or_else(|| {
+                        *group_runs.iter()
+                            .max_by_key(|r| r.budget)
+                            .expect("group_runs is non-empty by construction")
+                    });
+
+                let run_label = format!("{}/f{}d{}i{}", sc.algo, sc.fid, sc.dim, instance);
+                let seed = source.seed.ok_or_else(|| ExperimentError::IohRead(format!(
+                    "{run_label}: missing `seed` in meta (ioh_records requires self-contained \
+                     archives written by IohLogger::start_run_with)"
+                )))?;
+                let f_opt = source.f_opt.ok_or_else(|| ExperimentError::IohRead(format!(
+                    "{run_label}/s{seed}: missing `f_opt` in meta (ioh_records requires \
+                     self-contained archives written by IohLogger::start_run_with)"
+                )))?;
+
+                let best_f = source.rows.iter()
                     .rev()
                     .find(|&&(evals, _)| evals <= budget)
                     .map(|&(_, y)| y)
@@ -449,13 +613,13 @@ pub fn ioh_records(scenarios: &[IohScenario], budgets: &[u64]) -> Result<Vec<Run
                         algo: sc.algo.clone(),
                         fid: sc.fid,
                         dim: sc.dim,
-                        instance: run.instance,
+                        instance,
                         seed,
                         budget,
                     },
                     best_f,
                     f_opt,
-                    evals_used: budget.min(run.evals),
+                    evals_used: budget.min(source.evals),
                     wall_secs: 0.0,
                 });
             }
@@ -854,19 +1018,25 @@ mod tests {
     }
 
     // -------------------------------------------------------------
-    // dedupe_runs / multi-budget logging (M2d-3 Task 1)
+    // canonical_anytime / dedupe_same_budget / multi-budget logging
+    // (M2d-3 Task 1, fix round 1)
     // -------------------------------------------------------------
 
     /// CORE test: `run_experiment_logged` with TWO budgets — previously
     /// rejected by the (now-removed) `MultiBudgetLogging` guard — succeeds,
-    /// and the resulting archive is unambiguous end to end: `read_ioh_root`
-    /// plus `dedupe_runs` collapses each `(instance, seed)` pair down to
-    /// its one largest-budget run, and `ioh_records` (which dedupes
-    /// internally) returns unique `RunKey`s with no conflicting `best_f`
-    /// for the same key. This is the M2d-2 final-review probe scenario the
-    /// multi-budget guard was originally added to guard against.
+    /// and the resulting archive is unambiguous end to end: `canonical_anytime`
+    /// (the `ecdf`/`coco_export` policy) collapses each `(instance, seed)`
+    /// pair down to its one largest-budget run, while `ioh_records` (the
+    /// records-bridge policy) keeps EACH budget's genuine run and returns
+    /// unique `RunKey`s with no conflicting `best_f` — bit-identical to the
+    /// runner's own in-memory record at EVERY queried budget the archive
+    /// was actually logged at, not just the largest. This is the M2d-2
+    /// final-review probe scenario the multi-budget guard was originally
+    /// added to guard against, extended (fix round 1) to prove the fix for
+    /// the M2d-3 review finding that the old `dedupe_runs` silently
+    /// discarded the genuine smaller-budget run.
     #[test]
-    fn multi_budget_logging_dedupes_to_unique_records() {
+    fn multi_budget_logging_preserves_genuine_runs_and_ecdf_policy_dedupes_to_largest() {
         let spec = ExperimentSpec {
             name: "multi-budget-probe".into(),
             seeds: vec![101, 202],
@@ -895,26 +1065,32 @@ mod tests {
         assert_eq!(raw_scenarios.len(), 2, "one scenario per algo");
         for sc in &raw_scenarios {
             // 5 instances x 2 seeds x 2 budgets: both budgets' runs present
-            // pre-dedupe, i.e. duplicate (instance, seed) pairs on disk.
+            // pre-canonicalization, i.e. duplicate (instance, seed) pairs on
+            // disk.
             assert_eq!(sc.runs.len(), 20);
         }
 
-        // read_ioh_root + dedupe_runs: exactly one run per (instance, seed),
-        // and it must be the larger-budget (400) one.
+        // read_ioh_root + canonical_anytime (the ecdf/coco_export policy):
+        // exactly one run per (instance, seed), and it must be the
+        // larger-budget (400) one.
         let mut deduped = raw_scenarios.clone();
-        dedupe_runs(&mut deduped).unwrap();
+        canonical_anytime(&mut deduped).unwrap();
         for sc in &deduped {
-            assert_eq!(sc.runs.len(), 10, "5 instances x 2 seeds, one run each after dedupe");
+            assert_eq!(sc.runs.len(), 10, "5 instances x 2 seeds, one run each after canonicalization");
             for run in &sc.runs {
-                assert_eq!(run.budget, Some(400), "dedupe must keep the largest-budget run");
+                assert_eq!(run.budget, Some(400), "canonical_anytime must keep the largest-budget run");
             }
         }
 
-        // ioh_records dedupes internally, so passing the RAW (non-deduped)
+        // ioh_records (the records-bridge policy) canonicalizes only
+        // same-budget duplicates, so passing the RAW (non-canonicalized)
         // scenarios must still yield unique (key -> best_f) pairs: 2 algos x
         // 10 (instance, seed) groups x 2 queried budgets = 40 records, 40
-        // unique keys, and every key's best_f must agree with the runner's
-        // own in-memory record at the run's actual, full (400) budget.
+        // unique keys — and every key's best_f must agree with the runner's
+        // own in-memory record at that SAME budget, for BOTH budgets: the
+        // fix round 1 finding was that the old policy discarded the genuine
+        // 200-budget run in favor of a curtailed view of the 400-budget
+        // run, which this now proves no longer happens.
         let records = ioh_records(&raw_scenarios, &[200, 400]).unwrap();
         assert_eq!(records.len(), 40);
 
@@ -927,22 +1103,173 @@ mod tests {
 
         let runner_by_key: HashMap<RunKey, f64> =
             runner_records.iter().map(|r| (r.key.clone(), r.best_f)).collect();
-        for r in records.iter().filter(|r| r.key.budget == 400) {
+        for r in &records {
             let expected = runner_by_key.get(&r.key)
                 .unwrap_or_else(|| panic!("no runner record for key {}", r.key));
             assert_eq!(
                 r.best_f.to_bits(), expected.to_bits(),
-                "budget-400 disk record must be bit-identical to the runner's for {}", r.key,
+                "genuine run at budget {} must be bit-identical to the runner's for {}",
+                r.key.budget, r.key,
             );
         }
     }
 
-    /// Legacy ambiguity: a hand-written meta with two runs sharing the same
-    /// `(instance, seed)` and neither carrying a `budget` key (a pre-M2d-3
-    /// archive) is genuinely ambiguous — `dedupe_runs` must error, matching
-    /// "ambiguous", rather than silently picking one or pooling both.
+    /// The fix round 1 core probe: a budget-ADAPTIVE preset (`lshade`,
+    /// whose population-shrinking schedule reads `termination.budget` to
+    /// plan its trajectory over the FULL run — see `ioh_records`'s doc
+    /// comment) genuinely diverges between an independent budget-200 run
+    /// and a budget-400 run curtailed to its evals-<=200 prefix. Before the
+    /// fix, `ioh_records` always used the curtailed 400-view for a
+    /// budget-200 query (via the old `dedupe_runs`'s "keep only the
+    /// largest" policy), silently discarding the genuine 200-run and its
+    /// (possibly better) `best_f`. This proves the fixed `ioh_records`
+    /// instead returns the GENUINE run's `best_f` at 200 (bit-identical to
+    /// the runner's own budget-200 record) and the genuine run at 400, with
+    /// the two provably NOT interchangeable for this preset.
     #[test]
-    fn dedupe_runs_errors_on_ambiguous_duplicate_without_budget() {
+    fn ioh_records_prefers_genuine_run_over_curtailed_view_for_budget_adaptive_presets() {
+        let spec = ExperimentSpec {
+            name: "lshade-budget-adaptive-probe".into(),
+            seeds: vec![101, 202],
+            budgets: vec![200, 400],
+            algorithms: vec![AlgoEntry {
+                name: "lshade".into(),
+                source: AlgoSource::Preset { kind: "lshade".into(), pop_size: None },
+            }],
+            problems: vec![ProblemEntry {
+                suite: "bbob".into(), fid: 1, dim: 5, instances: vec![1, 2],
+            }],
+        };
+
+        let tmp = tempfile::tempdir().unwrap();
+        let (runner_records, _finishes) = run_experiment_logged(&spec, tmp.path(), false, None).unwrap();
+        // 1 algo x 2 instances x 2 seeds x 2 budgets
+        assert_eq!(runner_records.len(), 8);
+
+        let raw_scenarios = read_ioh_root(tmp.path()).unwrap();
+        let records = ioh_records(&raw_scenarios, &[200, 400]).unwrap();
+        assert_eq!(records.len(), 8);
+
+        let mut seen: HashMap<RunKey, f64> = HashMap::new();
+        for r in &records {
+            let prior = seen.insert(r.key.clone(), r.best_f);
+            assert!(prior.is_none(), "duplicate key {} with conflicting best_f", r.key);
+        }
+        assert_eq!(seen.len(), 8, "all 8 keys must be unique");
+
+        // Every disk record, at BOTH budgets, must be bit-identical to the
+        // runner's own in-memory record at that SAME budget: ioh_records
+        // now uses each budget's GENUINE trajectory.
+        let runner_by_key: HashMap<RunKey, f64> =
+            runner_records.iter().map(|r| (r.key.clone(), r.best_f)).collect();
+        for r in &records {
+            let expected = runner_by_key.get(&r.key)
+                .unwrap_or_else(|| panic!("no runner record for key {}", r.key));
+            assert_eq!(
+                r.best_f.to_bits(), expected.to_bits(),
+                "genuine lshade run at budget {} must be bit-identical to the runner's for {}",
+                r.key.budget, r.key,
+            );
+        }
+
+        // Prove the divergence this test exists to catch is real, for at
+        // least one (instance, seed): the genuine 200-budget run's best_f
+        // must differ from the 400-budget run's curtailed-at-200 view. If
+        // this never held, the fix would be indistinguishable from the old
+        // (buggy) "always curtail the largest" behavior for this preset.
+        let mut divergence_found = false;
+        for sc in &raw_scenarios {
+            let mut by_seed: HashMap<(u32, Option<u64>), Vec<&IohRun>> = HashMap::new();
+            for run in &sc.runs {
+                by_seed.entry((run.instance, run.seed)).or_default().push(run);
+            }
+            for runs in by_seed.values() {
+                let genuine_200 = runs.iter().find(|r| r.budget == Some(200)).expect("200-run present");
+                let run_400 = runs.iter().find(|r| r.budget == Some(400)).expect("400-run present");
+                let genuine_val = genuine_200.rows.iter().rev()
+                    .find(|&&(e, _)| e <= 200).map(|&(_, y)| y).expect("row <= 200 in the 200-run");
+                let curtailed_val = run_400.rows.iter().rev()
+                    .find(|&&(e, _)| e <= 200).map(|&(_, y)| y).expect("row <= 200 in the 400-run");
+                if genuine_val.to_bits() != curtailed_val.to_bits() {
+                    divergence_found = true;
+                }
+            }
+        }
+        assert!(
+            divergence_found,
+            "expected at least one (instance, seed) where the genuine 200-budget lshade run \
+             diverges from the 400-run's curtailed-at-200 view — if this never happens the \
+             probe preset/budgets no longer exercise the schedule-divergence this test guards"
+        );
+    }
+
+    /// Fallback path: an archive logged ONLY at budget 400 (no genuine
+    /// 200-budget run) must have `ioh_records([200, 400])` fall back, for
+    /// the 200 query, to a CURTAILED VIEW of the 400-run — the last row
+    /// with `evals <= 200` — exactly as documented; the 400 query still
+    /// resolves to the same run's full trajectory.
+    #[test]
+    fn ioh_records_falls_back_to_curtailed_view_when_no_genuine_run_at_that_budget() {
+        let sc = IohScenario {
+            algo: "de".into(),
+            suite: "sezgi-bbob".into(),
+            fid: 1,
+            fname: "Sphere".into(),
+            dim: 5,
+            runs: vec![IohRun {
+                instance: 1, seed: Some(42), f_opt: Some(0.0), budget: Some(400),
+                rows: vec![(50, 20.0), (150, 8.0), (400, 1.0)],
+                evals: 400,
+            }],
+        };
+
+        let records = ioh_records(std::slice::from_ref(&sc), &[200, 400]).unwrap();
+        assert_eq!(records.len(), 2);
+
+        let r200 = records.iter().find(|r| r.key.budget == 200).unwrap();
+        assert_eq!(
+            r200.best_f.to_bits(), 8.0f64.to_bits(),
+            "200's curtailed view must equal the last row <= 200 of the 400-run: (150, 8.0)"
+        );
+        assert_eq!(r200.evals_used, 200, "evals_used = min(200, run.evals=400)");
+
+        let r400 = records.iter().find(|r| r.key.budget == 400).unwrap();
+        assert_eq!(r400.best_f.to_bits(), 1.0f64.to_bits(), "400 is the genuine (and only) run");
+        assert_eq!(r400.evals_used, 400);
+    }
+
+    /// Same-budget ambiguity, the EXPLICIT-budget case (the primary case
+    /// per the fix round 1 ruling): two runs sharing the same
+    /// `(instance, seed, budget)` triple — both claiming budget 200 — is
+    /// genuinely ambiguous — `dedupe_same_budget` must error, matching
+    /// "ambiguous", rather than silently picking one.
+    #[test]
+    fn dedupe_same_budget_errors_on_duplicate_at_the_same_explicit_budget() {
+        let mut scenarios = vec![IohScenario {
+            algo: "de".into(),
+            suite: "sezgi-bbob".into(),
+            fid: 1,
+            fname: "Sphere".into(),
+            dim: 5,
+            runs: vec![
+                IohRun { instance: 1, seed: Some(42), f_opt: Some(0.0), budget: Some(200),
+                          rows: vec![(1, 5.0)], evals: 200 },
+                IohRun { instance: 1, seed: Some(42), f_opt: Some(0.0), budget: Some(200),
+                          rows: vec![(1, 3.0)], evals: 200 },
+            ],
+        }];
+
+        let err = dedupe_same_budget(&mut scenarios).unwrap_err();
+        assert!(err.to_string().contains("ambiguous"), "error must mention 'ambiguous': {err}");
+    }
+
+    /// Same-budget ambiguity, the LEGACY missing-`budget`-key case: a
+    /// hand-written meta with two runs sharing the same `(instance, seed)`
+    /// and neither carrying a `budget` key (a pre-M2d-3 archive) is also
+    /// ambiguous — both fall into the same `budget = None` group, so
+    /// `dedupe_same_budget` must error the same way.
+    #[test]
+    fn dedupe_same_budget_errors_on_duplicate_missing_budget_key() {
         let mut scenarios = vec![IohScenario {
             algo: "de".into(),
             suite: "sezgi-bbob".into(),
@@ -957,15 +1284,39 @@ mod tests {
             ],
         }];
 
-        let err = dedupe_runs(&mut scenarios).unwrap_err();
+        let err = dedupe_same_budget(&mut scenarios).unwrap_err();
         assert!(err.to_string().contains("ambiguous"), "error must mention 'ambiguous': {err}");
     }
 
-    /// Regression guard alongside the ambiguity test above: a single
-    /// legacy run (no duplicate, no budget) is never ambiguous and must
-    /// read through `dedupe_runs` unchanged.
+    /// Runs at DIFFERENT budgets are all preserved by `dedupe_same_budget`
+    /// (it only ever rejects a true same-budget duplicate, never drops a
+    /// run) — regression guard for the fix round 1 ruling's "different
+    /// budgets are all PRESERVED" clause.
     #[test]
-    fn dedupe_runs_leaves_single_legacy_run_without_budget_untouched() {
+    fn dedupe_same_budget_preserves_runs_at_different_budgets() {
+        let mut scenarios = vec![IohScenario {
+            algo: "de".into(),
+            suite: "sezgi-bbob".into(),
+            fid: 1,
+            fname: "Sphere".into(),
+            dim: 5,
+            runs: vec![
+                IohRun { instance: 1, seed: Some(42), f_opt: Some(0.0), budget: Some(200),
+                          rows: vec![(1, 5.0)], evals: 200 },
+                IohRun { instance: 1, seed: Some(42), f_opt: Some(0.0), budget: Some(400),
+                          rows: vec![(1, 5.0), (300, 2.0)], evals: 400 },
+            ],
+        }];
+
+        dedupe_same_budget(&mut scenarios).unwrap();
+        assert_eq!(scenarios[0].runs.len(), 2, "both budgets' runs must survive untouched");
+    }
+
+    /// Regression guard alongside the ambiguity tests above: a single
+    /// legacy run (no duplicate, no budget) is never ambiguous and must
+    /// read through `dedupe_same_budget` unchanged.
+    #[test]
+    fn dedupe_same_budget_leaves_single_legacy_run_without_budget_untouched() {
         let mut scenarios = vec![IohScenario {
             algo: "de".into(),
             suite: "sezgi-bbob".into(),
@@ -978,7 +1329,7 @@ mod tests {
             }],
         }];
 
-        dedupe_runs(&mut scenarios).unwrap();
+        dedupe_same_budget(&mut scenarios).unwrap();
         assert_eq!(scenarios[0].runs.len(), 1, "a single run is never ambiguous");
         assert_eq!(scenarios[0].runs[0].budget, None);
     }

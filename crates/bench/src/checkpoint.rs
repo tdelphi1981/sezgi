@@ -187,8 +187,14 @@ pub fn load_journal(
 /// disables IOH logging entirely (both bindings pass `None` until they wire
 /// this through). A multi-budget `spec` is fully supported with `log_dir`
 /// (M2d-3 lifted the earlier single-budget restriction): each budget's runs
-/// land as distinct archive entries, canonicalized back to one run per
-/// `(instance, seed)` on read via [`crate::ioh_read::dedupe_runs`].
+/// land as distinct archive entries. What a later read does with those
+/// entries depends on the reader — see `crate::ioh_read`'s module doc,
+/// "Two canonicalization policies": [`crate::ioh_read::ioh_records`] prefers
+/// the genuine run at each queried budget (falling back to a curtailed view
+/// only for budgets the archive lacks), while
+/// [`crate::ioh_read::canonical_anytime`] (used by `ecdf`/`ecdf_per_algo`/
+/// `coco_export`) always canonicalizes to one run per `(instance, seed)` —
+/// the largest-budget one.
 pub fn run_experiment_with_checkpoint(
     spec: &ExperimentSpec,
     journal_path: &Path,

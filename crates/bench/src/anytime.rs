@@ -25,7 +25,7 @@
 //!   never contributes a step), so the curve need not reach `1.0`.
 
 use crate::experiment::ExperimentError;
-use crate::ioh_read::{IohRun, IohScenario, dedupe_runs};
+use crate::ioh_read::{IohRun, IohScenario, canonical_anytime};
 
 /// COCO-convention default target precisions: `10^(2 - 0.2*k)` for
 /// `k = 0..=50` — 51 values, descending from `1e2` to `1e-8`.
@@ -100,13 +100,16 @@ fn missing_f_opt_err(run: &IohRun, sc: &IohScenario) -> ExperimentError {
 /// `total_pairs == 0` the hit-collection loop never runs, so there is no
 /// division to perform and nothing to report.
 ///
-/// [`dedupe_runs`] is applied to (a private clone of) `scenarios` FIRST, so
-/// a multi-budget archive counts each `(instance, seed)` pair exactly
-/// once in the denominator — the largest-budget run's trajectory, not one
-/// entry per budget it was logged at.
+/// [`canonical_anytime`] is applied to (a private clone of) `scenarios`
+/// FIRST (see `crate::ioh_read`'s module doc, "Two canonicalization
+/// policies"), so a multi-budget archive counts each `(instance, seed)`
+/// pair exactly once in the denominator — the largest-budget run's
+/// trajectory, not one entry per budget it was logged at — since same-seed
+/// runs at different budgets are correlated pseudo-replicates of ONE
+/// sample here, not independent additional ones.
 pub fn ecdf(scenarios: &[IohScenario], targets: &[f64]) -> Result<EcdfCurve, ExperimentError> {
     let mut scenarios = scenarios.to_vec();
-    dedupe_runs(&mut scenarios)?;
+    canonical_anytime(&mut scenarios)?;
 
     let mut total_pairs: u64 = 0;
     let mut hits: Vec<u64> = Vec::new();
@@ -154,7 +157,7 @@ pub fn ecdf_per_algo(
     targets: &[f64],
 ) -> Result<Vec<(String, EcdfCurve)>, ExperimentError> {
     let mut scenarios = scenarios.to_vec();
-    dedupe_runs(&mut scenarios)?;
+    canonical_anytime(&mut scenarios)?;
 
     let mut order: Vec<String> = Vec::new();
     for sc in &scenarios {
@@ -308,8 +311,8 @@ mod tests {
     /// Denominator check (M2d-3 Task 1, step 1c): a multi-budget archive
     /// with duplicate `(instance, seed)` runs (one logged at budget 200,
     /// one at budget 400, same seed/instance) must be counted ONCE in the
-    /// ECDF denominator via `ecdf`'s internal `dedupe_runs` call — not
-    /// once per budget it happens to have been logged at.
+    /// ECDF denominator via `ecdf`'s internal `canonical_anytime` call —
+    /// not once per budget it happens to have been logged at.
     #[test]
     fn ecdf_counts_each_instance_seed_once_on_a_multi_budget_archive() {
         let dup_short = IohRun {

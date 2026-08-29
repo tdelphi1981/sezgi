@@ -556,10 +556,14 @@ pub fn run_experiment_parallel(
 /// `IohLogger::start_run_with(.., budget)` call, so the budget-200 and
 /// budget-400 runs of the same `(instance, seed)` land as DISTINCT run
 /// entries in the archive, each carrying its own `budget` meta key. A later
-/// read (`ioh_records`, `ecdf`, `ecdf_per_algo`, `coco_export`) canonicalizes
-/// them back down to one run per `(instance, seed)` via
-/// [`crate::ioh_read::dedupe_runs`] (keeping the largest-budget one — a
-/// curtailed view subsumes a smaller one), so no duplicate key or
+/// read handles those distinct entries per its own policy — see
+/// `crate::ioh_read`'s module doc, "Two canonicalization policies":
+/// [`crate::ioh_read::ioh_records`] returns each budget's OWN genuine
+/// trajectory when the archive has one (falling back to a curtailed view of
+/// the largest-budget run only for a budget the archive lacks), while
+/// `ecdf`/`ecdf_per_algo`/`coco_export` canonicalize down to one run per
+/// `(instance, seed)` — the largest-budget one — via
+/// [`crate::ioh_read::canonical_anytime`]. Either way no duplicate key or
 /// conflicting `best_f` ever reaches a caller.
 ///
 /// A mid-run error drops every [`IohLogger`] without calling `finish()` on
@@ -1018,9 +1022,9 @@ mod tests {
         assert!(!finishes.is_empty());
 
         let scenarios = crate::ioh_read::read_ioh_root(tmp.path()).unwrap();
-        // Every (instance, seed) pair was logged twice (once per budget) --
-        // pre-dedupe -- so ioh_records must still return unique, non-
-        // conflicting keys once it canonicalizes via dedupe_runs internally.
+        // Every (instance, seed) pair was logged twice (once per budget), so
+        // ioh_records must still return unique, non-conflicting keys: each
+        // queried budget resolves to its own genuine run.
         let disk_records = crate::ioh_read::ioh_records(&scenarios, &[300, 600]).unwrap();
         assert_eq!(disk_records.len(), 16, "2 algos x 2 instances x 2 seeds x 2 queried budgets");
         let mut seen: std::collections::HashSet<RunKey> = std::collections::HashSet::new();

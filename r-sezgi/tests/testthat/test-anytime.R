@@ -100,22 +100,37 @@ test_that("a curtailed-budget view is present with evals capped at the budget", 
 test_that("sz_run_experiment allows a multi-budget spec when log_dir is given", {
   # M2d-3: the multi-budget rejection was LIFTED. sz_run_experiment(...,
   # log_dir = ...) now succeeds with more than one budget -- each budget's
-  # runs land as distinct archive entries (a `budget` meta key), and
-  # sz_read_ioh_records canonicalizes them back to one run per (instance,
-  # seed) internally (see sezgi_bench::ioh_read::dedupe_runs), so a
-  # multi-budget read still returns unique (algo, fid, dim, instance, seed,
-  # budget) keys with no conflicting best_f.
+  # runs land as distinct archive entries (a `budget` meta key). Fix round
+  # 1: sz_read_ioh_records no longer collapses a multi-budget archive down
+  # to one (largest-budget) run before reading -- it returns each budget's
+  # OWN GENUINE run when the archive has one (see
+  # sezgi_bench::ioh_read::ioh_records's doc comment), so this now asserts
+  # the disk record at budget 200 is bit-identical to the runner's own
+  # in-memory budget-200 record, not merely present. Keys stay unique
+  # throughout regardless.
   log_dir <- file.path(tempfile(), "logs")
   records <- sz_run_experiment(tiny_experiment_toml(budgets = "[200, 400]"), log_dir = log_dir, parallel = FALSE)
   # 1 algo x 1 problem x 1 instance x 2 seeds x 2 budgets
   expect_equal(nrow(records), 4)
 
   disk <- sz_read_ioh_records(log_dir, c(200, 400))
-  # 1 instance x 2 seeds x 2 queried budgets
+  # 1 instance x 2 seeds x 2 queried budgets -- each budget's own genuine
+  # run, no collapsing.
   expect_equal(nrow(disk), 4)
 
   key <- paste(disk$algo, disk$fid, disk$dim, disk$instance, disk$seed, disk$budget, sep = "|")
   expect_equal(length(key), length(unique(key)))
+
+  # Fix round 1: every disk record, at BOTH budgets, must be bit-identical
+  # to the runner's own in-memory record at that SAME budget -- proving
+  # sz_read_ioh_records now uses the genuine run at each queried budget
+  # rather than a curtailed view of the largest-budget run.
+  key_records <- paste(records$algo, records$fid, records$dim, records$instance, records$seed, records$budget, sep = "|")
+  records <- records[order(key_records), ]
+  disk <- disk[order(key), ]
+  expect_identical(paste(records$algo, records$fid, records$dim, records$instance, records$seed, records$budget, sep = "|"),
+                    paste(disk$algo, disk$fid, disk$dim, disk$instance, disk$seed, disk$budget, sep = "|"))
+  expect_identical(records$best_f, disk$best_f)
 })
 
 # ---------------------------------------------------------------------

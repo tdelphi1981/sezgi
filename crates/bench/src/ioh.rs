@@ -74,11 +74,14 @@ impl IohLogger {
     /// Starts a run with its master `seed`, the problem instance's known
     /// `f_opt`, and the run's `budget` (its `AlgorithmSpec::termination.budget`),
     /// all three of which `finish()` writes into that run's meta entry —
-    /// `budget` is what lets [`crate::ioh_read::dedupe_runs`] tell apart
-    /// multiple runs of the same `(instance, seed)` logged at different
-    /// budgets, keeping the largest (a curtailed view subsumes a smaller
-    /// one). Pass `f_opt = f64::NAN` only via [`Self::start_run`] (legacy
-    /// path); a caller that knows the real f_opt must always pass it here.
+    /// `budget` is what lets a later read tell apart multiple runs of the
+    /// same `(instance, seed)` logged at different budgets. See
+    /// `crate::ioh_read`'s module doc ("Two canonicalization policies") for
+    /// how: [`crate::ioh_read::ioh_records`] prefers each budget's own
+    /// genuine run, while [`crate::ioh_read::canonical_anytime`] instead
+    /// keeps only the largest-budget one. Pass `f_opt = f64::NAN` only via
+    /// [`Self::start_run`] (legacy path); a caller that knows the real
+    /// f_opt must always pass it here.
     pub fn start_run_with(&mut self, instance: u32, seed: u64, f_opt: f64, budget: u64) -> IohRunObserver {
         let data = Arc::new(Mutex::new(RunData {
             instance, seed, f_opt, budget, rows: vec![], last: None, evals: 0, best: None }));
