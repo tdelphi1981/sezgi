@@ -14,8 +14,11 @@ use sezgi_core::space::{BlockValues, Genotype};
 ///
 /// **Pinned update rule** (part of the RNG-stream contract), verified
 /// directly against the author's reference `SCA.m` (MATLAB Central File
-/// Exchange #54948/#55980, "SCA: A Sine Cosine Algorithm" / "Sine Cosine
-/// Algorithm Toolbox", Seyedali Mirjalili) -- NOT assumed from the paper's
+/// Exchange #54948, "SCA: A Sine Cosine Algorithm", and its `SCA.m` file
+/// within #55980, "A new MATLAB optimization toolbox" -- a 7-algorithm
+/// bundle including SCA, not to be confused with the separate #54949 "Sine
+/// Cosine Algorithm Toolbox" submission, which was not fetched -- Seyedali
+/// Mirjalili) -- NOT assumed from the paper's
 /// prose:
 /// - `a = 2` (fixed constant, not a tunable parameter -- the source hardcodes
 ///   it inside the loop). `r1 = a − t·(a / Max_iteration)`, i.e.
