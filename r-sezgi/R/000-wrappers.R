@@ -265,6 +265,22 @@ NULL
   .Call(savvy_sz_preset_firefly__impl, `pop_size`, `budget`)
 }
 
+#' Builds a Flower Pollination Algorithm spec (Yang, X.-S. 2012, UCNC -- a
+#' labeled metaphor preset, see `crates/components/src/fpa.rs`'s module doc
+#' for the tier note, citation, the verified `fpa_demo.m` loop structure,
+#' the switch-branch orientation delta, the global-step sign delta reusing
+#' `cs.rs`'s `cs_dim_step` verbatim, the local-step self-selection-not-
+#' excluded finding, and the min_pop adjustment from 3 down to 2) as JSON,
+#' ready to pass to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (number of flowers). Canonical is 25.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_fpa` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_fpa__impl, `pop_size`, `budget`)
+}
+
 #' Builds a real-coded GA (SBX crossover, polynomial mutation) algorithm spec
 #' as JSON, ready to pass to `sz_solve_bbob()`.
 #'

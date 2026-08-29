@@ -24,6 +24,7 @@ pub mod mfo;
 pub mod ssa;
 pub mod fa;
 pub mod ba;
+pub mod fpa;
 
 use sezgi_core::component::Registry;
 
@@ -52,4 +53,5 @@ pub fn register_builtins(reg: &mut Registry) {
     ssa::register(reg);
     fa::register(reg);
     ba::register(reg);
+    fpa::register(reg);
 }

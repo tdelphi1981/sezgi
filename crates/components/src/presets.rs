@@ -394,6 +394,36 @@ pub fn bat(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Flower Pollination Algorithm (Yang, X.-S. 2012, UCNC) -- a labeled
+/// metaphor preset (see `fpa.rs`'s module doc for the full provenance
+/// extraction, the verified `fpa_demo.m` loop structure, the switch-branch
+/// orientation delta -- `rand>p` selects global, not `u<p` -- the
+/// global-step sign delta reusing `cs.rs`'s `cs_dim_step` verbatim, the
+/// local-step `j,k` self-selection-not-excluded finding, and the
+/// min_pop adjustment from the plan's sketched 3 down to 2). Uniform init,
+/// `boundary/clamp` (same as `cs`/`gwo`/`woa`/`sca`/`jaya`/`mfo`/`ssa`/
+/// `firefly`/`bat`), greedy same-index replacement
+/// (`replace/one-to-one-greedy`, DE's kind, reused as-is -- the verified
+/// source's own `if (Fnew<=Fitness(i))` acceptance). `pop_size` is the
+/// flower/pollen-gamete count; canonical is 25 per the source's demo.
+/// `min_pop = 2` (a HARD requirement -- `pick_two_distinct`'s rejection
+/// loop for `k` never terminates with `n < 2`), enforced via
+/// `AlgorithmSpec::validate`.
+pub fn fpa(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "fpa".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/fpa", serde_json::json!({})),
+            replacer: comp("replace/one-to-one-greedy", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),

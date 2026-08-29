@@ -289,6 +289,24 @@ fn sz_preset_bat(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds a Flower Pollination Algorithm spec (Yang, X.-S. 2012, UCNC -- a
+/// labeled metaphor preset, see `crates/components/src/fpa.rs`'s module doc
+/// for the tier note, citation, the verified `fpa_demo.m` loop structure,
+/// the switch-branch orientation delta, the global-step sign delta reusing
+/// `cs.rs`'s `cs_dim_step` verbatim, the local-step self-selection-not-
+/// excluded finding, and the min_pop adjustment from 3 down to 2) as JSON,
+/// ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (number of flowers). Canonical is 25.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_fpa(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::fpa(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
 /// Builds a simulated annealing (Metropolis, geometric cooling) algorithm
 /// spec as JSON, ready to pass to `sz_solve_bbob()`.
 ///
