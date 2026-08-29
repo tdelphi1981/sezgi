@@ -578,26 +578,19 @@ mod tests {
         assert_eq!(lines_after_first, lines_after_second, "journal should not grow on resume of completed experiment");
 
         // Content equality (excluding wall_secs which legitimately differs).
-        // Note: JSON roundtrip for f64 values can lose 1 ULP precision due to decimal→binary conversion.
-        // We allow ±1 ULP tolerance to account for this constraint.
+        // Bit-exact: the engine is deterministic and serde_json f64 round-trips
+        // are shortest-repr correct, so fresh and journal-loaded records must
+        // be identical to the bit, index by index in enumeration order.
         assert_eq!(result1.len(), result2.len(), "record counts must match");
         for (i, (r1, r2)) in result1.iter().zip(result2.iter()).enumerate() {
+            let t1 = (r1.key.to_string(), r1.best_f.to_bits(), r1.f_opt.to_bits(), r1.evals_used);
+            let t2 = (r2.key.to_string(), r2.best_f.to_bits(), r2.f_opt.to_bits(), r2.evals_used);
             assert_eq!(
-                r1.key.to_string(),
-                r2.key.to_string(),
-                "record {}: key mismatch: result1={} vs result2={}",
-                i, r1.key, r2.key
+                t1, t2,
+                "record {}: fresh vs resumed record must be bit-identical \
+                 (best_f: {} bits={:016x} vs {} bits={:016x})",
+                i, r1.best_f, r1.best_f.to_bits(), r2.best_f, r2.best_f.to_bits()
             );
-            // Allow ±1 ULP due to JSON decimal→binary conversion
-            assert!(
-                (r1.best_f - r2.best_f).abs() <= f64::EPSILON * r1.best_f.abs().max(1.0),
-                "record {}: best_f must match (r1={}, r2={})", i, r1.best_f, r2.best_f
-            );
-            assert!(
-                (r1.f_opt - r2.f_opt).abs() <= f64::EPSILON * r1.f_opt.abs().max(1.0),
-                "record {}: f_opt must match (r1={}, r2={})", i, r1.f_opt, r2.f_opt
-            );
-            assert_eq!(r1.evals_used, r2.evals_used, "record {}: evals_used must match", i);
         }
     }
 
@@ -660,26 +653,19 @@ mod tests {
         assert_eq!(resume_result.len(), full_count, "resume should produce same total record count");
 
         // Content equality: enumeration-order comparison proves journal merge order is correct.
-        // Note: JSON roundtrip for f64 values can lose 1 ULP precision due to decimal→binary conversion.
-        // We allow ±1 ULP tolerance to account for this constraint.
+        // Bit-exact: the engine is deterministic and serde_json f64 round-trips
+        // are shortest-repr correct, so the resumed result (journal half + freshly
+        // executed half) must equal the uninterrupted baseline to the bit.
         assert_eq!(full_result.len(), resume_result.len(), "record counts must match");
         for (i, (full_r, resume_r)) in full_result.iter().zip(resume_result.iter()).enumerate() {
+            let tf = (full_r.key.to_string(), full_r.best_f.to_bits(), full_r.f_opt.to_bits(), full_r.evals_used);
+            let tr = (resume_r.key.to_string(), resume_r.best_f.to_bits(), resume_r.f_opt.to_bits(), resume_r.evals_used);
             assert_eq!(
-                full_r.key.to_string(),
-                resume_r.key.to_string(),
-                "record {}: key mismatch: full={} vs resume={}",
-                i, full_r.key, resume_r.key
+                tf, tr,
+                "record {}: baseline vs resumed record must be bit-identical \
+                 (best_f: {} bits={:016x} vs {} bits={:016x})",
+                i, full_r.best_f, full_r.best_f.to_bits(), resume_r.best_f, resume_r.best_f.to_bits()
             );
-            // Allow ±1 ULP due to JSON decimal→binary conversion
-            assert!(
-                (full_r.best_f - resume_r.best_f).abs() <= f64::EPSILON * full_r.best_f.abs().max(1.0),
-                "record {}: best_f must match (full={}, resume={})", i, full_r.best_f, resume_r.best_f
-            );
-            assert!(
-                (full_r.f_opt - resume_r.f_opt).abs() <= f64::EPSILON * full_r.f_opt.abs().max(1.0),
-                "record {}: f_opt must match (full={}, resume={})", i, full_r.f_opt, resume_r.f_opt
-            );
-            assert_eq!(full_r.evals_used, resume_r.evals_used, "record {}: evals_used must match", i);
         }
     }
 
@@ -718,6 +704,11 @@ mod tests {
             1e100,
             f64::MIN_POSITIVE,
             f64::MAX,
+            // Regression: serde_json's DEFAULT float parser (without the
+            // `float_roundtrip` feature) parses this shortest repr of
+            // 0xc05f57581a40c97a one ULP off, to 0xc05f57581a40c97b.
+            // The bench crate enables `float_roundtrip` precisely for this.
+            f64::from_bits(0xc05f57581a40c97a),
         ];
 
         for orig in test_values {
