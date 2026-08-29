@@ -1,0 +1,41 @@
+# Harmony Search (Geem, Kim & Loganathan 2001) -- the built-in
+# `harmony_search` preset (crates/components/src/presets.rs::harmony_search),
+# run through `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# Component decomposition (see crates/components/src/hs.rs's module doc for
+# the pinned update rule and RNG-stream contract this preset enforces):
+#   - init:      init/uniform            -- uniform-random harmony memory
+#   - generator: gen/hs                  -- exactly ONE new harmony per call
+#                                            (memory consideration + pitch
+#                                            adjustment, or random selection),
+#                                            hmcr=0.9, par=0.3, bw=1% of range
+#   - boundary:  boundary/clamp          -- clamps a pitch-adjusted-out-of-
+#                                            bounds coord
+#   - replacer:  replace/worst-if-better -- replaces the CURRENT worst member
+#                                            iff the new harmony beats it
+#   - adapter:   none
+#
+# `pop_size = 30` here means HMS (Harmony Memory Size), not an offspring
+# count -- `gen/hs` always returns exactly one offspring regardless of HMS.
+#
+# What this preset gives you that examples/python/hs.py + examples/r/hs.R do
+# NOT: a bit-identical, semver-pinned RNG-stream contract (exact draw order
+# per dimension, including the variable 2/3/4-draw branch structure), IOH-
+# profiler logging via `log_dir=`, and reproducibility across the whole
+# sezgi statistics pipeline. The pure scripts teach the SAME equations with
+# nothing but a stdlib RNG -- useful for understanding the algorithm, not
+# for reproducible experiments.
+
+name = "hs-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "hs"
+preset = { kind = "harmony_search", pop_size = 30 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]

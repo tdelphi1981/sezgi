@@ -173,6 +173,18 @@ same spec and seed):
 `sz_results_matrix(records, budget)` is available separately if you need
 just the `(algo_names, problem_labels, matrix)` triple for one budget.
 
+## Examples
+
+`examples/` holds a catalog of 5 labeled-metaphor algorithms (GWO, WOA,
+Harmony Search, Cuckoo Search, GOA), each as a triplet: a pure-Python
+teaching implementation (stdlib only, driven through `sezgi.EvalSession`),
+the same in pure R (`sz_eval_session`), and an `ExperimentSpec` TOML running
+sezgi's own built-in, RNG-stream-pinned preset for that algorithm. All three
+forms implement the same pinned update equations documented in the
+algorithm's Rust component (`crates/components/src/{gwo,woa,hs,cs,goa}.rs`).
+See `examples/README.md` for the full catalog table (primary + equivalence-
+critique references, and what each pure script teaches vs. its preset).
+
 ## Development
 
     cargo test --workspace --release        # Rust tests

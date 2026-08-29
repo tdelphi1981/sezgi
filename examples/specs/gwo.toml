@@ -1,0 +1,36 @@
+# Grey Wolf Optimizer (Mirjalili, Mirjalili & Lewis 2014) -- the built-in
+# `gwo` preset (crates/components/src/presets.rs::gwo), run through
+# `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# Component decomposition (see crates/components/src/gwo.rs's module doc
+# for the pinned update rule and RNG-stream contract this preset enforces):
+#   - init:      init/uniform          -- uniform-random population in bounds
+#   - generator: gen/gwo               -- the pinned leader-centroid update
+#   - boundary:  boundary/clamp        -- clamps a stepped-out-of-bounds coord
+#   - replacer:  replace/generational  -- offspring become the whole
+#                                          population unconditionally (GWO is
+#                                          non-elitist by construction)
+#   - adapter:   none
+#
+# What this preset gives you that examples/python/gwo.py + examples/r/gwo.R
+# do NOT: a bit-identical, semver-pinned RNG-stream contract (exact draw
+# order per (wolf, dimension)), IOH-profiler logging via `log_dir=`,
+# reproducibility across the whole sezgi statistics pipeline
+# (results_matrix/per_budget_packages/ecdf), and running through the exact
+# same engine every other preset in this project runs through. The pure
+# scripts teach the SAME equations with nothing but a stdlib RNG -- useful
+# for understanding the algorithm, not for reproducible experiments.
+
+name = "gwo-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "gwo"
+preset = { kind = "gwo", pop_size = 30 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]
