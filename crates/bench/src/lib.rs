@@ -4,6 +4,9 @@ pub use ioh::{IohFinish, IohLogger, IohRunObserver};
 pub mod ioh_read;
 pub use ioh_read::{IohRun, IohScenario, read_ioh_root};
 
+pub mod anytime;
+pub use anytime::{EcdfCurve, default_targets, ecdf, ecdf_per_algo, hit_time};
+
 pub mod manifest;
 
 pub mod experiment;
