@@ -5,6 +5,7 @@
 //! See the crate-level documentation in `lib.rs` for the general
 //! conventions used elsewhere in this crate.
 
+use sezgi_core::dist::Distribution;
 use sezgi_core::rng::RngStream;
 
 use crate::{check_finite, StatsError};
@@ -206,6 +207,60 @@ const PL_MAX_ITERATIONS: usize = 10_000;
 const PL_CONVERGENCE_TOL: f64 = 1e-10;
 const PL_WEIGHT_FLOOR: f64 = 1e-300;
 
+/// Shared rankings validation used by both [`plackett_luce`] and
+/// [`bayesian_plackett_luce`], factored out so both entry points reject
+/// malformed input identically rather than duplicating the permutation
+/// check. `func` is the caller's name, used only to prefix error messages.
+///
+/// A valid `rankings` matrix is non-empty, has `k = rankings[0].len() >= 2`
+/// items, every row has exactly `k` entries (no ragged rows), and every row
+/// is a permutation of `0..k` (no out-of-range or repeated items). Returns
+/// `k` on success.
+fn validate_rankings(func: &str, rankings: &[Vec<usize>]) -> Result<usize, StatsError> {
+    if rankings.is_empty() {
+        return Err(StatsError::InvalidInput(format!(
+            "{func} requires at least 1 ranking, got 0"
+        )));
+    }
+
+    let k = rankings[0].len();
+    if k < 2 {
+        return Err(StatsError::InvalidInput(format!(
+            "{func} requires at least 2 items (k), got {}",
+            k
+        )));
+    }
+
+    for (r, ranking) in rankings.iter().enumerate() {
+        if ranking.len() != k {
+            return Err(StatsError::InvalidInput(format!(
+                "{func}: ranking {} has {} items, expected {} (ragged input: all rankings must rank the same k items)",
+                r,
+                ranking.len(),
+                k
+            )));
+        }
+        let mut seen = vec![false; k];
+        for &item in ranking {
+            if item >= k {
+                return Err(StatsError::InvalidInput(format!(
+                    "{func}: ranking {} contains out-of-range item {} (k={})",
+                    r, item, k
+                )));
+            }
+            if seen[item] {
+                return Err(StatsError::InvalidInput(format!(
+                    "{func}: ranking {} is not a valid permutation of 0..{} (item {} repeated)",
+                    r, k, item
+                )));
+            }
+            seen[item] = true;
+        }
+    }
+
+    Ok(k)
+}
+
 /// Plackett-Luce maximum-likelihood ranking via Hunter's (2004) Minorize-
 /// Maximize (MM) algorithm.
 ///
@@ -268,46 +323,7 @@ const PL_WEIGHT_FLOOR: f64 = 1e-300;
 /// Hunter, D. R. (2004). "MM algorithms for generalized Bradley-Terry
 /// models." *The Annals of Statistics*, 32(1), 384-406.
 pub fn plackett_luce(rankings: &[Vec<usize>]) -> Result<PlackettLuceResult, StatsError> {
-    if rankings.is_empty() {
-        return Err(StatsError::InvalidInput(
-            "plackett_luce requires at least 1 ranking, got 0".to_string(),
-        ));
-    }
-
-    let k = rankings[0].len();
-    if k < 2 {
-        return Err(StatsError::InvalidInput(format!(
-            "plackett_luce requires at least 2 items (k), got {}",
-            k
-        )));
-    }
-
-    for (r, ranking) in rankings.iter().enumerate() {
-        if ranking.len() != k {
-            return Err(StatsError::InvalidInput(format!(
-                "plackett_luce: ranking {} has {} items, expected {} (ragged input: all rankings must rank the same k items)",
-                r,
-                ranking.len(),
-                k
-            )));
-        }
-        let mut seen = vec![false; k];
-        for &item in ranking {
-            if item >= k {
-                return Err(StatsError::InvalidInput(format!(
-                    "plackett_luce: ranking {} contains out-of-range item {} (k={})",
-                    r, item, k
-                )));
-            }
-            if seen[item] {
-                return Err(StatsError::InvalidInput(format!(
-                    "plackett_luce: ranking {} is not a valid permutation of 0..{} (item {} repeated)",
-                    r, k, item
-                )));
-            }
-            seen[item] = true;
-        }
-    }
+    let k = validate_rankings("plackett_luce", rankings)?;
 
     // W_t: number of rankings in which item t is NOT last. Constant across
     // MM iterations, computed once.
@@ -368,6 +384,271 @@ pub fn plackett_luce(rankings: &[Vec<usize>]) -> Result<PlackettLuceResult, Stat
         worths: w,
         p_best,
         iterations,
+    })
+}
+
+/// Marsaglia–Tsang (2000) `Gamma(shape, scale = 1)` sampler: boost trick for
+/// `shape < 1` (recurse on `shape + 1`, then rescale by `U^(1/shape)`),
+/// otherwise the standard squeeze-and-reject loop. Gaussian draws are taken
+/// via [`sezgi_core::dist::Distribution::Gaussian`] (the crate's public
+/// polar Box–Muller primitive) rather than reimplementing it here or
+/// depending on `sezgi_core::dist`'s own (private, not `pub`) `gamma_mt`
+/// helper. Mirrors that private helper's structure exactly, so if it is
+/// ever made public this local copy can be deleted in favor of it.
+///
+/// The `shape < 1` branch is never exercised by [`bayesian_plackett_luce`]
+/// (its shape is always `1 + w_m >= 1`); it is kept for completeness so
+/// this sampler is correct as a general-purpose `Gamma(scale=1)` primitive.
+///
+/// **Determinism note**: the rejection loop's number of iterations is
+/// data-dependent (not fixed), matching the documented convention already
+/// used by `sezgi_core::dist`'s Gaussian/Gamma/Student-t samplers and by
+/// [`bayesian_signed_rank`]'s draw order above — determinism for a given
+/// seed comes from the seeded [`RngStream`] producing the same sequence of
+/// draws (and hence the same sequence of accept/reject outcomes) every
+/// time, not from a fixed draw count.
+fn gamma_mt_scale1(rng: &mut RngStream, shape: f64) -> f64 {
+    if shape < 1.0 {
+        let u = rng.next_f64();
+        return gamma_mt_scale1(rng, shape + 1.0) * u.powf(1.0 / shape);
+    }
+    let d = shape - 1.0 / 3.0;
+    let c = 1.0 / (9.0 * d).sqrt();
+    let gauss = Distribution::Gaussian { mean: 0.0, sigma: 1.0 };
+    loop {
+        let x = gauss.sample(rng);
+        let v = (1.0 + c * x).powi(3);
+        if v <= 0.0 {
+            continue;
+        }
+        let u = rng.next_f64();
+        if u < 1.0 - 0.0331 * x.powi(4) || u.ln() < 0.5 * x * x + d * (1.0 - v + v.ln()) {
+            return d * v;
+        }
+    }
+}
+
+/// `Gamma(shape, rate)` via [`gamma_mt_scale1`]: `Gamma(shape, rate) ==
+/// Gamma(shape, scale=1) / rate`.
+fn gamma_mt_rate(rng: &mut RngStream, shape: f64, rate: f64) -> f64 {
+    gamma_mt_scale1(rng, shape) / rate
+}
+
+/// Nearest-rank percentile index (0-based) into an ascending-sorted slice
+/// of length `n`: `index = ceil(q * n) - 1`, clamped to `[0, n-1]`. No
+/// linear interpolation between order statistics.
+fn nearest_rank_index(q: f64, n: usize) -> usize {
+    ((q * n as f64).ceil() as usize)
+        .saturating_sub(1)
+        .min(n - 1)
+}
+
+/// Result of [`bayesian_plackett_luce`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct BayesPlackettLuceResult {
+    /// Posterior mean of the (per-draw normalized) Plackett-Luce worths,
+    /// one per item. Sums to 1 (each recorded posterior draw is itself
+    /// normalized to sum to 1 before averaging, so the mean does too).
+    pub mean_worths: Vec<f64>,
+    /// Central 95% credible interval, lower bound (2.5th percentile of the
+    /// per-item posterior draws; nearest-rank method, see
+    /// [`bayesian_plackett_luce`]'s doc comment).
+    pub ci_low: Vec<f64>,
+    /// Central 95% credible interval, upper bound (97.5th percentile).
+    pub ci_high: Vec<f64>,
+    /// Posterior `P(item has the largest worth)`, one per item, estimated
+    /// as the fraction of recorded post-burn-in draws in which that item's
+    /// (normalized) worth is the largest. Sums to 1.
+    pub p_best: Vec<f64>,
+    /// Number of post-burn-in iterations recorded (== the `samples`
+    /// argument).
+    pub samples: u64,
+}
+
+/// Bayesian Plackett-Luce posterior via Gibbs sampling with the latent
+/// exponential-race augmentation of Caron & Doucet (2012), under
+/// independent `Gamma(1, 1)` priors on each item's worth.
+///
+/// # Input
+/// `rankings`: same convention as [`plackett_luce`] — each row is a full
+/// ranking (permutation of `0..k`, best first). Validated by the same
+/// [`validate_rankings`] helper `plackett_luce` uses, so both functions
+/// reject malformed input identically.
+///
+/// No `check_finite` call, for the same reason as `plackett_luce`:
+/// `rankings` are `usize` permutation indices, not `f64` data, so there is
+/// no non-finite value they could contain.
+///
+/// # PINNED sampler (Caron & Doucet 2012 Gibbs augmentation) — semver event
+///
+/// Changing any of the following is a semver-breaking event for this
+/// crate's determinism guarantees, and must be called out as such.
+///
+/// One `RngStream::from_master(seed, &[0])` stream is created (same stream
+/// type and `from_master`/path-based seeding style as
+/// [`bayesian_signed_rank`]) and used for every draw below, in this exact
+/// order, for `burn_in + samples` total Gibbs iterations. Worths start at
+/// `1/k` each (matching `plackett_luce`'s MM initialization) before the
+/// first iteration.
+///
+/// Each iteration, given the *current* (unnormalized) worths `w`:
+///
+/// 1. **Latent race times `z`** (exponential augmentation). For each
+///    ranking `j` **in input order**, for each stage `i = 0..=k-2` **in
+///    increasing order** (a "stage" is defined exactly as in
+///    `plackett_luce`'s doc comment: the choice set at stage `i` is the
+///    items at positions `i..k` of ranking `j`):
+///    - draw `u = rng.next_f64()`;
+///    - `z_{j,i} = -ln(1 - u) / S_{j,i}`, where `S_{j,i}` is the sum of the
+///      *current* worths of the items in stage `i`'s choice set (ranking
+///      `j`, positions `i..k`).
+///
+///    This is the one and only place `rng.next_f64()` is called per
+///    iteration; the total draw count per iteration is `sum_j (k_j - 1)`
+///    (here `k_j = k` for all `j`, since all rankings share the same `k`).
+///
+/// 2. **Worth update** (Gibbs conditional posterior). For each item
+///    `m = 0..k-1`, **in increasing order**:
+///    - `w_m ~ Gamma(shape = 1 + W_m, rate = 1 + sum_{(j,i): m in choice
+///      set at stage i of ranking j} z_{j,i})`, where `W_m` = number of
+///      rankings in which `m` is **not** ranked last (identical definition
+///      to `plackett_luce`'s `W_t`, constant across iterations). The
+///      `Gamma(1, 1)` prior contributes the `+1` to both shape and rate.
+///    - Sampled via [`gamma_mt_rate`] (Marsaglia-Tsang) on the same `rng`
+///      stream; its rejection loop may take a data-dependent number of
+///      draws per call, but this is determinism-safe: the seeded
+///      `RngStream` always produces the same draw sequence and hence the
+///      same sequence of accept/reject outcomes for a given seed, so
+///      determinism does not depend on a fixed draw count anywhere in this
+///      function.
+///
+///    The resulting `w` becomes the "current worths" used in step 1 of the
+///    *next* iteration (unnormalized — normalization only happens when a
+///    draw is recorded, in step 3).
+///
+/// 3. **Recording**. After the `burn_in`'th iteration (0-based: iterations
+///    `0..burn_in` are discarded, iterations `burn_in..burn_in+samples`
+///    are recorded), each recorded iteration's `w` is normalized
+///    (`w_m / sum(w)`) and pushed onto that item's sample list; the item
+///    with the largest normalized worth in that draw (ties broken toward
+///    the lowest item index, via strict `>` comparison — deterministic for
+///    exact floating-point ties) casts one vote toward that item's
+///    `p_best`.
+///
+/// After all iterations: `mean_worths[m]` is the arithmetic mean of item
+/// `m`'s `samples` recorded normalized draws; `ci_low`/`ci_high` are its
+/// 2.5th/97.5th percentiles via the **nearest-rank method** (no linear
+/// interpolation): sort the `samples` recorded draws ascending, and take
+/// index `ceil(q * samples) - 1` (0-based) — see [`nearest_rank_index`].
+/// `p_best[m] = votes_m / samples`.
+///
+/// # Errors
+/// Returns `StatsError::InvalidInput` if `rankings` fails
+/// [`validate_rankings`] (empty, `k < 2`, ragged, or a row is not a valid
+/// permutation of `0..k`), or if `samples == 0`.
+///
+/// # Reference
+/// Caron, F., & Doucet, A. (2012). "Efficient Bayesian Inference for
+/// Generalized Bradley-Terry Models." *Journal of Computational and
+/// Graphical Statistics*, 21(1), 174-196.
+pub fn bayesian_plackett_luce(
+    rankings: &[Vec<usize>],
+    samples: u64,
+    burn_in: u64,
+    seed: u64,
+) -> Result<BayesPlackettLuceResult, StatsError> {
+    let k = validate_rankings("bayesian_plackett_luce", rankings)?;
+
+    if samples == 0 {
+        return Err(StatsError::InvalidInput(
+            "bayesian_plackett_luce requires samples > 0, got 0".to_string(),
+        ));
+    }
+
+    // W_m: number of rankings in which item m is NOT last (identical
+    // definition to plackett_luce's W_t), constant across iterations.
+    let mut w_m = vec![0.0_f64; k];
+    for ranking in rankings {
+        for &item in &ranking[..k - 1] {
+            w_m[item] += 1.0;
+        }
+    }
+
+    let mut rng = RngStream::from_master(seed, &[0]);
+    let mut worths = vec![1.0 / k as f64; k];
+
+    let samples_usize = samples as usize;
+    let mut item_samples: Vec<Vec<f64>> = vec![Vec::with_capacity(samples_usize); k];
+    let mut p_best_votes = vec![0_u64; k];
+
+    let total_iters = burn_in + samples;
+    for t in 0..total_iters {
+        // Step 1: latent race times z, accumulated directly into each
+        // item's Gamma rate parameter (Gamma(1,1) prior contributes the
+        // initial rate of 1.0).
+        let mut rate = vec![1.0_f64; k];
+        for ranking in rankings {
+            // suffix[s] = sum of current worths over items at positions
+            // s..k of this ranking (the stage-s choice-set sum).
+            let mut suffix = vec![0.0_f64; k + 1];
+            for s in (0..k).rev() {
+                suffix[s] = suffix[s + 1] + worths[ranking[s]];
+            }
+            for i in 0..k - 1 {
+                let u = rng.next_f64();
+                let z = -(1.0 - u).ln() / suffix[i];
+                for &m in &ranking[i..k] {
+                    rate[m] += z;
+                }
+            }
+        }
+
+        // Step 2: worth_m ~ Gamma(1 + W_m, rate_m), item order 0..k.
+        let mut new_worths = vec![0.0_f64; k];
+        for (m, nw) in new_worths.iter_mut().enumerate() {
+            *nw = gamma_mt_rate(&mut rng, 1.0 + w_m[m], rate[m]);
+        }
+        worths = new_worths;
+
+        // Step 3: record post-burn-in draws.
+        if t >= burn_in {
+            let sum: f64 = worths.iter().sum();
+            let mut best_idx = 0_usize;
+            let mut best_val = f64::NEG_INFINITY;
+            for (m, &wt) in worths.iter().enumerate() {
+                let normalized = wt / sum;
+                item_samples[m].push(normalized);
+                if normalized > best_val {
+                    best_val = normalized;
+                    best_idx = m;
+                }
+            }
+            p_best_votes[best_idx] += 1;
+        }
+    }
+
+    let mut mean_worths = vec![0.0_f64; k];
+    let mut ci_low = vec![0.0_f64; k];
+    let mut ci_high = vec![0.0_f64; k];
+    for m in 0..k {
+        let col = &mut item_samples[m];
+        col.sort_by(f64::total_cmp);
+        mean_worths[m] = col.iter().sum::<f64>() / samples_usize as f64;
+        ci_low[m] = col[nearest_rank_index(0.025, samples_usize)];
+        ci_high[m] = col[nearest_rank_index(0.975, samples_usize)];
+    }
+
+    let p_best = p_best_votes
+        .iter()
+        .map(|&c| c as f64 / samples as f64)
+        .collect();
+
+    Ok(BayesPlackettLuceResult {
+        mean_worths,
+        ci_low,
+        ci_high,
+        p_best,
+        samples,
     })
 }
 
@@ -592,6 +873,98 @@ mod tests {
         let rankings = vec![vec![0, 0, 1]];
         assert!(matches!(
             plackett_luce(&rankings),
+            Err(StatsError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn bayes_pl_deterministic_given_seed() {
+        let rankings = vec![vec![0, 1, 2], vec![1, 0, 2], vec![0, 2, 1], vec![2, 1, 0]];
+        let r1 = bayesian_plackett_luce(&rankings, 300, 100, 123).expect("valid fixture");
+        let r2 = bayesian_plackett_luce(&rankings, 300, 100, 123).expect("valid fixture");
+        let bits = |v: &[f64]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        assert_eq!(bits(&r1.mean_worths), bits(&r2.mean_worths), "mean_worths");
+        assert_eq!(bits(&r1.ci_low), bits(&r2.ci_low), "ci_low");
+        assert_eq!(bits(&r1.ci_high), bits(&r2.ci_high), "ci_high");
+        assert_eq!(bits(&r1.p_best), bits(&r2.p_best), "p_best");
+        assert_eq!(r1.samples, r2.samples);
+    }
+
+    #[test]
+    fn bayes_pl_seed_changes_output() {
+        let rankings = vec![vec![0, 1, 2], vec![1, 0, 2], vec![0, 2, 1], vec![2, 1, 0]];
+        let r1 = bayesian_plackett_luce(&rankings, 300, 100, 1).expect("valid fixture");
+        let r2 = bayesian_plackett_luce(&rankings, 300, 100, 2).expect("valid fixture");
+        assert_ne!(r1.mean_worths, r2.mean_worths, "different seeds must diverge");
+    }
+
+    #[test]
+    fn bayes_pl_p_best_sums_to_one() {
+        let rankings = vec![vec![0, 1, 2], vec![2, 1, 0], vec![1, 0, 2]];
+        let result = bayesian_plackett_luce(&rankings, 500, 100, 7).expect("valid fixture");
+        let sum: f64 = result.p_best.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-12, "sum: got {}", sum);
+    }
+
+    // 6 identical rankings [0,1,2] -- unanimous preference for item 0, then
+    // 1, then 2. With seed=1, samples=2000, burn_in=500, p_best[0] was
+    // measured at 0.976. Anchored threshold below is that value rounded
+    // DOWN to the nearest 0.05 with >= 0.1 headroom below the measured
+    // value (0.976 - 0.1 = 0.876, rounded down to the nearest 0.05 = 0.85),
+    // per this task's anchoring convention.
+    #[test]
+    fn bayes_pl_unanimous_rankings_prefer_the_winner() {
+        let rankings = vec![
+            vec![0, 1, 2],
+            vec![0, 1, 2],
+            vec![0, 1, 2],
+            vec![0, 1, 2],
+            vec![0, 1, 2],
+            vec![0, 1, 2],
+        ];
+        let result = bayesian_plackett_luce(&rankings, 2000, 500, 1).expect("valid fixture");
+        assert!(
+            result.p_best[0] > 0.85,
+            "p_best[0]: got {}",
+            result.p_best[0]
+        );
+        assert!(
+            result.mean_worths[0] > result.mean_worths[1],
+            "mean_worths[0]={} mean_worths[1]={}",
+            result.mean_worths[0],
+            result.mean_worths[1]
+        );
+        assert!(
+            result.mean_worths[1] > result.mean_worths[2],
+            "mean_worths[1]={} mean_worths[2]={}",
+            result.mean_worths[1],
+            result.mean_worths[2]
+        );
+    }
+
+    // Reuses two_algorithms_reduce_to_win_fraction's fixture: A (item 0)
+    // beats B (item 1) in 3 of 4 rankings; MM point estimate gives
+    // worths[0] = 0.75 > worths[1] = 0.25. The posterior mean order should
+    // match (not necessarily the values).
+    #[test]
+    fn bayes_pl_matches_mm_ordering_on_clear_fixture() {
+        let rankings = vec![vec![0, 1], vec![0, 1], vec![0, 1], vec![1, 0]];
+        let mm = plackett_luce(&rankings).expect("valid fixture");
+        let bayes = bayesian_plackett_luce(&rankings, 2000, 500, 11).expect("valid fixture");
+        assert!(mm.worths[0] > mm.worths[1], "sanity: MM order");
+        assert!(
+            bayes.mean_worths[0] > bayes.mean_worths[1],
+            "mean_worths[0]={} mean_worths[1]={}",
+            bayes.mean_worths[0],
+            bayes.mean_worths[1]
+        );
+    }
+
+    #[test]
+    fn bayes_pl_rejects_invalid_rankings() {
+        let rankings = vec![vec![0, 0, 1]];
+        assert!(matches!(
+            bayesian_plackett_luce(&rankings, 100, 10, 1),
             Err(StatsError::InvalidInput(_))
         ));
     }

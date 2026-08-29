@@ -17,7 +17,10 @@ pub mod ranks;
 pub mod report;
 pub mod special;
 
-pub use bayesian::{bayesian_signed_rank, plackett_luce, BayesSignedRankResult, PlackettLuceResult};
+pub use bayesian::{
+    bayesian_plackett_luce, bayesian_signed_rank, plackett_luce, BayesPlackettLuceResult,
+    BayesSignedRankResult, PlackettLuceResult,
+};
 pub use pairwise::{
     cliffs_delta, cliffs_magnitude, wilcoxon_signed_rank, WilcoxonMethod, WilcoxonResult,
 };
