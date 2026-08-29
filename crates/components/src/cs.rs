@@ -196,7 +196,7 @@ pub fn abandon_order(fitness: &[f64], pa: f64) -> Vec<usize> {
 /// `adapter/lpsr`) only read `ctx.eval.used()`/`budget()` or mutate
 /// `ctx.bb`, never introduce brand-new unevaluated individuals into `pop`.
 ///
-/// **Historical note / now-fixed** (M2d-3 Task 8, fix round 1): this
+/// **Historical note / now-fixed** (M2d-3 Task 8, fix rounds 1-2): this
 /// adapter originally exposed a gap in `Engine::run`'s `global_best`
 /// bookkeeping (used for `RunResult::best_f`/`best_x`) — it was only
 /// updated right after the GENERATOR stage's own
@@ -205,15 +205,24 @@ pub fn abandon_order(fitness: &[f64], pa: f64) -> Vec<usize> {
 /// invisible to it: a re-randomized nest that happened to be the single
 /// best point of the entire run, and was never subsequently matched or
 /// improved upon by a later generator-stage evaluation, would not have
-/// surfaced in `RunResult`. `Engine::run` now scans `pop` once per
-/// generation, right after that generation's stages (and their adapters)
-/// have all run, and feeds it through the same `update_global_best` used
-/// everywhere else — see `engine.rs`'s doc comment at that scan site for
-/// the fix and its class-general, proven-no-op-for-every-prior-preset
-/// rationale. `RunResult::best_f`/`best_x` now correctly reflect any
-/// adapter-evaluated individual, including this one's. (`crates/core/src/
-/// engine.rs`'s `engine::tests::adapter_evaluated_individual_is_captured_
-/// in_global_best` is the regression test.)
+/// surfaced in `RunResult`. Fix round 1 closed most of this by scanning
+/// `pop` once per generation, but placed that scan AFTER the whole
+/// per-stage loop — which a re-review caught as still falling behind
+/// BOTH of that loop's `break 'outer` sites (the target-reached check and,
+/// in a hypothetical multi-stage spec, a later stage's budget-exhaustion
+/// break), so an adapter evaluation that itself satisfied `target` could
+/// still be lost. Fix round 2 moved the scan to run immediately after
+/// EACH stage's own adapter call and BEFORE that stage's `reached()`
+/// check, structurally closing both paths — see `engine.rs`'s doc comment
+/// at that scan site for the fix and its (now actually) class-general,
+/// proven-no-op-for-every-prior-preset rationale. `RunResult::best_f`/
+/// `best_x` now correctly reflect any adapter-evaluated individual,
+/// including this one's, in every case, including one where the
+/// adapter's own evaluation is what triggers target termination.
+/// (`crates/core/src/engine.rs`'s `engine::tests::
+/// adapter_evaluated_individual_is_captured_in_global_best` and
+/// `engine::tests::adapter_triggered_target_hit_still_captures_the_
+/// planted_optimum` are the regression tests.)
 pub struct AbandonWorstFraction;
 
 impl AbandonWorstFraction {

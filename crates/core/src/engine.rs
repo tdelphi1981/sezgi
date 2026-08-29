@@ -154,28 +154,36 @@ impl Engine {
                                         eval: &mut eval, iteration: iterations };
                     adapter.adapt(&mut pop, &mut ctx);
                 }
+                // An adapter above may have evaluated brand-new individuals
+                // via `ctx.eval.evaluate(..)` and written them straight into
+                // `pop` without going through this loop's own
+                // generator-stage `eval.evaluate(&offspring)` call -- the
+                // only path `update_global_best` was previously wired to
+                // (M2d-3 Task 8's `adapter/abandon-worst-fraction` is the
+                // first such adapter; see `sezgi_components::cs`'s module
+                // doc). Scan `pop` HERE -- immediately after THIS stage's
+                // adapter call and BEFORE the `reached()` check below -- so
+                // any such adapter-introduced improvement is captured
+                // before either `break 'outer` path below can jump past it:
+                // a target hit triggered by the adapter's own evaluation
+                // must still land in `global_best` before `reached(&eval)`
+                // fires (fix round 2; an end-of-generation-only scan placed
+                // after this stage loop, as in fix round 1, missed exactly
+                // this case). The other `break 'outer` above (budget
+                // exhaustion on THIS stage's own `eval.evaluate(&offspring)`
+                // call) fires strictly before this stage's replace/adapter
+                // ever run, so there is nothing of this stage's to lose
+                // there. For every adapter that never evaluates (all of
+                // them, prior to Task 8) this scan is a proven no-op: every
+                // entry in `pop` was already fed through `update_global_best`
+                // either by this same stage's own evaluate call above, or
+                // (for individuals surviving from an earlier stage/
+                // generation) by that earlier stage's own scan right here --
+                // so nothing in `pop` can ever compare better than the
+                // already-recorded `global_best`.
+                update_global_best(&mut global_best, &pop.individuals, &pop.fitness);
                 if reached(&eval) { break 'outer; }
             }
-
-            // An adapter above may have evaluated brand-new individuals via
-            // `ctx.eval.evaluate(..)` and written them straight into `pop`
-            // without going through this loop's own generator-stage
-            // `eval.evaluate(&offspring)` call -- the only path
-            // `update_global_best` was previously wired to (M2d-3 Task 8's
-            // `adapter/abandon-worst-fraction` is the first such adapter;
-            // see `sezgi_components::cs`'s module doc). Scan `pop` here,
-            // once per generation (after all of this generation's stages
-            // and their adapters have run), so any such adapter-introduced
-            // improvement is not lost from `global_best` (and hence from
-            // `RunResult::best_f`/`best_x`). For every adapter that never
-            // evaluates (all of them, prior to Task 8) this is a proven
-            // no-op: every entry in `pop` was already fed through
-            // `update_global_best` either by this same generation's
-            // stage-evaluate call above, or (for individuals surviving from
-            // an earlier generation) by that earlier generation's own scan
-            // right here -- so nothing in `pop` can ever compare better
-            // than the already-recorded `global_best`.
-            update_global_best(&mut global_best, &pop.individuals, &pop.fitness);
 
             if let Some(restart) = &self.restart {
                 let directive = {
@@ -528,6 +536,43 @@ mod tests {
 
         assert_eq!(r.best_f, 0.0,
             "the adapter-planted exact optimum must be captured as RunResult::best_f");
+        let BlockValues::Float(xs) = &r.best_x.blocks[0] else { panic!("expected a float block") };
+        assert_eq!(xs, &shift, "RunResult::best_x must be the adapter-planted point");
+    }
+
+    /// Regression test (M2d-3 Task 8, fix round 2): an adapter's OWN
+    /// evaluation can itself be what triggers `target` termination
+    /// (`reached(&eval)`, checked once per stage, right after that stage's
+    /// adapter call) -- the exact case fix round 1's end-of-generation-only
+    /// scan (placed AFTER the whole per-stage `for` loop, i.e. after BOTH
+    /// `break 'outer` sites) missed: the target-hit `break 'outer` fires
+    /// before an end-of-loop scan ever runs, dropping the adapter-planted
+    /// point from `global_best` even though it is exactly the point that
+    /// satisfied the target. `target` is set to the exact optimum value
+    /// (`0.0`) so `PlantOptimum`'s own `ctx.eval.evaluate(..)` call -- not
+    /// any earlier generator-stage evaluate -- is what flips
+    /// `reached(&eval)` to true, on the very first stage of the very first
+    /// generation (`resample`ing continuously over `[-5,5]^2` has
+    /// vanishingly improbable odds of hitting `f=0.0` by chance first).
+    #[test]
+    fn adapter_triggered_target_hit_still_captures_the_planted_optimum() {
+        let (mut reg, mut spec, p) = setup();
+        let shift = vec![1.0, -2.0];
+        {
+            let shift = shift.clone();
+            reg.register_adapter("plant-optimum", move |_| {
+                Ok(Box::new(PlantOptimum { shift: shift.clone() }) as Box<dyn Adapter>)
+            });
+        }
+        spec.stages[0].adapter = Some(ComponentSpec { kind: "plant-optimum".into(), params: serde_json::json!({}) });
+        spec.termination.target = Some(0.0); // the adapter's own evaluate() must be what triggers this
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+
+        assert_eq!(r.iterations, 0,
+            "target should be hit within the FIRST stage of the first generation, via the adapter's own evaluate -- never reaching the bottom of the outer loop");
+        assert_eq!(r.best_f, 0.0,
+            "the adapter-planted optimum must be captured as RunResult::best_f even when its own evaluation is what triggers target termination");
         let BlockValues::Float(xs) = &r.best_x.blocks[0] else { panic!("expected a float block") };
         assert_eq!(xs, &shift, "RunResult::best_x must be the adapter-planted point");
     }
