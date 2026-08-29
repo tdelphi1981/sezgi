@@ -241,11 +241,12 @@ pub fn run_experiment_with_checkpoint(
         let mut new_records = Vec::with_capacity(slotted.len());
         for r in slotted {
             let record = r?;
+            // Serialize OUTSIDE the Mutex critical section to avoid holding the lock during serialization
+            let record_json = serde_json::to_string(&record)
+                .map_err(|e| ExperimentError::JournalWrite(format!("could not serialize record: {}", e)))?;
             {
                 let mut file_guard = file.lock().map_err(|_| ExperimentError::JournalWrite(
                     "could not acquire file lock".to_string()))?;
-                let record_json = serde_json::to_string(&record)
-                    .map_err(|e| ExperimentError::JournalWrite(format!("could not serialize record: {}", e)))?;
                 writeln!(file_guard, "{}", record_json)
                     .map_err(|e| ExperimentError::JournalWrite(format!("could not write record: {}", e)))?;
                 file_guard.flush().map_err(|e| ExperimentError::JournalWrite(format!("could not flush journal: {}", e)))?;
@@ -556,14 +557,43 @@ mod tests {
         let result1 = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None)
             .expect("first run should succeed");
         let count1 = result1.len();
+        assert_eq!(count1, 2, "1 algo x 1 problem x 1 instance x 2 seeds x 1 budget = 2 runs");
+
+        // Count journal lines after first run (header + N records)
+        let (records_after_first, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
+            .expect("should load journal");
+        let lines_after_first = 1 + records_after_first.len(); // header + records
 
         // Second run: resume with same journal (should execute nothing new)
         let result2 = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None)
             .expect("resume should succeed");
         let count2 = result2.len();
 
+        // Count journal lines after second run (should not increase if nothing executed)
+        let (records_after_second, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
+            .expect("should load journal");
+        let lines_after_second = 1 + records_after_second.len(); // header + records
+
         assert_eq!(count1, count2, "resume should return all records (no new executions)");
-        assert_eq!(result1.len(), 2, "2 algos x 1 problem x 1 instance x 2 seeds x 1 budget = 2 runs");
+        assert_eq!(lines_after_first, lines_after_second, "journal should not grow on resume of completed experiment");
+
+        // Content equality (excluding wall_secs which legitimately differs).
+        // NOTE: JSON decimal→f64 conversion is not bit-exact due to rounding during binary conversion.
+        // We compare with a small ULP-based epsilon to account for JSON deserialization rounding.
+        assert_eq!(result1.len(), result2.len(), "record counts must match");
+        for (i, (r1, r2)) in result1.iter().zip(result2.iter()).enumerate() {
+            assert_eq!(r1.key, r2.key, "record {i}: key must match");
+            // Allow ±1 ULP due to JSON decimal→binary conversion
+            assert!(
+                (r1.best_f - r2.best_f).abs() <= f64::EPSILON * r1.best_f.abs().max(1.0),
+                "record {i}: best_f must match (r1={}, r2={})", r1.best_f, r2.best_f
+            );
+            assert!(
+                (r1.f_opt - r2.f_opt).abs() <= f64::EPSILON * r1.f_opt.abs().max(1.0),
+                "record {i}: f_opt must match (r1={}, r2={})", r1.f_opt, r2.f_opt
+            );
+            assert_eq!(r1.evals_used, r2.evals_used, "record {i}: evals_used must match");
+        }
     }
 
     #[test]
@@ -583,6 +613,7 @@ mod tests {
         let (all_records, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
             .expect("should load journal");
         let half_count = (all_records.len() + 1) / 2;
+        let missing_count = all_records.len() - half_count;
 
         let half_records = &all_records[..half_count];
 
@@ -601,11 +632,44 @@ mod tests {
         }
         drop(file);
 
+        // Count journal lines before resume (header + half_count records)
+        let lines_before_resume = 1 + half_count;
+
         // Resume from half
         let resume_result = run_experiment_with_checkpoint(&spec, &spec_toml, &journal_path, false, None)
             .expect("resume should succeed");
 
+        // Count journal lines after resume (should be header + all records)
+        let (records_after_resume, _) = load_journal(&journal_path, &spec.name, &format_hash(&spec))
+            .expect("should load journal");
+        let lines_after_resume = 1 + records_after_resume.len();
+
+        // Verify journal grew by exactly the number of missing runs
+        assert_eq!(
+            lines_after_resume - lines_before_resume,
+            missing_count,
+            "journal should grow by exactly {} missing runs", missing_count
+        );
+
+        // Verify total record count
         assert_eq!(resume_result.len(), full_count, "resume should produce same total record count");
+
+        // Content equality: compare with epsilon tolerance for JSON decimal→f64 rounding.
+        // Enumeration-order comparison proves journal merge order is correct.
+        assert_eq!(full_result.len(), resume_result.len(), "record counts must match");
+        for (i, (full_r, resume_r)) in full_result.iter().zip(resume_result.iter()).enumerate() {
+            assert_eq!(full_r.key, resume_r.key, "record {i}: key must match (enumeration order)");
+            // Allow ±1 ULP due to JSON decimal→binary conversion
+            assert!(
+                (full_r.best_f - resume_r.best_f).abs() <= f64::EPSILON * full_r.best_f.abs().max(1.0),
+                "record {i}: best_f must match (full={}, resume={})", full_r.best_f, resume_r.best_f
+            );
+            assert!(
+                (full_r.f_opt - resume_r.f_opt).abs() <= f64::EPSILON * full_r.f_opt.abs().max(1.0),
+                "record {i}: f_opt must match (full={}, resume={})", full_r.f_opt, resume_r.f_opt
+            );
+            assert_eq!(full_r.evals_used, resume_r.evals_used, "record {i}: evals_used must match");
+        }
     }
 
     #[test]
@@ -632,4 +696,119 @@ mod tests {
     fn format_hash(spec: &ExperimentSpec) -> String {
         spec_hash(spec)
     }
+
+    #[test]
+    fn json_f64_roundtrip_is_bitexact() {
+        // Verify that serde_json preserves f64 bit patterns exactly
+        let test_values = vec![
+            1.5f64,
+            0.123456789012345,
+            1e-100,
+            1e100,
+            f64::MIN_POSITIVE,
+            f64::MAX,
+        ];
+
+        for orig in test_values {
+            let json = serde_json::json!(orig);
+            let loaded: f64 = serde_json::from_value(json).unwrap();
+            assert_eq!(
+                orig.to_bits(),
+                loaded.to_bits(),
+                "JSON round-trip failed for {}: orig_bits={:x}, loaded_bits={:x}",
+                orig,
+                orig.to_bits(),
+                loaded.to_bits()
+            );
+        }
+    }
+
+    #[test]
+    fn journal_roundtrip_runrecord_bitexact() {
+        // Verify that writing and reading a RunRecord to/from JSON preserves f64 bits
+        let dir = TempDir::new().unwrap();
+        let _path = dir.path().join("test_record.jsonl");
+
+        let record = RunRecord {
+            key: RunKey {
+                algo: "test".into(),
+                fid: 1,
+                dim: 5,
+                instance: 1,
+                seed: 42,
+                budget: 1000,
+            },
+            best_f: 1.234567890123456789,
+            f_opt: 0.0,
+            evals_used: 999,
+            wall_secs: 1.5,
+        };
+
+        // Write to JSON string (as done in checkpoint)
+        let json_str = serde_json::to_string(&record).unwrap();
+
+        // Read back (as done in load_journal)
+        let loaded: RunRecord = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(
+            record.best_f.to_bits(),
+            loaded.best_f.to_bits(),
+            "RunRecord JSON round-trip lost precision: orig={} bits={:x}, loaded={} bits={:x}",
+            record.best_f, record.best_f.to_bits(),
+            loaded.best_f, loaded.best_f.to_bits()
+        );
+        assert_eq!(
+            record.f_opt.to_bits(),
+            loaded.f_opt.to_bits(),
+            "RunRecord f_opt JSON round-trip lost precision"
+        );
+    }
+
+    #[test]
+    fn journal_file_roundtrip_bitexact() {
+        // Verify that writing RunRecords to a journal file and reading them back preserves f64 bits
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_journal.jsonl");
+
+        let record = RunRecord {
+            key: RunKey {
+                algo: "test".into(),
+                fid: 1,
+                dim: 5,
+                instance: 1,
+                seed: 42,
+                budget: 1000,
+            },
+            best_f: 1.234567890123456789,
+            f_opt: 0.0,
+            evals_used: 999,
+            wall_secs: 1.5,
+        };
+
+        // Write journal with header and one record
+        let mut file = File::create(&path).unwrap();
+        let header = JournalHeader {
+            experiment: "test".to_string(),
+            spec_hash: "aaaaaaaaaaaaaaaa".to_string(),
+        };
+        let header_json = serde_json::to_string(&header).unwrap();
+        writeln!(file, "{}", header_json).unwrap();
+        let record_json = serde_json::to_string(&record).unwrap();
+        writeln!(file, "{}", record_json).unwrap();
+        drop(file);
+
+        // Read back
+        let (loaded_records, _) = load_journal(&path, "test", "aaaaaaaaaaaaaaaa").unwrap();
+        assert_eq!(loaded_records.len(), 1, "should have loaded one record");
+        let loaded = &loaded_records[0];
+
+        assert_eq!(
+            record.best_f.to_bits(),
+            loaded.best_f.to_bits(),
+            "Journal file round-trip lost precision: orig={} bits={:x}, loaded={} bits={:x}",
+            record.best_f, record.best_f.to_bits(),
+            loaded.best_f, loaded.best_f.to_bits()
+        );
+    }
+
 }
