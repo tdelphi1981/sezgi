@@ -36,13 +36,25 @@
 //! structural/center bias toward/..." -- language documenting what the DATA
 //! shows, never an accusation ("algorithm X is biased") the data alone
 //! cannot support.
+//!
+//! # One-call bias report (M3-1 Task 7)
+//!
+//! [`report::bias_report`] runs both scans above on one [`sezgi_core::spec::
+//! AlgorithmSpec`] and assembles a single [`report::BiasReport`] -- one call
+//! per algorithm, with a ready-to-paste LaTeX summary table. T6 (the
+//! signature/Rajwar-Deep test) is DEFERRED (method not pinnable from
+//! accessible sources); [`report::BiasReport::signature`] is always `None`
+//! today -- see `report`'s module doc for the full rationale and the
+//! honest "not run" row this produces.
 
 pub mod central;
 pub mod f0;
+pub mod report;
 pub mod structural;
 
 pub use central::{central_bias_scan, CentralBiasConfig, CentralBiasResult};
 pub use f0::F0Random;
+pub use report::{bias_report, assemble_report, BiasPlotData, BiasReport, BiasReportConfig};
 pub use structural::{structural_bias_scan, StructuralBiasConfig, StructuralBiasResult};
 
 /// Verdict of a bias scan (structural, or any future scan this crate hosts).
