@@ -172,6 +172,42 @@ NULL
   .Call(savvy_sz_bias_structural_raw__impl, `spec_json`, `dim`, `budget`, `runs`, `seed`)
 }
 
+#' Direct, one-shot evaluation of a CEC 2022 function at `x`, bypassing
+#' `sz_solve_bbob`-style budget/engine machinery entirely -- binds
+#' [`Cec2022::new`] + [`Cec2022::evaluate_batch`] exactly. See
+#' `Cec2022::new`'s own doc for the exact `fid`/`dim` domain.
+#'
+#' @param fid CEC 2022 function id, `1..=12` (double, cast to `u32`).
+#' @param dim Problem dimension, one of `2`, `10`, `20` (double, cast to
+#'   `usize`); `dim = 2` is additionally rejected for a hybrid function
+#'   (`fid` 6-8).
+#' @param x A numeric vector of exactly `dim` coordinates.
+#' @returns A numeric scalar.
+#'
+#' # Errors
+#' A savvy error for `fid` outside `1..=12`, `dim` outside `{2,10,20}`,
+#' `dim = 2` for a hybrid function, or `length(x) != dim`.
+#' @export
+`sz_cec2022_evaluate` <- function(`fid`, `dim`, `x`) {
+  .Call(savvy_sz_cec2022_evaluate__impl, `fid`, `dim`, `x`)
+}
+
+#' The report's pinned `F_i*` bias for a CEC 2022 function -- binds
+#' [`Cec2022::f_star`] (module doc section 1.2's table). `f_star` does not
+#' depend on `dim`, so an internal probe `dim = 10` is used purely to
+#' validate `fid` (every `fid` in `1..=12` accepts `dim = 10`, hybrids
+#' included).
+#'
+#' @param fid CEC 2022 function id, `1..=12` (double, cast to `u32`).
+#' @returns A numeric scalar.
+#'
+#' # Errors
+#' A savvy error if `fid` is outside `1..=12`.
+#' @export
+`sz_cec2022_f_star` <- function(`fid`) {
+  .Call(savvy_sz_cec2022_f_star__impl, `fid`)
+}
+
 #' Exports the IOH archive at `log_root` as a COCO/BBOB "old format"
 #' archive rooted at `out_dir` -- see `sezgi_bench::coco_export`. Returns
 #' the list of written file paths (as strings), sorted for determinism.
@@ -523,6 +559,20 @@ NULL
 #' @export
 `sz_preset_fpa` <- function(`pop_size`, `budget`) {
   .Call(savvy_sz_preset_fpa__impl, `pop_size`, `budget`)
+}
+
+#' Builds a permutation-space GA spec (tournament selection, order
+#' crossover, swap mutation -- `gen/ga-perm` + `replace/mu-plus-lambda`) as
+#' JSON, ready to pass to `sz_solve_tsp()`. Binds
+#' [`sezgi_components::presets::ga_perm`] exactly -- same preset py-sezgi's
+#' `sezgi.presets.ga_perm` binds (M3-3 Task 9).
+#'
+#' @param pop_size Population size.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_ga_perm` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_ga_perm__impl, `pop_size`, `budget`)
 }
 
 #' Builds a real-coded GA (SBX crossover, polynomial mutation) algorithm spec
@@ -881,6 +931,35 @@ NULL
   .Call(savvy_sz_solve_bbob__impl, `spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`)
 }
 
+#' Runs an algorithm spec on a TSPLIB VENDORED instance (`"berlin52"`,
+#' `"eil51"`, `"st70"` -- via [`Tsp::vendored`]; UNLIKE `sz_tsp_load()`/
+#' `sz_tsp_tour_length()` in `problems.rs`, raw TSPLIB text is not accepted
+#' here -- mirrors py-sezgi's `sezgi.problems.tsp(name)`, which is likewise
+#' vendored-only) and returns the result. Same output shape as
+#' `sz_solve_bbob()` (`best_f`/`evals`/`best_x`), not py-sezgi's own
+#' `solve()` dict shape (`best_f`/`best_x`/`evals_used`/`iterations`) -- the
+#' established r-sezgi `sz_solve_*` convention governs here, not py-sezgi's
+#' key names (see `problems.rs`'s module doc, "Index-convention decision",
+#' for the general 1-based-vs-0-based rule this function's `best_x` also
+#' follows).
+#'
+#' @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_ga_perm()`).
+#' @param name A vendored TSPLIB instance name.
+#' @param master_seed Master RNG seed.
+#' @param run_id Run id (mixed into the seed for independent replicate streams).
+#' @returns A named list with `best_f` (double), `evals` (double), and
+#'   `best_x` (double vector -- a 1-based permutation of `1:n_cities`, the
+#'   best EVALUATED tour, paired with `best_f`).
+#'
+#' # Errors
+#' A savvy error if `name` is not one of the three vendored instances, for
+#' any [`sezgi_core::spec`] parse error, or any [`sezgi_core::engine`] run
+#' error.
+#' @export
+`sz_solve_tsp` <- function(`spec_json`, `name`, `master_seed`, `run_id`) {
+  .Call(savvy_sz_solve_tsp__impl, `spec_json`, `name`, `master_seed`, `run_id`)
+}
+
 #' Bayesian signed-rank test with a region of practical equivalence (ROPE)
 #' (Dirichlet-weighted Monte Carlo; see `sezgi_stats::bayesian_signed_rank`).
 #'
@@ -1005,6 +1084,54 @@ NULL
 #' @export
 `sz_stats_wilcoxon` <- function(`a`, `b`) {
   .Call(savvy_sz_stats_wilcoxon__impl, `a`, `b`)
+}
+
+#' Loads a TSPLIB `EUC_2D` instance, either a vendored instance name
+#' (`"berlin52"`, `"eil51"`, `"st70"`) or raw TSPLIB file text (see
+#' [`load_tsp`]).
+#'
+#' @param name_or_text A vendored instance name, or raw TSPLIB `.tsp` file
+#'   text.
+#' @returns A named list with `name` (character scalar), `n_cities` (double),
+#'   `coords` (an `n_cities` x 2 numeric matrix, row `i` is city `i`'s
+#'   `(x, y)` coordinate pair -- see this module's own doc, "Index-convention
+#'   decision"), `known_optimum` (double, or `NULL` for an instance parsed
+#'   from raw text rather than a vendored name).
+#'
+#' # Errors
+#' A savvy error for any [`TspError`] (unknown vendored name that also fails
+#' to parse as TSPLIB text, malformed TSPLIB text, unsupported
+#' `EDGE_WEIGHT_TYPE`, ...).
+#' @export
+`sz_tsp_load` <- function(`name_or_text`) {
+  .Call(savvy_sz_tsp_load__impl, `name_or_text`)
+}
+
+#' Closed-tour length of a 1-based `tour` (a permutation of `1:n_cities` --
+#' see this module's own doc, "Index-convention decision") on the instance
+#' named/parsed by `name_or_text` (see [`load_tsp`]), via
+#' [`Tsp::evaluate_batch`]'s `nint`-rounded `EUC_2D` sum (`tsp.rs`'s module
+#' doc).
+#'
+#' UNLIKE `Tsp::evaluate_batch` itself (which returns `f64::INFINITY` for a
+#' malformed genotype, since genotype validity is normally the engine's
+#' `SearchSpace::validate` job, not `Tsp`'s own) -- this binding validates
+#' `tour` itself (exact length, every entry in `1..=n_cities`, no repeats)
+#' and raises a precise error instead, since a `tour` coming directly from R
+#' has no engine-side validation gate in front of it.
+#'
+#' @param name_or_text A vendored instance name, or raw TSPLIB `.tsp` file
+#'   text (same as `sz_tsp_load`).
+#' @param tour A numeric vector, a permutation of `1:n_cities` (1-based).
+#' @returns A numeric scalar.
+#'
+#' # Errors
+#' A savvy error for any [`TspError`] resolving `name_or_text`, or if `tour`
+#' is not a permutation of `1:n_cities` (wrong length, an out-of-range
+#' entry, or a repeated entry).
+#' @export
+`sz_tsp_tour_length` <- function(`name_or_text`, `tour`) {
+  .Call(savvy_sz_tsp_tour_length__impl, `name_or_text`, `tour`)
 }
 
 ### wrapper functions for EvalSession
