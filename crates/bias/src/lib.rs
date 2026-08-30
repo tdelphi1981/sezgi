@@ -21,15 +21,26 @@
 //! for departure from uniformity, per the BIAS-toolbox method -- see
 //! `structural`'s module doc for the full, citation-backed provenance.
 //!
+//! # Central-bias scan (M3-1 Task 5)
+//!
+//! [`central::central_bias_scan`] runs an [`sezgi_core::spec::
+//! AlgorithmSpec`] on paired centered/shifted BBOB conditions (via
+//! [`central::CenteredProblem`]) and tests whether its performance gap
+//! differs between them, per Kudela's center-bias-exploitation method --
+//! see `central`'s module doc for the full, citation-backed provenance.
+//!
 //! [`BiasVerdict`] is shared by every bias-scan flavour this crate hosts
-//! (structural bias here; T5/T6's own scans reuse it): its `Evidence`
-//! variant's `detail` string MUST read as "evidence of structural bias
-//! toward/..." -- language documenting what the DATA shows, never an
-//! accusation ("algorithm X is biased") the data alone cannot support.
+//! (structural bias, central bias here; T6's own scan reuses it): its
+//! `Evidence` variant's `detail` string MUST read as "evidence of
+//! structural/center bias toward/..." -- language documenting what the DATA
+//! shows, never an accusation ("algorithm X is biased") the data alone
+//! cannot support.
 
+pub mod central;
 pub mod f0;
 pub mod structural;
 
+pub use central::{central_bias_scan, CentralBiasConfig, CentralBiasResult, CenteredProblem};
 pub use f0::F0Random;
 pub use structural::{structural_bias_scan, StructuralBiasConfig, StructuralBiasResult};
 
@@ -60,8 +71,13 @@ pub enum BiasError {
     /// An engine run failed (e.g. budget smaller than population size).
     #[error(transparent)]
     Engine(#[from] sezgi_core::engine::EngineError),
+    /// A `(fid, dim, instance)` combination failed to construct a
+    /// [`sezgi_problems::BbobProblem`] (e.g. `dim < 2`, or an unimplemented
+    /// `fid`) -- used by [`central::central_bias_scan`].
+    #[error(transparent)]
+    Bbob(#[from] sezgi_problems::BbobError),
     /// A scan configuration was invalid on its own terms (e.g. `dim == 0`,
     /// too few runs, or a ragged `final_positions` matrix).
-    #[error("invalid structural-bias scan configuration: {0}")]
+    #[error("invalid bias-scan configuration: {0}")]
     InvalidConfig(String),
 }
