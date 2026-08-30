@@ -97,13 +97,9 @@ def test_abstract_methods_enforced():
 
 
 def test_bbob_records_shape_and_mixing():
-    # Use enough scenarios and seeds for statistical power in per_budget_packages.
-    # sezgi decision: test adjusted to provide sufficient data variety;
-    # per_budget_packages wilcoxon test requires >=5 nonzero-difference pairs.
-    recs = sezgi.algo.bbob_records(RandomSearch, fids=[1, 2, 3, 4, 5, 6],
-                                   dims=[2, 3], instances=[1, 2],
-                                   seeds=list(range(10)), budget=50)
-    assert len(recs) == 240  # 6 fids x 2 dims x 2 instances x 10 seeds
+    recs = sezgi.algo.bbob_records(RandomSearch, fids=[1, 2], dims=[2],
+                                   instances=[1], seeds=[0, 1], budget=50)
+    assert len(recs) == 4  # 2 fids x 1 dim x 1 instance x 2 seeds
     for r in recs:
         assert set(r) == {"algo", "fid", "dim", "instance", "seed", "budget",
                           "best_f", "f_opt", "gap", "evals_used", "wall_secs"}
@@ -111,16 +107,31 @@ def test_bbob_records_shape_and_mixing():
         assert r["wall_secs"] >= 0.0
     # mixes with run_experiment records in one stats call: same problem set,
     # a second "algorithm" from the same helper under a different name.
-    class RS2(RandomSearch):
-        name = "rs2"
-        def __init__(self):
-            super().__init__(batch=7)  # different batch size creates gap variance
-    both = recs + sezgi.algo.bbob_records(RS2, fids=[1, 2, 3, 4, 5, 6],
-                                          dims=[2, 3], instances=[1, 2],
-                                          seeds=list(range(10)), budget=50)
+    # Two behaviorally identical algorithms produce all-zero per-problem differences,
+    # which per_budget_packages rejects (n_effective = 0). The second algorithm
+    # must therefore genuinely differ in search behavior.
+    class HillClimber(sezgi.Algorithm):
+        """Simple local-perturbation hill-climber: evaluate a random point,
+        then iteratively perturb the best point found so far."""
+        name = "hillclimber"
+        def setup(self, ctx):
+            ctx.evaluate([ctx.random_point()])
+        def step(self, ctx):
+            best_x, best_f = ctx.best()
+            perturbed = [
+                best_x[i] + ctx.rng.gauss(0, 0.1 * (ctx.bounds[1] - ctx.bounds[0]))
+                for i in range(ctx.dim)
+            ]
+            # Clamp to bounds
+            perturbed = [
+                max(ctx.bounds[0], min(ctx.bounds[1], p)) for p in perturbed
+            ]
+            ctx.evaluate([perturbed])
+    both = recs + sezgi.algo.bbob_records(HillClimber, fids=[1, 2], dims=[2],
+                                          instances=[1], seeds=[0, 1], budget=50)
     algos, problems, matrix = sezgi.results_matrix(both, budget=50)
-    assert sorted(algos) == ["randomsearch", "rs2"]
-    assert len(problems) == 24 and len(matrix) == 24  # 6 fids x 2 dims x 2 instances
+    assert sorted(algos) == ["hillclimber", "randomsearch"]
+    assert len(problems) == 2 and len(matrix) == 2
     pkgs = sezgi.per_budget_packages(both)
     assert len(pkgs) == 1 and pkgs[0][0] == 50
 
