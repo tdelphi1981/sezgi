@@ -392,6 +392,25 @@ fn sz_preset_abc(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds a Gravitational Search Algorithm spec (Rashedi, Nezamabadi-pour &
+/// Saryazdi 2009, Information Sciences -- a labeled metaphor preset, and the
+/// wave's LAST stateful/blackboard algorithm; see
+/// `crates/components/src/gsa.rs`'s module doc for the full provenance
+/// extraction against the author's own `GSA.m`/`Gconstant.m`/
+/// `massCalculation.m`/`Gfield.m`/`move.m`, the verified `M_i`-free force
+/// delta, and the confirmation that GSA's own `Fbest`/`Lbest` never feed
+/// back into the mechanism) as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (agent count). Canonical is 30.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_gsa(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::gsa(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
 /// Builds a simulated annealing (Metropolis, geometric cooling) algorithm
 /// spec as JSON, ready to pass to `sz_solve_bbob()`.
 ///

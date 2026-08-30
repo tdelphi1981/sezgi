@@ -344,6 +344,23 @@ NULL
   .Call(savvy_sz_preset_goa__impl, `pop_size`, `budget`)
 }
 
+#' Builds a Gravitational Search Algorithm spec (Rashedi, Nezamabadi-pour &
+#' Saryazdi 2009, Information Sciences -- a labeled metaphor preset, and the
+#' wave's LAST stateful/blackboard algorithm; see
+#' `crates/components/src/gsa.rs`'s module doc for the full provenance
+#' extraction against the author's own `GSA.m`/`Gconstant.m`/
+#' `massCalculation.m`/`Gfield.m`/`move.m`, the verified `M_i`-free force
+#' delta, and the confirmation that GSA's own `Fbest`/`Lbest` never feed
+#' back into the mechanism) as JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (agent count). Canonical is 30.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_gsa` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_gsa__impl, `pop_size`, `budget`)
+}
+
 #' Builds a Grey Wolf Optimizer algorithm spec (Mirjalili, Mirjalili & Lewis
 #' 2014 -- a labeled metaphor preset, see `crates/components/src/gwo.rs`'s
 #' module doc for the tier note and citations) as JSON, ready to pass to

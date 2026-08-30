@@ -996,3 +996,62 @@ fn abc_solves_bbob_f1_dim5() {
     assert!(gap < 0.5,
         "abc should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
 }
+
+// ---- GSA / Gravitational Search Algorithm (M2d-4 Task 12 -- the wave's
+// LAST stateful/blackboard algorithm; see gsa.rs's module doc for the full
+// provenance extraction against Rashedi's own GSA.m/Gconstant.m/
+// massCalculation.m/Gfield.m/move.m, the verified M_i-free force delta, and
+// the confirmation that GSA's own Fbest/Lbest never feed back into the
+// mechanism -- settling the current-pop-convention controller ruling) ----
+
+#[test]
+fn gsa_is_a_single_stage_spec_with_generational_replacement() {
+    let spec = presets::gsa(30, 2000);
+    assert_eq!(spec.stages.len(), 1);
+    assert_eq!(spec.stages[0].generator.kind, "gen/gsa");
+    assert_eq!(spec.stages[0].replacer.kind, "replace/generational");
+    assert!(spec.stages[0].adapter.is_none(),
+        "gsa/velocity is owned entirely by gen/gsa itself, no separate adapter (same self-owning shape as pso/bat)");
+}
+
+#[test]
+fn gsa_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::gsa(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/gsa") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/gsa");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+#[test]
+fn gsa_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::gsa(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop_size 30/budget 20k: exactly 0.0
+    // (bit-identical convergence to the optimum, best_f == f_opt ==
+    // -125.9497035670884 -- cross-checked at seeds 7/100/999 too, same
+    // exact result each time). On this easy, unimodal, separable BBOB
+    // f1/dim5 instance, GSA's gravitational pull toward the current heaviest
+    // (best-fitness) agents converges cleanly, same class of result
+    // `abc.rs`'s/`alo.rs`'s own anchored tests measured on the identical
+    // instance. Anchored per this wave's convention: round UP to the next
+    // 0.5 above the measured value with >=0.3 headroom -- measured 0.0, so
+    // anchor at 0.5 (headroom 0.5).
+    assert!(gap < 0.5,
+        "gsa should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}

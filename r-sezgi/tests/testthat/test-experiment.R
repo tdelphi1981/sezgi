@@ -78,7 +78,7 @@ test_that("journal resume rejects a real spec field change", {
   )
 })
 
-test_that("all 29 preset builders return parseable spec JSON", {
+test_that("all 30 preset builders return parseable spec JSON", {
   skip_if_not_installed("jsonlite")
   specs <- list(
     sz_preset_de_rand_1(10, 500), sz_preset_de_best_1(10, 500),
@@ -92,6 +92,7 @@ test_that("all 29 preset builders return parseable spec JSON", {
     sz_preset_hho(10, 500),
     sz_preset_alo(10, 500),
     sz_preset_abc(10, 500),
+    sz_preset_gsa(10, 500),
     sz_preset_sa(500),
     sz_preset_shade(10, 500), sz_preset_lshade(5, 500),
     sz_preset_cmaes(10, 500), sz_preset_cmaes_ipop(5, 500),
@@ -244,6 +245,21 @@ test_that("abc preset solves bbob f1 (M2d-4 Task 11, single-stage phase-design a
   expect_equal(spec$stages$generator$kind, "gen/abc-employed")
   expect_equal(spec$stages$replacer$kind, "replace/abc-trial-greedy")
   expect_equal(spec$stages$adapter$kind, "adapter/abc-onlooker-scout")
+
+  r <- sz_solve_bbob(spec_json, fid = 1L, dim = 5L, instance = 1L,
+                     master_seed = 1, run_id = 0)
+  expect_true(is.finite(r$best_f))
+  expect_true(r$evals > 0)
+})
+
+test_that("gsa preset solves bbob f1 (M2d-4 Task 12, last stateful/blackboard algorithm of the wave)", {
+  skip_if_not_installed("jsonlite")
+  spec_json <- sz_preset_gsa(30, 2000)
+  spec <- jsonlite::fromJSON(spec_json)
+  expect_equal(length(spec$stages$generator$kind), 1)
+  expect_equal(spec$stages$generator$kind, "gen/gsa")
+  expect_equal(spec$stages$replacer$kind, "replace/generational")
+  expect_true(is.null(spec$stages$adapter$kind))
 
   r <- sz_solve_bbob(spec_json, fid = 1L, dim = 5L, instance = 1L,
                      master_seed = 1, run_id = 0)

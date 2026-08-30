@@ -16,6 +16,7 @@ SEXP savvy_sz_preset_firefly__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_fpa__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_ga_real__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_goa__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
+SEXP savvy_sz_preset_gsa__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_gwo__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_harmony_search__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_hho__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);

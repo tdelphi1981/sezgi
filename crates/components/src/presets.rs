@@ -552,6 +552,39 @@ pub fn abc(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Gravitational Search Algorithm (Rashedi, Nezamabadi-pour & Saryazdi 2009,
+/// *Information Sciences*) -- a labeled metaphor preset, and the wave's LAST
+/// stateful/blackboard algorithm (see `gsa.rs`'s module doc for the full
+/// provenance extraction against the author's own `GSA.m`/`Gconstant.m`/
+/// `massCalculation.m`/`Gfield.m`/`move.m`, the verified `M_i`-free force/
+/// acceleration delta from the plan's sketch, the per-`(i,j,d)` rand-
+/// placement finding, and the confirmation that GSA's own persisted
+/// `Fbest`/`Lbest` are pure reporting bookkeeping never fed back into the
+/// mechanism -- settling the current-pop-convention controller ruling).
+/// Uniform init, `boundary/clamp` (`GSA.m`'s own `space_bound`, same as
+/// every other preset in this crate), `gen/gsa` (owns the persisted
+/// `gsa/velocity` blackboard state, no separate adapter -- same self-owning
+/// shape as `pso`/`bat`) paired with unconditional generational replacement
+/// (`replace/generational` -- `move.m` overwrites every agent's position
+/// unconditionally, no per-agent fitness-improvement test). `pop_size` is
+/// the agent count; canonical is 30 per this wave's convention. `min_pop =
+/// 2` (the force loop needs a distinct `j != i` to contribute at all),
+/// enforced via `AlgorithmSpec::validate`.
+pub fn gsa(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "gsa".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/gsa", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),

@@ -155,6 +155,18 @@ def test_preset_abc_is_dict_with_single_stage():
     assert spec["stages"][0]["adapter"]["kind"] == "adapter/abc-onlooker-scout"
 
 
+def test_preset_gsa_is_dict_with_single_stage():
+    """M2d-4 Task 12: sezgi.presets.gsa() parses as JSON with the expected
+    shape -- a SINGLE stage (gen/gsa self-owns the persisted gsa/velocity
+    blackboard state, no separate adapter -- same self-owning shape as
+    pso/bat), generational replacement -- see gsa.rs's module doc."""
+    spec = sezgi.presets.gsa(pop_size=30, budget=2000)
+    assert spec["pop_size"] == 30
+    assert len(spec["stages"]) == 1
+    assert spec["stages"][0]["generator"]["kind"] == "gen/gsa"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/generational"
+
+
 def test_bbob_solve_deterministic():
     p = sezgi.bbob(fid=1, dim=5, instance=1)
     spec = sezgi.presets.de_rand_1(pop_size=20, budget=2000)
@@ -271,6 +283,7 @@ def test_all_presets_solve_smoke():
         "hho": sezgi.presets.hho(pop_size=30, budget=budget),
         "alo": sezgi.presets.alo(pop_size=25, budget=budget),
         "abc": sezgi.presets.abc(pop_size=20, budget=budget),
+        "gsa": sezgi.presets.gsa(pop_size=30, budget=budget),
         "jde": sezgi.presets.jde(pop_size=20, budget=budget),
         "shade": sezgi.presets.shade(pop_size=20, budget=budget),
         "lshade": sezgi.presets.lshade(dim=dim, budget=budget),
