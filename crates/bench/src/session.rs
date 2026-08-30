@@ -108,6 +108,13 @@ use sezgi_core::space::{BlockValues, Genotype};
 use sezgi_problems::BbobProblem;
 use std::path::Path;
 
+// Fix round 1 (Task 1 review): kept as an alias to `SUITE_BBOB` (the
+// canonical constant, `crates/bench/src/experiment.rs`) rather than
+// dropped, so every line below that names `SUITE` -- including the frozen
+// `ioh_parity_session_vs_raw_observer` test -- stays byte-identical to its
+// pre-Task-1 form.
+const SUITE: &str = SUITE_BBOB;
+
 /// Scenario metadata an [`EvalSession`] needs but a bare `Box<dyn Problem>`
 /// cannot expose: which suite/fid/name/instance to log a run under (IOH
 /// archive layout — see [`crate::ioh::IohLogger::new`] and
@@ -147,7 +154,7 @@ impl EvalSession {
         let problem = BbobProblem::new(fid, dim, instance)
             .map_err(|e| ExperimentError::Problem(e.to_string()))?;
         let meta = SessionMeta {
-            suite: SUITE_BBOB.to_string(),
+            suite: SUITE.to_string(),
             fid: problem.fid(),
             name: problem.name().to_string(),
             instance: problem.instance,
@@ -455,7 +462,7 @@ mod tests {
         // --- Path B: raw IohLogger + start_run_with + Evaluator, driven by hand ---
         let dir_b = tmp.path().join("b");
         let p = BbobProblem::new(1, 3, 1).unwrap();
-        let mut lg = IohLogger::new(&dir_b, "test-algo", SUITE_BBOB, p.fid(), p.name(), 3);
+        let mut lg = IohLogger::new(&dir_b, "test-algo", SUITE, p.fid(), p.name(), 3);
         {
             let obs = lg.start_run_with(p.instance, 42, p.f_opt(), 100);
             let mut ev = Evaluator::new(&p, 100);
