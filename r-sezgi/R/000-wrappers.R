@@ -372,6 +372,9 @@ NULL
 #' @param algo Character vector (the `algo` column).
 #' @param fid,dim,instance,seed,budget_col,best_f,f_opt,evals Numeric
 #'   vectors (the correspondingly-named columns).
+#' @param suite Character vector (the `suite` column) -- see
+#'   `records_from_columns`'s doc comment for the backward-compat default
+#'   the R-native wrapper applies when `df` has no `suite` column.
 #' @param rope Region of practical equivalence half-width (>= 0) for the
 #'   Bayesian signed-rank test, forwarded to every budget's package.
 #' @param samples Number of Monte Carlo samples per pair (double, cast to
@@ -383,8 +386,8 @@ NULL
 #'   named by the budget (as a string); each value has exactly the shape
 #'   `sz_stats_paper_package_raw()` returns.
 #' @noRd
-`sz_per_budget_packages_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`) {
-  .Call(savvy_sz_per_budget_packages_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`)
+`sz_per_budget_packages_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `suite`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`) {
+  .Call(savvy_sz_per_budget_packages_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `suite`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`)
 }
 
 #' Builds an Artificial Bee Colony spec (Karaboga 2005, TR-06 / Karaboga &
@@ -866,12 +869,16 @@ NULL
 #'   clash with the scalar `budget` argument below).
 #' @param budget Only rows with this budget are used.
 #' @param aggregate `"mean"` or `"median"`.
+#' @param suite Character vector (the `suite` column) -- see
+#'   `records_from_columns`'s doc comment for the backward-compat default
+#'   the R-native wrapper applies when `df` has no `suite` column.
 #' @returns A named list with `algo_names` (character vector),
-#'   `problem_labels` (character vector, `f{fid}d{dim}i{instance}`), and
-#'   `matrix` (numeric matrix, rows = problems, columns = algorithms).
+#'   `problem_labels` (character vector, `f{fid}d{dim}i{instance}` for the
+#'   BBOB suite, `{short}-f{fid}d{dim}i{instance}` for any other suite),
+#'   and `matrix` (numeric matrix, rows = problems, columns = algorithms).
 #' @noRd
-`sz_results_matrix_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`) {
-  .Call(savvy_sz_results_matrix_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`)
+`sz_results_matrix_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `suite`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`) {
+  .Call(savvy_sz_results_matrix_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `suite`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`)
 }
 
 #' Runs an [`ExperimentSpec`] (parsed from `spec_toml`) and returns its

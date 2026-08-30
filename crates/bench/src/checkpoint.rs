@@ -379,6 +379,7 @@ pub fn run_experiment_with_checkpoint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::experiment::SUITE_BBOB;
     use std::fs;
     use tempfile::TempDir;
 
@@ -494,6 +495,7 @@ mod tests {
                 instance: 1,
                 seed: 123,
                 budget: 500,
+                suite: SUITE_BBOB.into(),
             },
             best_f: 1.5,
             f_opt: 0.0,
@@ -530,6 +532,7 @@ mod tests {
                 instance: 1,
                 seed: 123,
                 budget: 500,
+                suite: SUITE_BBOB.into(),
             },
             best_f: 1.5,
             f_opt: 0.0,
@@ -566,6 +569,7 @@ mod tests {
                 instance: 1,
                 seed: 123,
                 budget: 500,
+                suite: SUITE_BBOB.into(),
             },
             best_f: 1.5,
             f_opt: 0.0,
@@ -582,6 +586,7 @@ mod tests {
                 instance: 1,
                 seed: 456,
                 budget: 500,
+                suite: SUITE_BBOB.into(),
             },
             best_f: 2.0,
             f_opt: 0.0,
@@ -906,6 +911,7 @@ mod tests {
                 instance: 1,
                 seed: 42,
                 budget: 1000,
+                suite: SUITE_BBOB.into(),
             },
             best_f: 1.234_567_890_123_456_7,
             f_opt: 0.0,
@@ -992,6 +998,7 @@ mod tests {
                 instance: 1,
                 seed: 42,
                 budget: 1000,
+                suite: SUITE_BBOB.into(),
             },
             best_f: 1.234_567_890_123_456_7,
             f_opt: 0.0,

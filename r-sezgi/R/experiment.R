@@ -31,7 +31,8 @@
 #'   directory (a run resumed from `journal` was executed in a PRIOR call
 #'   and is never re-logged). Read back with `sz_read_ioh_records()`.
 #' @returns A data.frame with one row per run and columns `algo`, `fid`,
-#'   `dim`, `instance`, `seed`, `budget`, `best_f`, `f_opt`, `evals`.
+#'   `dim`, `instance`, `seed`, `budget`, `suite`, `best_f`, `f_opt`,
+#'   `evals`.
 #' @export
 sz_run_experiment <- function(spec_toml, journal = NULL, parallel = TRUE, threads = NULL,
                                log_dir = NULL) {
@@ -44,22 +45,25 @@ sz_run_experiment <- function(spec_toml, journal = NULL, parallel = TRUE, thread
 #' Mirrors py-sezgi's `results_matrix()`.
 #'
 #' @param df A data.frame as returned by `sz_run_experiment()` (columns
-#'   `algo`, `fid`, `dim`, `instance`, `seed`, `budget`, `best_f`, `f_opt`,
-#'   `evals`).
+#'   `algo`, `fid`, `dim`, `instance`, `seed`, `budget`, `suite`, `best_f`,
+#'   `f_opt`, `evals`). `suite` is optional -- a data.frame without it (e.g.
+#'   from before this column existed) is treated as all-BBOB.
 #' @param budget Only rows with this budget are used.
 #' @param aggregate How to combine a (problem, algorithm) cell's per-seed
 #'   gaps (`best_f - f_opt`) into one number: `"mean"` or `"median"`.
 #' @returns A named list with `algo_names` (character vector),
-#'   `problem_labels` (character vector, `f\{fid\}d\{dim\}i\{instance\}`,
-#'   ordered by first appearance in `df`), and `matrix` (numeric matrix, rows =
-#'   problems, columns = algorithms; `matrix[i, j]` is the aggregated gap of
-#'   `algo_names[j]` on `problem_labels[i]`). Errors if a (problem,
-#'   algorithm) pair present for one algorithm/problem is missing for
-#'   another at this budget (an incomplete experiment).
+#'   `problem_labels` (character vector, `f\{fid\}d\{dim\}i\{instance\}` for
+#'   BBOB rows, `\{short\}-f\{fid\}d\{dim\}i\{instance\}` for any other
+#'   suite, ordered by first appearance in `df`), and `matrix` (numeric
+#'   matrix, rows = problems, columns = algorithms; `matrix[i, j]` is the
+#'   aggregated gap of `algo_names[j]` on `problem_labels[i]`). Errors if a
+#'   (problem, algorithm) pair present for one algorithm/problem is missing
+#'   for another at this budget (an incomplete experiment).
 #' @export
 sz_results_matrix <- function(df, budget, aggregate = "mean") {
+  suite <- if (is.null(df$suite)) rep("sezgi-bbob", nrow(df)) else df$suite
   sz_results_matrix_raw(df$algo, df$fid, df$dim, df$instance, df$seed, df$budget,
-                         df$best_f, df$f_opt, df$evals, budget, aggregate)
+                         suite, df$best_f, df$f_opt, df$evals, budget, aggregate)
 }
 
 #' Build one paper-package statistics list PER DISTINCT BUDGET present in a
@@ -71,7 +75,9 @@ sz_results_matrix <- function(df, budget, aggregate = "mean") {
 #' default rather than a single, arbitrarily-chosen budget's report:
 #' compare algorithms per budget, never pooled across budgets.
 #'
-#' @param df A data.frame as returned by `sz_run_experiment()`.
+#' @param df A data.frame as returned by `sz_run_experiment()`. `suite` is
+#'   optional -- a data.frame without it is treated as all-BBOB (see
+#'   `sz_results_matrix()`).
 #' @param rope Region of practical equivalence half-width (>= 0) for the
 #'   Bayesian signed-rank test, forwarded to every budget's package.
 #'   Default 0.
@@ -85,6 +91,7 @@ sz_results_matrix <- function(df, budget, aggregate = "mean") {
 #'   `sz_stats_paper_package()` returns.
 #' @export
 sz_per_budget_packages <- function(df, rope = 0, samples = 20000, seed = 1, aggregate = "mean") {
+  suite <- if (is.null(df$suite)) rep("sezgi-bbob", nrow(df)) else df$suite
   sz_per_budget_packages_raw(df$algo, df$fid, df$dim, df$instance, df$seed, df$budget,
-                              df$best_f, df$f_opt, df$evals, rope, samples, seed, aggregate)
+                              suite, df$best_f, df$f_opt, df$evals, rope, samples, seed, aggregate)
 }

@@ -10,9 +10,15 @@ use sezgi_bench::{
 use std::path::Path;
 
 /// Builds the `data.frame` returned to R: one row per [`RunRecord`], columns
-/// `algo, fid, dim, instance, seed, budget, best_f, f_opt, evals` (same
-/// fields as py-sezgi's `run_experiment` record dicts, minus `wall_secs`,
-/// `gap`, and `evals_used` renamed to `evals`).
+/// `algo, fid, dim, instance, seed, budget, suite, best_f, f_opt, evals`
+/// (same fields as py-sezgi's `run_experiment` record dicts, minus
+/// `wall_secs`, `gap`, and `evals_used` renamed to `evals`).
+///
+/// `suite` (M3-5 Task 1): always emitted -- BBOB runs get
+/// `sezgi_bench::SUITE_BBOB` (`"sezgi-bbob"`), matching every record built
+/// before this column existed. See `records_from_columns` in `stats.rs` for
+/// the read side, and its `suite` parameter's default (a data.frame lacking
+/// this column) for the backward-compat path.
 fn records_to_data_frame(records: &[RunRecord]) -> savvy::Result<Sexp> {
     let n = records.len();
 
@@ -22,6 +28,7 @@ fn records_to_data_frame(records: &[RunRecord]) -> savvy::Result<Sexp> {
     let mut instance = OwnedRealSexp::new(n)?;
     let mut seed = OwnedRealSexp::new(n)?;
     let mut budget = OwnedRealSexp::new(n)?;
+    let mut suite = OwnedStringSexp::new(n)?;
     let mut best_f = OwnedRealSexp::new(n)?;
     let mut f_opt = OwnedRealSexp::new(n)?;
     let mut evals = OwnedRealSexp::new(n)?;
@@ -33,21 +40,23 @@ fn records_to_data_frame(records: &[RunRecord]) -> savvy::Result<Sexp> {
         instance.set_elt(i, r.key.instance as f64)?;
         seed.set_elt(i, r.key.seed as f64)?;
         budget.set_elt(i, r.key.budget as f64)?;
+        suite.set_elt(i, &r.key.suite)?;
         best_f.set_elt(i, r.best_f)?;
         f_opt.set_elt(i, r.f_opt)?;
         evals.set_elt(i, r.evals_used as f64)?;
     }
 
-    let mut out = OwnedListSexp::new(9, true)?;
+    let mut out = OwnedListSexp::new(10, true)?;
     out.set_name_and_value(0, "algo", algo)?;
     out.set_name_and_value(1, "fid", fid)?;
     out.set_name_and_value(2, "dim", dim)?;
     out.set_name_and_value(3, "instance", instance)?;
     out.set_name_and_value(4, "seed", seed)?;
     out.set_name_and_value(5, "budget", budget)?;
-    out.set_name_and_value(6, "best_f", best_f)?;
-    out.set_name_and_value(7, "f_opt", f_opt)?;
-    out.set_name_and_value(8, "evals", evals)?;
+    out.set_name_and_value(6, "suite", suite)?;
+    out.set_name_and_value(7, "best_f", best_f)?;
+    out.set_name_and_value(8, "f_opt", f_opt)?;
+    out.set_name_and_value(9, "evals", evals)?;
 
     out.set_class(["data.frame"])?;
     let row_names = OwnedIntegerSexp::try_from_iter(1..=(n as i32))?;

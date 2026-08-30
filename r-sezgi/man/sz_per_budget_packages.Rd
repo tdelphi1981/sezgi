@@ -14,7 +14,9 @@ sz_per_budget_packages(
 )
 }
 \arguments{
-\item{df}{A data.frame as returned by `sz_run_experiment()`.}
+\item{df}{A data.frame as returned by `sz_run_experiment()`. `suite` is
+optional -- a data.frame without it is treated as all-BBOB (see
+`sz_results_matrix()`).}
 
 \item{rope}{Region of practical equivalence half-width (>= 0) for the
 Bayesian signed-rank test, forwarded to every budget's package.

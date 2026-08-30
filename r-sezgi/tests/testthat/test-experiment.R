@@ -28,7 +28,7 @@ test_that("sz_run_experiment returns one row per run", {
   df <- sz_run_experiment(experiment_toml)
   expect_s3_class(df, "data.frame")
   expect_equal(nrow(df), 2 * 2 * 3 * 1)  # algos x seeds x instances x budgets
-  expect_true(all(c("algo", "fid", "dim", "instance", "seed", "budget",
+  expect_true(all(c("algo", "fid", "dim", "instance", "seed", "budget", "suite",
                     "best_f", "f_opt", "evals") %in% names(df)))
 })
 
@@ -310,6 +310,41 @@ test_that("sz_results_matrix has the right shape and labels", {
   expect_equal(rm$algo_names, c("de", "rs"))
   expect_equal(rm$problem_labels, c("f1d5i1", "f1d5i2", "f1d5i3", "f1d5i4", "f1d5i5"))
   expect_equal(dim(rm$matrix), c(5, 2))  # rows = problems, cols = algorithms
+})
+
+test_that("sz_run_experiment's suite column defaults to sezgi-bbob", {
+  df <- sz_run_experiment(reporting_grid_toml)
+  expect_true(all(df$suite == "sezgi-bbob"))
+})
+
+# M3-5 Task 1: RunKey/record suite discriminator -- the M3-4 final review's
+# silent-merge gap. Two rows identical in (algo, fid, dim, instance, seed,
+# budget), differing only in `suite`, must land in two distinct
+# `problem_labels`, not one merged cell.
+test_that("sz_results_matrix separates suites sharing the same fid/dim/instance", {
+  df <- sz_run_experiment(reporting_grid_toml)
+  df <- df[df$budget == 400 & df$instance == 1, ]
+  cec <- df
+  cec$suite <- "sezgi-cec2022"
+  cec$f_opt <- cec$f_opt + 1  # a genuinely different problem, not a duplicate row
+  mixed <- rbind(df, cec)
+
+  rm <- sz_results_matrix(mixed, budget = 400)
+  expect_setequal(rm$problem_labels, c("f1d5i1", "cec2022-f1d5i1"))
+})
+
+test_that("sz_results_matrix accepts a data.frame without a suite column (backward compat)", {
+  df <- sz_run_experiment(reporting_grid_toml)
+  df$suite <- NULL
+  rm <- sz_results_matrix(df, budget = 400)
+  expect_equal(rm$problem_labels, c("f1d5i1", "f1d5i2", "f1d5i3", "f1d5i4", "f1d5i5"))
+})
+
+test_that("sz_per_budget_packages accepts a data.frame without a suite column (backward compat)", {
+  df <- sz_run_experiment(reporting_grid_toml)
+  df$suite <- NULL
+  pkgs <- sz_per_budget_packages(df)
+  expect_equal(length(pkgs), 2)
 })
 
 test_that("sz_per_budget_packages returns ascending budgets with no NaN", {

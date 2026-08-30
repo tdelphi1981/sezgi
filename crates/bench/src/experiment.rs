@@ -178,6 +178,53 @@ pub struct ProblemEntry {
 // Run identity + result
 // ---------------------------------------------------------------------
 
+/// Namespace prefix shared by every suite name this project writes to a
+/// `RunKey`/IOH archive (`sezgi-bbob`, `sezgi-cec2022`, ...) -- see
+/// [`suite_short`] and [`problem_segment`].
+const SUITE_NS_PREFIX: &str = "sezgi-";
+
+/// The record suite for BBOB runs. M3-5 Task 1: introduced so the scattered
+/// `"sezgi-bbob"` literals that name a RECORD's suite (as opposed to an
+/// [`crate::ioh::IohLogger`]'s own suite parameter, which callers still pass
+/// as a plain `&str`) have one canonical source. Also doubles as the
+/// backward-compatible default for [`RunKey::suite`] on deserialization --
+/// see [`default_suite`].
+pub const SUITE_BBOB: &str = "sezgi-bbob";
+
+/// `#[serde(default = ...)]` target for [`RunKey::suite`]: a JSONL journal
+/// line written before M3-5 Task 1 has no `suite` field at all, and every
+/// such pre-existing record was necessarily a BBOB run (M2c/M3-4 supported
+/// no other suite), so the missing field defaults to [`SUITE_BBOB`].
+fn default_suite() -> String {
+    SUITE_BBOB.to_string()
+}
+
+/// Strips this project's `sezgi-` suite-namespace prefix, e.g.
+/// `sezgi-cec2022` -> `cec2022`. Suite names that don't carry the prefix
+/// pass through unchanged.
+fn suite_short(suite: &str) -> &str {
+    suite.strip_prefix(SUITE_NS_PREFIX).unwrap_or(suite)
+}
+
+/// The `f{fid}d{dim}i{instance}` segment shared by [`RunKey`]'s `Display`
+/// and [`crate::reporting::results_matrix`]'s problem labels.
+///
+/// FROZEN for BBOB: when `suite == SUITE_BBOB` this returns exactly
+/// `f{fid}d{dim}i{instance}`, byte-for-byte, with no suite prefix --
+/// existing journals and any string built from a BBOB `RunKey`'s `Display`
+/// depend on this exact shape (see M3-4's final review and M3-5 Task 1's
+/// brief). Any OTHER suite prepends `{short}-` (via [`suite_short`]), e.g.
+/// `sezgi-cec2022` -> `cec2022-f1d10i1`, so two runs that would otherwise
+/// collide on `(fid, dim, instance, seed, budget)` across suites are always
+/// distinguishable.
+pub(crate) fn problem_segment(suite: &str, fid: u32, dim: usize, instance: u32) -> String {
+    if suite == SUITE_BBOB {
+        format!("f{fid}d{dim}i{instance}")
+    } else {
+        format!("{}-f{fid}d{dim}i{instance}", suite_short(suite))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct RunKey {
     pub algo: String,
@@ -186,12 +233,29 @@ pub struct RunKey {
     pub instance: u32,
     pub seed: u64,
     pub budget: u64,
+    /// The suite this run's `fid` is defined in (e.g. [`SUITE_BBOB`],
+    /// `"sezgi-cec2022"`). M3-5 Task 1: added to close the M3-4 final
+    /// review's silent-merge gap -- without this field, a BBOB f1 and a
+    /// CEC 2022 f1 run sharing `(dim, instance, seed, budget)` were
+    /// indistinguishable, both as a `HashMap` key and as a
+    /// `results_matrix` problem label. Missing on deserialization (a
+    /// pre-Task-1 journal line) defaults to [`SUITE_BBOB`] -- see
+    /// [`default_suite`].
+    #[serde(default = "default_suite")]
+    pub suite: String,
 }
 
 impl fmt::Display for RunKey {
+    /// FROZEN for BBOB (`suite == SUITE_BBOB`): produces exactly
+    /// `{algo}/f{fid}d{dim}i{instance}/s{seed}/b{budget}`, unchanged from
+    /// before `suite` existed -- journals and any code comparing this
+    /// string depend on that exact byte shape. Any other suite's segment
+    /// is suite-prefixed by [`problem_segment`] (e.g.
+    /// `de/cec2022-f1d10i1/s42/b1000`).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/f{}d{}i{}/s{}/b{}",
-               self.algo, self.fid, self.dim, self.instance, self.seed, self.budget)
+        write!(f, "{}/{}/s{}/b{}",
+               self.algo, problem_segment(&self.suite, self.fid, self.dim, self.instance),
+               self.seed, self.budget)
     }
 }
 
@@ -400,6 +464,9 @@ pub fn enumerate(spec: &ExperimentSpec) -> Result<Vec<PlannedRun>, ExperimentErr
                             instance,
                             seed,
                             budget,
+                            // Only `suite = "bbob"` problems reach here --
+                            // see the fail-fast validation pass above.
+                            suite: SUITE_BBOB.to_string(),
                         };
                         planned.push(PlannedRun {
                             key,
@@ -483,7 +550,11 @@ pub(crate) fn build_ioh_observers(
         let group_key = (run.key.algo.clone(), run.fid, run.dim);
         let idx = *group_index.entry(group_key).or_insert_with(|| {
             loggers.push(IohLogger::new(
-                log_dir, &run.key.algo, "sezgi-bbob", run.fid, problem.name(), run.dim,
+                // The IOH archive's own suite must always match this run's
+                // RECORD suite (`run.key.suite`), so `ioh_records` round-
+                // trips a logged run's key byte-identically -- see
+                // `SUITE_BBOB`'s doc comment.
+                log_dir, &run.key.algo, &run.key.suite, run.fid, problem.name(), run.dim,
             ));
             loggers.len() - 1
         });
@@ -811,8 +882,33 @@ mod tests {
 
     #[test]
     fn run_key_display_is_stable() {
-        let key = RunKey { algo: "de".into(), fid: 1, dim: 5, instance: 2, seed: 42, budget: 1000 };
+        let key = RunKey {
+            algo: "de".into(), fid: 1, dim: 5, instance: 2, seed: 42, budget: 1000,
+            suite: SUITE_BBOB.into(),
+        };
         assert_eq!(key.to_string(), "de/f1d5i2/s42/b1000");
+    }
+
+    #[test]
+    fn run_key_display_non_bbob_suffixes_short_suite_name() {
+        let key = RunKey {
+            algo: "de".into(), fid: 1, dim: 5, instance: 2, seed: 42, budget: 1000,
+            suite: "sezgi-cec2022".into(),
+        };
+        assert_eq!(key.to_string(), "de/cec2022-f1d5i2/s42/b1000");
+    }
+
+    /// M3-5 Task 1: paste of a JSONL line captured verbatim from a scratch
+    /// probe run at BASE (`serde_json::to_string(&record)` before `suite`
+    /// existed on `RunKey`) -- pins that an old journal line with no
+    /// `suite` field still deserializes, defaulting to [`SUITE_BBOB`].
+    #[test]
+    fn old_journal_line_without_suite_parses_with_bbob_default() {
+        let line = r#"{"key":{"algo":"de","fid":1,"dim":5,"instance":1,"seed":1,"budget":500},"best_f":-125.36475235297067,"f_opt":-125.9497035670884,"evals_used":500,"wall_secs":0.000429334}"#;
+        let record: RunRecord = serde_json::from_str(line).unwrap();
+        assert_eq!(record.key.suite, SUITE_BBOB);
+        assert_eq!(record.key.algo, "de");
+        assert_eq!(record.key.seed, 1);
     }
 
     #[test]

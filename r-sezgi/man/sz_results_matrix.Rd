@@ -9,8 +9,9 @@ sz_results_matrix(df, budget, aggregate = "mean")
 }
 \arguments{
 \item{df}{A data.frame as returned by `sz_run_experiment()` (columns
-`algo`, `fid`, `dim`, `instance`, `seed`, `budget`, `best_f`, `f_opt`,
-`evals`).}
+`algo`, `fid`, `dim`, `instance`, `seed`, `budget`, `suite`, `best_f`,
+`f_opt`, `evals`). `suite` is optional -- a data.frame without it (e.g.
+from before this column existed) is treated as all-BBOB.}
 
 \item{budget}{Only rows with this budget are used.}
 
@@ -19,12 +20,13 @@ gaps (`best_f - f_opt`) into one number: `"mean"` or `"median"`.}
 }
 \value{
 A named list with `algo_names` (character vector),
-  `problem_labels` (character vector, `f\{fid\}d\{dim\}i\{instance\}`,
-  ordered by first appearance in `df`), and `matrix` (numeric matrix, rows =
-  problems, columns = algorithms; `matrix[i, j]` is the aggregated gap of
-  `algo_names[j]` on `problem_labels[i]`). Errors if a (problem,
-  algorithm) pair present for one algorithm/problem is missing for
-  another at this budget (an incomplete experiment).
+  `problem_labels` (character vector, `f\{fid\}d\{dim\}i\{instance\}` for
+  BBOB rows, `\{short\}-f\{fid\}d\{dim\}i\{instance\}` for any other
+  suite, ordered by first appearance in `df`), and `matrix` (numeric
+  matrix, rows = problems, columns = algorithms; `matrix[i, j]` is the
+  aggregated gap of `algo_names[j]` on `problem_labels[i]`). Errors if a
+  (problem, algorithm) pair present for one algorithm/problem is missing
+  for another at this budget (an incomplete experiment).
 }
 \description{
 Mirrors py-sezgi's `results_matrix()`.

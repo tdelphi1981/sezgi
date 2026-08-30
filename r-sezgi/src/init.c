@@ -104,8 +104,8 @@ SEXP savvy_sz_nsga2_raw__impl(SEXP c_arg__problem, SEXP c_arg__dim, SEXP c_arg__
     return handle_result(res);
 }
 
-SEXP savvy_sz_per_budget_packages_raw__impl(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__master_seed, SEXP c_arg__aggregate) {
-    SEXP res = savvy_sz_per_budget_packages_raw__ffi(c_arg__algo, c_arg__fid, c_arg__dim, c_arg__instance, c_arg__seed, c_arg__budget_col, c_arg__best_f, c_arg__f_opt, c_arg__evals, c_arg__rope, c_arg__samples, c_arg__master_seed, c_arg__aggregate);
+SEXP savvy_sz_per_budget_packages_raw__impl(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__suite, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__master_seed, SEXP c_arg__aggregate) {
+    SEXP res = savvy_sz_per_budget_packages_raw__ffi(c_arg__algo, c_arg__fid, c_arg__dim, c_arg__instance, c_arg__seed, c_arg__budget_col, c_arg__suite, c_arg__best_f, c_arg__f_opt, c_arg__evals, c_arg__rope, c_arg__samples, c_arg__master_seed, c_arg__aggregate);
     return handle_result(res);
 }
 
@@ -269,8 +269,8 @@ SEXP savvy_sz_read_ioh_records__impl(SEXP c_arg__log_root, SEXP c_arg__budgets) 
     return handle_result(res);
 }
 
-SEXP savvy_sz_results_matrix_raw__impl(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__budget, SEXP c_arg__aggregate) {
-    SEXP res = savvy_sz_results_matrix_raw__ffi(c_arg__algo, c_arg__fid, c_arg__dim, c_arg__instance, c_arg__seed, c_arg__budget_col, c_arg__best_f, c_arg__f_opt, c_arg__evals, c_arg__budget, c_arg__aggregate);
+SEXP savvy_sz_results_matrix_raw__impl(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__suite, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__budget, SEXP c_arg__aggregate) {
+    SEXP res = savvy_sz_results_matrix_raw__ffi(c_arg__algo, c_arg__fid, c_arg__dim, c_arg__instance, c_arg__seed, c_arg__budget_col, c_arg__suite, c_arg__best_f, c_arg__f_opt, c_arg__evals, c_arg__budget, c_arg__aggregate);
     return handle_result(res);
 }
 
@@ -384,7 +384,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_mo_igd__impl", (DL_FUNC) &savvy_sz_mo_igd__impl, 2},
     {"savvy_sz_mo_pareto_front_raw__impl", (DL_FUNC) &savvy_sz_mo_pareto_front_raw__impl, 4},
     {"savvy_sz_nsga2_raw__impl", (DL_FUNC) &savvy_sz_nsga2_raw__impl, 10},
-    {"savvy_sz_per_budget_packages_raw__impl", (DL_FUNC) &savvy_sz_per_budget_packages_raw__impl, 13},
+    {"savvy_sz_per_budget_packages_raw__impl", (DL_FUNC) &savvy_sz_per_budget_packages_raw__impl, 14},
     {"savvy_sz_preset_abc__impl", (DL_FUNC) &savvy_sz_preset_abc__impl, 2},
     {"savvy_sz_preset_alo__impl", (DL_FUNC) &savvy_sz_preset_alo__impl, 2},
     {"savvy_sz_preset_bat__impl", (DL_FUNC) &savvy_sz_preset_bat__impl, 2},
@@ -417,7 +417,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_preset_tlbo__impl", (DL_FUNC) &savvy_sz_preset_tlbo__impl, 2},
     {"savvy_sz_preset_woa__impl", (DL_FUNC) &savvy_sz_preset_woa__impl, 2},
     {"savvy_sz_read_ioh_records__impl", (DL_FUNC) &savvy_sz_read_ioh_records__impl, 2},
-    {"savvy_sz_results_matrix_raw__impl", (DL_FUNC) &savvy_sz_results_matrix_raw__impl, 11},
+    {"savvy_sz_results_matrix_raw__impl", (DL_FUNC) &savvy_sz_results_matrix_raw__impl, 12},
     {"savvy_sz_run_experiment_raw__impl", (DL_FUNC) &savvy_sz_run_experiment_raw__impl, 5},
     {"savvy_sz_solve_bbob__impl", (DL_FUNC) &savvy_sz_solve_bbob__impl, 6},
     {"savvy_sz_solve_tsp__impl", (DL_FUNC) &savvy_sz_solve_tsp__impl, 4},

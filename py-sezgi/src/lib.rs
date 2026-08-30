@@ -8,7 +8,7 @@ use sezgi_bench::{
     per_budget_packages as bench_per_budget_packages, read_ioh_root,
     results_matrix as bench_results_matrix, run_experiment_logged, run_experiment_parallel,
     run_experiment_sequential, run_experiment_with_checkpoint, Aggregate, EcdfCurve, EvalSession,
-    ExperimentSpec, IohLogger, RunKey, RunRecord, SessionMeta,
+    ExperimentSpec, IohLogger, RunKey, RunRecord, SessionMeta, SUITE_BBOB,
 };
 use sezgi_bias::{
     central_bias_scan, f0 as bias_f0_mod, scan_from_positions, structural_bias_scan,
@@ -534,7 +534,7 @@ impl PyEvalSession {
                 let fresh = BbobProblem::new(p.fid(), p.space().dim(), p.instance)
                     .map_err(|e| PyValueError::new_err(e.to_string()))?;
                 let meta = SessionMeta {
-                    suite: "sezgi-bbob".into(),
+                    suite: SUITE_BBOB.into(),
                     fid: p.fid(),
                     name: p.name().to_string(),
                     instance: p.instance,
@@ -677,7 +677,7 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
             if let Some(dir) = log_dir {
                 let name = algo_name.unwrap_or(&spec.name).to_string();
                 let mut lg = IohLogger::new(std::path::Path::new(dir), &name,
-                    "sezgi-bbob", p.fid(), p.name(),
+                    SUITE_BBOB, p.fid(), p.name(),
                     p.space().dim());
                 let obs = lg.start_run_with(p.instance, master_seed, p.f_opt(), spec.termination.budget);
                 // Logger observer is Rust-native (no GIL needed); GIL is released for the run.
@@ -746,10 +746,14 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
 
 /// Builds a record dict from a [`RunRecord`], with the SAME shape
 /// `run_experiment` returns (keys: `algo, fid, dim, instance, seed, budget,
-/// best_f, f_opt, gap, evals_used, wall_secs`). Shared by `run_experiment`
-/// and `read_ioh_records` so a disk-reconstructed record and a freshly-run
-/// one are interchangeable to any downstream consumer (e.g.
-/// `per_budget_packages`).
+/// suite, best_f, f_opt, gap, evals_used, wall_secs`). Shared by
+/// `run_experiment` and `read_ioh_records` so a disk-reconstructed record
+/// and a freshly-run one are interchangeable to any downstream consumer
+/// (e.g. `per_budget_packages`).
+///
+/// `"suite"` (M3-5 Task 1): always emitted -- BBOB runs get [`SUITE_BBOB`]
+/// (`"sezgi-bbob"`), same as every record built before this key existed.
+/// See [`records_from_pylist`] for the read side.
 fn record_to_dict<'py>(py: Python<'py>, r: &RunRecord) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("algo", &r.key.algo)?;
@@ -758,6 +762,7 @@ fn record_to_dict<'py>(py: Python<'py>, r: &RunRecord) -> PyResult<Bound<'py, Py
     d.set_item("instance", r.key.instance)?;
     d.set_item("seed", r.key.seed)?;
     d.set_item("budget", r.key.budget)?;
+    d.set_item("suite", &r.key.suite)?;
     d.set_item("best_f", r.best_f)?;
     d.set_item("f_opt", r.f_opt)?;
     d.set_item("gap", r.best_f - r.f_opt)?;
@@ -1134,6 +1139,11 @@ fn parse_aggregate(aggregate: &str) -> PyResult<Aggregate> {
 /// (fields `algo, fid, dim, instance, seed, budget, best_f, f_opt,
 /// evals_used`; `wall_secs` is read if present, defaulted to `0.0`
 /// otherwise — it plays no role in `results_matrix`/`per_budget_packages`).
+///
+/// `"suite"` (M3-5 Task 1): read if present, defaulted to [`SUITE_BBOB`]
+/// otherwise — an old-shape dict from before this key existed (or any
+/// hand-built dict that omits it) is a BBOB record, matching every
+/// pre-Task-1 record. See [`record_to_dict`] for the write side.
 fn records_from_pylist(records: &Bound<'_, PyAny>) -> PyResult<Vec<RunRecord>> {
     let mut out = Vec::new();
     for item in records.try_iter()? {
@@ -1144,6 +1154,10 @@ fn records_from_pylist(records: &Bound<'_, PyAny>) -> PyResult<Vec<RunRecord>> {
         let get = |k: &str| -> PyResult<Bound<'_, PyAny>> {
             d.get_item(k)?.ok_or_else(|| PyValueError::new_err(format!("record is missing field `{k}`")))
         };
+        let suite = match d.get_item("suite")? {
+            Some(v) => v.extract::<String>()?,
+            None => SUITE_BBOB.to_string(),
+        };
         let key = RunKey {
             algo: get("algo")?.extract::<String>()?,
             fid: get("fid")?.extract::<u32>()?,
@@ -1151,6 +1165,7 @@ fn records_from_pylist(records: &Bound<'_, PyAny>) -> PyResult<Vec<RunRecord>> {
             instance: get("instance")?.extract::<u32>()?,
             seed: get("seed")?.extract::<u64>()?,
             budget: get("budget")?.extract::<u64>()?,
+            suite,
         };
         let evals_used = get("evals_used")?.extract::<u64>()?;
         let wall_secs = match d.get_item("wall_secs")? {

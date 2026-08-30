@@ -17,7 +17,7 @@ pub mod manifest;
 pub mod experiment;
 pub use experiment::{
     AlgoEntry, AlgoSource, ExperimentError, ExperimentSpec, PlannedRun, ProblemEntry,
-    RunKey, RunRecord, enumerate, run_experiment_logged, run_experiment_parallel,
+    RunKey, RunRecord, SUITE_BBOB, enumerate, run_experiment_logged, run_experiment_parallel,
     run_experiment_sequential,
 };
 

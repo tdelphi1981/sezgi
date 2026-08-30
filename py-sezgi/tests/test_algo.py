@@ -115,6 +115,11 @@ def test_bbob_records_shape_and_mixing():
                                    instances=[1], seeds=[0, 1], budget=50)
     assert len(recs) == 4  # 2 fids x 1 dim x 1 instance x 2 seeds
     for r in recs:
+        # sezgi decision (M3-5 Task 1 scope): `bbob_records` is a pure-Python,
+        # BBOB-only helper (python/sezgi/algo.py) outside this task's file
+        # list -- it does not gain a "suite" key here. Its dicts still flow
+        # through `results_matrix`/`per_budget_packages` unchanged: a missing
+        # "suite" key defaults to SUITE_BBOB (see `records_from_pylist`).
         assert set(r) == {"algo", "fid", "dim", "instance", "seed", "budget",
                           "best_f", "f_opt", "gap", "evals_used", "wall_secs"}
         assert r["gap"] == r["best_f"] - r["f_opt"]
@@ -148,6 +153,33 @@ def test_bbob_records_shape_and_mixing():
     assert len(problems) == 2 and len(matrix) == 2
     pkgs = sezgi.per_budget_packages(both)
     assert len(pkgs) == 1 and pkgs[0][0] == 50
+
+# M3-5 Task 1: RunKey/record suite discriminator -- the M3-4 final review's
+# silent-merge gap. A record dict's "suite" key is always emitted by
+# run_experiment/bbob_records/read_ioh_records, accepted optionally on input
+# (missing => "sezgi-bbob", matching every record built before this key
+# existed), and used to keep same-fid records from different suites in
+# distinct results_matrix problem labels.
+
+def _record(suite, fid=1, dim=5, instance=1, seed=1, f_opt=0.0, **overrides):
+    d = {"algo": "A", "fid": fid, "dim": dim, "instance": instance, "seed": seed,
+         "budget": 100, "suite": suite, "best_f": f_opt + 1.0, "f_opt": f_opt,
+         "evals_used": 100}
+    d.update(overrides)
+    return d
+
+def test_results_matrix_separates_mixed_bbob_and_cec2022_suites():
+    records = [_record("sezgi-bbob", f_opt=0.0), _record("sezgi-cec2022", f_opt=1.0)]
+    algos, problems, matrix = sezgi.results_matrix(records, budget=100)
+    assert algos == ["A"]
+    assert sorted(problems) == sorted(["f1d5i1", "cec2022-f1d5i1"])
+    assert len(matrix) == 2
+
+def test_results_matrix_accepts_record_dict_without_suite_key():
+    d = _record("sezgi-bbob")
+    del d["suite"]
+    algos, problems, matrix = sezgi.results_matrix([d], budget=100)
+    assert problems == ["f1d5i1"]  # missing "suite" defaults to sezgi-bbob, unchanged label
 
 def test_bbob_records_fresh_instance_per_run():
     created = []
