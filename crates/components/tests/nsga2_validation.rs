@@ -1,13 +1,18 @@
-//! Task 8 (M3-2): NSGA-II reference validation run.
+//! Task 8 (M3-2) + Task 1 (M3-3): NSGA-II reference validation run.
 //!
 //! Runs the merged NSGA-II runner (`sezgi_components::nsga2::nsga2_run`,
-//! T6) against the ZDT1/ZDT2/ZDT3 (T2) and DTLZ2 (T2) benchmark suites,
-//! with the paper-pinned standard settings (T6's `Nsga2Config` doc: SBX
-//! `eta_c=20`, polynomial mutation `eta_m=20`, `p_c=0.9`, `p_m=None` ->
+//! T6) against the ZDT1/ZDT2/ZDT3/ZDT4 (T2) and DTLZ2 (T2) benchmark
+//! suites, with the paper-pinned standard settings (T6's `Nsga2Config` doc:
+//! SBX `eta_c=20`, polynomial mutation `eta_m=20`, `p_c=0.9`, `p_m=None` ->
 //! `1/n_variables` -- Deb et al. 2002, "A Fast and Elitist Multiobjective
 //! Genetic Algorithm: NSGA-II", *IEEE TEC* 6(2), Sec. IV.A's own quoted
 //! experimental settings), `pop_size=100` (a multiple of 4, per T6's
-//! `popsize % 4 == 0` requirement), `budget=25_000` evaluations.
+//! `popsize % 4 == 0` requirement), `budget=25_000` evaluations. ZDT4
+//! (M3-3 Task 1, carried deferral) is the MIXED-BOUNDS case (`x1 in
+//! [0,1]`, `x2,...,x10 in [-5,5]`, two `Block::Float`s) and additionally
+//! asserts every final individual's variables land within those bounds --
+//! guarding `nsga2_run`'s per-variable bounds extraction end-to-end, not
+//! just its convergence.
 //!
 //! # Anchored-threshold discipline (this task's brief)
 //!
@@ -36,32 +41,35 @@
 //!
 //! # Hypervolume reference points
 //!
-//! ZDT1/ZDT2/ZDT3 (`sezgi_problems::Zdt`) map `x1 in [0,1]` directly to
-//! `f1`, and every measured converged front0 here has `f1 in [0, ~1.0]`;
-//! ZDT1/ZDT2's `f2` also lands in `[0, ~1.0]` (`f2 = g*h`, converged `g~1`,
-//! `h in [0,1]`) but ZDT3's `h` includes a `sin` term that pushes converged
-//! `f2` as low as about -0.77 (still comfortably above the DTLZ-style
-//! "unbounded" case). `ref_point = [1.1, 1.1]` was verified (via a scratch
-//! probe run at all 3 seeds) to sit strictly outside every converged
-//! front0's `f1` AND `f2` range for all three problems (measured maxima:
-//! ZDT1 f1<=0.9999, f2<=1.0013; ZDT2 f1<=1.0000, f2<=1.0030; ZDT3
-//! f1<=0.8525, f2<=1.0025), so it is used uniformly for all three. DTLZ2
-//! here uses `m=3` objectives, so `hypervolume_2d` (2D-only by design, see
-//! `sezgi_stats::moo_indicators`'s module doc: "General-M (M > 2
-//! objectives) hypervolume requires the WFG algorithm... explicitly OUT of
-//! scope here") does not apply -- DTLZ2 is validated by IGD only.
+//! ZDT1/ZDT2/ZDT3/ZDT4 (`sezgi_problems::Zdt`) map `x1 in [0,1]` directly
+//! to `f1`, and every measured converged front0 here has `f1 in [0,
+//! ~1.0]`; ZDT1/ZDT2/ZDT4's `f2` also lands in `[0, ~1.01]` (`f2 = g*h`,
+//! converged `g~1`, `h in [0,1]`) but ZDT3's `h` includes a `sin` term that
+//! pushes converged `f2` as low as about -0.77 (still comfortably above
+//! the DTLZ-style "unbounded" case). `ref_point = [1.1, 1.1]` was verified
+//! (via a scratch probe run at all 3 seeds) to sit strictly outside every
+//! converged front0's `f1` AND `f2` range for all four problems (measured
+//! maxima: ZDT1 f1<=0.9999, f2<=1.0013; ZDT2 f1<=1.0000, f2<=1.0030; ZDT3
+//! f1<=0.8525, f2<=1.0025; ZDT4 f1<=0.9998, f2<=1.0098), so it is used
+//! uniformly for all four. DTLZ2 here uses `m=3` objectives, so
+//! `hypervolume_2d` (2D-only by design, see `sezgi_stats::moo_indicators`'s
+//! module doc: "General-M (M > 2 objectives) hypervolume requires the WFG
+//! algorithm... explicitly OUT of scope here") does not apply -- DTLZ2 is
+//! validated by IGD only.
 //!
 //! # Budget/runtime
 //!
-//! All 12 runs (4 problems x 3 seeds) at `pop=100`/`budget=25_000` complete
+//! All 15 runs (5 problems x 3 seeds) at `pop=100`/`budget=25_000` complete
 //! in well under 1 second combined in `--release` (measured: ~0.6s total on
-//! the development machine) -- nowhere near the brief's ~60s ceiling, so
-//! the paper's own `pop=100`/`budget=25_000` (Deb et al. 2002 Sec. IV.A: "a
-//! population size of 100 [and] the algorithms were run for 250
-//! generations") setting is used AS-IS, not reduced.
+//! the development machine, ZDT4's own 3 runs well under 100ms of that) --
+//! nowhere near the brief's ~60s ceiling, so the paper's own
+//! `pop=100`/`budget=25_000` (Deb et al. 2002 Sec. IV.A: "a population size
+//! of 100 [and] the algorithms were run for 250 generations") setting is
+//! used AS-IS, not reduced.
 
 use sezgi_components::nsga2::{nsga2_run, Nsga2Config};
 use sezgi_core::mo::MoProblem;
+use sezgi_core::space::BlockValues;
 use sezgi_problems::{Dtlz, Zdt};
 use sezgi_stats::{hypervolume_2d, igd};
 
@@ -179,5 +187,68 @@ fn nsga2_reference_dtlz2_m3() {
         let front0 = front0_objectives(&result);
         let igd_val = igd(&front0, &reference).unwrap();
         assert!(igd_val < 0.1, "DTLZ2 m=3 seed={seed}: measured IGD {igd_val} exceeds anchored threshold 0.1");
+    }
+}
+
+// ---- ZDT4 (dim=10): mixed-bounds case, x1 in [0,1], x2..x10 in [-5,5] --
+// (Task 1, M3-3: this is the test's whole point -- nsga2_run's bounds
+// extraction is exercised end-to-end against a REAL two-block mixed-bound
+// space, not just ZDT1-3/DTLZ2's uniform-bound ones. Front shape matches
+// ZDT1's, g=1: f2 = 1 - sqrt(f1) -- see crates/problems/src/zdt.rs's module
+// doc and `zdt4_pareto_front_shape_matches_zdt1`.)
+
+#[test]
+fn nsga2_reference_zdt4() {
+    let problem = Zdt::new(4, 10).unwrap();
+    let reference = problem.pareto_front(500).unwrap();
+
+    // Measured at seeds 1/2/3 (scratch probe, pop=100, budget=25000):
+    //   seed=1: igd=0.0079982877 hv=0.8624179760 f1<=0.999731 f2<=1.009773
+    //   seed=2: igd=0.0055300303 hv=0.8675769151 f1<=0.999831 f2<=1.005066
+    //   seed=3: igd=0.0071724697 hv=0.8635810105 f1<=0.998880 f2<=1.009193
+    // (TDD: this test was first written with placeholder-tight anchors --
+    // igd<0.0001, hv>999.0 -- run, observed failing on the real measured
+    // values above via the assertion message, then the anchors below were
+    // hand-set from that measurement, per this task's brief.)
+    // IGD anchor: round UP from the max measured (~0.00800) to 0.02 (2.5x
+    // headroom -- more than ZDT1-3's ~1.7-2x, since ZDT4's multimodal g
+    // (Rastrigin-like, T4 in crates/problems/src/zdt.rs's module doc) makes
+    // per-run variance a real risk this suite must tolerate). HV anchor:
+    // round DOWN from the min measured (~0.86242) to 0.8 (~0.062 absolute
+    // headroom, ~7.2%), matching ZDT1's own 0.8 floor for the same
+    // front-shape family (f2 = 1 - sqrt(f1) at g=1, see the module doc's
+    // "ZDT4: same front shape as ZDT1" section). ref_point=[1.1,1.1] (same
+    // `ZDT_REF_POINT` as ZDT1-3, per the module doc's "Hypervolume
+    // reference points" section) is verified to sit strictly outside every
+    // measured front0's f1/f2 range above (max f1<=0.999831, max
+    // f2<=1.009773, both < 1.1).
+    for &seed in &SEEDS {
+        let result = nsga2_run(&problem, &standard_cfg(seed)).unwrap();
+
+        // (a) bounds: every final individual's x1 in [0,1], x2..x10 in
+        // [-5,5] -- the mixed-bounds path this test exists to guard.
+        for individual in &result.individuals {
+            match (individual.blocks.first(), individual.blocks.get(1)) {
+                (Some(BlockValues::Float(x1)), Some(BlockValues::Float(rest))) => {
+                    assert_eq!(x1.len(), 1, "ZDT4 seed={seed}: expected 1 x1 variable, got {x1:?}");
+                    assert!(
+                        (0.0..=1.0).contains(&x1[0]),
+                        "ZDT4 seed={seed}: x1={} out of [0,1]",
+                        x1[0]
+                    );
+                    assert_eq!(rest.len(), 9, "ZDT4 seed={seed}: expected 9 rest variables, got {rest:?}");
+                    for &xi in rest {
+                        assert!((-5.0..=5.0).contains(&xi), "ZDT4 seed={seed}: xi={xi} out of [-5,5]");
+                    }
+                }
+                other => panic!("ZDT4 seed={seed}: expected two Float blocks, got {other:?}"),
+            }
+        }
+
+        let front0 = front0_objectives(&result);
+        let igd_val = igd(&front0, &reference).unwrap();
+        let hv_val = hypervolume_2d(&front0, &ZDT_REF_POINT).unwrap();
+        assert!(igd_val < 0.02, "ZDT4 seed={seed}: measured IGD {igd_val} exceeds anchored threshold 0.02");
+        assert!(hv_val > 0.8, "ZDT4 seed={seed}: measured HV {hv_val} below anchored threshold 0.8");
     }
 }
