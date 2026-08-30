@@ -31,8 +31,10 @@ use sezgi_core::space::{BlockValues, Genotype};
 ///   **current population's** fitness argmin, ties -> lower index (via
 ///   [`Population::best_index`]) -- the same "current-generation best, not a
 ///   separately-persisted historical best" convention already pinned by
-///   `gwo.rs` and `woa.rs` (the engine's `global_best` is a reporting-only
-///   value not fed back into generators; see those modules' docs).
+///   `gwo.rs` and `woa.rs` (`RunResult::best_f`/`best_x` are sourced from
+///   the `Evaluator`'s own best-tracking, purely a reporting value never fed
+///   back into any generator; see those modules' docs and
+///   `sezgi_core::problem::Evaluator`'s own doc).
 /// - For each search agent `i` (population order), each dimension `d`
 ///   (index order): draw `r2 = 2π · rng.next_f64()` (range `[0, 2π)`), then
 ///   `r3 = 2 · rng.next_f64()` (range `[0, 2)`), then `r4 = rng.next_f64()`

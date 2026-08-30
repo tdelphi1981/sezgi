@@ -10,6 +10,13 @@ def solve(spec, problem, master_seed=0, run_id=0, log_dir=None, algo_name=None):
     """Run an algorithm spec against a problem.
 
     spec: dict (JSON-compatible algorithm spec) or a JSON string.
+
+    Returns a dict including `best_x`: the best EVALUATED point (paired with
+    `best_f`). For most algorithms this always lies within `problem`'s
+    declared bounds. It is not guaranteed to for every algorithm: some (e.g.
+    HHO) charge raw, pre-boundary-repair trial points against the budget
+    before boundary repair, and such a point can become the reported best if
+    it happens to be the run's own minimum.
     """
     if isinstance(spec, dict):
         spec = json.dumps(spec)
@@ -212,6 +219,63 @@ stats = SimpleNamespace(
     paper_package=_paper_package,
 )
 
+
+def _spec_json(spec):
+    """spec: dict (JSON-compatible algorithm spec) or a JSON string —
+    same convention as `solve`'s own `spec` argument."""
+    return json.dumps(spec) if isinstance(spec, dict) else spec
+
+
+def _bias_structural(spec, dim, budget, runs=30, seed=0):
+    return _sezgi.bias_structural(_spec_json(spec), dim, budget, runs=runs, seed=seed)
+
+
+def _bias_central(spec, dim, budget, fids=None, instances_shifted=None, runs_per=20, seed=0):
+    return _sezgi.bias_central(_spec_json(spec), dim, budget, fids=fids,
+                               instances_shifted=instances_shifted, runs_per=runs_per, seed=seed)
+
+
+def _bias_report(spec, dim, budget, seed=0, structural_runs=None, central_fids=None,
+                  central_instances=None, central_runs_per=None):
+    return _sezgi.bias_report(_spec_json(spec), dim, budget, seed=seed,
+                              structural_runs=structural_runs, central_fids=central_fids,
+                              central_instances=central_instances,
+                              central_runs_per=central_runs_per)
+
+
+# Bias-scanning namespace (M3-1 Task 8): mirrors crates/bias's public
+# structs 1:1 by field name.
+#
+# Every dict returned here that carries a verdict has two flat keys:
+# `verdict` ("no_evidence" or "evidence") and `detail` (None for
+# "no_evidence", the evidence-not-accusation detail string otherwise).
+#
+# bias.structural(spec, dim, budget, runs=30, seed=0) -> dict with keys
+#   per_dim_ks (list of {d, p_value, n}), per_dim_ad (list of
+#   {a2, p_value, n}), holm_rejections_ks, holm_rejections_ad,
+#   verdict, detail, final_positions (runs x dim).
+#
+# bias.central(spec, dim, budget, fids=None, instances_shifted=None,
+#   runs_per=20, seed=0) -> dict with keys gap_centered, gap_shifted,
+#   wilcoxon ({w_statistic, z, p_value, n_effective, method}), effect,
+#   verdict, detail. fids/instances_shifted default to crates/bias's own
+#   [1, 4, 13] / [1, 2] when omitted. Raises ValueError for a fid in
+#   {5, 6, 20, 24} (not translation-invariant).
+#
+# bias.report(spec, dim, budget, seed=0, structural_runs=None,
+#   central_fids=None, central_instances=None, central_runs_per=None) ->
+#   dict with keys structural (bias.structural's own shape), central
+#   (bias.central's own shape), signature (always None today -- the T6
+#   Rajwar-Deep signature-bias test is DEFERRED in crates/bias itself:
+#   no reachable source fully specifies its statistical procedure),
+#   latex_summary (str, never containing the literal "NaN"), plot_data
+#   ({final_positions, gap_centered, gap_shifted}).
+bias = SimpleNamespace(
+    structural=_bias_structural,
+    central=_bias_central,
+    report=_bias_report,
+)
+
 __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_experiment", "presets",
            "stats", "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf",
-           "coco_export"]
+           "coco_export", "bias"]

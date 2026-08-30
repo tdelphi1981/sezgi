@@ -1,0 +1,12 @@
+[package]
+name = "sezgi-bias"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sezgi-core = { path = "../core" }
+sezgi-components = { path = "../components" }
+sezgi-problems = { path = "../problems" }
+sezgi-stats = { path = "../stats" }
+thiserror = "2"

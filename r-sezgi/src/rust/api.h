@@ -1,5 +1,8 @@
 SEXP savvy_sezgi_version__ffi(void);
 SEXP savvy_sz_bayesian_plackett_luce_raw__ffi(SEXP c_arg__rankings, SEXP c_arg__samples, SEXP c_arg__burn_in, SEXP c_arg__seed);
+SEXP savvy_sz_bias_central_raw__ffi(SEXP c_arg__spec_json, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__runs_per, SEXP c_arg__seed, SEXP c_arg__fids, SEXP c_arg__instances_shifted);
+SEXP savvy_sz_bias_report_raw__ffi(SEXP c_arg__spec_json, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__seed, SEXP c_arg__structural_runs, SEXP c_arg__central_runs_per, SEXP c_arg__central_fids, SEXP c_arg__central_instances);
+SEXP savvy_sz_bias_structural_raw__ffi(SEXP c_arg__spec_json, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__runs, SEXP c_arg__seed);
 SEXP savvy_sz_coco_export__ffi(SEXP c_arg__log_root, SEXP c_arg__out_dir);
 SEXP savvy_sz_ecdf_raw__ffi(SEXP c_arg__log_root, SEXP c_arg__per_algo, SEXP c_arg__targets);
 SEXP savvy_sz_per_budget_packages_raw__ffi(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__master_seed, SEXP c_arg__aggregate);

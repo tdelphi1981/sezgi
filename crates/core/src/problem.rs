@@ -30,22 +30,57 @@ pub trait EvalObserver: Send {
     fn on_eval(&mut self, eval_index: u64, f: f64, best_so_far: f64);
 }
 
+/// `Evaluator` is the sole gateway every charged evaluation in this crate
+/// passes through -- the engine's own per-stage/setup/restart calls AND any
+/// `Generator`/`Adapter`'s own internal `ctx.eval.evaluate(..)` calls (e.g.
+/// `gen/hho`'s dive-trial evaluations) all funnel through this one method.
+/// So tracking the best-so-far GENOTYPE here, alongside the scalar fitness,
+/// makes `Evaluator` the single source of truth for "the best point observed
+/// over every charged evaluation, from anywhere" -- rather than requiring
+/// every caller to separately reconstruct that view from whichever subset of
+/// evaluations happens to flow through it (see `Engine::run`'s former
+/// `global_best`, which only ever saw the engine's own call sites and so
+/// missed a generator's internal evaluate calls whose winning point was
+/// never itself returned to the engine -- `gen/hho`'s raw dive candidates
+/// being the one case in this crate where the returned/re-evaluated point
+/// differs from the internally-evaluated one, via boundary repair; M3-1
+/// Task 1, unifying `RunResult::best_f`/`best_x` with this tracking).
+///
+/// **Best-comparison rule (defines `best_f`/`best_x` tie/NaN semantics):**
+/// [`Self::evaluate`] updates `best`/`best_x` under strict improvement,
+/// `!(b <= f)` where `b` is the current best -- i.e. a candidate replaces the
+/// incumbent unless the incumbent already compares `<=` it. Two notable
+/// consequences for a user-supplied `Problem` (e.g. `from_callable`) that
+/// can return NaN or signed zero -- irrelevant for this project's own
+/// BBOB/f0 problems, which never produce NaN (goldens confirm bit-identical
+/// output): a NaN fitness compares `false` to everything (`b <= NaN` is
+/// always `false`), so `!(b <= f)` is `true` and a NaN fitness is treated as
+/// an improvement the first time it is seen -- it can become (and, if
+/// nothing subsequently improves on it, stay) the reported `best_f`; and
+/// `-0.0`/`+0.0` are `<=`-equal, so an EARLIER zero is always kept over a
+/// later one of the other sign (no `total_cmp`-style sign-breaking, unlike
+/// the removed engine-side `global_best`'s old comparator).
 pub struct Evaluator<'a> {
     problem: &'a dyn Problem,
     budget: u64,
     used: u64,                    // NOT pub: cannot be incremented from outside
     best: Option<f64>,
+    best_x: Option<Genotype>,
     observer: Option<Box<dyn EvalObserver>>,
 }
 
 impl<'a> Evaluator<'a> {
     pub fn new(problem: &'a dyn Problem, budget: u64) -> Self {
-        Self { problem, budget, used: 0, best: None, observer: None }
+        Self { problem, budget, used: 0, best: None, best_x: None, observer: None }
     }
     pub fn set_observer(&mut self, obs: Box<dyn EvalObserver>) { self.observer = Some(obs); }
     pub fn used(&self) -> u64 { self.used }
     pub fn budget(&self) -> u64 { self.budget }
     pub fn best_so_far(&self) -> Option<f64> { self.best }
+    /// The genotype paired with [`Self::best_so_far`]'s fitness value --
+    /// updated by the SAME strict-improvement comparison, in the same pass,
+    /// over every charged evaluation this `Evaluator` has ever performed.
+    pub fn best_x_so_far(&self) -> Option<&Genotype> { self.best_x.as_ref() }
     pub fn problem(&self) -> &dyn Problem { self.problem }
 
     pub fn evaluate(&mut self, pop: &[Genotype]) -> Result<Vec<f64>, BudgetExhausted> {
@@ -56,13 +91,14 @@ impl<'a> Evaluator<'a> {
         let fs = self.problem.evaluate_batch(pop);
         assert_eq!(fs.len(), pop.len(),
             "Problem::evaluate_batch returned wrong length: {} != {}", fs.len(), pop.len());
-        for &f in &fs {
+        for (g, &f) in pop.iter().zip(&fs) {
             self.used += 1;
-            let best = match self.best {
-                Some(b) if b <= f => b,
-                _ => f,
-            };
-            self.best = Some(best);
+            let improved = !matches!(self.best, Some(b) if b <= f);
+            if improved {
+                self.best = Some(f);
+                self.best_x = Some(g.clone());
+            }
+            let best = self.best.expect("just set above, on this or an earlier call");
             if let Some(o) = self.observer.as_mut() { o.on_eval(self.used, f, best); }
         }
         Ok(fs)

@@ -173,6 +173,71 @@ same spec and seed):
 `sz_results_matrix(records, budget)` is available separately if you need
 just the `(algo_names, problem_labels, matrix)` triple for one budget.
 
+## Bias scanning (M3-1)
+
+`sezgi.bias`/`sz_bias_*` scans a preset spec for structural bias (does the
+algorithm's own search operators pull final positions toward particular
+regions of the domain, independent of the objective — the BIAS-toolbox
+method, Kononova et al. 2015 / Vermetten, van Stein, Caraffini, Minku &
+Kononova 2022) and center bias (does the algorithm perform suspiciously
+better when the optimum sits at the domain center than when it sits at its
+natural off-center location — the Kůdela method, *Nature Machine
+Intelligence* 2022, pinned here via the author's own 2023 restatement,
+arXiv:2301.01984). A one-call `bias.report`/`sz_bias_report` runs both scans
+and renders a NaN-free LaTeX summary table:
+
+    import sezgi
+
+    spec = sezgi.presets.random_search(pop_size=5, budget=50)
+    report = sezgi.bias.report(spec, dim=2, budget=50, seed=20260830,
+                                structural_runs=30, central_fids=[1],
+                                central_instances=[1], central_runs_per=5)
+    print(report["latex_summary"])
+
+Output (tiny budgets, for illustration — see `docs/DECISIONS.md`'s M3-1
+"Method-provenance table" for the numbers a real scan should use):
+
+    \begin{tabular}{llll}
+    \toprule
+    Test & Statistic & $p$ & Verdict \\
+    \midrule
+    Structural bias (KS, Holm-corrected) & 1.221e-1 & $1.0000$ & no evidence of structural bias \\
+    Structural bias (AD, Holm-corrected) & 4.949e-1 & $1.0000$ & no evidence of structural bias \\
+    Central bias (Wilcoxon) & 7.000e0 & $1.0000$ & no evidence of center-bias exploitation \\
+    Signature (Rajwar-Deep) & -- & -- & not run: the Rajwar-Deep method could not be pinned from accessible sources \\
+    \bottomrule
+    \end{tabular}
+
+`sezgi.bias.structural`/`sezgi.bias.central` are also available individually
+(each returns the raw per-dimension KS/AD rows or the paired gap vectors plus
+the Wilcoxon/Cliff's-delta decision, not just the rendered table). R mirrors
+this with `sz_bias_structural`/`sz_bias_central`/`sz_bias_report`, same field
+names:
+
+    library(sezgi)
+
+    spec <- sz_preset_random_search(5, 50)
+    r <- sz_bias_structural(spec, dim = 2, budget = 50, runs = 30, seed = 20260830)
+    cat("verdict:", r$verdict, "\n")
+    cat("per_dim_ks[[1]]$p_value:", r$per_dim_ks[[1]]$p_value, "\n")
+
+Output:
+
+    verdict: no_evidence
+    per_dim_ks[[1]]$p_value: 0.8931464
+
+**Results are statistical evidence, not accusations.** A `NoEvidence`
+verdict means this scan, at this config, found nothing — it is not proof the
+algorithm is unbiased (absence of evidence is not evidence of absence), and
+an `Evidence` verdict describes a measured statistical departure from
+uniformity/parity, not a claim about the algorithm's intent or general
+quality. A third planned test — the Rajwar-Deep Generalized Signature Test —
+is deferred: its primary source is paywalled with no accessible preprint or
+reference implementation, so `bias.report()["signature"]`/`sz_bias_report()$signature`
+is always `None`/`NULL` until the method can be verified from a real source.
+See `docs/DECISIONS.md`'s M3-1 record for the full method-provenance table,
+pinned KS/AD formulas, and the deferral's search log.
+
 ## Examples
 
 `examples/` holds a catalog of all **17** labeled-metaphor algorithms (GWO,
@@ -195,6 +260,17 @@ teaches vs. its preset).
     R CMD INSTALL --preclean r-sezgi && Rscript -e 'testthat::test_dir("r-sezgi/tests/testthat", package = "sezgi")' # R tests
 
 ## Status
+
+M3-1 (bias-scanning module) **complete** — `crates/bias` (structural bias,
+central bias, and a one-call `bias_report`), exposed as `sezgi.bias.*` /
+`sz_bias_*` in both frontends with cross-language bit-equal output; a
+pre-M3 engine follow-up (`RunResult::best_f` unified with the
+Evaluator-observed minimum, closing the M2d-4 HHO divergence caveat). The
+signature/Rajwar-Deep test (a third planned bias check) is BLOCKED and
+deferred — its primary source is paywalled with no accessible preprint or
+reference implementation. See `docs/DECISIONS.md`'s "M3-1 completed" record
+for the full method-provenance table, pinned statistical formulas, and every
+ruling made along the way. Next: M3-2 (multi-objective: NSGA-II, ZDT/DTLZ).
 
 M2d-4 (second and final labeled-metaphor wave) **complete** — twelve more algorithm presets (SCA, JAYA, MFO, SSA, FA, BA, FPA, TLBO, HHO, ALO, ABC, GSA) with pinned deterministic draw orders and primary-source citations, completing the labeled-metaphor catalog at **17 algorithms**, plus their pure-Python/pure-R/spec example triplets under `examples/` (**51 example artifacts** total across all 17); new reusable components `replace/bat-loudness-greedy`, `replace/abc-trial-greedy`, `adapter/abc-onlooker-scout`; TLBO as the project's first multi-stage-per-generation preset (`gen/tlbo-teacher` + `gen/tlbo-learner`); HHO as the project's first in-generator (not adapter) mid-evaluation generator. See `docs/DECISIONS.md`'s "M2d-4 completed" record for the full per-algorithm provenance table (source artifact + sketch-vs-verified deltas found) and the wave's consolidated rulings, including the wave-wide current-pop-argmin parked convention and its MFO-flame/ALO-antlion carve-out.
 

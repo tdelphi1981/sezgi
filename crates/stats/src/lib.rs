@@ -16,6 +16,7 @@ pub mod pairwise;
 pub mod ranks;
 pub mod report;
 pub mod special;
+pub mod uniformity;
 
 pub use bayesian::{
     bayesian_plackett_luce, bayesian_signed_rank, plackett_luce, BayesPlackettLuceResult,
@@ -27,6 +28,7 @@ pub use pairwise::{
 pub use ranks::{friedman, hochberg, holm, nemenyi_cd, rank_matrix, FriedmanResult};
 pub use report::{paper_package, summary_table_latex, AlgorithmSummary, PaperPackage};
 pub use special::{chi_square_sf, erf, gamma_p, ln_gamma, normal_cdf, normal_sf};
+pub use uniformity::{ad_uniform, ks_uniform, AdResult, KsResult};
 
 /// Errors produced by statistical routines in this crate.
 #[derive(Debug, thiserror::Error, PartialEq)]

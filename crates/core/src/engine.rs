@@ -21,9 +21,24 @@ pub struct Engine {
 #[derive(Debug, Clone, Copy)]
 pub struct RunConfig { pub master_seed: u64, pub run_id: u64 }
 
+/// A completed run's outcome. `best_f`/`best_x` are sourced directly from
+/// `Evaluator`'s own best-tracking (see [`crate::problem::Evaluator`]'s
+/// doc): the best fitness/genotype pair over EVERY charged evaluation of the
+/// run, from anywhere -- the engine's own per-stage/setup/restart calls, and
+/// any `Generator`/`Adapter`'s own internal `ctx.eval.evaluate(..)` calls.
 #[derive(Debug, Clone)]
 pub struct RunResult {
     pub best_f: f64,
+    /// The best evaluated point (paired with [`Self::best_f`]). For most
+    /// presets this always lies within the problem's declared domain (every
+    /// charged evaluation was itself boundary-repaired first). It is NOT
+    /// guaranteed to for every preset: a generator whose internal trial
+    /// evaluations run on a raw, PRE-boundary-repair candidate (e.g.
+    /// `gen/hho`'s dive-trial evaluations, see `sezgi_components::hho`'s
+    /// module doc) can have that raw, possibly out-of-domain point become
+    /// the run's own best -- because it was itself a charged evaluation, and
+    /// `Evaluator` tracks the best over every charged evaluation, not only
+    /// the ones the engine's own stage loop re-evaluates after repair.
     pub best_x: Genotype,
     pub evals_used: u64,
     pub iterations: u64,
@@ -106,19 +121,25 @@ impl Engine {
         };
         let mut pop = Population { individuals, fitness };
 
-        // Global best: tracks the best (fitness, genotype) pair evaluated so far,
-        // even if the population replacer is not elitist.
-        let mut global_best: Option<(f64, Genotype)> = None;
-        let update_global_best = |gb: &mut Option<(f64, Genotype)>, xs: &[Genotype], fs: &[f64]| {
-            for (g, &f) in xs.iter().zip(fs) {
-                let better = match gb {
-                    Some((bf, _)) => f.total_cmp(bf) == std::cmp::Ordering::Less,
-                    None => true,
-                };
-                if better { *gb = Some((f, g.clone())); }
-            }
-        };
-        update_global_best(&mut global_best, &pop.individuals, &pop.fitness);
+        // Best-so-far: sourced from `eval` itself (`Evaluator::best_so_far`/
+        // `best_x_so_far`), NOT tracked separately here. `Evaluator::evaluate`
+        // is the sole gateway every charged evaluation in this crate passes
+        // through -- this engine's own per-stage/setup/restart calls AND any
+        // `Generator`/`Adapter`'s own internal `ctx.eval.evaluate(..)` calls
+        // (e.g. `gen/hho`'s dive-trial evaluations, which evaluate a RAW
+        // point the engine itself never sees again after boundary repair) --
+        // so it is the only place that can see the true minimum over every
+        // charged evaluation, from anywhere (M3-1 Task 1; see `problem.rs`'s
+        // `Evaluator` doc comment). An engine-local `global_best` mirrored
+        // ONLY the engine's own call sites (the setup eval below, each
+        // stage's own offspring-evaluate, the post-adapter `pop` scan, and
+        // restart re-init) and so necessarily missed any such internal
+        // generator/adapter-issued evaluate call whose winning point was
+        // never itself returned to the engine -- this was a real, measured
+        // gap for `gen/hho` (DECISIONS M2d-4). Reading directly from `eval`
+        // closes it for HHO and remains a no-op for every other preset (the
+        // M2d-4 sweep already found best_f == observed-min 10/10 for all 16
+        // non-HHO presets).
 
         let reached = |eval: &Evaluator| -> bool {
             matches!((self.target, eval.best_so_far()),
@@ -142,7 +163,6 @@ impl Engine {
                     Ok(f) => f,
                     Err(_) => break 'outer, // budget exhausted: clean exit
                 };
-                update_global_best(&mut global_best, &offspring, &off_fit);
                 {
                     let (_, rr) = &mut stage_rngs[si];
                     let mut ctx = Ctx { space, rng: rr, bb: &mut bb,
@@ -156,32 +176,16 @@ impl Engine {
                 }
                 // An adapter above may have evaluated brand-new individuals
                 // via `ctx.eval.evaluate(..)` and written them straight into
-                // `pop` without going through this loop's own
-                // generator-stage `eval.evaluate(&offspring)` call -- the
-                // only path `update_global_best` was previously wired to
-                // (M2d-3 Task 8's `adapter/abandon-worst-fraction` is the
-                // first such adapter; see `sezgi_components::cs`'s module
-                // doc). Scan `pop` HERE -- immediately after THIS stage's
-                // adapter call and BEFORE the `reached()` check below -- so
-                // any such adapter-introduced improvement is captured
-                // before either `break 'outer` path below can jump past it:
-                // a target hit triggered by the adapter's own evaluation
-                // must still land in `global_best` before `reached(&eval)`
-                // fires (fix round 2; an end-of-generation-only scan placed
-                // after this stage loop, as in fix round 1, missed exactly
-                // this case). The other `break 'outer` above (budget
-                // exhaustion on THIS stage's own `eval.evaluate(&offspring)`
-                // call) fires strictly before this stage's replace/adapter
-                // ever run, so there is nothing of this stage's to lose
-                // there. For every adapter that never evaluates (all of
-                // them, prior to Task 8) this scan is a proven no-op: every
-                // entry in `pop` was already fed through `update_global_best`
-                // either by this same stage's own evaluate call above, or
-                // (for individuals surviving from an earlier stage/
-                // generation) by that earlier stage's own scan right here --
-                // so nothing in `pop` can ever compare better than the
-                // already-recorded `global_best`.
-                update_global_best(&mut global_best, &pop.individuals, &pop.fitness);
+                // `pop` without going through this loop's own generator-stage
+                // `eval.evaluate(&offspring)` call (M2d-3 Task 8's
+                // `adapter/abandon-worst-fraction` is the first such adapter;
+                // see `sezgi_components::cs`'s module doc). Pre-M3-1 this
+                // engine had to separately re-scan `pop` right here to catch
+                // that case for its own `global_best`; now that best-tracking
+                // lives in `eval` itself (M3-1 Task 1), that adapter-issued
+                // evaluate call already updated `eval.best_so_far()`/
+                // `best_x_so_far()` the instant it happened, so no scan is
+                // needed -- `reached(&eval)` below sees it directly.
                 if reached(&eval) { break 'outer; }
             }
 
@@ -219,10 +223,9 @@ impl Engine {
                     if individuals.is_empty() { return Err(EngineError::EmptyPopulation); }
                     match eval.evaluate(&individuals) {
                         Ok(fitness) => {
-                            update_global_best(&mut global_best, &individuals, &fitness);
                             pop = Population { individuals, fitness };
                         }
-                        Err(_) => break 'outer, // budget exhausted: clean exit, global best kept
+                        Err(_) => break 'outer, // budget exhausted: clean exit, best-so-far kept
                     }
                     if reached(&eval) { break 'outer; }
                 }
@@ -231,7 +234,11 @@ impl Engine {
             iterations += 1;
         }
 
-        let (best_f, best_x) = global_best.expect("at least the initialization should have been evaluated");
+        let best_f = eval.best_so_far()
+            .expect("at least the initialization should have been evaluated");
+        let best_x = eval.best_x_so_far()
+            .expect("best_so_far and best_x_so_far are set together, on the same evaluate() call")
+            .clone();
         Ok(RunResult {
             best_f,
             best_x,

@@ -254,6 +254,7 @@ dependencies = [
  "pyo3-build-config",
  "serde_json",
  "sezgi-bench",
+ "sezgi-bias",
  "sezgi-components",
  "sezgi-core",
  "sezgi-problems",
@@ -455,6 +456,17 @@ dependencies = [
  "tempfile",
  "thiserror",
  "toml",
+]
+
+[[package]]
+name = "sezgi-bias"
+version = "0.1.0"
+dependencies = [
+ "sezgi-components",
+ "sezgi-core",
+ "sezgi-problems",
+ "sezgi-stats",
+ "thiserror",
 ]
 
 [[package]]
