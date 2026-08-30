@@ -124,7 +124,13 @@ impl IohLogger {
         std::fs::create_dir_all(&data_dir)?;
 
         let dat_name = format!("IOHprofiler_f{}_DIM{}.dat", self.fid, self.dim);
-        let mut dat = std::fs::File::create(data_dir.join(&dat_name))?;
+        let dat_path = data_dir.join(&dat_name);
+        // Append to existing .dat file if it exists (for merged runs), else create new
+        let mut dat = if dat_path.exists() {
+            std::fs::OpenOptions::new().append(true).open(&dat_path)?
+        } else {
+            std::fs::File::create(&dat_path)?
+        };
         let mut runs_json = vec![];
         let mut skipped_empty_runs = 0;
         for run in &self.runs {
@@ -203,11 +209,26 @@ impl IohLogger {
             Vec::new()
         };
 
-        // Replace this dimension's scenario if the file already had one
-        // (a re-finish of the same dim), otherwise append.
+        // Merge or append this dimension's scenario: if a scenario for this
+        // dimension already exists, append this logger's runs to its runs array
+        // (this happens when multiple runs are logged via separate finish()
+        // calls, e.g. from bbob_records with different seeds). Otherwise,
+        // append a new scenario entry.
         let dim_json = serde_json::Value::from(self.dim);
         match scenarios.iter().position(|s| s["dimension"] == dim_json) {
-            Some(idx) => scenarios[idx] = new_scenario,
+            Some(idx) => {
+                // Merge this logger's runs into the existing scenario
+                if let Some(new_runs) = new_scenario["runs"].as_array() {
+                    let existing_scenario = &mut scenarios[idx];
+                    if existing_scenario["runs"].is_array() {
+                        for run in new_runs {
+                            existing_scenario["runs"].as_array_mut().unwrap().push(run.clone());
+                        }
+                    }
+                    // Update the path if needed (normally should stay the same)
+                    existing_scenario["path"] = new_scenario["path"].clone();
+                }
+            },
             None => scenarios.push(new_scenario),
         }
 

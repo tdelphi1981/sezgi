@@ -136,7 +136,7 @@ class Algorithm(abc.ABC):
         return result
 
 
-def bbob_records(factory, fids, dims, instances, seeds, budget):
+def bbob_records(factory, fids, dims, instances, seeds, budget, log_dir=None):
     """BBOB-scenario sweep helper that records runs in stats-pipeline shape.
 
     Runs an algorithm across a multi-scenario sweep (combinations of BBOB
@@ -159,6 +159,11 @@ def bbob_records(factory, fids, dims, instances, seeds, budget):
     instances: list of BBOB instances (1..).
     seeds: list of random seeds.
     budget: fixed evaluation budget for all runs.
+    log_dir: optional path to an IOH output directory. When given, each run's
+        IOH log is appended to the same tree, organized by (algo, fid, dim)
+        scenario. Omitting it keeps the behavior unchanged (no IOH logging).
+        The resulting archive is readable via `read_ioh_records`, `ecdf`, and
+        `coco_export`, mirroring `run_experiment`'s contract exactly.
 
     Returns: list[dict], one record per (fid, dim, instance, seed) run,
         with keys exactly {algo, fid, dim, instance, seed, budget, best_f,
@@ -172,7 +177,8 @@ def bbob_records(factory, fids, dims, instances, seeds, budget):
                     algo = factory()
                     start = time.perf_counter()
                     result = algo.solve(
-                        sezgi.bbob(fid, dim, instance), budget=budget, seed=seed)
+                        sezgi.bbob(fid, dim, instance), budget=budget, seed=seed,
+                        log_dir=log_dir)
                     elapsed = time.perf_counter() - start
                     records.append({
                         "algo": result.algo,

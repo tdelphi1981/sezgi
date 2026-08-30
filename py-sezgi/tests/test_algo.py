@@ -191,6 +191,19 @@ def test_bbob_records_fresh_instance_per_run():
                             seeds=[0, 1, 2], budget=20)
     assert len(created) == 3
 
+def test_bbob_records_log_dir_roundtrip(tmp_path):
+    recs = sezgi.algo.bbob_records(RandomSearch, fids=[1], dims=[2],
+                                   instances=[1], seeds=[0, 1], budget=40,
+                                   log_dir=str(tmp_path))
+    back = sezgi.read_ioh_records(str(tmp_path), [40])
+    assert len(back) == 2
+    # the reconstructed records agree with the live ones on the identity keys
+    # and best_f (wall_secs differs by nature; evals_used per ioh_records'
+    # documented best-so-far semantics)
+    live = {(r["fid"], r["dim"], r["instance"], r["seed"]): r["best_f"] for r in recs}
+    for b in back:
+        assert b["best_f"] == live[(b["fid"], b["dim"], b["instance"], b["seed"])]
+
 
 # M3-4 Task 4: the bias bridge -- sezgi.bias.f0 (an f0 Problem handle usable
 # with EvalSession.for_problem / Algorithm.solve) and
