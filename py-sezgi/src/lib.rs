@@ -10,6 +10,10 @@ use sezgi_bench::{
     run_experiment_sequential, run_experiment_with_checkpoint, Aggregate, EcdfCurve, EvalSession,
     ExperimentSpec, IohLogger, RunKey, RunRecord,
 };
+use sezgi_bias::{
+    central_bias_scan, structural_bias_scan, BiasReportConfig, BiasVerdict, CentralBiasConfig,
+    CentralBiasResult, StructuralBiasConfig, StructuralBiasResult,
+};
 use sezgi_components::{presets, register_builtins};
 use sezgi_core::component::Registry;
 use sezgi_core::dist::Distribution;
@@ -21,7 +25,9 @@ use sezgi_problems::BbobProblem;
 use sezgi_stats::{
     bayesian_plackett_luce, bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman,
     paper_package, plackett_luce, wilcoxon_signed_rank, PaperPackage, WilcoxonMethod,
+    WilcoxonResult,
 };
+use sezgi_stats::uniformity::{AdResult, KsResult};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 
@@ -735,6 +741,254 @@ fn per_budget_packages(
     Ok(out.into())
 }
 
+// ---------------------------------------------------------------------
+// Bias-scanning bindings (sezgi.bias) — M3-1 Task 8.
+//
+// Mirrors `crates/bias`'s public structs 1:1 by field name (see that
+// crate's `structural`/`central`/`report` modules for the full method
+// provenance). `BiasVerdict` is surfaced as two flat keys on every dict
+// that carries one — `verdict`: the string "no_evidence" or "evidence",
+// and `detail`: `None` for `NoEvidence`, the `Evidence::detail` string
+// otherwise — rather than a nested sub-dict, matching this module's own
+// flat-dict convention elsewhere (e.g. `stats_wilcoxon`'s `method` key).
+//
+// T6 (the Rajwar-Deep signature-bias test) is DEFERRED in `sezgi-bias`
+// itself (no `signature_scan` exists yet — see `crates/bias/src/report.rs`'s
+// module doc, "T6 (signature test): deferred"); `bias_report`'s `signature`
+// key is therefore always Python `None` here, mirroring
+// `BiasReport::signature`'s own always-`None` `Option<BiasVerdict>` today.
+//
+// Every scalar statistic (`d`, `p_value`, `a2`, `w_statistic`, `z`,
+// `effect`, ...) is passed through as the exact `f64` PyO3 already returns
+// bit-for-bit for a Rust `f64` argument to `PyDict::set_item` — no
+// rounding/formatting anywhere in this section.
+// ---------------------------------------------------------------------
+
+fn ks_result_to_dict<'py>(py: Python<'py>, r: &KsResult) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("d", r.d)?;
+    d.set_item("p_value", r.p_value)?;
+    d.set_item("n", r.n)?;
+    Ok(d)
+}
+
+fn ad_result_to_dict<'py>(py: Python<'py>, r: &AdResult) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("a2", r.a2)?;
+    d.set_item("p_value", r.p_value)?;
+    d.set_item("n", r.n)?;
+    Ok(d)
+}
+
+fn wilcoxon_result_to_dict<'py>(py: Python<'py>, r: &WilcoxonResult) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("w_statistic", r.w_statistic)?;
+    d.set_item("z", r.z)?;
+    d.set_item("p_value", r.p_value)?;
+    d.set_item("n_effective", r.n_effective)?;
+    d.set_item(
+        "method",
+        match r.method {
+            WilcoxonMethod::Exact => "exact",
+            WilcoxonMethod::NormalApprox => "normal_approx",
+        },
+    )?;
+    Ok(d)
+}
+
+/// Sets `verdict` ("no_evidence"/"evidence") and `detail` (`None`, or the
+/// `Evidence::detail` string) on `d` — shared by every dict this module
+/// builds from a [`BiasVerdict`].
+fn set_verdict(d: &Bound<'_, PyDict>, verdict: &BiasVerdict) -> PyResult<()> {
+    match verdict {
+        BiasVerdict::NoEvidence => {
+            d.set_item("verdict", "no_evidence")?;
+            d.set_item("detail", Option::<String>::None)?;
+        }
+        BiasVerdict::Evidence { detail } => {
+            d.set_item("verdict", "evidence")?;
+            d.set_item("detail", detail.clone())?;
+        }
+    }
+    Ok(())
+}
+
+fn structural_result_to_dict<'py>(
+    py: Python<'py>,
+    r: &StructuralBiasResult,
+) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    let ks_list = PyList::empty(py);
+    for k in &r.per_dim_ks {
+        ks_list.append(ks_result_to_dict(py, k)?)?;
+    }
+    d.set_item("per_dim_ks", ks_list)?;
+    let ad_list = PyList::empty(py);
+    for a in &r.per_dim_ad {
+        ad_list.append(ad_result_to_dict(py, a)?)?;
+    }
+    d.set_item("per_dim_ad", ad_list)?;
+    d.set_item("holm_rejections_ks", r.holm_rejections_ks)?;
+    d.set_item("holm_rejections_ad", r.holm_rejections_ad)?;
+    set_verdict(&d, &r.verdict)?;
+    let positions = PyList::empty(py);
+    for row in &r.final_positions {
+        positions.append(PyList::new(py, row)?)?;
+    }
+    d.set_item("final_positions", positions)?;
+    Ok(d)
+}
+
+fn central_result_to_dict<'py>(
+    py: Python<'py>,
+    r: &CentralBiasResult,
+) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("gap_centered", PyList::new(py, &r.gap_centered)?)?;
+    d.set_item("gap_shifted", PyList::new(py, &r.gap_shifted)?)?;
+    d.set_item("wilcoxon", wilcoxon_result_to_dict(py, &r.wilcoxon)?)?;
+    d.set_item("effect", r.effect)?;
+    set_verdict(&d, &r.verdict)?;
+    Ok(d)
+}
+
+/// `sezgi.bias.structural(spec, dim, budget, runs=30, seed=0)` — see
+/// [`sezgi_bias::structural::structural_bias_scan`]. Returns a dict with
+/// keys `per_dim_ks` (list of `{d, p_value, n}`), `per_dim_ad` (list of
+/// `{a2, p_value, n}`), `holm_rejections_ks`, `holm_rejections_ad`,
+/// `verdict`/`detail` (see this section's own doc), and `final_positions`
+/// (`runs` x `dim`).
+#[pyfunction]
+#[pyo3(signature = (spec_json, dim, budget, runs=sezgi_bias::structural::DEFAULT_RUNS, seed=0))]
+fn bias_structural(
+    py: Python<'_>,
+    spec_json: &str,
+    dim: usize,
+    budget: u64,
+    runs: u32,
+    seed: u64,
+) -> PyResult<Py<PyDict>> {
+    let spec =
+        AlgorithmSpec::from_json(spec_json).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let cfg = StructuralBiasConfig { runs, dim, budget, seed };
+    let r = structural_bias_scan(&spec, &cfg).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(structural_result_to_dict(py, &r)?.into())
+}
+
+/// `sezgi.bias.central(spec, dim, budget, fids=None, instances_shifted=None,
+/// runs_per=20, seed=0)` — see [`sezgi_bias::central::central_bias_scan`].
+/// `fids`/`instances_shifted` default to `sezgi_bias::report`'s own
+/// `DEFAULT_CENTRAL_FIDS`/`DEFAULT_CENTRAL_INSTANCES` when omitted (`None`).
+/// Returns a dict with keys `gap_centered`, `gap_shifted`, `wilcoxon` (a
+/// dict: `w_statistic, z, p_value, n_effective, method`), `effect`, and
+/// `verdict`/`detail`.
+///
+/// # Errors
+/// `ValueError` for every [`sezgi_bias::BiasError`] case, including a fid in
+/// `{5, 6, 20, 24}` (not translation-invariant — see `central.rs`'s module
+/// doc, "Construction fix").
+#[pyfunction]
+#[pyo3(signature = (
+    spec_json, dim, budget,
+    fids=None, instances_shifted=None,
+    runs_per=sezgi_bias::report::DEFAULT_CENTRAL_RUNS_PER, seed=0,
+))]
+#[allow(clippy::too_many_arguments)]
+fn bias_central(
+    py: Python<'_>,
+    spec_json: &str,
+    dim: usize,
+    budget: u64,
+    fids: Option<Vec<u32>>,
+    instances_shifted: Option<Vec<u32>>,
+    runs_per: u32,
+    seed: u64,
+) -> PyResult<Py<PyDict>> {
+    let spec =
+        AlgorithmSpec::from_json(spec_json).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let cfg = CentralBiasConfig {
+        fids: fids.unwrap_or_else(|| sezgi_bias::report::DEFAULT_CENTRAL_FIDS.to_vec()),
+        dim,
+        instances_shifted: instances_shifted
+            .unwrap_or_else(|| sezgi_bias::report::DEFAULT_CENTRAL_INSTANCES.to_vec()),
+        runs_per,
+        budget,
+        seed,
+    };
+    let r = central_bias_scan(&spec, &cfg).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(central_result_to_dict(py, &r)?.into())
+}
+
+/// `sezgi.bias.report(spec, dim, budget, seed=0, structural_runs=None,
+/// central_fids=None, central_instances=None, central_runs_per=None)` — see
+/// [`sezgi_bias::bias_report`]. Every optional knob left `None` falls back
+/// to [`BiasReportConfig::new`]'s own documented verified-method default
+/// (`structural_runs` -> 30, `central_fids` -> `[1, 4, 13]`,
+/// `central_instances` -> `[1, 2]`, `central_runs_per` -> 20).
+///
+/// Returns a dict with keys `structural` (same shape as `bias_structural`'s
+/// return), `central` (same shape as `bias_central`'s return), `signature`
+/// (always Python `None` today — T6 is deferred, see this section's own
+/// doc), `latex_summary` (str, never containing the literal `NaN`), and
+/// `plot_data` (`{final_positions, gap_centered, gap_shifted}`, the same raw
+/// vectors already inside `structural`/`central`, surfaced for a caller that
+/// wants to plot them directly).
+#[pyfunction]
+#[pyo3(signature = (
+    spec_json, dim, budget, seed=0,
+    structural_runs=None, central_fids=None, central_instances=None, central_runs_per=None,
+))]
+#[allow(clippy::too_many_arguments)]
+fn bias_report(
+    py: Python<'_>,
+    spec_json: &str,
+    dim: usize,
+    budget: u64,
+    seed: u64,
+    structural_runs: Option<u32>,
+    central_fids: Option<Vec<u32>>,
+    central_instances: Option<Vec<u32>>,
+    central_runs_per: Option<u32>,
+) -> PyResult<Py<PyDict>> {
+    let spec =
+        AlgorithmSpec::from_json(spec_json).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let mut cfg = BiasReportConfig::new(dim, budget, seed);
+    if let Some(v) = structural_runs {
+        cfg.structural_runs = v;
+    }
+    if let Some(v) = central_fids {
+        cfg.central_fids = v;
+    }
+    if let Some(v) = central_instances {
+        cfg.central_instances = v;
+    }
+    if let Some(v) = central_runs_per {
+        cfg.central_runs_per = v;
+    }
+    let r = sezgi_bias::bias_report(&spec, &cfg)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let d = PyDict::new(py);
+    d.set_item("structural", structural_result_to_dict(py, &r.structural)?)?;
+    d.set_item("central", central_result_to_dict(py, &r.central)?)?;
+    // T6 is deferred in sezgi-bias itself -- always None, see this
+    // section's own doc.
+    d.set_item("signature", py.None())?;
+    d.set_item("latex_summary", r.latex_summary.clone())?;
+
+    let plot = PyDict::new(py);
+    let positions = PyList::empty(py);
+    for row in &r.plot_data.final_positions {
+        positions.append(PyList::new(py, row)?)?;
+    }
+    plot.set_item("final_positions", positions)?;
+    plot.set_item("gap_centered", PyList::new(py, &r.plot_data.gap_centered)?)?;
+    plot.set_item("gap_shifted", PyList::new(py, &r.plot_data.gap_shifted)?)?;
+    d.set_item("plot_data", plot)?;
+
+    Ok(d.into())
+}
+
 #[pyfunction] fn preset_de_rand_1(pop_size: usize, budget: u64) -> String {
     presets::de_rand_1(pop_size, budget).to_json()
 }
@@ -888,6 +1142,9 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(stats_paper_package, m)?)?;
     m.add_function(wrap_pyfunction!(results_matrix, m)?)?;
     m.add_function(wrap_pyfunction!(per_budget_packages, m)?)?;
+    m.add_function(wrap_pyfunction!(bias_structural, m)?)?;
+    m.add_function(wrap_pyfunction!(bias_central, m)?)?;
+    m.add_function(wrap_pyfunction!(bias_report, m)?)?;
     m.add_function(wrap_pyfunction!(preset_de_rand_1, m)?)?;
     m.add_function(wrap_pyfunction!(preset_de_best_1, m)?)?;
     m.add_function(wrap_pyfunction!(preset_jde, m)?)?;

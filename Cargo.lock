@@ -254,6 +254,7 @@ dependencies = [
  "pyo3-build-config",
  "serde_json",
  "sezgi-bench",
+ "sezgi-bias",
  "sezgi-components",
  "sezgi-core",
  "sezgi-problems",
