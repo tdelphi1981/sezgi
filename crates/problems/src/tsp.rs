@@ -237,6 +237,7 @@ impl Tsp {
                 break;
             }
             if line == "NODE_COORD_SECTION" {
+                // sezgi simplification: DIMENSION must precede NODE_COORD_SECTION here; TSPLIB95 says keyword order is "arbitrary in principle", but every distributed instance uses this order.
                 let n = dimension.ok_or(TspError::MissingField("DIMENSION"))?;
                 let mut section: Vec<Option<(f64, f64)>> = vec![None; n];
                 while let Some(&next_raw) = lines.peek() {
