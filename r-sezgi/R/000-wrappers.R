@@ -76,6 +76,99 @@ NULL
   .Call(savvy_sz_bayesian_plackett_luce_raw__impl, `rankings`, `samples`, `burn_in`, `seed`)
 }
 
+#' Central-bias scan: run `spec_json` on paired centered/shifted BBOB
+#' conditions and test whether its performance gap differs between them --
+#' see [`sezgi_bias::central::central_bias_scan`].
+#'
+#' This is the raw savvy-generated binding; the public R entry point with
+#' R-native defaults (`fids = NULL`, `instances_shifted = NULL`,
+#' `runs_per = 20`, `seed = 0`) is the hand-written wrapper
+#' `sz_bias_central()` in `R/bias.R`, which calls this function. `fids`/
+#' `instances_shifted` are the trailing `Option<RealSexp>` args (savvy
+#' requires optional args to come last in a raw signature); `NULL` falls
+#' back to `sezgi_bias::report`'s own `DEFAULT_CENTRAL_FIDS`/
+#' `DEFAULT_CENTRAL_INSTANCES` (`[1, 4, 13]`/`[1, 2]`), same as py-sezgi's
+#' `bias_central`.
+#'
+#' @param spec_json Algorithm spec as JSON.
+#' @param dim Problem dimension (BBOB requires >= 2, double, cast to `usize`).
+#' @param budget Per-run evaluation budget (double, cast to `u64`).
+#' @param runs_per Independent runs per `(fid, instance)` pair (double,
+#'   cast to `u32`).
+#' @param seed Master RNG seed, shared by both conditions (double, cast to
+#'   `u64`).
+#' @param fids Optional numeric vector of BBOB function ids; `NULL` uses
+#'   the verified defaults `c(1, 4, 13)`. Every entry must be
+#'   translation-invariant -- fids 5, 6, 20, 24 are rejected.
+#' @param instances_shifted Optional numeric vector of BBOB instance
+#'   numbers; `NULL` uses the verified defaults `c(1, 2)`.
+#' @returns A named list with `gap_centered`, `gap_shifted`, `wilcoxon`,
+#'   `effect`, `verdict`, `detail` (mirrors py-sezgi's
+#'   `sezgi.bias.central()` dict keys exactly).
+#'
+#' # Errors
+#' A savvy error for every [`sezgi_bias::BiasError`] case, including a fid
+#' in `{5, 6, 20, 24}` (not translation-invariant).
+#' @noRd
+`sz_bias_central_raw` <- function(`spec_json`, `dim`, `budget`, `runs_per`, `seed`, `fids` = NULL, `instances_shifted` = NULL) {
+  .Call(savvy_sz_bias_central_raw__impl, `spec_json`, `dim`, `budget`, `runs_per`, `seed`, `fids`, `instances_shifted`)
+}
+
+#' One-call bias report: runs both the structural and central bias scans
+#' on `spec_json` and assembles a single report -- see
+#' [`sezgi_bias::report::bias_report`].
+#'
+#' This is the raw savvy-generated binding; the public R entry point with
+#' R-native defaults (every optional knob `NULL`) is the hand-written
+#' wrapper `sz_bias_report()` in `R/bias.R`, which calls this function.
+#' Every `NULL` knob falls back to [`BiasReportConfig::new`]'s own
+#' documented verified-method default (`structural_runs` -> 30,
+#' `central_fids` -> `[1, 4, 13]`, `central_instances` -> `[1, 2]`,
+#' `central_runs_per` -> 20), same as py-sezgi's `bias_report`.
+#'
+#' @param spec_json Algorithm spec as JSON.
+#' @param dim Shared dimensionality for both scans (double, cast to `usize`).
+#' @param budget Shared per-run evaluation budget (double, cast to `u64`).
+#' @param seed Shared master RNG seed (double, cast to `u64`).
+#' @param structural_runs Optional double, cast to `u32`; `NULL` uses 30.
+#' @param central_runs_per Optional double, cast to `u32`; `NULL` uses 20.
+#' @param central_fids Optional numeric vector; `NULL` uses `c(1, 4, 13)`.
+#' @param central_instances Optional numeric vector; `NULL` uses `c(1, 2)`.
+#' @returns A named list with `structural`, `central`, `signature` (always
+#'   `NULL` -- T6 is deferred, see this module's own doc), `latex_summary`
+#'   (never contains the literal `"NaN"`), `plot_data` (mirrors py-sezgi's
+#'   `sezgi.bias.report()` dict keys exactly).
+#' @noRd
+`sz_bias_report_raw` <- function(`spec_json`, `dim`, `budget`, `seed`, `structural_runs` = NULL, `central_runs_per` = NULL, `central_fids` = NULL, `central_instances` = NULL) {
+  .Call(savvy_sz_bias_report_raw__impl, `spec_json`, `dim`, `budget`, `seed`, `structural_runs`, `central_runs_per`, `central_fids`, `central_instances`)
+}
+
+#' Structural-bias scan: run `spec_json` repeatedly on the f0
+#' random-function null problem and test its final positions for departure
+#' from uniformity -- see [`sezgi_bias::structural::structural_bias_scan`].
+#'
+#' This is the raw savvy-generated binding (required args only; savvy has
+#' no way to express a non-`NULL` default for a required argument in the
+#' generated signature). The public R entry point with R-native defaults
+#' (`runs = 30`, `seed = 0`) is the hand-written wrapper
+#' `sz_bias_structural()` in `R/bias.R`, which calls this function -- same
+#' raw/wrapper pattern as `sz_stats_bayesian_signed_rank()` /
+#' `sz_stats_bayesian_signed_rank_raw()`.
+#'
+#' @param spec_json Algorithm spec as JSON.
+#' @param dim f0's domain dimensionality (>= 1, double, cast to `usize`).
+#' @param budget Per-run evaluation budget (double, cast to `u64`).
+#' @param runs Number of independent runs (double, cast to `u32`).
+#' @param seed Master RNG seed (double, cast to `u64`).
+#' @returns A named list with `per_dim_ks`, `per_dim_ad`,
+#'   `holm_rejections_ks`, `holm_rejections_ad`, `verdict`, `detail`,
+#'   `final_positions` (mirrors py-sezgi's `sezgi.bias.structural()` dict
+#'   keys exactly).
+#' @noRd
+`sz_bias_structural_raw` <- function(`spec_json`, `dim`, `budget`, `runs`, `seed`) {
+  .Call(savvy_sz_bias_structural_raw__impl, `spec_json`, `dim`, `budget`, `runs`, `seed`)
+}
+
 #' Exports the IOH archive at `log_root` as a COCO/BBOB "old format"
 #' archive rooted at `out_dir` -- see `sezgi_bench::coco_export`. Returns
 #' the list of written file paths (as strings), sorted for determinism.

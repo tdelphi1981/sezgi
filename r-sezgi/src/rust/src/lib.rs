@@ -1,6 +1,7 @@
 use savvy::savvy;
 
 mod anytime;
+mod bias;
 mod experiment;
 mod session;
 mod solve;

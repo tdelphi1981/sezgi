@@ -15,6 +15,7 @@ sezgi-components = { path = "../../../crates/components" }
 sezgi-problems = { path = "../../../crates/problems" }
 sezgi-bench = { path = "../../../crates/bench" }
 sezgi-stats = { path = "../../../crates/stats" }
+sezgi-bias = { path = "../../../crates/bias" }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 
 [profile.release]

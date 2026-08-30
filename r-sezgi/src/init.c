@@ -49,6 +49,21 @@ SEXP savvy_sz_bayesian_plackett_luce_raw__impl(SEXP c_arg__rankings, SEXP c_arg_
     return handle_result(res);
 }
 
+SEXP savvy_sz_bias_central_raw__impl(SEXP c_arg__spec_json, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__runs_per, SEXP c_arg__seed, SEXP c_arg__fids, SEXP c_arg__instances_shifted) {
+    SEXP res = savvy_sz_bias_central_raw__ffi(c_arg__spec_json, c_arg__dim, c_arg__budget, c_arg__runs_per, c_arg__seed, c_arg__fids, c_arg__instances_shifted);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_bias_report_raw__impl(SEXP c_arg__spec_json, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__seed, SEXP c_arg__structural_runs, SEXP c_arg__central_runs_per, SEXP c_arg__central_fids, SEXP c_arg__central_instances) {
+    SEXP res = savvy_sz_bias_report_raw__ffi(c_arg__spec_json, c_arg__dim, c_arg__budget, c_arg__seed, c_arg__structural_runs, c_arg__central_runs_per, c_arg__central_fids, c_arg__central_instances);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_bias_structural_raw__impl(SEXP c_arg__spec_json, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__runs, SEXP c_arg__seed) {
+    SEXP res = savvy_sz_bias_structural_raw__ffi(c_arg__spec_json, c_arg__dim, c_arg__budget, c_arg__runs, c_arg__seed);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_coco_export__impl(SEXP c_arg__log_root, SEXP c_arg__out_dir) {
     SEXP res = savvy_sz_coco_export__ffi(c_arg__log_root, c_arg__out_dir);
     return handle_result(res);
@@ -308,6 +323,9 @@ SEXP savvy_EvalSession_new__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__i
 static const R_CallMethodDef CallEntries[] = {
     {"savvy_sezgi_version__impl", (DL_FUNC) &savvy_sezgi_version__impl, 0},
     {"savvy_sz_bayesian_plackett_luce_raw__impl", (DL_FUNC) &savvy_sz_bayesian_plackett_luce_raw__impl, 4},
+    {"savvy_sz_bias_central_raw__impl", (DL_FUNC) &savvy_sz_bias_central_raw__impl, 7},
+    {"savvy_sz_bias_report_raw__impl", (DL_FUNC) &savvy_sz_bias_report_raw__impl, 8},
+    {"savvy_sz_bias_structural_raw__impl", (DL_FUNC) &savvy_sz_bias_structural_raw__impl, 5},
     {"savvy_sz_coco_export__impl", (DL_FUNC) &savvy_sz_coco_export__impl, 2},
     {"savvy_sz_ecdf_raw__impl", (DL_FUNC) &savvy_sz_ecdf_raw__impl, 3},
     {"savvy_sz_per_budget_packages_raw__impl", (DL_FUNC) &savvy_sz_per_budget_packages_raw__impl, 13},
