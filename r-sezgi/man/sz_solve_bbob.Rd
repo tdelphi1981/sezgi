@@ -21,7 +21,12 @@ sz_solve_bbob(spec_json, fid, dim, instance, master_seed, run_id)
 }
 \value{
 A named list with `best_f` (double), `evals` (double), and
-  `best_x` (double vector).
+  `best_x` (double vector) -- the best EVALUATED point (paired with
+  `best_f`). For most algorithms this always lies within the declared
+  domain. It is not guaranteed to for every algorithm: some (e.g. HHO)
+  charge raw, pre-boundary-repair trial points against the budget before
+  boundary repair, and such a point can become the reported best if it
+  happens to be the run's own minimum.
 }
 \description{
 Runs an algorithm spec on a BBOB problem and returns the result.

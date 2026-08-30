@@ -337,9 +337,14 @@ use sezgi_core::state::StateReq;
 ///   live inside `gen/hho` itself and ARE genuinely double-evaluated by
 ///   design, per that module's own "In-generator evaluation" doc section --
 ///   citing it here would be a different, unrelated shape), and
-///   `global_best`/IOH visibility for free (the
-///   engine's existing post-adapter `pop` scan, added for exactly this
-///   class of adapter in M2d-3 Task 8). Because this adapter evaluates each
+///   `RunResult::best_f`/`best_x`/IOH visibility for free: `ctx.eval` is the
+///   SAME `Evaluator` every other charged evaluation in a run passes
+///   through, and `Evaluator::evaluate` updates its own best-tracking
+///   (`best_so_far`/`best_x_so_far`) inside itself, on every call --
+///   including this adapter's own `ctx.eval.evaluate(..)` calls -- so an
+///   adapter-evaluated individual is visible the instant it is charged, with
+///   no separate engine-side bookkeeping needed (M3-1 Task 1; see
+///   `sezgi_core::problem::Evaluator`'s own doc). Because this adapter evaluates each
 ///   visit's candidate SEQUENTIALLY and mutates its own working copy in
 ///   place as it goes, it gets `ABCorig.m`'s literal in-place chaining
 ///   semantics FOR FREE, with NO simplification needed on this side --

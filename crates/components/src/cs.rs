@@ -196,16 +196,16 @@ pub fn abandon_order(fitness: &[f64], pa: f64) -> Vec<usize> {
 /// `adapter/lpsr`) only read `ctx.eval.used()`/`budget()` or mutate
 /// `ctx.bb`, never introduce brand-new unevaluated individuals into `pop`.
 ///
-/// **Historical note / now-fixed** (M2d-3 Task 8, fix rounds 1-2): this
-/// adapter originally exposed a gap in `Engine::run`'s `global_best`
-/// bookkeeping (used for `RunResult::best_f`/`best_x`) — it was only
-/// updated right after the GENERATOR stage's own
-/// `eval.evaluate(&offspring)` call and after a `Restart`'s re-init
-/// evaluate, so an adapter-issued `evaluate` call (like this one) was
-/// invisible to it: a re-randomized nest that happened to be the single
-/// best point of the entire run, and was never subsequently matched or
-/// improved upon by a later generator-stage evaluation, would not have
-/// surfaced in `RunResult`. Fix round 1 closed most of this by scanning
+/// **Historical note / now-fixed** (M2d-3 Task 8, fix rounds 1-2; superseded
+/// by M3-1 Task 1's engine unification): this adapter originally exposed a
+/// gap in `Engine::run`'s (now-removed) `global_best` bookkeeping (used for
+/// `RunResult::best_f`/`best_x`) — it was only updated right after the
+/// GENERATOR stage's own `eval.evaluate(&offspring)` call and after a
+/// `Restart`'s re-init evaluate, so an adapter-issued `evaluate` call (like
+/// this one) was invisible to it: a re-randomized nest that happened to be
+/// the single best point of the entire run, and was never subsequently
+/// matched or improved upon by a later generator-stage evaluation, would not
+/// have surfaced in `RunResult`. Fix round 1 closed most of this by scanning
 /// `pop` once per generation, but placed that scan AFTER the whole
 /// per-stage loop — which a re-review caught as still falling behind
 /// BOTH of that loop's `break 'outer` sites (the target-reached check and,
@@ -213,16 +213,25 @@ pub fn abandon_order(fitness: &[f64], pa: f64) -> Vec<usize> {
 /// break), so an adapter evaluation that itself satisfied `target` could
 /// still be lost. Fix round 2 moved the scan to run immediately after
 /// EACH stage's own adapter call and BEFORE that stage's `reached()`
-/// check, structurally closing both paths — see `engine.rs`'s doc comment
-/// at that scan site for the fix and its (now actually) class-general,
-/// proven-no-op-for-every-prior-preset rationale. `RunResult::best_f`/
-/// `best_x` now correctly reflect any adapter-evaluated individual,
-/// including this one's, in every case, including one where the
-/// adapter's own evaluation is what triggers target termination.
+/// check, structurally closing both paths for the `global_best`-tracking
+/// design of that era.
+///
+/// M3-1 Task 1 then REMOVED `global_best` (and its post-adapter scan)
+/// entirely: `RunResult::best_f`/`best_x` are now sourced directly from
+/// `Evaluator`'s own best-tracking (`Evaluator::best_so_far`/
+/// `best_x_so_far`), updated inside `Evaluator::evaluate` itself — the sole
+/// gateway every charged evaluation in this crate passes through, including
+/// this adapter's own `ctx.eval.evaluate(..)` calls. So an adapter-evaluated
+/// individual is visible to `RunResult` the instant it is charged, with no
+/// per-generation scan needed at all — see `engine.rs`'s doc comment at the
+/// former scan site (now documenting the removal) and
+/// `sezgi_core::problem::Evaluator`'s own doc for the current mechanism.
 /// (`crates/core/src/engine.rs`'s `engine::tests::
 /// adapter_evaluated_individual_is_captured_in_global_best` and
 /// `engine::tests::adapter_triggered_target_hit_still_captures_the_
-/// planted_optimum` are the regression tests.)
+/// planted_optimum` are the regression tests -- names kept from the
+/// `global_best` era, still exercising the same behavioral guarantee under
+/// the current `Evaluator`-sourced mechanism.)
 pub struct AbandonWorstFraction;
 
 impl AbandonWorstFraction {

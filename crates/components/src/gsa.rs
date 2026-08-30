@@ -73,9 +73,11 @@ use sezgi_core::state::StateReq;
 ///   ruling**, exactly as anticipated ("likely literal source semantics
 ///   here") -- no attractor/best-so-far blackboard state is needed at all
 ///   (unlike `ba.rs`'s/`ssa.rs`'s current-pop `best` selections, which at
-///   least feed the move itself); sezgi's own engine already tracks
-///   `global_best` separately via its `Evaluator` observer, so this
-///   generator needs ONLY the persisted velocity state.
+///   least feed the move itself); `RunResult::best_f`/`best_x` are already
+///   sourced from `Evaluator`'s own best-tracking (updated inside
+///   `Evaluator::evaluate` itself, the sole gateway every charged evaluation
+///   passes through -- see `sezgi_core::problem::Evaluator`'s own doc), so
+///   this generator needs ONLY the persisted velocity state.
 /// - **Mass computation (`massCalculation.m`, eq. 14-20), VERIFIED against
 ///   the sketch, no delta:** `Fmax=max(fit)`, `Fmin=min(fit)`; for
 ///   minimization (`min_flag==1`): `best=Fmin`, `worst=Fmax` (eq. 17-18).

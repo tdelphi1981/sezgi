@@ -756,7 +756,12 @@ NULL
 #' @param master_seed Master RNG seed.
 #' @param run_id Run id (mixed into the seed for independent replicate streams).
 #' @returns A named list with `best_f` (double), `evals` (double), and
-#'   `best_x` (double vector).
+#'   `best_x` (double vector) -- the best EVALUATED point (paired with
+#'   `best_f`). For most algorithms this always lies within the declared
+#'   domain. It is not guaranteed to for every algorithm: some (e.g. HHO)
+#'   charge raw, pre-boundary-repair trial points against the budget before
+#'   boundary repair, and such a point can become the reported best if it
+#'   happens to be the run's own minimum.
 #' @export
 `sz_solve_bbob` <- function(`spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`) {
   .Call(savvy_sz_solve_bbob__impl, `spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`)

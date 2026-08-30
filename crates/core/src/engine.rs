@@ -21,9 +21,24 @@ pub struct Engine {
 #[derive(Debug, Clone, Copy)]
 pub struct RunConfig { pub master_seed: u64, pub run_id: u64 }
 
+/// A completed run's outcome. `best_f`/`best_x` are sourced directly from
+/// `Evaluator`'s own best-tracking (see [`crate::problem::Evaluator`]'s
+/// doc): the best fitness/genotype pair over EVERY charged evaluation of the
+/// run, from anywhere -- the engine's own per-stage/setup/restart calls, and
+/// any `Generator`/`Adapter`'s own internal `ctx.eval.evaluate(..)` calls.
 #[derive(Debug, Clone)]
 pub struct RunResult {
     pub best_f: f64,
+    /// The best evaluated point (paired with [`Self::best_f`]). For most
+    /// presets this always lies within the problem's declared domain (every
+    /// charged evaluation was itself boundary-repaired first). It is NOT
+    /// guaranteed to for every preset: a generator whose internal trial
+    /// evaluations run on a raw, PRE-boundary-repair candidate (e.g.
+    /// `gen/hho`'s dive-trial evaluations, see `sezgi_components::hho`'s
+    /// module doc) can have that raw, possibly out-of-domain point become
+    /// the run's own best -- because it was itself a charged evaluation, and
+    /// `Evaluator` tracks the best over every charged evaluation, not only
+    /// the ones the engine's own stage loop re-evaluates after repair.
     pub best_x: Genotype,
     pub evals_used: u64,
     pub iterations: u64,

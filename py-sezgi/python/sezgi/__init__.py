@@ -10,6 +10,13 @@ def solve(spec, problem, master_seed=0, run_id=0, log_dir=None, algo_name=None):
     """Run an algorithm spec against a problem.
 
     spec: dict (JSON-compatible algorithm spec) or a JSON string.
+
+    Returns a dict including `best_x`: the best EVALUATED point (paired with
+    `best_f`). For most algorithms this always lies within `problem`'s
+    declared bounds. It is not guaranteed to for every algorithm: some (e.g.
+    HHO) charge raw, pre-boundary-repair trial points against the budget
+    before boundary repair, and such a point can become the reported best if
+    it happens to be the run's own minimum.
     """
     if isinstance(spec, dict):
         spec = json.dumps(spec)

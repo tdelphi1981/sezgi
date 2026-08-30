@@ -45,6 +45,21 @@ pub trait EvalObserver: Send {
 /// being the one case in this crate where the returned/re-evaluated point
 /// differs from the internally-evaluated one, via boundary repair; M3-1
 /// Task 1, unifying `RunResult::best_f`/`best_x` with this tracking).
+///
+/// **Best-comparison rule (defines `best_f`/`best_x` tie/NaN semantics):**
+/// [`Self::evaluate`] updates `best`/`best_x` under strict improvement,
+/// `!(b <= f)` where `b` is the current best -- i.e. a candidate replaces the
+/// incumbent unless the incumbent already compares `<=` it. Two notable
+/// consequences for a user-supplied `Problem` (e.g. `from_callable`) that
+/// can return NaN or signed zero -- irrelevant for this project's own
+/// BBOB/f0 problems, which never produce NaN (goldens confirm bit-identical
+/// output): a NaN fitness compares `false` to everything (`b <= NaN` is
+/// always `false`), so `!(b <= f)` is `true` and a NaN fitness is treated as
+/// an improvement the first time it is seen -- it can become (and, if
+/// nothing subsequently improves on it, stay) the reported `best_f`; and
+/// `-0.0`/`+0.0` are `<=`-equal, so an EARLIER zero is always kept over a
+/// later one of the other sign (no `total_cmp`-style sign-breaking, unlike
+/// the removed engine-side `global_best`'s old comparator).
 pub struct Evaluator<'a> {
     problem: &'a dyn Problem,
     budget: u64,
