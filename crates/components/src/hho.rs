@@ -1361,37 +1361,34 @@ mod tests {
         assert_eq!(r.iterations, 1, "exactly one generation should have completed with this exact budget");
     }
 
-    // ---- Known, documented `best_f`/Evaluator-observed-minimum divergence
-    // (final M2d-4 review wave; see the module doc's "global_best/IOH
-    // visibility -- KNOWN, DOCUMENTED DIVERGENCE" section above for the
-    // full mechanism). ----
+    // ---- `best_f`/Evaluator-observed-minimum unification (M3-1 Task 1;
+    // was a documented divergence through M2d-4 -- see the module doc's
+    // "global_best/IOH visibility" section above for the full mechanism
+    // this test used to document as a known gap). ----
 
-    /// **This test DOCUMENTS a known gap, it does not assert-it-away.**
-    /// `gen/hho`'s internal dive-trial evaluations run on the RAW,
-    /// un-clamped `Y`/`Z` candidate; `Engine::run`'s stage loop then
-    /// boundary-repairs the accepted offspring BEFORE its own capturing
-    /// `eval.evaluate(&offspring)` call, so `RunResult::best_f` only ever
-    /// observes the REPAIRED position -- while an `EvalObserver` attached to
-    /// the SAME `Evaluator` (the mechanism backing the IOH `.dat`
-    /// best-so-far stream) sees every charged evaluation, raw dive trials
-    /// included. On this fixture (BBOB f3/dim5/instance1, seed 19,
-    /// pop_size=20, budget=5000 -- found via a real-run divergence search
-    /// during the final review wave, not hand-crafted), `best_f` is
-    /// strictly WORSE than the Evaluator-observed minimum, reproducing the
-    /// review's BBOB-f3-seed19 finding exactly (same fixture family). This
-    /// is the documented HHO exception: HHO is the ONLY preset in this
-    /// crate where `best_f` is not exactly `min` over every charged
-    /// evaluation. Per the controller's ruling (DECISIONS M2d-4:
-    /// minimum-fix-now, doc-honesty route, no engine change), this is
-    /// intentionally left unfixed here -- a future engine-level fix
-    /// unifying `RunResult::best_f` with the Evaluator-observed best (the
-    /// tracked follow-up in `docs/DECISIONS.md`) is expected to flip this
-    /// test's assertion direction (to `==`) intentionally; until then this
-    /// test's job is to fail loudly if the gap silently disappears OR
-    /// silently widens/narrows in a way nobody noticed, not to enforce it
-    /// as correct behavior.
+    /// **Regression test for the M3-1 Task 1 engine fix.** Through M2d-4,
+    /// `gen/hho`'s internal dive-trial evaluations ran on the RAW,
+    /// un-clamped `Y`/`Z` candidate, but `Engine::run`'s stage loop
+    /// boundary-repaired the accepted offspring BEFORE its own capturing
+    /// `eval.evaluate(&offspring)` call, so `RunResult::best_f` (sourced
+    /// from the engine's own `global_best`, itself fed only by that
+    /// capturing call and a couple of other engine-side sites) could miss a
+    /// charged, IOH-observable raw dive-trial value entirely -- while an
+    /// `EvalObserver` attached to the SAME `Evaluator` (the mechanism
+    /// backing the IOH `.dat` best-so-far stream) sees every charged
+    /// evaluation, raw dive trials included. M3-1 Task 1 unifies
+    /// `RunResult::best_f`/`best_x` with `Evaluator`'s own best-tracking
+    /// (now genotype-aware, not just scalar), which is updated inside
+    /// `Evaluator::evaluate` itself -- the single gateway every charged
+    /// evaluation in this crate passes through, including `gen/hho`'s
+    /// internal `ctx.eval.evaluate(..)` dive-trial calls. So `best_f`/
+    /// `best_x` can no longer diverge from the Evaluator-observed minimum,
+    /// for HHO or any other preset. This fixture (BBOB f3/dim5/instance1,
+    /// seed 19, pop_size=20, budget=5000) is the exact one the M2d-4 review
+    /// used to find and pin the pre-fix divergence; kept as this crate's
+    /// permanent regression coverage that the gap stays closed.
     #[test]
-    fn hho_captured_best_f_can_diverge_from_evaluator_observed_minimum() {
+    fn hho_captured_best_f_matches_evaluator_observed_minimum() {
         use sezgi_problems::BbobProblem;
 
         struct MinObserver(std::sync::Arc<std::sync::Mutex<f64>>);
@@ -1412,14 +1409,11 @@ mod tests {
         let r = e.run(&p, RunConfig { master_seed: 19, run_id: 0 }, Some(Box::new(obs))).unwrap();
         let observed_min = *observed_min.lock().unwrap();
 
-        assert!(r.best_f > observed_min + 1e-9,
-            "documented HHO exception: RunResult::best_f ({}) must be STRICTLY WORSE than the \
-             Evaluator-observed minimum ({}) on this fixture -- a charged, IOH-observable raw \
-             dive-trial value never reaches best_f because the engine boundary-repairs the \
-             accepted offspring before its own capturing evaluate call (see the module doc and \
-             docs/DECISIONS.md's M2d-4 record). If this assertion starts failing because the gap \
-             closed, that's GOOD NEWS: it means the tracked engine-level follow-up landed and \
-             this test should be flipped to assert_eq!, not silently loosened.",
+        assert_eq!(r.best_f, observed_min,
+            "RunResult::best_f ({}) must equal the Evaluator-observed minimum ({}) on this \
+             fixture -- post-M3-1-Task-1, best_f/best_x are sourced from Evaluator's own \
+             best-tracking, which sees every charged evaluation (including gen/hho's internal \
+             raw dive-trial evaluate calls), so this cannot diverge for HHO or any other preset.",
             r.best_f, observed_min);
     }
 }
