@@ -9,24 +9,59 @@ use sezgi_core::space::{Block, BlockValues, Genotype};
 /// `sezgi_core::spec::block_tag` -- the exact string checked by
 /// `AlgorithmSpec::validate`'s `SupportedBlocks::Only` gate; NOT guessed).
 ///
-/// ## Composition decision (mirrors `tlbo.rs`, NOT `ga.rs`)
+/// ## Composition decision (mirrors `tlbo.rs`'s SHAPE, NOT its SEMANTICS as
+/// "the" GA -- read this honestly, the way `tlbo.rs`'s own doc names its
+/// "Hidden evaluations" caveat rather than papering over it)
 ///
 /// `gen/ga-real` ([`crate::ga::GaRealGenerator`]) does crossover AND
-/// mutation inside ONE `Generator`, in a single stage. This module does NOT
-/// mirror that: the task brief mandates two SEPARATE registry components,
-/// `gen/ox` (crossover only) and `gen/perm-swap` (mutation only) -- and
-/// `tlbo.rs` already establishes the precedent for exactly this shape in
-/// this crate: `gen/tlbo-teacher` and `gen/tlbo-learner` are two independent
-/// `Generator`s, each its own `[[stages]]` entry (its own generator +
-/// replacer pair), run in sequence every generation (see `presets::tlbo`).
-/// `gen/ox` and `gen/perm-swap` are designed to compose the SAME way: a
-/// `ga-perm`-style preset (Task 4) is expected to pair `gen/ox` with a
-/// replacer as stage 0, and `gen/perm-swap` with a replacer as stage 1 --
-/// each stage draws from its OWN independent engine-derived RNG stream
-/// (`sezgi_core::engine::Engine::run`'s `stage_rngs`, `[run_id, 1+2*i]`),
-/// exactly like TLBO's two stages. `gen/ox`'s own PARENT-SELECTION structure
-/// (tournament, `pc` gate, push-pair-until-full loop) DOES mirror
-/// `gen/ga-real`'s directly (see [`OxGenerator::generate`]'s doc).
+/// mutation inside ONE `Generator`, in a single stage, followed by ONE
+/// evaluate-and-replace per generation -- the classic GA loop: select
+/// parents, crossover, mutate the SAME children, evaluate ONCE, replace
+/// ONCE. The task brief mandates two SEPARATE registry components here,
+/// `gen/ox` (crossover only) and `gen/perm-swap` (mutation only), and
+/// `tlbo.rs` already establishes the SHAPE for composing two independent
+/// `Generator`s as two `[[stages]]` entries, each with its own generator +
+/// replacer pair, run in sequence every generation (`gen/tlbo-teacher` then
+/// `gen/tlbo-learner`; see `presets::tlbo`). `gen/ox` and `gen/perm-swap`
+/// CAN be composed the same way -- but doing so does NOT reproduce the
+/// classic GA loop above, and this must not be overclaimed:
+///
+/// Per `sezgi_core::engine::Engine::run`'s per-stage loop, composing
+/// `gen/ox` as stage 0 and `gen/perm-swap` as stage 1 means stage 0's `gen/
+/// ox` offspring are boundary-repaired, EVALUATED, and GREEDILY REPLACED
+/// into `pop` BEFORE stage 1's `gen/perm-swap` ever runs -- which then
+/// mutates the ALREADY-COMMITTED post-crossover population, generating its
+/// OWN offspring, evaluated and replaced AGAIN. That is: (a) mutation acts
+/// on the population AFTER crossover's greedy acceptance decision has
+/// already been made, not on the SAME crossover children before any
+/// evaluation happens; (b) each generation costs `2 * pop_size` evaluations
+/// (one full evaluate-and-replace cycle per stage), not `pop_size`; (c) the
+/// replacement policy fires TWICE per generation, mid-generation, not once
+/// at the end. This is the exact TLBO-style two-phase shape (see `tlbo.rs`'s
+/// own "Hidden evaluations" section for the same `2 * nPop`-per-generation
+/// accounting), NOT the classic crossover-then-mutate-then-evaluate-once GA
+/// loop `gen/ga-real` implements for the Float representation.
+///
+/// **Consequence for `ga-perm` (Task 4), per controller ruling:** since
+/// `gen/ga-real` itself is a FUSED crossover+mutation generator and the
+/// two-stage `gen/ox` + `gen/perm-swap` composition above is a materially
+/// DIFFERENT algorithm (TLBO-like, not GA-like), the `ga-perm` preset does
+/// NOT compose these two components as two stages. It instead uses a small
+/// FUSED generator (arriving in Task 4) that reuses this module's pinned
+/// operator CORES directly -- [`ox_children_from_cuts`]/[`ox_child`] for
+/// crossover and [`swap_positions`] for mutation, both pure and RNG-free --
+/// inside one `Generator`, mirroring `gen/ga-real`'s own single-stage,
+/// single-evaluate-per-generation shape for the Permutation representation.
+///
+/// `gen/ox` and `gen/perm-swap` REMAIN in the catalog as standalone,
+/// independently composable registry components (e.g. for a spec that
+/// deliberately wants the TLBO-style two-phase permutation algorithm, or
+/// that wants crossover and mutation on separate, independently-tunable
+/// replacement policies) -- they are not deprecated by `ga-perm`'s fused
+/// design, just not what `ga-perm` itself uses. `gen/ox`'s own
+/// PARENT-SELECTION structure (tournament, `pc` gate, push-pair-until-full
+/// loop) DOES mirror `gen/ga-real`'s directly regardless of which preset
+/// composes it (see [`OxGenerator::generate`]'s doc).
 ///
 /// ## PROVENANCE-FIRST
 ///
@@ -138,13 +173,19 @@ use sezgi_core::space::{Block, BlockValues, Genotype};
 /// **Pinned: this decoupled-pointer reading ("OX1", the classic Order
 /// Crossover -- read parent 2 start-to-end, write starting after the
 /// second cut, both cyclic where needed) is what [`ox_pair`]/[`ox_child`]
-/// implement**, because it is the one independently verified against a
-/// concrete worked numeric example (not just prose), and it matches what
-/// the overwhelming majority of OX1 implementations and course materials
-/// describe. Source A's structural description (two random cut points,
-/// segment copied from P1, remainder from P2's relative order, wrapping) is
-/// followed exactly; only the fine-grained "where does the P2 scan start"
-/// detail is resolved in Source B's favor, for the reason above. Both
+/// implement**, chosen by EXAMPLE-REPRODUCTION, not by a majority survey:
+/// it is the ONLY one of four candidate readings tried that reproduces
+/// Source B's own worked numeric example exactly (verified both by hand and
+/// by a standalone script). This is the strongest evidence available here,
+/// but it is not exhaustive -- Source A's own prose is also credibly read
+/// as the COUPLED-pointer variant (same start index for both read and
+/// write), and no worked numeric example from Source A was available to
+/// check that reading against (its figures are images, not extracted by
+/// this project's fetch tooling). Source A's structural description (two
+/// random cut points, segment copied from P1, remainder from P2's relative
+/// order, wrapping) is followed exactly; only the fine-grained "where does
+/// the P2 scan start" detail is resolved in Source B's favor, for the
+/// reason above. Both
 /// sources attribute OX to Davis (1985) -- but this project's OWN direct
 /// fetch of Davis's IJCAI paper (`Applying Adaptive Algorithms to Epistatic
 /// Domains`, *Proceedings of IJCAI-85*, pp.162-164) found that Davis's own
@@ -250,13 +291,41 @@ impl Initializer for PermRandomInit {
     }
 }
 
+/// Draw two DISTINCT indices uniformly from `[0, n)` via rejection sampling
+/// (the shared `pick_distinct`-style idiom `de.rs`/`tlbo.rs` already use for
+/// "distinct index" draws) -- the ONE draw primitive both `gen/ox`'s cut
+/// points and `gen/perm-swap`'s swap positions consume (see this module's
+/// doc "Draw order"). Returns `(first_drawn, second_drawn)` in DRAW ORDER,
+/// unsorted -- callers that need an ordered pair (e.g. [`ox_pair`]'s cut
+/// points) sort afterward; this keeps the draw sequence itself identical
+/// regardless of what the caller does with the result, so factoring this
+/// out changes NO existing draw-order test's expected values.
+///
+/// `pub(crate)`, not private: this is one of the two pinned, RNG-consuming
+/// primitives Task 4's fused `ga-perm` generator reuses directly (alongside
+/// [`ox_children_from_cuts`]/[`ox_child`] and [`swap_positions`]) rather
+/// than re-deriving the same logic -- see this module's doc "Composition
+/// decision".
+pub(crate) fn draw_distinct_pair(n: usize, rng: &mut RngStream) -> (usize, usize) {
+    let i1 = rng.next_below(n as u64) as usize;
+    let mut i2 = rng.next_below(n as u64) as usize;
+    while i2 == i1 {
+        i2 = rng.next_below(n as u64) as usize;
+    }
+    (i1, i2)
+}
+
 /// One child of Order Crossover (OX1): copies `a`'s values at positions
 /// `[lo, hi]` inclusive, then fills the remaining (empty) positions, in
 /// order starting right after `hi` (wrapping to 0), with `b`'s values that
 /// are NOT already copied, read in `b`'s own left-to-right order. See this
 /// module's doc for the full provenance derivation pinning this exact
 /// read/write pointer convention against a verified worked example.
-fn ox_child(a: &[u32], b: &[u32], lo: usize, hi: usize) -> Vec<u32> {
+///
+/// Pure and RNG-free -- `pub(crate)` so Task 4's fused `ga-perm` generator
+/// can call this EXACT pinned core directly (see this module's doc
+/// "Composition decision").
+pub(crate) fn ox_child(a: &[u32], b: &[u32], lo: usize, hi: usize) -> Vec<u32> {
     let n = a.len();
     let mut child: Vec<Option<u32>> = vec![None; n];
     let mut used = vec![false; n];
@@ -275,20 +344,39 @@ fn ox_child(a: &[u32], b: &[u32], lo: usize, hi: usize) -> Vec<u32> {
     child.into_iter().map(|x| x.expect("every position filled by segment or fill loop")).collect()
 }
 
+/// Both children of Order Crossover (OX1) for a FIXED pair of cut points --
+/// the pure, RNG-free core of [`ox_pair`] (which just draws `(lo, hi)` via
+/// [`draw_distinct_pair`] and calls straight through to this). `pub(crate)`
+/// for the same reason as [`ox_child`]: Task 4's fused generator reuses
+/// this directly.
+pub(crate) fn ox_children_from_cuts(p1: &[u32], p2: &[u32], lo: usize, hi: usize) -> (Vec<u32>, Vec<u32>) {
+    (ox_child(p1, p2, lo, hi), ox_child(p2, p1, lo, hi))
+}
+
 /// Order Crossover (OX1) on a parent pair: draws two DISTINCT cut indices
-/// (rejection sampling, uniform over `[0,n)`, sorted), then derives both
-/// children via [`ox_child`] with parent roles reversed for the second.
+/// via [`draw_distinct_pair`] (uniform over `[0,n)`, sorted), then derives
+/// both children via [`ox_children_from_cuts`].
+///
+/// The `n >= 2` check below is a RUNTIME-ONLY backstop (mirrors `tlbo.rs`'s
+/// own two-layer idiom for its `min_pop` checks) -- but unlike `min_pop`
+/// (a POPULATION-size property, checked STATICALLY by `AlgorithmSpec::
+/// validate` via `ComponentMeta::min_pop`), this is a PERMUTATION-LENGTH
+/// (block DIMENSION) property. `ComponentMeta` has no dimension-minimum
+/// field -- only `min_pop` -- so there is no static spec-validation
+/// equivalent to add here; a `Block::Permutation { n: 1 }` or `{ n: 0 }`
+/// space passes `SupportedBlocks::Only(["permutation"])` and `min_pop`
+/// checks identically to any other permutation length, and can only be
+/// caught here, at the point two distinct cut indices are actually needed.
+/// Adding a general "minimum block dimension" concept to `ComponentMeta`
+/// is out of scope for this module; documenting the gap here (rather than
+/// silently relying on the runtime `assert!`) is the deliberate choice.
 pub fn ox_pair(p1: &[u32], p2: &[u32], rng: &mut RngStream) -> (Vec<u32>, Vec<u32>) {
     let n = p1.len();
     assert_eq!(p1.len(), p2.len(), "gen/ox requires equal-length parents");
     assert!(n >= 2, "gen/ox requires a permutation of length >= 2 (n={n})");
-    let i1 = rng.next_below(n as u64) as usize;
-    let mut i2 = rng.next_below(n as u64) as usize;
-    while i2 == i1 {
-        i2 = rng.next_below(n as u64) as usize;
-    }
+    let (i1, i2) = draw_distinct_pair(n, rng);
     let (lo, hi) = if i1 <= i2 { (i1, i2) } else { (i2, i1) };
-    (ox_child(p1, p2, lo, hi), ox_child(p2, p1, lo, hi))
+    ox_children_from_cuts(p1, p2, lo, hi)
 }
 
 pub struct OxGenerator {
@@ -325,9 +413,12 @@ impl Generator for OxGenerator {
     /// EXACTLY: two tournament selections, a `pc`-gated recombination, push
     /// child 1 (and child 2 if room remains). The only structural
     /// difference is that `gen/ga-real` ALSO applies per-gene mutation
-    /// unconditionally inside the same generator; `gen/ox` does not --
-    /// mutation is `gen/perm-swap`'s job, in a separate stage (see this
-    /// module's doc).
+    /// unconditionally inside the same generator; `gen/ox` does not -- it
+    /// is crossover ONLY. `gen/perm-swap` provides the mutation half as a
+    /// separate, standalone component; composing the two as sequential
+    /// engine stages yields a TLBO-style two-phase algorithm, NOT the
+    /// classic GA loop -- see this module's doc "Composition decision" for
+    /// exactly why, and for `ga-perm`'s own (different, fused) design.
     fn generate(&self, pop: &Population, ctx: &mut Ctx) -> Vec<Genotype> {
         assert!(pop.len() >= 2, "gen/ox requires a population of at least 2 (pop_size={})", pop.len());
         let mut out = Vec::with_capacity(pop.len());
@@ -367,9 +458,27 @@ impl PermSwapGenerator {
     }
 }
 
+/// Swap-mutation core: exchange positions `i` and `j` of `perm` in place.
+/// Pure, RNG-free, and trivial by design (`slice::swap`) -- named and made
+/// `pub(crate)` anyway, alongside [`ox_child`]/[`ox_children_from_cuts`],
+/// so Task 4's fused `ga-perm` generator has ONE discoverable, pinned
+/// primitive to call for "the mutation step", rather than re-deriving
+/// which two positions a bare `.swap(a, b)` call implements. Positions are
+/// NOT validated here (callers, e.g. [`PermSwapGenerator::generate`] via
+/// [`draw_distinct_pair`], already draw distinct in-bounds positions) --
+/// out-of-bounds `i`/`j` panic via the underlying slice index, same as a
+/// direct `.swap()` call would.
+pub(crate) fn swap_positions(perm: &mut [u32], i: usize, j: usize) {
+    perm.swap(i, j);
+}
+
 impl Generator for PermSwapGenerator {
     /// Per-individual loop (population order), mirroring `gen/tlbo-
     /// learner`'s per-learner shape (see this module's doc "Draw order").
+    ///
+    /// The `dim >= 2` check below is the same kind of runtime-only
+    /// dimension backstop as [`ox_pair`]'s -- see that function's doc for
+    /// why there is no static `ComponentMeta` equivalent to add.
     fn generate(&self, pop: &Population, ctx: &mut Ctx) -> Vec<Genotype> {
         let dim = perm_dim(ctx.space);
         assert!(dim >= 2, "gen/perm-swap requires a permutation of length >= 2 (n={dim})");
@@ -378,12 +487,8 @@ impl Generator for PermSwapGenerator {
             .map(|i| {
                 let mut xs = perm_values(&pop.individuals[i]).clone();
                 if ctx.rng.next_f64() < pm {
-                    let a = ctx.rng.next_below(dim as u64) as usize;
-                    let mut b = ctx.rng.next_below(dim as u64) as usize;
-                    while b == a {
-                        b = ctx.rng.next_below(dim as u64) as usize;
-                    }
-                    xs.swap(a, b);
+                    let (a, b) = draw_distinct_pair(dim, ctx.rng);
+                    swap_positions(&mut xs, a, b);
                 }
                 Genotype { blocks: vec![BlockValues::Perm(xs)] }
             })
