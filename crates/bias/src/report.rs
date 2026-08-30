@@ -41,6 +41,7 @@
 //! (see [`bias_report_latex`]'s signature-row arm).
 
 use sezgi_core::spec::AlgorithmSpec;
+use sezgi_stats::ranks::holm;
 use sezgi_stats::uniformity::{AdResult, KsResult};
 
 use crate::central::{central_bias_scan, CentralBiasConfig, CentralBiasResult};
@@ -275,6 +276,60 @@ fn worst_ad(per_dim: &[AdResult]) -> (f64, f64) {
         .unwrap_or((f64::NAN, f64::NAN))
 }
 
+/// Index of the smallest value in `pvals`, ignoring non-finite entries.
+/// `None` for an empty or all-non-finite slice.
+fn min_finite_idx(pvals: &[f64]) -> Option<usize> {
+    pvals
+        .iter()
+        .enumerate()
+        .filter(|(_, &p)| p.is_finite())
+        .min_by(|(_, a), (_, b)| a.partial_cmp(b).expect("filtered to finite"))
+        .map(|(i, _)| i)
+}
+
+/// The dimension whose HOLM-ADJUSTED $p$-value is smallest -- i.e. the same
+/// (D, p) pair [`worst_ks`] would report, except `p` is the Holm-adjusted
+/// value rather than the raw one, so the printed number is the one the
+/// verdict actually compares against `ALPHA` (structural.rs's own
+/// `holm_rejections_ks`/`holm_rejections_ad` decision). Fix Round 1: the
+/// table previously printed the raw minimum $p$ next to a verdict driven by
+/// the Holm-adjusted $p$, which could read as contradictory (a small raw
+/// $p$ next to "no evidence" once Holm-corrected, or vice versa).
+///
+/// Reuses `sezgi_stats::ranks::holm` directly -- no Holm-logic duplication
+/// (the same function `structural_bias_scan` itself calls). Holm's
+/// adjusted values are non-decreasing in ascending-raw-p order (each step's
+/// `running_max` only grows), so the dimension with the smallest RAW
+/// $p$-value is always also the one with the smallest Holm-ADJUSTED
+/// $p$-value -- selecting by raw $p$ and reporting that dimension's
+/// adjusted $p$ is therefore exact, not an approximation.
+///
+/// NaN-safe: an empty battery, or one containing any non-finite raw
+/// $p$-value (which `holm` cannot process -- it panics on `NaN` via
+/// `partial_cmp`), falls back to [`worst_ks`]'s raw-$p$ selection instead
+/// of calling `holm` at all; [`fmt_p`] still renders any resulting
+/// non-finite value as `n/a`, never the literal `NaN`.
+fn worst_ks_holm(per_dim: &[KsResult]) -> (f64, f64) {
+    if per_dim.is_empty() || per_dim.iter().any(|r| !r.p_value.is_finite()) {
+        return worst_ks(per_dim);
+    }
+    let pvals: Vec<f64> = per_dim.iter().map(|r| r.p_value).collect();
+    let adjusted = holm(&pvals);
+    let idx = min_finite_idx(&pvals).expect("non-empty and all-finite, checked above");
+    (per_dim[idx].d, adjusted[idx])
+}
+
+/// Same rule as [`worst_ks_holm`], for a per-dimension AD battery.
+fn worst_ad_holm(per_dim: &[AdResult]) -> (f64, f64) {
+    if per_dim.is_empty() || per_dim.iter().any(|r| !r.p_value.is_finite()) {
+        return worst_ad(per_dim);
+    }
+    let pvals: Vec<f64> = per_dim.iter().map(|r| r.p_value).collect();
+    let adjusted = holm(&pvals);
+    let idx = min_finite_idx(&pvals).expect("non-empty and all-finite, checked above");
+    (per_dim[idx].a2, adjusted[idx])
+}
+
 /// The "evidence not accusation" verdict phrase, per this task's brief,
 /// verbatim: `"no evidence of {test}"` when `no_evidence` is true, else
 /// `"evidence consistent with {test}"`. Never claims an algorithm
@@ -293,6 +348,16 @@ fn phrase(no_evidence: bool, test: &str) -> String {
 /// run" row when `signature` is `None`). Booktabs style, `{:.3e}`
 /// statistics, math-mode `$p$` cells -- mirrors
 /// `sezgi_stats::report::summary_table_latex`'s own conventions.
+///
+/// The printed `$p$` is always the SAME number the row's own verdict was
+/// decided against (Fix Round 1): the two structural rows print the
+/// Holm-adjusted minimum $p$ (see [`worst_ks_holm`]/[`worst_ad_holm`]) --
+/// labelled "Holm-corrected" in the row's own Test cell, matching
+/// `structural.rs`'s own "Holm-corrected p < ALPHA" decision-rule wording
+/// -- since that IS the quantity `holm_rejections_ks`/`holm_rejections_ad`
+/// compare against `ALPHA`; the central row prints the raw Wilcoxon $p$
+/// unchanged, since `central_bias_scan` makes exactly one comparison and
+/// applies no multiple-testing correction to it at all.
 fn bias_report_latex(
     structural: &StructuralBiasResult,
     central: &CentralBiasResult,
@@ -301,19 +366,19 @@ fn bias_report_latex(
     let mut latex = String::from("\\begin{tabular}{llll}\n\\toprule\n");
     latex.push_str("Test & Statistic & $p$ & Verdict \\\\\n\\midrule\n");
 
-    let (ks_stat, ks_p) = worst_ks(&structural.per_dim_ks);
+    let (ks_stat, ks_p) = worst_ks_holm(&structural.per_dim_ks);
     let ks_no_evidence = structural.holm_rejections_ks == 0;
     latex.push_str(&format!(
-        "Structural bias (KS) & {} & {} & {} \\\\\n",
+        "Structural bias (KS, Holm-corrected) & {} & {} & {} \\\\\n",
         fmt_stat(ks_stat),
         fmt_p(ks_p),
         phrase(ks_no_evidence, "structural bias")
     ));
 
-    let (ad_stat, ad_p) = worst_ad(&structural.per_dim_ad);
+    let (ad_stat, ad_p) = worst_ad_holm(&structural.per_dim_ad);
     let ad_no_evidence = structural.holm_rejections_ad == 0;
     latex.push_str(&format!(
-        "Structural bias (AD) & {} & {} & {} \\\\\n",
+        "Structural bias (AD, Holm-corrected) & {} & {} & {} \\\\\n",
         fmt_stat(ad_stat),
         fmt_p(ad_p),
         phrase(ad_no_evidence, "structural bias")
@@ -522,8 +587,92 @@ mod tests {
                 assert!(dollars % 2 == 0, "unbalanced math-mode delimiters in: {line}");
             }
         }
-        // p-value cells are wrapped in bare math mode, e.g. "$0.0001$".
-        assert!(latex.contains("$0.0001$"), "expected a math-mode p-value cell, got:\n{latex}");
+        // p-value cells are wrapped in bare math mode, e.g. "$0.0002$" --
+        // the Holm-ADJUSTED KS p for this fixture (raw p=0.0001, family
+        // size m=2, so adjusted = 2 * 0.0001 = 0.0002; see Fix Round 1's
+        // `worst_ks_holm_reports_the_holm_adjusted_p_not_the_raw_one`
+        // below for the arithmetic pinned independently of this string).
+        assert!(latex.contains("$0.0002$"), "expected a math-mode p-value cell, got:\n{latex}");
+    }
+
+    // ---- Fix Round 1: structural rows print Holm-adjusted p, not raw ----
+
+    #[test]
+    fn worst_ks_holm_reports_the_holm_adjusted_p_not_the_raw_one() {
+        // structural.rs's own hand-checked 3-dim Holm fixture (see that
+        // module's `holm_correction_hand_checked_3dim_fixture` test
+        // comment) -- reused verbatim, not re-derived, so this pins the
+        // SAME arithmetic that module already hand-checked.
+        let per_dim = vec![
+            ks(0.0, 5.833617325364261e-05),
+            ks(0.0, 0.9999999945629237),
+            ks(0.0, 0.8625362880828501),
+        ];
+        let (_, p) = worst_ks_holm(&per_dim);
+        assert!(
+            (p - 1.7500851976092783e-04).abs() < 1e-12,
+            "expected the Holm-adjusted p (not the raw 5.83e-05), got {p}"
+        );
+    }
+
+    #[test]
+    fn worst_ad_holm_reports_the_holm_adjusted_p_not_the_raw_one() {
+        // Same fixture family, AD side -- see structural.rs's comment.
+        let per_dim = vec![
+            ad(0.0, 4.8297186472368026e-08),
+            ad(0.0, 0.9995716562595469),
+            ad(0.0, 0.8075277279424962),
+        ];
+        let (_, p) = worst_ad_holm(&per_dim);
+        assert!(
+            (p - 1.4489155941710408e-07).abs() < 1e-12,
+            "expected the Holm-adjusted p (not the raw 4.83e-08), got {p}"
+        );
+    }
+
+    #[test]
+    fn structural_row_labels_say_holm_corrected_central_does_not() {
+        let report = assemble_report(evidence_structural(), evidence_central(), None);
+        let latex = &report.latex_summary;
+
+        assert!(latex.contains("Structural bias (KS, Holm-corrected)"), "got:\n{latex}");
+        assert!(latex.contains("Structural bias (AD, Holm-corrected)"), "got:\n{latex}");
+        assert!(latex.contains("Central bias (Wilcoxon)"), "got:\n{latex}");
+
+        let central_line = latex
+            .lines()
+            .find(|l| l.starts_with("Central bias"))
+            .expect("central row present");
+        assert!(
+            !central_line.contains("Holm"),
+            "central row's own p is raw (single-test, no correction applied) -- it must not \
+             claim Holm-correction: {central_line}"
+        );
+    }
+
+    #[test]
+    fn printed_p_matches_the_p_the_verdict_was_decided_against() {
+        // A fixture where the raw minimum p and the Holm-adjusted p differ
+        // enough to be distinguishable at the table's own {:.4} precision
+        // (this is exactly the scenario Fix Round 1 targets: the OLD table
+        // printed the raw p here, which would have shown as "$0.0001$"
+        // even though holm_rejections_ks/ad were driven by the larger,
+        // adjusted 0.0002/0.0000001-scale numbers).
+        let structural = StructuralBiasResult {
+            per_dim_ks: vec![ks(0.9, 0.0001), ks(0.06, 0.85)],
+            per_dim_ad: vec![ad(0.3, 0.75), ad(0.35, 0.8)],
+            holm_rejections_ks: 1,
+            holm_rejections_ad: 0,
+            verdict: BiasVerdict::Evidence { detail: "evidence of structural bias".to_string() },
+            final_positions: vec![vec![0.5, 0.5]; 30],
+        };
+        let report = assemble_report(structural, no_evidence_central(), None);
+        let latex = &report.latex_summary;
+
+        // The raw KS p (0.0001) must NOT appear as a bare math-mode cell;
+        // the Holm-adjusted one (2 * 0.0001 = 0.0002) must.
+        assert!(!latex.contains("$0.0001$"), "must not print the raw KS p, got:\n{latex}");
+        assert!(latex.contains("$0.0002$"), "expected the Holm-adjusted KS p, got:\n{latex}");
     }
 
     #[test]
