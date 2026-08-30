@@ -461,7 +461,10 @@ dependencies = [
 name = "sezgi-bias"
 version = "0.1.0"
 dependencies = [
+ "sezgi-components",
  "sezgi-core",
+ "sezgi-stats",
+ "thiserror",
 ]
 
 [[package]]

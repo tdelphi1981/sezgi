@@ -6,3 +6,6 @@ license.workspace = true
 
 [dependencies]
 sezgi-core = { path = "../core" }
+sezgi-components = { path = "../components" }
+sezgi-stats = { path = "../stats" }
+thiserror = "2"

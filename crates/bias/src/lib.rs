@@ -13,7 +13,55 @@
 //! systematic departures from uniformity are evidence of a bias in the
 //! algorithm's own operators, not of the (nonexistent) fitness landscape.
 //! See `f0` for the exact behavioral contract, domain, and RNG stream path.
+//!
+//! # Structural-bias scan (M3-1 Task 4)
+//!
+//! [`structural::structural_bias_scan`] runs an [`sezgi_core::spec::
+//! AlgorithmSpec`] repeatedly on [`F0Random`] and tests its final positions
+//! for departure from uniformity, per the BIAS-toolbox method -- see
+//! `structural`'s module doc for the full, citation-backed provenance.
+//!
+//! [`BiasVerdict`] is shared by every bias-scan flavour this crate hosts
+//! (structural bias here; T5/T6's own scans reuse it): its `Evidence`
+//! variant's `detail` string MUST read as "evidence of structural bias
+//! toward/..." -- language documenting what the DATA shows, never an
+//! accusation ("algorithm X is biased") the data alone cannot support.
 
 pub mod f0;
+pub mod structural;
 
 pub use f0::F0Random;
+pub use structural::{structural_bias_scan, StructuralBiasConfig, StructuralBiasResult};
+
+/// Verdict of a bias scan (structural, or any future scan this crate hosts).
+/// "Evidence not accusation": [`BiasVerdict::Evidence`]'s `detail` says
+/// "evidence of structural bias toward/..."; it must never claim an
+/// algorithm categorically IS biased -- a finite scan can only report
+/// evidence found (or not) in the data it collected.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BiasVerdict {
+    /// No statistically significant departure from uniformity was found.
+    NoEvidence,
+    /// A statistically significant departure was found; `detail` names what
+    /// it was ("evidence of structural bias toward ...").
+    Evidence { detail: String },
+}
+
+/// Errors produced by this crate's bias scans.
+#[derive(Debug, thiserror::Error)]
+pub enum BiasError {
+    /// A statistics-crate computation rejected its input (should not happen
+    /// for in-domain f0 output, but is not assumed away).
+    #[error(transparent)]
+    Stats(#[from] sezgi_stats::StatsError),
+    /// `AlgorithmSpec` failed to validate against f0's own search space.
+    #[error(transparent)]
+    Spec(#[from] sezgi_core::spec::SpecError),
+    /// An engine run failed (e.g. budget smaller than population size).
+    #[error(transparent)]
+    Engine(#[from] sezgi_core::engine::EngineError),
+    /// A scan configuration was invalid on its own terms (e.g. `dim == 0`,
+    /// too few runs, or a ragged `final_positions` matrix).
+    #[error("invalid structural-bias scan configuration: {0}")]
+    InvalidConfig(String),
+}
