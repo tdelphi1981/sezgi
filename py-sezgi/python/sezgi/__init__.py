@@ -270,6 +270,10 @@ def _bias_structural(spec, dim, budget, runs=30, seed=0):
     return _sezgi.bias_structural(_spec_json(spec), dim, budget, runs=runs, seed=seed)
 
 
+def _bias_structural_positions(final_positions):
+    return _sezgi.bias_structural_positions(final_positions)
+
+
 def _bias_central(spec, dim, budget, fids=None, instances_shifted=None, runs_per=20, seed=0):
     return _sezgi.bias_central(_spec_json(spec), dim, budget, fids=fids,
                                instances_shifted=instances_shifted, runs_per=runs_per, seed=seed)
@@ -295,6 +299,23 @@ def _bias_report(spec, dim, budget, seed=0, structural_runs=None, central_fids=N
 #   {a2, p_value, n}), holm_rejections_ks, holm_rejections_ad,
 #   verdict, detail, final_positions (runs x dim).
 #
+# bias.f0(dim, seed) -> Problem (M3-4 Task 4): a handle for the BIAS-toolbox
+#   null problem (every evaluation an independent U(0,1) draw over [0,1]^dim,
+#   uncorrelated with the queried point) -- usable with
+#   EvalSession.for_problem / Algorithm.solve exactly like any other
+#   continuous Problem handle. optimum() is always None (no landscape to have
+#   an optimum), so log_dir is rejected the same way it is for
+#   from_callable(...).
+#
+# bias.structural_positions(final_positions) -> dict (M3-4 Task 4): the
+#   bias bridge for externally-authored algorithms -- runs the SAME
+#   KS/AD/Holm battery as bias.structural, but over caller-supplied
+#   final_positions (each row one run's final best x, e.g. collected from
+#   repeated Algorithm.solve(bias.f0(...)) calls) instead of an
+#   AlgorithmSpec-driven engine run. dim is inferred from row length. Same
+#   return shape as bias.structural. Raises ValueError for fewer than 5 rows
+#   or ragged rows (mirrors crates/bias's own MIN_RUNS floor).
+#
 # bias.central(spec, dim, budget, fids=None, instances_shifted=None,
 #   runs_per=20, seed=0) -> dict with keys gap_centered, gap_shifted,
 #   wilcoxon ({w_statistic, z, p_value, n_effective, method}), effect,
@@ -312,6 +333,8 @@ def _bias_report(spec, dim, budget, seed=0, structural_runs=None, central_fids=N
 #   ({final_positions, gap_centered, gap_shifted}).
 bias = SimpleNamespace(
     structural=_bias_structural,
+    structural_positions=_bias_structural_positions,
+    f0=_sezgi.bias_f0,
     central=_bias_central,
     report=_bias_report,
 )

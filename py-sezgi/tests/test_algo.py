@@ -144,3 +144,61 @@ def test_bbob_records_fresh_instance_per_run():
     sezgi.algo.bbob_records(factory, fids=[1], dims=[2], instances=[1],
                             seeds=[0, 1, 2], budget=20)
     assert len(created) == 3
+
+
+# M3-4 Task 4: the bias bridge -- sezgi.bias.f0 (an f0 Problem handle usable
+# with EvalSession.for_problem / Algorithm.solve) and
+# sezgi.bias.structural_positions (the statistics-only structural-bias scan,
+# runnable on final positions collected from ANY externally-authored
+# Algorithm, not just a spec-driven engine run).
+
+def test_bias_f0_handle_shape():
+    p = sezgi.bias.f0(3, seed=0)
+    assert p.dim() == 3
+    assert p.bounds() == (0.0, 1.0)
+    assert p.optimum() is None
+
+def test_bias_f0_rejects_log_dir(tmp_path):
+    with pytest.raises(ValueError):
+        sezgi.EvalSession.for_problem(sezgi.bias.f0(2, seed=0), budget=10,
+                                      log_dir=str(tmp_path))
+
+def test_structural_positions_uniform_vs_clustered():
+    import random
+    rng = random.Random(0)
+    uniform = [[rng.random() for _ in range(3)] for _ in range(30)]
+    out = sezgi.bias.structural_positions(uniform)
+    assert set(out) == {"per_dim_ks", "per_dim_ad", "holm_rejections_ks",
+                        "holm_rejections_ad", "verdict", "detail", "final_positions"}
+    # ANCHORED (per this project's convention): measured at seed=0. Raw
+    # per-dim KS p-values = [0.0413, 0.2090, 0.2773], AD p-values =
+    # [0.0384, 0.1123, 0.3726] -- the smallest raw p (0.0384) Holm-adjusts to
+    # 3*0.0384 = 0.1152, well clear of alpha=0.01 (not a boundary case):
+    # holm_rejections_ks=0, holm_rejections_ad=0.
+    assert out["verdict"] == "no_evidence", out
+    clustered = [[0.5 + rng.gauss(0.0, 1e-6) for _ in range(3)] for _ in range(30)]
+    out2 = sezgi.bias.structural_positions(clustered)
+    # ANCHORED: measured at seed=0 (continued stream). Raw per-dim KS/AD
+    # p-values are all ~2.8e-07 / ~1.0e-07 -- tight clustering around 0.5
+    # (sigma=1e-6) is unambiguously non-uniform, nowhere near a boundary.
+    assert out2["verdict"] == "evidence", out2
+
+def test_structural_positions_validation():
+    with pytest.raises(ValueError):
+        sezgi.bias.structural_positions([[0.5, 0.5]] * 4)   # < 5 runs
+    with pytest.raises(ValueError):
+        sezgi.bias.structural_positions([[0.5], [0.5, 0.5]] * 3)  # ragged
+
+def test_custom_algorithm_bias_scan_end_to_end():
+    positions = []
+    for run in range(30):
+        res = RandomSearch().solve(sezgi.bias.f0(3, seed=run), budget=60,
+                                   seed=run)
+        positions.append(res.best_x)
+    out = sezgi.bias.structural_positions(positions)
+    # ANCHORED: measured at this exact config (dim=3, budget=60, seeds 0..29).
+    # Raw per-dim KS p-values = [0.8306, 0.4651, 0.9841], AD p-values =
+    # [0.7795, 0.4678, 0.9660] -- nowhere near alpha=0.01, consistent with
+    # RandomSearch's uniform per-batch resampling having no directional
+    # operator to induce structural bias against f0's own random landscape.
+    assert out["verdict"] == "no_evidence"  # uniform sampler must scan clean

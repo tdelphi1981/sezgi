@@ -11,8 +11,9 @@ use sezgi_bench::{
     ExperimentSpec, IohLogger, RunKey, RunRecord, SessionMeta,
 };
 use sezgi_bias::{
-    central_bias_scan, structural_bias_scan, BiasReportConfig, BiasVerdict, CentralBiasConfig,
-    CentralBiasResult, StructuralBiasConfig, StructuralBiasResult,
+    central_bias_scan, f0 as bias_f0_mod, scan_from_positions, structural_bias_scan,
+    BiasReportConfig, BiasVerdict, CentralBiasConfig, CentralBiasResult, F0Random,
+    StructuralBiasConfig, StructuralBiasResult,
 };
 use sezgi_components::nsga2::{nsga2_run, Nsga2Config};
 use sezgi_components::{presets, register_builtins};
@@ -38,6 +39,16 @@ enum Inner {
     Cec2022(Cec2022),
     Tsp(Tsp),
     Callable { f: Py<PyAny>, space: SearchSpace, vectorized: bool },
+    /// `sezgi.bias.f0(dim, seed)` -- the BIAS-toolbox null problem
+    /// ([`F0Random`]). `dim`/`seed` are stored (not an `F0Random` instance
+    /// itself) so `for_problem`/`solve()` can rebuild a fresh, independently
+    /// seeded instance for each run -- the same "rebuild from stored params"
+    /// pattern `Inner::Bbob` uses, and necessary here besides: `F0Random`
+    /// holds a `Mutex<RngStream>` (interior mutability, not `Clone`), so a
+    /// single stored instance could not be shared/reused across runs even if
+    /// we wanted to. `space` is precomputed at construction time so
+    /// `dim()`/`bounds()` need no `F0Random` instance at all.
+    F0 { dim: usize, seed: u64, space: SearchSpace },
 }
 
 #[pyclass(name = "Problem")]
@@ -175,6 +186,7 @@ impl PyProblem {
             Inner::Cec2022(p) => p.space().dim(),
             Inner::Tsp(p) => p.space().dim(),
             Inner::Callable { space, .. } => space.dim(),
+            Inner::F0 { space, .. } => space.dim(),
         }
     }
 
@@ -189,19 +201,23 @@ impl PyProblem {
             Inner::Cec2022(p) => p.space(),
             Inner::Tsp(p) => p.space(),
             Inner::Callable { space, .. } => space,
+            Inner::F0 { space, .. } => space,
         };
         bounds_of(space)
     }
 
     /// The problem's known optimum, or `None` if it has none (a
     /// `from_callable` handle always returns `None`: an arbitrary Python
-    /// function has no analytically known optimum).
+    /// function has no analytically known optimum; `sezgi.bias.f0(...)`
+    /// likewise -- it has no landscape at all, see `sezgi_bias::f0`'s module
+    /// doc).
     fn optimum(&self) -> Option<f64> {
         match &self.inner {
             Inner::Bbob(p) => p.optimum(),
             Inner::Cec2022(p) => p.optimum(),
             Inner::Tsp(p) => p.optimum(),
             Inner::Callable { .. } => None,
+            Inner::F0 { .. } => None,
         }
     }
 }
@@ -254,6 +270,28 @@ fn from_callable(f: Py<PyAny>, lo: f64, hi: f64, dim: usize, vectorized: bool) -
     let space = SearchSpace::new(vec![Block::Float { lo, hi, n: dim }])
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(PyProblem { inner: Inner::Callable { f, space, vectorized } })
+}
+
+/// `sezgi.bias.f0(dim, seed)` -- a [`Problem`] handle for
+/// [`sezgi_bias::f0::F0Random`], the BIAS-toolbox null problem (M3-4 Task
+/// 4): every evaluation is an independent U(0,1) draw, uncorrelated with the
+/// queried point, over the domain `[0,1]^dim`. Usable with `EvalSession.
+/// for_problem` / `Algorithm.solve` exactly like any other continuous
+/// [`Problem`] handle; `optimum()` is always `None` (there is no landscape
+/// to have an optimum), so `log_dir` is rejected the same way it is for
+/// `from_callable(...)` (nothing to record as `f_opt`). Collecting `best_x`
+/// over repeated runs and passing them to `sezgi.bias.structural_positions`
+/// is how a researcher's OWN algorithm gets the library's structural-bias
+/// scan without spec-driven engine involvement.
+#[pyfunction]
+fn bias_f0(dim: usize, seed: u64) -> PyResult<PyProblem> {
+    let space = SearchSpace::new(vec![Block::Float {
+        lo: bias_f0_mod::F0_LO,
+        hi: bias_f0_mod::F0_HI,
+        n: dim,
+    }])
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(PyProblem { inner: Inner::F0 { dim, seed, space } })
 }
 
 /// `sezgi.problems.cec2022(fid, dim)` -- a [`Problem`] handle for a CEC 2022
@@ -523,6 +561,21 @@ impl PyEvalSession {
                 };
                 (Box::new(owned), meta)
             }
+            Inner::F0 { dim, seed, .. } => {
+                // Fresh instance from the stored (dim, seed): F0Random is
+                // not Clone (interior-mutable RNG stream), and rebuilding is
+                // deterministic anyway (F0Random::new derives its stream
+                // purely from dim/seed) -- see the `Inner::F0` doc.
+                let fresh = F0Random::new(*dim, *seed);
+                let meta = SessionMeta {
+                    suite: "sezgi-f0".into(),
+                    fid: 0,
+                    name: "f0".into(),
+                    instance: 1,
+                    f_opt: None,
+                };
+                (Box::new(fresh), meta)
+            }
             Inner::Tsp(_) => return Err(PyValueError::new_err(
                 "EvalSession supports continuous (float) problems only")),
         };
@@ -646,6 +699,14 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
                     "log_dir is only supported for builtin (bbob) problems"));
             }
             (run_with_bridge(py, || run(p, None))?, None)
+        }
+        Inner::F0 { dim, seed, .. } => {
+            if log_dir.is_some() {
+                return Err(PyValueError::new_err(
+                    "log_dir is only supported for builtin (bbob) problems"));
+            }
+            let p = F0Random::new(*dim, *seed);
+            (run_with_bridge(py, || run(&p, None))?, None)
         }
     };
 
@@ -1276,6 +1337,30 @@ fn bias_structural(
     Ok(structural_result_to_dict(py, &r)?.into())
 }
 
+/// `sezgi.bias.structural_positions(final_positions)` — the bias bridge for
+/// externally-authored algorithms (M3-4 Task 4): runs the SAME KS/AD/Holm
+/// battery as `sezgi.bias.structural`, but over caller-supplied
+/// `final_positions` (each row one run's final best `x`) instead of driving
+/// an `AlgorithmSpec` through the engine itself — see
+/// [`sezgi_bias::structural::scan_from_positions`]. `dim` is inferred from
+/// row length; every row must have the SAME length. Returns a dict with the
+/// IDENTICAL keys `sezgi.bias.structural` returns (`per_dim_ks`,
+/// `per_dim_ad`, `holm_rejections_ks`, `holm_rejections_ad`, `verdict`,
+/// `detail`, `final_positions`) — built via the same
+/// [`structural_result_to_dict`] helper, so the two are interchangeable to
+/// any downstream consumer.
+///
+/// # Errors
+/// `ValueError` if `final_positions` has fewer than 5 rows, is ragged (rows
+/// of differing length), or any row is empty (`dim == 0`).
+#[pyfunction]
+fn bias_structural_positions(py: Python<'_>, final_positions: Vec<Vec<f64>>) -> PyResult<Py<PyDict>> {
+    let dim = final_positions.first().map_or(0, |row| row.len());
+    let r = scan_from_positions(final_positions, dim)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(structural_result_to_dict(py, &r)?.into())
+}
+
 /// `sezgi.bias.central(spec, dim, budget, fids=None, instances_shifted=None,
 /// runs_per=20, seed=0)` — see [`sezgi_bias::central::central_bias_scan`].
 /// `fids`/`instances_shifted` default to `sezgi_bias::report`'s own
@@ -1728,6 +1813,7 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEvalSession>()?;
     m.add_function(wrap_pyfunction!(bbob, m)?)?;
     m.add_function(wrap_pyfunction!(from_callable, m)?)?;
+    m.add_function(wrap_pyfunction!(bias_f0, m)?)?;
     m.add_function(wrap_pyfunction!(cec2022, m)?)?;
     m.add_function(wrap_pyfunction!(cec2022_evaluate, m)?)?;
     m.add_function(wrap_pyfunction!(cec2022_f_star, m)?)?;
@@ -1750,6 +1836,7 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(results_matrix, m)?)?;
     m.add_function(wrap_pyfunction!(per_budget_packages, m)?)?;
     m.add_function(wrap_pyfunction!(bias_structural, m)?)?;
+    m.add_function(wrap_pyfunction!(bias_structural_positions, m)?)?;
     m.add_function(wrap_pyfunction!(bias_central, m)?)?;
     m.add_function(wrap_pyfunction!(bias_report, m)?)?;
     m.add_function(wrap_pyfunction!(mo_nsga2, m)?)?;
