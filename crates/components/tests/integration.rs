@@ -3,7 +3,8 @@ use sezgi_core::component::Registry;
 use sezgi_core::dist::Distribution;
 use sezgi_core::engine::{Engine, RunConfig};
 use sezgi_core::problem::{Problem, SphereShifted};
-use sezgi_problems::BbobProblem;
+use sezgi_core::space::{Block, BlockValues, SearchSpace};
+use sezgi_problems::{BbobProblem, Tsp};
 
 fn registry() -> Registry {
     let mut r = Registry::new();
@@ -1054,4 +1055,169 @@ fn gsa_solves_bbob_f1_dim5() {
     // anchor at 0.5 (headroom 0.5).
     assert!(gap < 0.5,
         "gsa should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+// ---- ga-perm / Permutation GA (M3-3 Task 4) -- the fused OX-crossover +
+// swap-mutation generator (`gen/ga-perm`, see `perm.rs`'s module doc for the
+// controller ruling), validated on TSPLIB `Tsp` instances (see
+// `crates/problems/src/tsp.rs`, M3-3 Task 3). ----
+
+#[test]
+fn ga_perm_is_a_single_stage_spec_mirroring_ga_real() {
+    let spec = presets::ga_perm(30, 2000);
+    assert_eq!(spec.name, "ga-perm");
+    assert_eq!(spec.init.kind, "init/perm-random");
+    assert_eq!(spec.boundary.kind, "boundary/clamp");
+    assert_eq!(spec.stages.len(), 1, "ga-perm is a single-stage, fused-generator spec, like ga_real -- NOT a two-stage gen/ox + gen/perm-swap composition (see perm.rs's controller ruling)");
+    assert_eq!(spec.stages[0].generator.kind, "gen/ga-perm");
+    assert_eq!(spec.stages[0].replacer.kind, "replace/mu-plus-lambda", "reuses ga_real's own elitist replacer");
+    assert!(spec.stages[0].adapter.is_none());
+}
+
+#[test]
+fn ga_perm_binds_to_tsp_space() {
+    let tsp = Tsp::vendored("berlin52").unwrap();
+    let spec = presets::ga_perm(20, 2000);
+    assert!(spec.validate(&registry(), tsp.space()).is_ok(),
+        "ga-perm must validate on a Tsp (single Permutation block) space");
+    let e = Engine::from_spec(&spec, &registry(), tsp.space());
+    assert!(e.is_ok(), "ga-perm must build an Engine fine on a Tsp space");
+}
+
+#[test]
+fn ga_perm_rejected_on_float_only_space() {
+    use sezgi_core::spec::SpecError;
+
+    let space = SearchSpace::new(vec![Block::Float { lo: 0.0, hi: 1.0, n: 5 }]).unwrap();
+    let spec = presets::ga_perm(20, 2000);
+    match spec.validate(&registry(), &space) {
+        Err(SpecError::UnsupportedBlock { kind, block }) => {
+            // init/perm-random is validated before the generator (init,
+            // then boundary, then per-stage generator/replacer -- see
+            // AlgorithmSpec::validate's own metas-collection order), so it
+            // is the FIRST unsupported component reported here, same as
+            // perm.rs's own spec_validation_rejects_gen_ox_on_float_only_space.
+            assert_eq!(kind, "init/perm-random");
+            assert_eq!(block, "float");
+        }
+        other => panic!("expected SpecError::UnsupportedBlock, got {other:?}"),
+    }
+}
+
+#[test]
+fn ga_perm_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let space = SearchSpace::new(vec![Block::Permutation { n: 10 }]).unwrap();
+    let spec = presets::ga_perm(1, 500); // below min_pop = 2 (tournament selection)
+    let err = Engine::from_spec(&spec, &registry(), &space).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/ga-perm") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), &space) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/ga-perm");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+/// Determinism golden: berlin52, a TINY budget (pop=32, budget=1000 -- per
+/// the task brief), fixed seed 42. Pins three values BIT-EXACTLY, all
+/// MEASURED ONCE against this exact preset/seed/budget and hardcoded here
+/// (same convention as `crates/components/tests/golden.rs`'s
+/// `best_f_bits` pin, inlined rather than a separate JSON file since this
+/// wave's other labeled-preset tests already use inline anchored/pinned
+/// values -- see e.g. `mfo_solves_bbob_f1_dim5` above): the best tour
+/// length found (`best_f`, an integer-valued f64 per `Tsp::evaluate_batch`'s
+/// `nint`-summed contract), the total evaluations used, and the iteration
+/// count. If the Rust trajectory ever drifts (RNG stream changes,
+/// component logic changes), this test fails loudly rather than silently
+/// producing a different answer.
+#[test]
+fn ga_perm_deterministic_golden_berlin52_seed42() {
+    let tsp = Tsp::vendored("berlin52").unwrap();
+    let spec = presets::ga_perm(32, 1000);
+    let e = Engine::from_spec(&spec, &registry(), tsp.space()).unwrap();
+    let r = e.run(&tsp, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+
+    // Measured once (2026-08-30) at pop_size=32, budget=1000, master_seed=42,
+    // run_id=0, against gen/ga-perm's pinned draw order (tournament_k=2,
+    // pc=0.8, p_m=1/52 default) and replace/mu-plus-lambda: best_f=16175.0
+    // (bits 0x40cf978000000000), evals_used=992, iterations=30. Pinned
+    // bit-exactly via best_f's bit pattern (an f64 built purely from summed
+    // i64-valued nint() rounding, so bit-exact equality is the right
+    // comparison, not a tolerance).
+    assert_eq!(format!("{:016x}", r.best_f.to_bits()), "40cf978000000000",
+        "ga-perm's Rust trajectory on berlin52 (seed 42, pop 32, budget 1000) drifted from the pinned golden value");
+    assert_eq!(r.evals_used, 992, "evals_used drifted from the pinned golden value (1000-budget run stops one generation short of the cap, per mu-plus-lambda's exact-32-per-generation accounting)");
+    assert_eq!(r.iterations, 30, "iterations drifted from the pinned golden value");
+}
+
+/// Quality smoke, ANCHORED (per the task brief): berlin52, pop/budget
+/// chosen for well under 5s release runtime, 3 DISTINCT seeds, each
+/// asserted independently (no single-seed claims). Each seed's measured
+/// best tour length is reported below and the assertion bound is anchored
+/// to it with real headroom (rounded up), per this wave's convention (see
+/// e.g. `gwo_solves_bbob_f1_dim5`'s comment above) -- plus the hard sanity
+/// floor: nothing can beat the published optimum (7542, Reinelt's TSPLIB95
+/// Table 1, see `tsp.rs`'s module doc), so every measured length must be
+/// `>= 7542` too.
+#[test]
+fn ga_perm_quality_smoke_berlin52_anchored_three_seeds() {
+    let tsp = Tsp::vendored("berlin52").unwrap();
+    let optimum = tsp.known_optimum().unwrap();
+    assert_eq!(optimum, 7542.0);
+    let spec = presets::ga_perm(60, 60_000);
+    let reg = registry();
+
+    // (seed, anchored upper bound). Measured once (2026-08-30) at pop_size
+    // 60, budget 60_000: seed 7 -> 9091.0, seed 42 -> 9776.0, seed 123 ->
+    // 10594.0 (ga-perm's tournament-selection + OX + swap-mutation loop
+    // makes steady but not tight progress on berlin52 in 60k evaluations --
+    // looser than this crate's Float-space presets' near-optimal BBOB
+    // convergence, expected for a plain permutation GA with no local-search
+    // refinement, e.g. 2-opt, and no elitism beyond mu-plus-lambda's
+    // merge-sort-truncate). Each bound below is the measured value rounded
+    // up to the next 100, then bumped in further +100 steps until headroom
+    // is >= 300, matching this wave's "round up with real headroom"
+    // convention (see e.g. gwo_solves_bbob_f1_dim5's comment above).
+    let cases = [(7u64, 9400.0), (42u64, 10100.0), (123u64, 10900.0)];
+
+    let started = std::time::Instant::now();
+    for (seed, bound) in cases {
+        let e = Engine::from_spec(&spec, &reg, tsp.space()).unwrap();
+        let r = e.run(&tsp, RunConfig { master_seed: seed, run_id: 0 }, None).unwrap();
+        println!("ga_perm_quality_smoke: seed={seed} best_tour_length={}", r.best_f);
+        assert!(r.best_f >= optimum,
+            "seed {seed}: best tour length {} must not beat the published optimum {optimum}", r.best_f);
+        assert!(r.best_f < bound,
+            "seed {seed}: best tour length {} should be below the anchored bound {bound}", r.best_f);
+
+        // Permutation validity spot-check: the best individual found must
+        // itself be a valid permutation of the 52 cities (this is what
+        // Tsp::evaluate_batch's INFINITY-sentinel path exists to catch --
+        // if boundary/clamp + the engine's own construction discipline ever
+        // let a malformed genotype through, best_f would be INFINITY here,
+        // not a finite tour length, and the assertions above would already
+        // have failed; this check makes the guarantee explicit and direct).
+        let BlockValues::Perm(tour) = &r.best_x.blocks[0] else {
+            panic!("seed {seed}: expected a Permutation block, got {:?}", r.best_x.blocks[0]);
+        };
+        assert_eq!(tour.len(), tsp.n_cities());
+        let mut seen = vec![false; tsp.n_cities()];
+        for &c in tour {
+            let c = c as usize;
+            assert!(c < tsp.n_cities(), "seed {seed}: tour index {c} out of range");
+            assert!(!std::mem::replace(&mut seen[c], true), "seed {seed}: tour has a repeated city {c}, not a valid permutation");
+        }
+        assert!(seen.iter().all(|&s| s), "seed {seed}: tour does not visit every city -- not a valid permutation");
+    }
+    let elapsed = started.elapsed();
+    println!("ga_perm_quality_smoke: 3 seeds total runtime = {elapsed:?}");
+    assert!(elapsed.as_secs_f64() < 5.0,
+        "3-seed berlin52 quality smoke must stay under 5s release runtime, took {elapsed:?}");
 }

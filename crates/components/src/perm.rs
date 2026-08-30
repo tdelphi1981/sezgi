@@ -499,10 +499,123 @@ impl Generator for PermSwapGenerator {
     }
 }
 
+/// `gen/ga-perm` (M3-3 Task 4): the FUSED permutation-GA generator --
+/// crossover AND mutation inside ONE `Generator`, one evaluate-and-replace
+/// per generation, mirroring [`crate::ga::GaRealGenerator`]'s own
+/// single-stage shape for the Permutation representation, per the
+/// controller ruling recorded above in "Composition decision". Reuses this
+/// module's pinned, RNG-consuming cores directly rather than re-deriving
+/// them: [`draw_distinct_pair`] for both the OX cut points and the swap
+/// positions, [`ox_children_from_cuts`] for crossover, [`swap_positions`]
+/// for mutation.
+///
+/// **Structure** (mirrors `GaRealGenerator::generate`'s pair-loop exactly:
+/// `while out.len() < pop.len()`, two tournaments, a `pc`-gated
+/// recombination, THEN mutation of both children, push child 1 then child 2
+/// if room remains): the one deliberate representation-specific difference
+/// is mutation's GRANULARITY -- `gen/ga-real`'s mutation is per-gene
+/// (`pm_per_gene`, one gate draw per dimension); `gen/ga-perm`'s is
+/// PER-INDIVIDUAL (one gate draw per child, same as [`PermSwapGenerator`]),
+/// per Eiben & Smith's own semantics quoted above ("the mutation parameter
+/// is interpreted as the probability that the chromosome undergoes
+/// mutation, rather than that a single gene in the chromosome is altered").
+///
+/// **Params, mirroring `gen/ox`/`gen/ga-real`/`gen/perm-swap`'s own
+/// defaults exactly, for the reasons cited in those sections above**:
+/// `tournament_k` defaults to `2` (`gen/ga-real`'s/`gen/ox`'s default),
+/// `pc` defaults to `0.8` (`gen/ox`'s default, Eiben & Smith SS13.3's worked
+/// example), `p_m` defaults to `1/n` (`gen/perm-swap`'s default, same
+/// worked example).
+///
+/// **Draw order** (twin-stream contract, per pair): tournament for parent 1
+/// (`tournament_k` draws of `next_below(pop.len())`), THEN tournament for
+/// parent 2 (`tournament_k` more draws), THEN the `pc` gate (1 draw,
+/// `next_f64()`) -- IF it passes, [`draw_distinct_pair`]'s cut-point draws
+/// (`>= 2`, rejection-sampled) feed [`ox_children_from_cuts`]; IF it fails,
+/// `c1`/`c2` are direct clones of the parents, zero further draws for this
+/// step (mirrors `gen/ga-real`'s SBX-gated-by-`pc` structure exactly).
+/// THEN, for `c1` then `c2` in that order: the `p_m` gate (1 draw,
+/// `next_f64()`) -- IF it passes, [`draw_distinct_pair`]'s swap-position
+/// draws (`>= 2`, rejection-sampled) feed [`swap_positions`]; IF it fails,
+/// zero further draws, the child passes through unmutated (mirrors
+/// `gen/perm-swap`'s own per-individual gate exactly).
+pub struct GaPermGenerator {
+    pub tournament_k: usize,
+    pub pc: f64,
+    pub p_m: Option<f64>,
+}
+
+impl GaPermGenerator {
+    pub fn from_params(p: &serde_json::Value) -> Result<Self, ComponentError> {
+        let err = |reason: String| ComponentError::InvalidParams { kind: "gen/ga-perm".into(), reason };
+        let g = Self {
+            tournament_k: p.get("tournament_k").and_then(|v| v.as_u64()).unwrap_or(2) as usize,
+            pc: p.get("pc").and_then(|v| v.as_f64()).unwrap_or(0.8),
+            p_m: p.get("p_m").and_then(|v| v.as_f64()),
+        };
+        if g.tournament_k == 0 { return Err(err("tournament_k must be >= 1".into())); }
+        if !(0.0..=1.0).contains(&g.pc) { return Err(err(format!("pc outside [0,1]: {}", g.pc))); }
+        if let Some(pm) = g.p_m {
+            if !(0.0..=1.0).contains(&pm) { return Err(err(format!("p_m outside [0,1]: {pm}"))); }
+        }
+        Ok(g)
+    }
+
+    /// Identical structure to `gen/ga-real`'s/`gen/ox`'s own `tournament`
+    /// (mirrored deliberately, per this preset's design).
+    fn tournament(&self, pop: &Population, rng: &mut RngStream) -> usize {
+        let mut best = rng.next_below(pop.len() as u64) as usize;
+        for _ in 1..self.tournament_k {
+            let c = rng.next_below(pop.len() as u64) as usize;
+            if pop.fitness[c] < pop.fitness[best] { best = c; }
+        }
+        best
+    }
+}
+
+impl Generator for GaPermGenerator {
+    /// See this struct's doc for the full draw-order contract and the
+    /// controller ruling this design follows.
+    fn generate(&self, pop: &Population, ctx: &mut Ctx) -> Vec<Genotype> {
+        let dim = perm_dim(ctx.space);
+        assert!(pop.len() >= 2, "gen/ga-perm requires a population of at least 2 (pop_size={})", pop.len());
+        assert!(dim >= 2, "gen/ga-perm requires a permutation of length >= 2 (n={dim})");
+        let pm = self.p_m.unwrap_or(1.0 / dim as f64);
+        let mut out = Vec::with_capacity(pop.len());
+        while out.len() < pop.len() {
+            let (i1, i2) = (self.tournament(pop, ctx.rng), self.tournament(pop, ctx.rng));
+            let p1 = perm_values(&pop.individuals[i1]).clone();
+            let p2 = perm_values(&pop.individuals[i2]).clone();
+            let (mut c1, mut c2) = if ctx.rng.next_f64() < self.pc {
+                let (a, b) = draw_distinct_pair(dim, ctx.rng);
+                let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+                ox_children_from_cuts(&p1, &p2, lo, hi)
+            } else {
+                (p1, p2)
+            };
+            for c in [&mut c1, &mut c2] {
+                if ctx.rng.next_f64() < pm {
+                    let (a, b) = draw_distinct_pair(dim, ctx.rng);
+                    swap_positions(c, a, b);
+                }
+            }
+            out.push(Genotype { blocks: vec![BlockValues::Perm(c1)] });
+            if out.len() < pop.len() {
+                out.push(Genotype { blocks: vec![BlockValues::Perm(c2)] });
+            }
+        }
+        out
+    }
+    fn meta(&self) -> ComponentMeta {
+        ComponentMeta::new("gen/ga-perm", SupportedBlocks::Only(vec!["permutation"])).with_min_pop(2)
+    }
+}
+
 pub fn register(reg: &mut Registry) {
     reg.register_initializer("init/perm-random", |_| Ok(Box::new(PermRandomInit)));
     reg.register_generator("gen/ox", |p| Ok(Box::new(OxGenerator::from_params(p)?)));
     reg.register_generator("gen/perm-swap", |p| Ok(Box::new(PermSwapGenerator::from_params(p)?)));
+    reg.register_generator("gen/ga-perm", |p| Ok(Box::new(GaPermGenerator::from_params(p)?)));
 }
 
 #[cfg(test)]
@@ -1064,5 +1177,169 @@ mod tests {
             }
             other => panic!("expected SpecError::UnsupportedBlock, got {other:?}"),
         }
+    }
+
+    // ---- gen/ga-perm (M3-3 Task 4, fused generator) ----
+
+    #[test]
+    fn ga_perm_generator_meta_min_pop_2_and_block_restricted() {
+        let m = GaPermGenerator::from_params(&serde_json::json!({})).unwrap().meta();
+        assert_eq!(m.min_pop, 2);
+        assert!(m.supports_block("permutation"));
+        assert!(!m.supports_block("float"));
+        assert_eq!(m.kind, "gen/ga-perm");
+    }
+
+    #[test]
+    fn ga_perm_params_validate() {
+        assert!(GaPermGenerator::from_params(&serde_json::json!({"pc": 1.5})).is_err());
+        assert!(GaPermGenerator::from_params(&serde_json::json!({"tournament_k": 0})).is_err());
+        assert!(GaPermGenerator::from_params(&serde_json::json!({"p_m": -0.1})).is_err());
+        assert!(GaPermGenerator::from_params(&serde_json::json!({"p_m": 1.1})).is_err());
+        let g = GaPermGenerator::from_params(&serde_json::json!({})).unwrap();
+        assert_eq!(g.tournament_k, 2);
+        assert_eq!(g.pc, 0.8);
+        assert_eq!(g.p_m, None); // resolved lazily against dim inside generate()
+    }
+
+    #[test]
+    fn ga_perm_generator_validity_property_seeded_batch() {
+        let n = 10usize;
+        let p = PermProblem::new(n);
+        let space = p.space();
+        let gen = GaPermGenerator::from_params(&serde_json::json!({})).unwrap();
+        let mut eval = Evaluator::new(&p, 1_000_000);
+        let mut rng = RngStream::from_master(31, &[0]);
+        let mut bb = Blackboard::new();
+        for _ in 0..200 {
+            let pop = pop_n(9, n as u32);
+            let mut ctx = Ctx { space, rng: &mut rng, bb: &mut bb, eval: &mut eval, iteration: 0 };
+            let off = gen.generate(&pop, &mut ctx);
+            assert_eq!(off.len(), pop.len());
+            for ind in &off { assert!(is_permutation(perm_values(ind), n)); }
+        }
+    }
+
+    #[test]
+    fn ga_perm_generator_deterministic_same_seed() {
+        let n = 8usize;
+        let p = PermProblem::new(n);
+        let space = p.space();
+        let gen = GaPermGenerator::from_params(&serde_json::json!({})).unwrap();
+        let pop = pop_n(6, n as u32);
+        let run = || {
+            let mut eval = Evaluator::new(&p, 1000);
+            let mut rng = RngStream::from_master(41, &[]);
+            let mut bb = Blackboard::new();
+            let mut ctx = Ctx { space, rng: &mut rng, bb: &mut bb, eval: &mut eval, iteration: 0 };
+            gen.generate(&pop, &mut ctx)
+        };
+        assert_eq!(run(), run());
+    }
+
+    #[test]
+    fn ga_perm_generator_min_pop_below_2_panics() {
+        let n = 4usize;
+        let p = PermProblem::new(n);
+        let space = p.space();
+        let gen = GaPermGenerator::from_params(&serde_json::json!({})).unwrap();
+        let pop = pop_n(1, n as u32);
+        let mut eval = Evaluator::new(&p, 100);
+        let mut rng = RngStream::from_master(1, &[]);
+        let mut bb = Blackboard::new();
+        let mut ctx = Ctx { space, rng: &mut rng, bb: &mut bb, eval: &mut eval, iteration: 0 };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            gen.generate(&pop, &mut ctx)
+        }));
+        assert!(result.is_err(), "gen/ga-perm must reject pop_size < 2 at runtime as a backstop");
+    }
+
+    #[test]
+    fn ga_perm_generator_draw_order_matches_pinned_structure_via_raw_replay() {
+        // Twin-stream raw-replay: per pair, tournament_k*2 draws
+        // (next_below(pop.len())), the pc gate (next_f64), THEN IF it
+        // passes, draw_distinct_pair's cut-point draws -- THEN, for c1 then
+        // c2 in that order, the p_m gate (next_f64), and IF it passes,
+        // draw_distinct_pair's swap-position draws. See GaPermGenerator's
+        // doc "Draw order" for the full contract this replays.
+        let n = 8usize;
+        let p = PermProblem::new(n);
+        let space = p.space();
+        let gen = GaPermGenerator::from_params(
+            &serde_json::json!({"tournament_k": 3, "pc": 0.8, "p_m": 0.5})).unwrap();
+        let pop = pop_n(7, n as u32);
+
+        let mut rng = RngStream::from_master(19, &[]);
+        let rng_before = rng.clone();
+        let mut eval = Evaluator::new(&p, 1000);
+        let mut bb = Blackboard::new();
+        {
+            let mut ctx = Ctx { space, rng: &mut rng, bb: &mut bb, eval: &mut eval, iteration: 0 };
+            let off = gen.generate(&pop, &mut ctx);
+            assert_eq!(off.len(), pop.len());
+        }
+
+        let draw_distinct_pair_twin = |twin: &mut RngStream| {
+            let i1 = twin.next_below(n as u64);
+            let mut i2 = twin.next_below(n as u64);
+            while i2 == i1 { i2 = twin.next_below(n as u64); }
+        };
+
+        let mut twin = rng_before;
+        let mut produced = 0usize;
+        while produced < pop.len() {
+            for _ in 0..gen.tournament_k { twin.next_below(pop.len() as u64); }
+            for _ in 0..gen.tournament_k { twin.next_below(pop.len() as u64); }
+            let pc_gate = twin.next_f64();
+            if pc_gate < gen.pc { draw_distinct_pair_twin(&mut twin); }
+            // Both children are mutation-gated, in order (c1 then c2),
+            // regardless of whether a second child is actually pushed to
+            // `out` -- generate()'s own loop mutates c1/c2 BEFORE checking
+            // whether room remains for c2.
+            for _ in 0..2 {
+                let pm_gate = twin.next_f64();
+                if pm_gate < 0.5 { draw_distinct_pair_twin(&mut twin); }
+            }
+            produced += 1;
+            if produced < pop.len() { produced += 1; }
+        }
+        assert_eq!(rng.next_f64(), twin.next_f64(),
+            "gen/ga-perm must consume exactly: tournament x2, pc gate, (if gated) OX cut draws, \
+             then per-child (c1,c2) pm gate + (if gated) swap-position draws");
+    }
+
+    #[test]
+    fn ga_perm_default_p_m_is_one_over_n() {
+        // Same technique as perm_swap_default_p_m_is_one_over_n: with pc
+        // forced to 0.0 (no crossover, so c1=p1/c2=p2 with zero extra
+        // draws), the very first RNG draw after the two tournaments is the
+        // c1 mutation gate -- find a seed where that draw is >= 1/n (n=6),
+        // so the default p_m=1/6 gate must fail and c1 stays unchanged.
+        let n = 6usize;
+        let p = PermProblem::new(n);
+        let space = p.space();
+        let gen = GaPermGenerator::from_params(&serde_json::json!({"pc": 0.0})).unwrap();
+        let pop = Population {
+            individuals: vec![g(vec![0, 1, 2, 3, 4, 5]), g(vec![5, 4, 3, 2, 1, 0])],
+            fitness: vec![0.0, 1.0],
+        };
+        let mut eval = Evaluator::new(&p, 100);
+        let seed = (0..2000u64).find(|&s| {
+            let mut r = RngStream::from_master(s, &[0]);
+            for _ in 0..4 { r.next_below(2); } // two tournaments, tournament_k=2, pop_size=2
+            let _pc_gate = r.next_f64(); // pc=0.0, gate always fails (next_f64() in [0,1) is never < 0.0)
+            r.next_f64() >= 1.0 / 6.0 // c1's pm gate
+        }).unwrap();
+        let mut rng = RngStream::from_master(seed, &[0]);
+        let mut bb = Blackboard::new();
+        let mut ctx = Ctx { space, rng: &mut rng, bb: &mut bb, eval: &mut eval, iteration: 0 };
+        let off = gen.generate(&pop, &mut ctx);
+        // c1 is whichever parent tournament 1 selected, unmutated (pc=0.0
+        // means no crossover, and the found seed's pm gate fails for c1).
+        assert!(is_permutation(perm_values(&off[0]), n));
+        assert!(perm_values(&off[0]) == &vec![0, 1, 2, 3, 4, 5]
+            || perm_values(&off[0]) == &vec![5, 4, 3, 2, 1, 0],
+            "with pc=0.0, c1 must be an unmodified clone of a parent when its pm gate (default 1/n) fails: {:?}",
+            perm_values(&off[0]));
     }
 }
