@@ -6,6 +6,48 @@ from sezgi._sezgi import Problem, EvalSession, bbob, from_callable
 from sezgi import _sezgi
 
 
+# EvalSession / Problem surface (M3-4 Task 1): EvalSession's ask/tell core
+# (evaluate/evals_used/budget/best/f_opt/finish) is no longer BBOB-only.
+#
+# EvalSession(fid, dim, instance, budget, log_dir=None, algo_name="custom",
+#   seed=0) -- the original, frozen BBOB constructor: unchanged.
+#
+# EvalSession.for_problem(problem, budget, log_dir=None, algo_name="custom",
+#   seed=0) -- staticmethod building a session over any continuous (float)
+#   Problem handle: bbob(...), problems.cec2022(...), from_callable(...), or
+#   bias.f0(...). Raises ValueError for problems.tsp(...) (a permutation
+#   space, not continuous) and for log_dir on any non-BBOB problem: IOH
+#   logging is currently supported for BBOB problems only, matching
+#   solve()'s pre-existing policy -- a known optimum (which cec2022(...)
+#   also has) is necessary but not sufficient, since the on-disk IOH record
+#   key carries no suite discriminator and a non-BBOB run would silently
+#   merge with a BBOB run at the same (fid, dim, instance, seed, budget).
+#
+# f_opt() now returns float | None (was always float, since only BBOB
+#   existed): None for a problem with no analytically known optimum (e.g.
+#   from_callable(...)); a session built via the BBOB constructor above
+#   always returns a float, unchanged.
+#
+# Problem handle accessors, usable on any handle above:
+#   p.dim() -> int: the search space's dimensionality.
+#   p.bounds() -> (float, float): the uniform (lo, hi) bounds of a
+#     continuous (float) space. ValueError for a non-continuous space (e.g.
+#     problems.tsp(...)'s permutation space).
+#   p.optimum() -> float | None: the problem's known optimum, or None (a
+#     from_callable(...) handle always returns None).
+#
+# from_callable(f, lo, hi, dim, vectorized=True) -- vectorized fixes f's
+#   calling convention for EVERY consumer of the returned handle (solve()
+#   AND EvalSession.for_problem alike: one handle, one contract everywhere).
+#   vectorized=True (default, unchanged from before M3-4): f is called ONCE
+#     per evaluate_batch call, with the whole population as a single 2-D
+#     (n, dim) float64 numpy array, and must return n values.
+#   vectorized=False: f is called ONCE PER POINT, with a 1-D length-dim
+#     float64 numpy array, and must return a scalar float -- natural for
+#     EvalSession's ask/tell callers (which evaluate individually-generated
+#     points) and for an ordinary single-point objective function.
+
+
 def solve(spec, problem, master_seed=0, run_id=0, log_dir=None, algo_name=None):
     """Run an algorithm spec against a problem.
 
@@ -231,6 +273,10 @@ def _bias_structural(spec, dim, budget, runs=30, seed=0):
     return _sezgi.bias_structural(_spec_json(spec), dim, budget, runs=runs, seed=seed)
 
 
+def _bias_structural_positions(final_positions):
+    return _sezgi.bias_structural_positions(final_positions)
+
+
 def _bias_central(spec, dim, budget, fids=None, instances_shifted=None, runs_per=20, seed=0):
     return _sezgi.bias_central(_spec_json(spec), dim, budget, fids=fids,
                                instances_shifted=instances_shifted, runs_per=runs_per, seed=seed)
@@ -256,6 +302,23 @@ def _bias_report(spec, dim, budget, seed=0, structural_runs=None, central_fids=N
 #   {a2, p_value, n}), holm_rejections_ks, holm_rejections_ad,
 #   verdict, detail, final_positions (runs x dim).
 #
+# bias.f0(dim, seed) -> Problem (M3-4 Task 4): a handle for the BIAS-toolbox
+#   null problem (every evaluation an independent U(0,1) draw over [0,1]^dim,
+#   uncorrelated with the queried point) -- usable with
+#   EvalSession.for_problem / Algorithm.solve exactly like any other
+#   continuous Problem handle. optimum() is always None (no landscape to have
+#   an optimum), so log_dir is rejected the same way it is for
+#   from_callable(...).
+#
+# bias.structural_positions(final_positions) -> dict (M3-4 Task 4): the
+#   bias bridge for externally-authored algorithms -- runs the SAME
+#   KS/AD/Holm battery as bias.structural, but over caller-supplied
+#   final_positions (each row one run's final best x, e.g. collected from
+#   repeated Algorithm.solve(bias.f0(...)) calls) instead of an
+#   AlgorithmSpec-driven engine run. dim is inferred from row length. Same
+#   return shape as bias.structural. Raises ValueError for fewer than 5 rows
+#   or ragged rows (mirrors crates/bias's own MIN_RUNS floor).
+#
 # bias.central(spec, dim, budget, fids=None, instances_shifted=None,
 #   runs_per=20, seed=0) -> dict with keys gap_centered, gap_shifted,
 #   wilcoxon ({w_statistic, z, p_value, n_effective, method}), effect,
@@ -273,6 +336,8 @@ def _bias_report(spec, dim, budget, seed=0, structural_runs=None, central_fids=N
 #   ({final_positions, gap_centered, gap_shifted}).
 bias = SimpleNamespace(
     structural=_bias_structural,
+    structural_positions=_bias_structural_positions,
+    f0=_sezgi.bias_f0,
     central=_bias_central,
     report=_bias_report,
 )
@@ -383,4 +448,15 @@ problems = SimpleNamespace(
 
 __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_experiment", "presets",
            "stats", "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf",
-           "coco_export", "bias", "mo", "problems"]
+           "coco_export", "bias", "mo", "problems", "Algorithm", "algo"]
+
+
+# Algorithm-authoring surface (M3-4 Task 2): sezgi.Algorithm is the pure-
+# Python ABC for subclassing an algorithm's setup()/step() over the
+# EvalSession ask/tell core. sezgi.algo also exposes AlgoContext,
+# SolveResult, BudgetExhausted for direct import. Imported last since
+# sezgi/algo.py itself does `import sezgi` (module-level attribute access
+# happens only inside Algorithm.solve(), at call time, well after this
+# module has finished initializing).
+from sezgi import algo
+from sezgi.algo import Algorithm

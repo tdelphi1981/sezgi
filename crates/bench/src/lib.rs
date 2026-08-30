@@ -28,4 +28,4 @@ pub mod reporting;
 pub use reporting::{Aggregate, per_budget_packages, results_matrix};
 
 pub mod session;
-pub use session::EvalSession;
+pub use session::{EvalSession, SessionMeta};

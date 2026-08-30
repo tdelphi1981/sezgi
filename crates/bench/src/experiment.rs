@@ -259,6 +259,8 @@ pub enum ExperimentError {
     NonFiniteInput { row: usize },
     #[error("EvalSession::with_log must be called before any evaluation ({used} eval(s) already used)")]
     LogAfterEval { used: u64 },
+    #[error("EvalSession::with_log requires a problem with a known optimum (f_opt); this session's problem has none")]
+    LogRequiresKnownOptimum,
 }
 
 const VALID_PRESET_KINDS: &[&str] = &[

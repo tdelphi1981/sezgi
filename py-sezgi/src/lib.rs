@@ -1,4 +1,4 @@
-use numpy::{PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -8,11 +8,12 @@ use sezgi_bench::{
     per_budget_packages as bench_per_budget_packages, read_ioh_root,
     results_matrix as bench_results_matrix, run_experiment_logged, run_experiment_parallel,
     run_experiment_sequential, run_experiment_with_checkpoint, Aggregate, EcdfCurve, EvalSession,
-    ExperimentSpec, IohLogger, RunKey, RunRecord,
+    ExperimentSpec, IohLogger, RunKey, RunRecord, SessionMeta,
 };
 use sezgi_bias::{
-    central_bias_scan, structural_bias_scan, BiasReportConfig, BiasVerdict, CentralBiasConfig,
-    CentralBiasResult, StructuralBiasConfig, StructuralBiasResult,
+    central_bias_scan, f0 as bias_f0_mod, scan_from_positions, structural_bias_scan,
+    BiasReportConfig, BiasVerdict, CentralBiasConfig, CentralBiasResult, F0Random,
+    StructuralBiasConfig, StructuralBiasResult,
 };
 use sezgi_components::nsga2::{nsga2_run, Nsga2Config};
 use sezgi_components::{presets, register_builtins};
@@ -37,18 +38,44 @@ enum Inner {
     Bbob(BbobProblem),
     Cec2022(Cec2022),
     Tsp(Tsp),
-    Callable { f: Py<PyAny>, space: SearchSpace },
+    Callable { f: Py<PyAny>, space: SearchSpace, vectorized: bool },
+    /// `sezgi.bias.f0(dim, seed)` -- the BIAS-toolbox null problem
+    /// ([`F0Random`]). `dim`/`seed` are stored (not an `F0Random` instance
+    /// itself) so `for_problem`/`solve()` can rebuild a fresh, independently
+    /// seeded instance for each run -- the same "rebuild from stored params"
+    /// pattern `Inner::Bbob` uses, and necessary here besides: `F0Random`
+    /// holds a `Mutex<RngStream>` (interior mutability, not `Clone`), so a
+    /// single stored instance could not be shared/reused across runs even if
+    /// we wanted to. `space` is precomputed at construction time so
+    /// `dim()`/`bounds()` need no `F0Random` instance at all.
+    F0 { dim: usize, seed: u64, space: SearchSpace },
 }
 
 #[pyclass(name = "Problem")]
 struct PyProblem { inner: Inner }
 
-struct CallableProblem<'a> { f: &'a Py<PyAny>, space: &'a SearchSpace }
-
-impl Problem for CallableProblem<'_> {
-    fn space(&self) -> &SearchSpace { self.space }
-    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
-        Python::with_gil(|py| {
+/// Shared calling convention for a `from_callable(...)` handle's Python
+/// callback `f`, dispatched on `vectorized` -- the flag lives on the HANDLE
+/// (`Inner::Callable`/`from_callable`'s own `vectorized` parameter), not on
+/// the consumer, so a given handle has exactly ONE contract everywhere it is
+/// used (`solve()`'s [`CallableProblem`] and
+/// `EvalSession::for_problem`'s [`OwnedCallableProblem`] both call this).
+///
+/// - `vectorized=true` (the default): `f` is called ONCE per
+///   `evaluate_batch` call, with the WHOLE population written into a single
+///   2-D `(n, d)` float64 numpy array, and must return `n` values (a numpy
+///   array or a plain list) -- this is the ORIGINAL, frozen convention
+///   (unchanged byte-for-byte: `solve()`'s existing tests, including "must
+///   be a SINGLE call per population", still pass unmodified).
+/// - `vectorized=false`: `f` is called ONCE PER POINT, with a 1-D
+///   length-`dim` float64 numpy array, and must return a scalar `float`.
+///   Natural for `EvalSession`'s ask/tell callers, which evaluate
+///   individually-generated candidate points, and for an ordinary
+///   single-point objective function generally -- without requiring every
+///   `from_callable` caller to write batch-aware code.
+fn call_callable(f: &Py<PyAny>, vectorized: bool, pop: &[Genotype]) -> Vec<f64> {
+    Python::with_gil(|py| {
+        if vectorized {
             let rows: Vec<Vec<f64>> = pop.iter().map(|g| match &g.blocks[0] {
                 BlockValues::Float(v) => v.clone(),
                 _ => unreachable!("from_callable only builds Float spaces"),
@@ -60,7 +87,7 @@ impl Problem for CallableProblem<'_> {
                 Err(e) => panic::panic_any(PyValueError::new_err(
                     format!("could not convert population to numpy array: {e}"))),
             };
-            let out = match self.f.call1(py, (arr,)) {
+            let out = match f.call1(py, (arr,)) {
                 Ok(o) => o,
                 // A Python exception inside the callback is thrown here as a
                 // panic; `catch_unwind` inside `solve` downcasts it and
@@ -76,7 +103,122 @@ impl Problem for CallableProblem<'_> {
                     Err(e) => panic::panic_any(e),
                 }
             }
-        })
+        } else {
+            pop.iter().map(|g| {
+                let BlockValues::Float(v) = &g.blocks[0] else {
+                    unreachable!("from_callable only builds Float spaces")
+                };
+                let arr = PyArray1::from_vec(py, v.clone());
+                let out = match f.call1(py, (arr,)) {
+                    Ok(o) => o,
+                    Err(e) => panic::panic_any(e),
+                };
+                match out.extract::<f64>(py) {
+                    Ok(f) => f,
+                    Err(e) => panic::panic_any(e),
+                }
+            }).collect()
+        }
+    })
+}
+
+/// Borrowed [`Problem`] wrapper around a `from_callable(...)` handle, used
+/// by `solve()` (which runs synchronously and can borrow the `PyProblem`'s
+/// own fields for the run's lifetime). Calling convention: see
+/// [`call_callable`]'s doc.
+struct CallableProblem<'a> { f: &'a Py<PyAny>, space: &'a SearchSpace, vectorized: bool }
+
+impl Problem for CallableProblem<'_> {
+    fn space(&self) -> &SearchSpace { self.space }
+    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> { call_callable(self.f, self.vectorized, pop) }
+}
+
+/// Owned counterpart of [`CallableProblem`], used only by
+/// `EvalSession::for_problem` (which needs a `'static` `Box<dyn Problem>`,
+/// unlike `solve()`'s borrow-for-the-run-lifetime use of `CallableProblem`
+/// above). Same calling convention (dispatched on the SAME `vectorized`
+/// flag carried on the handle) -- see [`call_callable`]'s doc.
+struct OwnedCallableProblem { f: Py<PyAny>, space: SearchSpace, vectorized: bool }
+
+impl Problem for OwnedCallableProblem {
+    fn space(&self) -> &SearchSpace { &self.space }
+    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> { call_callable(&self.f, self.vectorized, pop) }
+}
+
+/// The uniform `(lo, hi)` bounds of a continuous (all-`Float`-block) space:
+/// every block must be `Block::Float` and share the SAME `(lo, hi)` pair —
+/// true for every space this crate ever builds (`BbobProblem`, `Cec2022`,
+/// `from_callable` all build a single `Float` block), but checked explicitly
+/// rather than just reading the first block, since `Problem::bounds` is a
+/// documented API surface a T4-era problem could in principle multi-block.
+///
+/// # Errors
+/// `ValueError` if any block is not `Float` (e.g. TSP's permutation space),
+/// or if the space is empty (dim 0), or if `Float` blocks disagree on
+/// `(lo, hi)`.
+fn bounds_of(space: &SearchSpace) -> PyResult<(f64, f64)> {
+    let mut bounds: Option<(f64, f64)> = None;
+    for b in space.blocks() {
+        match *b {
+            Block::Float { lo, hi, .. } => match bounds {
+                None => bounds = Some((lo, hi)),
+                Some((rlo, rhi)) if rlo == lo && rhi == hi => {}
+                Some(_) => return Err(PyValueError::new_err(
+                    "space has non-uniform bounds across its float blocks")),
+            },
+            _ => return Err(PyValueError::new_err(
+                "bounds() is only defined for continuous (float) spaces")),
+        }
+    }
+    bounds.ok_or_else(|| PyValueError::new_err(
+        "bounds() is only defined for continuous (float) spaces"))
+}
+
+/// `Problem`-handle accessors: `dim()`, `bounds()`, `optimum()` — usable on
+/// any handle `sezgi.bbob(...)` / `sezgi.problems.cec2022(...)` /
+/// `sezgi.from_callable(...)` / `sezgi.problems.tsp(...)` returns.
+#[pymethods]
+impl PyProblem {
+    /// The search space's dimensionality (`space().dim()`).
+    fn dim(&self) -> usize {
+        match &self.inner {
+            Inner::Bbob(p) => p.space().dim(),
+            Inner::Cec2022(p) => p.space().dim(),
+            Inner::Tsp(p) => p.space().dim(),
+            Inner::Callable { space, .. } => space.dim(),
+            Inner::F0 { space, .. } => space.dim(),
+        }
+    }
+
+    /// The uniform `(lo, hi)` bounds of a continuous (float) space.
+    ///
+    /// # Errors
+    /// `ValueError` for a non-continuous space (e.g. TSP's permutation
+    /// space) — see [`bounds_of`].
+    fn bounds(&self) -> PyResult<(f64, f64)> {
+        let space = match &self.inner {
+            Inner::Bbob(p) => p.space(),
+            Inner::Cec2022(p) => p.space(),
+            Inner::Tsp(p) => p.space(),
+            Inner::Callable { space, .. } => space,
+            Inner::F0 { space, .. } => space,
+        };
+        bounds_of(space)
+    }
+
+    /// The problem's known optimum, or `None` if it has none (a
+    /// `from_callable` handle always returns `None`: an arbitrary Python
+    /// function has no analytically known optimum; `sezgi.bias.f0(...)`
+    /// likewise -- it has no landscape at all, see `sezgi_bias::f0`'s module
+    /// doc).
+    fn optimum(&self) -> Option<f64> {
+        match &self.inner {
+            Inner::Bbob(p) => p.optimum(),
+            Inner::Cec2022(p) => p.optimum(),
+            Inner::Tsp(p) => p.optimum(),
+            Inner::Callable { .. } => None,
+            Inner::F0 { .. } => None,
+        }
     }
 }
 
@@ -116,11 +258,40 @@ fn bbob(fid: u32, dim: usize, instance: u32) -> PyResult<PyProblem> {
             .map_err(|e| PyValueError::new_err(e.to_string()))?) })
 }
 
+/// `sezgi.from_callable(f, lo, hi, dim, vectorized=True)` -- a [`Problem`]
+/// handle wrapping a Python function `f`. `vectorized` fixes `f`'s calling
+/// convention for every consumer of this handle (`solve()`,
+/// `EvalSession.for_problem`) -- see [`call_callable`]'s doc for the exact
+/// contract of each value. Defaults to `True`: the original, frozen
+/// population-batched convention, unchanged for every existing caller.
 #[pyfunction]
-fn from_callable(f: Py<PyAny>, lo: f64, hi: f64, dim: usize) -> PyResult<PyProblem> {
+#[pyo3(signature = (f, lo, hi, dim, vectorized=true))]
+fn from_callable(f: Py<PyAny>, lo: f64, hi: f64, dim: usize, vectorized: bool) -> PyResult<PyProblem> {
     let space = SearchSpace::new(vec![Block::Float { lo, hi, n: dim }])
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
-    Ok(PyProblem { inner: Inner::Callable { f, space } })
+    Ok(PyProblem { inner: Inner::Callable { f, space, vectorized } })
+}
+
+/// `sezgi.bias.f0(dim, seed)` -- a [`Problem`] handle for
+/// [`sezgi_bias::f0::F0Random`], the BIAS-toolbox null problem (M3-4 Task
+/// 4): every evaluation is an independent U(0,1) draw, uncorrelated with the
+/// queried point, over the domain `[0,1]^dim`. Usable with `EvalSession.
+/// for_problem` / `Algorithm.solve` exactly like any other continuous
+/// [`Problem`] handle; `optimum()` is always `None` (there is no landscape
+/// to have an optimum), so `log_dir` is rejected the same way it is for
+/// `from_callable(...)` (nothing to record as `f_opt`). Collecting `best_x`
+/// over repeated runs and passing them to `sezgi.bias.structural_positions`
+/// is how a researcher's OWN algorithm gets the library's structural-bias
+/// scan without spec-driven engine involvement.
+#[pyfunction]
+fn bias_f0(dim: usize, seed: u64) -> PyResult<PyProblem> {
+    let space = SearchSpace::new(vec![Block::Float {
+        lo: bias_f0_mod::F0_LO,
+        hi: bias_f0_mod::F0_HI,
+        n: dim,
+    }])
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(PyProblem { inner: Inner::F0 { dim, seed, space } })
 }
 
 /// `sezgi.problems.cec2022(fid, dim)` -- a [`Problem`] handle for a CEC 2022
@@ -324,6 +495,121 @@ impl PyEvalSession {
         Ok(Self { inner: Some(session) })
     }
 
+    /// Builds a session over any continuous [`PyProblem`] handle —
+    /// `sezgi.bbob(...)`, `sezgi.problems.cec2022(...)`,
+    /// `sezgi.from_callable(...)`, or `sezgi.bias.f0(...)`. See
+    /// [`sezgi_bench::EvalSession::new_owned`] for the generalization this
+    /// delegates to; each `Inner` arm below builds its own [`SessionMeta`]
+    /// (suite/fid/name/instance/f_opt), so adding a new continuous-problem
+    /// arm elsewhere in this crate is a self-contained extension of this
+    /// match.
+    ///
+    /// # Errors
+    /// - `ValueError` for `sezgi.problems.tsp(...)`: its permutation space
+    ///   is not a continuous problem `EvalSession` can evaluate.
+    /// - `ValueError` if `log_dir` is given for any non-BBOB problem
+    ///   (`sezgi.problems.cec2022(...)`, `sezgi.from_callable(...)`, or
+    ///   `sezgi.bias.f0(...)`): IOH logging is restricted to BBOB sessions
+    ///   only, matching `solve()`'s existing policy. A known optimum
+    ///   (which CEC 2022 also has) is necessary but not sufficient — the
+    ///   on-disk IOH record key carries no suite discriminator, so a
+    ///   non-BBOB run sharing `(fid, dim, instance, seed, budget)` with a
+    ///   BBOB run would silently merge into one `results_matrix` cell.
+    #[staticmethod]
+    #[pyo3(signature = (problem, budget, log_dir=None, algo_name="custom", seed=0))]
+    fn for_problem(
+        py: Python<'_>,
+        problem: &PyProblem,
+        budget: u64,
+        log_dir: Option<&str>,
+        algo_name: &str,
+        seed: u64,
+    ) -> PyResult<Self> {
+        let (boxed, meta): (Box<dyn Problem>, SessionMeta) = match &problem.inner {
+            Inner::Bbob(p) => {
+                // Fresh instance from the same (fid, dim, instance): matches
+                // `EvalSession::new_bbob`'s own construction exactly (BBOB's
+                // instance-seeded RNG makes this deterministic and
+                // bit-identical to `p`).
+                let fresh = BbobProblem::new(p.fid(), p.space().dim(), p.instance)
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                let meta = SessionMeta {
+                    suite: "sezgi-bbob".into(),
+                    fid: p.fid(),
+                    name: p.name().to_string(),
+                    instance: p.instance,
+                    f_opt: Some(p.f_opt()),
+                };
+                (Box::new(fresh), meta)
+            }
+            Inner::Cec2022(p) => {
+                let fresh = Cec2022::new(p.fid(), p.dim())
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                let meta = SessionMeta {
+                    suite: "sezgi-cec2022".into(),
+                    fid: p.fid(),
+                    name: format!("cec2022-f{}", p.fid()),
+                    instance: 1,
+                    f_opt: p.optimum(),
+                };
+                (Box::new(fresh), meta)
+            }
+            Inner::Callable { f, space, vectorized } => {
+                let owned = OwnedCallableProblem {
+                    f: f.clone_ref(py), space: space.clone(), vectorized: *vectorized,
+                };
+                let meta = SessionMeta {
+                    suite: "sezgi-custom".into(),
+                    fid: 0,
+                    name: "callable".into(),
+                    instance: 1,
+                    f_opt: None,
+                };
+                (Box::new(owned), meta)
+            }
+            Inner::F0 { dim, seed, .. } => {
+                // Fresh instance from the stored (dim, seed): F0Random is
+                // not Clone (interior-mutable RNG stream), and rebuilding is
+                // deterministic anyway (F0Random::new derives its stream
+                // purely from dim/seed) -- see the `Inner::F0` doc.
+                let fresh = F0Random::new(*dim, *seed);
+                let meta = SessionMeta {
+                    suite: "sezgi-f0".into(),
+                    fid: 0,
+                    name: "f0".into(),
+                    instance: 1,
+                    f_opt: None,
+                };
+                (Box::new(fresh), meta)
+            }
+            Inner::Tsp(_) => return Err(PyValueError::new_err(
+                "EvalSession supports continuous (float) problems only")),
+        };
+
+        // sezgi decision (final-review fix, narrowing scope ruling 3): IOH
+        // logging via for_problem is restricted to BBOB sessions only, not
+        // "any problem with a known optimum" -- CEC 2022 also has an f_opt,
+        // but the on-disk IOH record key (algo, fid, dim, instance, seed,
+        // budget) carries no suite discriminator, so a CEC 2022 run and a
+        // BBOB run sharing that key would silently merge into one
+        // results_matrix cell (read_ioh_records cannot tell them apart).
+        // This matches solve()'s pre-existing, already-documented policy
+        // exactly -- see docs/DECISIONS.md's M3-4 record.
+        if log_dir.is_some() && !matches!(&problem.inner, Inner::Bbob(_)) {
+            return Err(PyValueError::new_err(
+                "IOH logging is currently supported for BBOB problems only"));
+        }
+
+        let mut session = EvalSession::new_owned(boxed, meta, budget)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if let Some(dir) = log_dir {
+            session = session
+                .with_log(Path::new(dir), algo_name, seed)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        }
+        Ok(Self { inner: Some(session) })
+    }
+
     /// Batch-evaluates `xs` (a list of rows, each a list of `dim` floats).
     /// All-or-nothing: on any error (dimension mismatch, a non-finite
     /// coordinate, or budget overrun) nothing is counted.
@@ -347,7 +633,11 @@ impl PyEvalSession {
         Ok(session.best().map(|(x, f)| (x.to_vec(), f)))
     }
 
-    fn f_opt(&self) -> PyResult<f64> {
+    /// The problem's known optimum, or `None` if it has none (e.g. a
+    /// `for_problem`-built session over a `from_callable` handle). A
+    /// session built via the `EvalSession(...)` (BBOB) constructor always
+    /// returns a `float`.
+    fn f_opt(&self) -> PyResult<Option<f64>> {
         Ok(self.inner.as_ref().ok_or_else(session_finished_err)?.f_opt())
     }
 
@@ -396,12 +686,12 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
                 (r, Some(fin.skipped_empty_runs as u64))
             } else { (run_with_bridge(py, || run(p, None))?, None) }
         }
-        Inner::Callable { f, space } => {
+        Inner::Callable { f, space, vectorized } => {
             if log_dir.is_some() {
                 return Err(PyValueError::new_err(
                     "log_dir is only supported for builtin (bbob) problems"));
             }
-            let cp = CallableProblem { f, space };
+            let cp = CallableProblem { f, space, vectorized: *vectorized };
             // GIL is released for the run; the callback reacquires it each
             // batch via Python::with_gil (standard PyO3 pattern).
             (run_with_bridge(py, || run(&cp, None))?, None)
@@ -424,6 +714,14 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
                     "log_dir is only supported for builtin (bbob) problems"));
             }
             (run_with_bridge(py, || run(p, None))?, None)
+        }
+        Inner::F0 { dim, seed, .. } => {
+            if log_dir.is_some() {
+                return Err(PyValueError::new_err(
+                    "log_dir is only supported for builtin (bbob) problems"));
+            }
+            let p = F0Random::new(*dim, *seed);
+            (run_with_bridge(py, || run(&p, None))?, None)
         }
     };
 
@@ -1054,6 +1352,30 @@ fn bias_structural(
     Ok(structural_result_to_dict(py, &r)?.into())
 }
 
+/// `sezgi.bias.structural_positions(final_positions)` — the bias bridge for
+/// externally-authored algorithms (M3-4 Task 4): runs the SAME KS/AD/Holm
+/// battery as `sezgi.bias.structural`, but over caller-supplied
+/// `final_positions` (each row one run's final best `x`) instead of driving
+/// an `AlgorithmSpec` through the engine itself — see
+/// [`sezgi_bias::structural::scan_from_positions`]. `dim` is inferred from
+/// row length; every row must have the SAME length. Returns a dict with the
+/// IDENTICAL keys `sezgi.bias.structural` returns (`per_dim_ks`,
+/// `per_dim_ad`, `holm_rejections_ks`, `holm_rejections_ad`, `verdict`,
+/// `detail`, `final_positions`) — built via the same
+/// [`structural_result_to_dict`] helper, so the two are interchangeable to
+/// any downstream consumer.
+///
+/// # Errors
+/// `ValueError` if `final_positions` has fewer than 5 rows, is ragged (rows
+/// of differing length), or any row is empty (`dim == 0`).
+#[pyfunction]
+fn bias_structural_positions(py: Python<'_>, final_positions: Vec<Vec<f64>>) -> PyResult<Py<PyDict>> {
+    let dim = final_positions.first().map_or(0, |row| row.len());
+    let r = scan_from_positions(final_positions, dim)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(structural_result_to_dict(py, &r)?.into())
+}
+
 /// `sezgi.bias.central(spec, dim, budget, fids=None, instances_shifted=None,
 /// runs_per=20, seed=0)` — see [`sezgi_bias::central::central_bias_scan`].
 /// `fids`/`instances_shifted` default to `sezgi_bias::report`'s own
@@ -1506,6 +1828,7 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEvalSession>()?;
     m.add_function(wrap_pyfunction!(bbob, m)?)?;
     m.add_function(wrap_pyfunction!(from_callable, m)?)?;
+    m.add_function(wrap_pyfunction!(bias_f0, m)?)?;
     m.add_function(wrap_pyfunction!(cec2022, m)?)?;
     m.add_function(wrap_pyfunction!(cec2022_evaluate, m)?)?;
     m.add_function(wrap_pyfunction!(cec2022_f_star, m)?)?;
@@ -1528,6 +1851,7 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(results_matrix, m)?)?;
     m.add_function(wrap_pyfunction!(per_budget_packages, m)?)?;
     m.add_function(wrap_pyfunction!(bias_structural, m)?)?;
+    m.add_function(wrap_pyfunction!(bias_structural_positions, m)?)?;
     m.add_function(wrap_pyfunction!(bias_central, m)?)?;
     m.add_function(wrap_pyfunction!(bias_report, m)?)?;
     m.add_function(wrap_pyfunction!(mo_nsga2, m)?)?;

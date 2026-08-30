@@ -354,7 +354,14 @@ pub fn structural_bias_scan(
 /// engine (synthetic `final_positions`, e.g. a hand-crafted biased/uniform
 /// sampler) -- see this module's tests. `final_positions` must be `runs` x
 /// `dim` (every row exactly `dim` entries long) with `runs >= `[`MIN_RUNS`].
-pub(crate) fn scan_from_positions(
+///
+/// Public API (M3-4 Task 4): this is the entry point for scanning final
+/// positions collected from an algorithm run OUTSIDE this crate's own
+/// engine -- e.g. a Python-authored `sezgi.Algorithm` driven through
+/// `EvalSession.for_problem(sezgi.bias.f0(...))` one run at a time, whose
+/// `best_x` rows are handed back here for the same KS/AD/Holm battery
+/// [`structural_bias_scan`] runs internally.
+pub fn scan_from_positions(
     final_positions: Vec<Vec<f64>>,
     dim: usize,
 ) -> Result<StructuralBiasResult, BiasError> {

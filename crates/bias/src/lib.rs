@@ -21,6 +21,16 @@
 //! for departure from uniformity, per the BIAS-toolbox method -- see
 //! `structural`'s module doc for the full, citation-backed provenance.
 //!
+//! # Structural-bias bridge for externally-authored algorithms (M3-4 Task 4)
+//!
+//! [`structural::scan_from_positions`] is the statistics-only half of
+//! [`structural::structural_bias_scan`] (KS/AD/Holm over caller-supplied
+//! `final_positions`, no engine/`AlgorithmSpec` involved) exposed as public
+//! API, so an algorithm authored and driven entirely outside this crate
+//! (e.g. a Python `sezgi.Algorithm` run one-at-a-time via `EvalSession.
+//! for_problem(sezgi.bias.f0(...))`) can still be scanned for structural
+//! bias by handing back its collected `best_x` rows.
+//!
 //! # Central-bias scan (M3-1 Task 5)
 //!
 //! [`central::central_bias_scan`] runs an [`sezgi_core::spec::
@@ -55,7 +65,9 @@ pub mod structural;
 pub use central::{central_bias_scan, CentralBiasConfig, CentralBiasResult};
 pub use f0::F0Random;
 pub use report::{bias_report, assemble_report, BiasPlotData, BiasReport, BiasReportConfig};
-pub use structural::{structural_bias_scan, StructuralBiasConfig, StructuralBiasResult};
+pub use structural::{
+    scan_from_positions, structural_bias_scan, StructuralBiasConfig, StructuralBiasResult,
+};
 
 /// Verdict of a bias scan (structural, or any future scan this crate hosts).
 /// "Evidence not accusation": [`BiasVerdict::Evidence`]'s `detail` says
