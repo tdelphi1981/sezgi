@@ -344,8 +344,18 @@ SEXP savvy_EvalSession_best__impl(SEXP self__) {
     return handle_result(res);
 }
 
+SEXP savvy_EvalSession_bounds__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_bounds__ffi(self__);
+    return handle_result(res);
+}
+
 SEXP savvy_EvalSession_budget__impl(SEXP self__) {
     SEXP res = savvy_EvalSession_budget__ffi(self__);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_dim__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_dim__ffi(self__);
     return handle_result(res);
 }
 
@@ -371,6 +381,16 @@ SEXP savvy_EvalSession_finish__impl(SEXP self__) {
 
 SEXP savvy_EvalSession_new__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__budget, SEXP c_arg__algo_name, SEXP c_arg__seed, SEXP c_arg__log_dir) {
     SEXP res = savvy_EvalSession_new__ffi(c_arg__fid, c_arg__dim, c_arg__instance, c_arg__budget, c_arg__algo_name, c_arg__seed, c_arg__log_dir);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_new_cec2022__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__algo_name, SEXP c_arg__seed, SEXP c_arg__log_dir) {
+    SEXP res = savvy_EvalSession_new_cec2022__ffi(c_arg__fid, c_arg__dim, c_arg__budget, c_arg__algo_name, c_arg__seed, c_arg__log_dir);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_new_f0__impl(SEXP c_arg__dim, SEXP c_arg__f0_seed, SEXP c_arg__budget) {
+    SEXP res = savvy_EvalSession_new_f0__ffi(c_arg__dim, c_arg__f0_seed, c_arg__budget);
     return handle_result(res);
 }
 
@@ -437,12 +457,16 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_tsp_load__impl", (DL_FUNC) &savvy_sz_tsp_load__impl, 1},
     {"savvy_sz_tsp_tour_length__impl", (DL_FUNC) &savvy_sz_tsp_tour_length__impl, 2},
     {"savvy_EvalSession_best__impl", (DL_FUNC) &savvy_EvalSession_best__impl, 1},
+    {"savvy_EvalSession_bounds__impl", (DL_FUNC) &savvy_EvalSession_bounds__impl, 1},
     {"savvy_EvalSession_budget__impl", (DL_FUNC) &savvy_EvalSession_budget__impl, 1},
+    {"savvy_EvalSession_dim__impl", (DL_FUNC) &savvy_EvalSession_dim__impl, 1},
     {"savvy_EvalSession_evals_used__impl", (DL_FUNC) &savvy_EvalSession_evals_used__impl, 1},
     {"savvy_EvalSession_evaluate__impl", (DL_FUNC) &savvy_EvalSession_evaluate__impl, 2},
     {"savvy_EvalSession_f_opt__impl", (DL_FUNC) &savvy_EvalSession_f_opt__impl, 1},
     {"savvy_EvalSession_finish__impl", (DL_FUNC) &savvy_EvalSession_finish__impl, 1},
     {"savvy_EvalSession_new__impl", (DL_FUNC) &savvy_EvalSession_new__impl, 7},
+    {"savvy_EvalSession_new_cec2022__impl", (DL_FUNC) &savvy_EvalSession_new_cec2022__impl, 6},
+    {"savvy_EvalSession_new_f0__impl", (DL_FUNC) &savvy_EvalSession_new_f0__impl, 3},
     {NULL, NULL, 0}
 };
 

@@ -70,10 +70,22 @@ The returned object exposes:
   \item \code{$best()} -- \code{list(x = <numeric vector>, f = <numeric
     scalar>)} for the best evaluation seen so far, or \code{NULL} if
     nothing has been evaluated yet.
-  \item \code{$f_opt()} -- the problem's known optimum value.
+  \item \code{$f_opt()} -- the problem's known optimum value, or
+    \code{NULL} if it has none (e.g. an f0 session -- see
+    \code{\link{sz_eval_session_f0}}).
+  \item \code{$dim()} -- the search space's dimensionality.
+  \item \code{$bounds()} -- a length-2 numeric vector \code{c(lo, hi)},
+    the uniform bounds of this session's continuous space (errors for a
+    non-uniform/non-float space; unreachable through any constructor
+    this package exposes today).
   \item \code{$finish()} -- flushes the IOH log (if enabled) and marks
     the session finished; every method call afterward, including a
     second \code{$finish()}, raises an error containing
     \code{"session finished"}.
 }
+
+\code{$dim()}, \code{$bounds()}, and every method above except
+\code{$f_opt()} behave identically regardless of which constructor built
+the session (\code{sz_eval_session()}, \code{\link{sz_eval_session_cec2022}},
+or \code{\link{sz_eval_session_f0}}).
 }

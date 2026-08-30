@@ -61,9 +61,13 @@ SEXP savvy_sz_tsp_tour_length__ffi(SEXP c_arg__name_or_text, SEXP c_arg__tour);
 
 // methods and associated functions for EvalSession
 SEXP savvy_EvalSession_best__ffi(SEXP self__);
+SEXP savvy_EvalSession_bounds__ffi(SEXP self__);
 SEXP savvy_EvalSession_budget__ffi(SEXP self__);
+SEXP savvy_EvalSession_dim__ffi(SEXP self__);
 SEXP savvy_EvalSession_evals_used__ffi(SEXP self__);
 SEXP savvy_EvalSession_evaluate__ffi(SEXP self__, SEXP c_arg__x);
 SEXP savvy_EvalSession_f_opt__ffi(SEXP self__);
 SEXP savvy_EvalSession_finish__ffi(SEXP self__);
 SEXP savvy_EvalSession_new__ffi(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__budget, SEXP c_arg__algo_name, SEXP c_arg__seed, SEXP c_arg__log_dir);
+SEXP savvy_EvalSession_new_cec2022__ffi(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__algo_name, SEXP c_arg__seed, SEXP c_arg__log_dir);
+SEXP savvy_EvalSession_new_f0__ffi(SEXP c_arg__dim, SEXP c_arg__f0_seed, SEXP c_arg__budget);

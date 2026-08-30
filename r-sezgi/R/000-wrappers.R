@@ -1182,9 +1182,21 @@ NULL
   }
 }
 
+`EvalSession_bounds` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_bounds__impl, `self`)
+  }
+}
+
 `EvalSession_budget` <- function(self) {
   function() {
     .Call(savvy_EvalSession_budget__impl, `self`)
+  }
+}
+
+`EvalSession_dim` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_dim__impl, `self`)
   }
 }
 
@@ -1216,7 +1228,9 @@ NULL
   e <- new.env(parent = emptyenv())
   e$.ptr <- ptr
   e$`best` <- `EvalSession_best`(ptr)
+  e$`bounds` <- `EvalSession_bounds`(ptr)
   e$`budget` <- `EvalSession_budget`(ptr)
+  e$`dim` <- `EvalSession_dim`(ptr)
   e$`evals_used` <- `EvalSession_evals_used`(ptr)
   e$`evaluate` <- `EvalSession_evaluate`(ptr)
   e$`f_opt` <- `EvalSession_f_opt`(ptr)
@@ -1234,6 +1248,14 @@ NULL
 
 `EvalSession`$`new` <- function(`fid`, `dim`, `instance`, `budget`, `algo_name`, `seed`, `log_dir` = NULL) {
   .savvy_wrap_EvalSession(.Call(savvy_EvalSession_new__impl, `fid`, `dim`, `instance`, `budget`, `algo_name`, `seed`, `log_dir`))
+}
+
+`EvalSession`$`new_cec2022` <- function(`fid`, `dim`, `budget`, `algo_name`, `seed`, `log_dir` = NULL) {
+  .savvy_wrap_EvalSession(.Call(savvy_EvalSession_new_cec2022__impl, `fid`, `dim`, `budget`, `algo_name`, `seed`, `log_dir`))
+}
+
+`EvalSession`$`new_f0` <- function(`dim`, `f0_seed`, `budget`) {
+  .savvy_wrap_EvalSession(.Call(savvy_EvalSession_new_f0__impl, `dim`, `f0_seed`, `budget`))
 }
 
 

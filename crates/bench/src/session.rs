@@ -104,7 +104,7 @@
 use crate::ioh::{IohLogger, IohRunObserver};
 use crate::experiment::{ExperimentError, SUITE_BBOB};
 use sezgi_core::problem::{EvalObserver, Evaluator, Problem};
-use sezgi_core::space::{BlockValues, Genotype};
+use sezgi_core::space::{Block, BlockValues, Genotype};
 use sezgi_problems::BbobProblem;
 use std::path::Path;
 
@@ -244,6 +244,58 @@ impl EvalSession {
             }
         }
         Ok(fs)
+    }
+
+    /// The search space's dimensionality (`self.problem.space().dim()`) --
+    /// the R/Python-facing generic-session accessors this task adds mirror
+    /// `PyProblem::dim` (`py-sezgi/src/lib.rs`) exactly.
+    pub fn dim(&self) -> usize { self.problem.space().dim() }
+
+    /// The uniform `(lo, hi)` bounds of this session's continuous (float)
+    /// space.
+    ///
+    /// This is a DELIBERATE parallel implementation of py-sezgi's
+    /// `PyProblem::bounds`/its private `bounds_of` helper
+    /// (`py-sezgi/src/lib.rs`), not a shared one: `bounds_of` lives on
+    /// `PyProblem`'s `Inner` enum (BBOB/CEC2022/TSP/Callable/F0 handles),
+    /// a pyo3-specific type with no natural home in `sezgi-core` to share
+    /// from without inventing a new crate-spanning abstraction for a single
+    /// three-branch loop. Keep the two in sync by hand if the rule ever
+    /// changes; this comment names `PyProblem::bounds` as the twin so a
+    /// future change is easy to find.
+    ///
+    /// Walks every block of the space: as long as every block is
+    /// `Block::Float` and every one shares the SAME `(lo, hi)` pair, that
+    /// pair is returned. A non-float block, an empty space, or float
+    /// blocks with differing bounds each error instead of picking one
+    /// arbitrarily -- silently returning, say, only the first block's
+    /// bounds on a multi-block space with per-block bounds would be a
+    /// silently wrong answer for any caller (e.g. R/Python's `bounds()`)
+    /// that treats the result as "the" domain to sample uniformly from.
+    ///
+    /// # Errors
+    /// [`ExperimentError::NonUniformBounds`] if the space is empty, has a
+    /// non-float block, or has float blocks with differing `(lo, hi)`
+    /// pairs. Unreachable through every constructor this crate exposes
+    /// today (BBOB, CEC 2022, and f0 are each a single uniform `Float`
+    /// block), but the check stays honest rather than assuming that will
+    /// always be true.
+    pub fn bounds(&self) -> Result<(f64, f64), ExperimentError> {
+        let mut bounds: Option<(f64, f64)> = None;
+        for b in self.problem.space().blocks() {
+            match *b {
+                Block::Float { lo, hi, .. } => match bounds {
+                    None => bounds = Some((lo, hi)),
+                    Some((rlo, rhi)) if rlo == lo && rhi == hi => {}
+                    Some(_) => return Err(ExperimentError::NonUniformBounds(
+                        "space has non-uniform bounds across its float blocks".into())),
+                },
+                _ => return Err(ExperimentError::NonUniformBounds(
+                    "bounds() is only defined for continuous (float) spaces".into())),
+            }
+        }
+        bounds.ok_or_else(|| ExperimentError::NonUniformBounds(
+            "bounds() is only defined for continuous (float) spaces".into()))
     }
 
     pub fn evals_used(&self) -> u64 { self.used }
@@ -436,6 +488,27 @@ mod tests {
     fn bbob_session_f_opt_is_some() {
         let s = EvalSession::new_bbob(1, 2, 1, 10).unwrap();
         assert!(s.f_opt().is_some());
+    }
+
+    #[test]
+    fn bbob_session_dim_and_bounds() {
+        let s = EvalSession::new_bbob(1, 4, 1, 10).unwrap();
+        assert_eq!(s.dim(), 4);
+        assert_eq!(s.bounds().unwrap(), (-5.0, 5.0));
+    }
+
+    #[test]
+    fn owned_cec2022_session_dim_and_bounds() {
+        use sezgi_problems::Cec2022;
+        let p = Cec2022::new(1, 10).unwrap();
+        let f_star = p.optimum().unwrap();
+        let meta = SessionMeta {
+            suite: "sezgi-cec2022".into(), fid: 1, name: "cec2022-f1".into(),
+            instance: 1, f_opt: Some(f_star),
+        };
+        let s = EvalSession::new_owned(Box::new(p), meta, 10).unwrap();
+        assert_eq!(s.dim(), 10);
+        assert_eq!(s.bounds().unwrap(), (-100.0, 100.0));
     }
 
     /// The core deliverable: session-driven IOH output must be byte-identical

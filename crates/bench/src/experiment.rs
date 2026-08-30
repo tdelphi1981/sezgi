@@ -325,6 +325,14 @@ pub enum ExperimentError {
     LogAfterEval { used: u64 },
     #[error("EvalSession::with_log requires a problem with a known optimum (f_opt); this session's problem has none")]
     LogRequiresKnownOptimum,
+    /// `EvalSession::bounds()`'s error: the space is empty, has a
+    /// non-float block, or has float blocks with differing `(lo, hi)`
+    /// pairs -- mirrors py-sezgi's `PyProblem::bounds`/`bounds_of` helper
+    /// (`py-sezgi/src/lib.rs`) message-for-message; see `bounds()`'s own
+    /// doc for why this is a parallel implementation rather than a shared
+    /// one.
+    #[error("EvalSession::bounds: {0}")]
+    NonUniformBounds(String),
 }
 
 const VALID_PRESET_KINDS: &[&str] = &[
