@@ -6,16 +6,17 @@
 //! the IEEE original, pp. 184-185).
 //!
 //! ## Layout
-//! This module currently holds ONLY the three pure, engine-free,
-//! problem-free routines below (Task 4 of the M3-2 milestone): Pareto
-//! dominance, fast non-dominated sorting, and crowding-distance assignment.
-//! They operate on plain `&[Vec<f64>]` objective matrices (minimization) --
-//! no `Ctx`, `Registry`, or `ComponentMeta` -- because NSGA-II is not a
+//! This module holds pure, engine-free, problem-free routines: Task 4's
+//! Pareto dominance, fast non-dominated sorting, and crowding-distance
+//! assignment, plus Task 5's variation operators (`sbx_pair`,
+//! `polynomial_mutation`) below. They operate on plain `&[Vec<f64>]`
+//! objective matrices / `&[f64]` decision vectors (minimization) -- no
+//! `Ctx`, `Registry`, or `ComponentMeta` -- because NSGA-II is not a
 //! scalar-graph component here; the recorded architecture plan runs
-//! multi-objective search through a dedicated MO runner instead. Variation
-//! operators (Task 5) and the runner itself -- including the tournament
-//! selection that consumes the crowded-comparison operator pinned below --
-//! arrive in later tasks of this milestone.
+//! multi-objective search through a dedicated MO runner instead. The runner
+//! itself -- including the tournament selection that consumes the
+//! crowded-comparison operator pinned below -- arrives in a later task of
+//! this milestone.
 //!
 //! ## Pareto dominance
 //! Pinned to the standard minimization definition, consistent with the
@@ -134,6 +135,157 @@
 //! definition is pinned here for the record; it is *used* by the T6
 //! tournament selector, implemented when the MO runner lands, not in this
 //! module.
+//!
+//! ## SBX crossover and polynomial mutation (Task 5)
+//! The β/δ polynomials themselves are standard (Deb & Agrawal 1995,
+//! "Simulated Binary Crossover for Continuous Search Space", *Complex
+//! Systems* 9:115-148; Deb & Goyal 1996 for the mutation operator), but
+//! implementations differ in DRAW STRUCTURE (which gates exist, in what
+//! order, and how many uniform draws each variable consumes). Per the M2d-4
+//! WOA lesson noted in the task brief, that structure is pinned to the
+//! reference C code rather than derived from the equations: the same
+//! KanGAL mirror T4 pinned for crowding distance,
+//! `darnir/nsga2` on GitHub, files `crossover.c` (`realcross`) and
+//! `mutation.c` (`real_mutate_ind`), fetched and verified against the
+//! quotes below (also `global.h` for the `EPS` constant).
+//!
+//! **`realcross` (`crossover.c`), quoted (types/braces elided where
+//! obvious):**
+//! ```text
+//! if (randomperc() <= pcross_real)
+//! {
+//!     for (i=0; i<nreal; i++)
+//!     {
+//!         if (randomperc()<=0.5)
+//!         {
+//!             if (fabs(parent1->xreal[i]-parent2->xreal[i]) > EPS)
+//!             {
+//!                 if (parent1->xreal[i] < parent2->xreal[i])
+//!                 { y1 = parent1->xreal[i]; y2 = parent2->xreal[i]; }
+//!                 else
+//!                 { y1 = parent2->xreal[i]; y2 = parent1->xreal[i]; }
+//!                 yl = min_realvar[i];
+//!                 yu = max_realvar[i];
+//!                 rand = randomperc();
+//!                 beta = 1.0 + (2.0*(y1-yl)/(y2-y1));
+//!                 alpha = 2.0 - pow(beta,-(eta_c+1.0));
+//!                 if (rand <= (1.0/alpha))
+//!                     betaq = pow((rand*alpha),(1.0/(eta_c+1.0)));
+//!                 else
+//!                     betaq = pow((1.0/(2.0 - rand*alpha)),(1.0/(eta_c+1.0)));
+//!                 c1 = 0.5*((y1+y2)-betaq*(y2-y1));
+//!                 beta = 1.0 + (2.0*(yu-y2)/(y2-y1));
+//!                 alpha = 2.0 - pow(beta,-(eta_c+1.0));
+//!                 if (rand <= (1.0/alpha))
+//!                     betaq = pow((rand*alpha),(1.0/(eta_c+1.0)));
+//!                 else
+//!                     betaq = pow((1.0/(2.0 - rand*alpha)),(1.0/(eta_c+1.0)));
+//!                 c2 = 0.5*((y1+y2)+betaq*(y2-y1));
+//!                 if (c1<yl) c1=yl;   if (c2<yl) c2=yl;
+//!                 if (c1>yu) c1=yu;   if (c2>yu) c2=yu;
+//!                 if (randomperc()<=0.5)
+//!                 { child1->xreal[i] = c2; child2->xreal[i] = c1; }
+//!                 else
+//!                 { child1->xreal[i] = c1; child2->xreal[i] = c2; }
+//!             }
+//!             else
+//!             { child1->xreal[i] = parent1->xreal[i]; child2->xreal[i] = parent2->xreal[i]; }
+//!         }
+//!         else
+//!         { child1->xreal[i] = parent1->xreal[i]; child2->xreal[i] = parent2->xreal[i]; }
+//!     }
+//! }
+//! else /* whole pair: */
+//! {
+//!     for (i=0; i<nreal; i++)
+//!     { child1->xreal[i] = parent1->xreal[i]; child2->xreal[i] = parent2->xreal[i]; }
+//! }
+//! ```
+//! `global.h`: `#define EPS 1.0e-14`.
+//!
+//! **Pinned draw structure, `sbx_pair`:**
+//! - Step 1: ONE draw for the whole pair: `randomperc() <= pcross_real`
+//!   (here, `next_f64() <= p_c`). On failure the pair is copied verbatim,
+//!   both children, **zero further draws for the whole pair** -- the loop
+//!   over variables never runs at all in the C code's `else` branch.
+//! - Step 2, on success, per variable, in order:
+//!   - Step 2a: ONE draw, the 0.5 exchange gate (`next_f64() <= 0.5`). On
+//!     failure, copy this variable from both parents verbatim -- no
+//!     further draws for this variable.
+//!   - Step 2b, on success: the EPS guard `|p1[i]-p2[i]| > EPS` -- NOT a
+//!     draw, a comparison. If it fails (parents effectively equal), copy
+//!     this variable verbatim -- no further draws for this variable.
+//!   - Step 2c, on success (parents differ): ONE draw, `rand = randomperc()`.
+//!     Verified from the quote above: this single draw is **reused
+//!     verbatim** for BOTH child computations (the c1-side beta/alpha/
+//!     betaq block and the c2-side beta/alpha/betaq block each test and
+//!     consume the SAME `rand` value -- `rand` is not redrawn between
+//!     them). betaq for child "1" uses `beta = 1 + 2*(y1-yl)/(y2-y1)`
+//!     (distance from the smaller parent y1 to the nearer bound yl); betaq
+//!     for child "2" uses the symmetric `beta = 1 + 2*(yu-y2)/(y2-y1)`
+//!     (distance from the larger parent y2 to the nearer bound yu); each
+//!     branches on `rand <= 1/alpha` with `alpha = 2 - beta^-(eta_c+1)`,
+//!     giving `betaq = (rand*alpha)^(1/(eta_c+1))` or
+//!     `betaq = (1/(2-rand*alpha))^(1/(eta_c+1))`; children
+//!     `c1 = 0.5*((y1+y2)-betaq1*(y2-y1))`, `c2 = 0.5*((y1+y2)+betaq2*(y2-y1))`;
+//!     both clamped to `[yl,yu]`.
+//!   - Step 2d: ONE more draw, the final per-variable swap gate
+//!     (`randomperc() <= 0.5`). Verified: the C code SWAPS on success
+//!     (`child1=c2, child2=c1`) and assigns in c1/c2 order on failure
+//!     (`child1=c1, child2=c2`) -- it is a swap gate, not a plain
+//!     assign-by-draw.
+//! - **Draw count per variable** (pair-gate already passed): 1 (exchange
+//!   gate fails) / 1 (exchange gate passes, EPS guard fails) / 3 (exchange
+//!   gate passes, EPS guard passes: 1 exchange + 1 `rand` + 1 swap).
+//! - **Draw count for the whole pair**: 1 (pair gate fails) or
+//!   `1 + sum(per-variable draws above)` (pair gate passes).
+//!
+//! **`real_mutate_ind` (`mutation.c`), quoted:**
+//! ```text
+//! for (j=0; j<nreal; j++)
+//! {
+//!     if (randomperc() <= pmut_real)
+//!     {
+//!         y = ind->xreal[j];
+//!         yl = min_realvar[j];
+//!         yu = max_realvar[j];
+//!         delta1 = (y-yl)/(yu-yl);
+//!         delta2 = (yu-y)/(yu-yl);
+//!         rnd = randomperc();
+//!         mut_pow = 1.0/(eta_m+1.0);
+//!         if (rnd <= 0.5)
+//!         {
+//!             xy = 1.0-delta1;
+//!             val = 2.0*rnd+(1.0-2.0*rnd)*(pow(xy,(eta_m+1.0)));
+//!             deltaq =  pow(val,mut_pow) - 1.0;
+//!         }
+//!         else
+//!         {
+//!             xy = 1.0-delta2;
+//!             val = 2.0*(1.0-rnd)+2.0*(rnd-0.5)*(pow(xy,(eta_m+1.0)));
+//!             deltaq = 1.0 - (pow(val,mut_pow));
+//!         }
+//!         y = y + deltaq*(yu-yl);
+//!         if (y<yl) y = yl;
+//!         if (y>yu) y = yu;
+//!         ind->xreal[j] = y;
+//!     }
+//! }
+//! ```
+//! **Pinned draw structure, `polynomial_mutation`:** per variable, in
+//! order: ONE draw, the gate `randomperc() <= pmut_real` (here,
+//! `next_f64() <= p_m`); on failure, the variable is left unchanged, no
+//! further draw for it. On success, ONE more draw, `rnd = randomperc()`,
+//! which both branches (`rnd <= 0.5` vs else) the `deltaq` formula AND
+//! supplies the numeric value used inside it (there is no separate
+//! branch-selector draw distinct from the value draw). **Draw count per
+//! variable**: 1 (gate fails) or 2 (gate passes: 1 gate + 1 `rnd`).
+//!
+//! `sbx_pair` and `polynomial_mutation` below implement exactly this
+//! structure; any single-line deviation is marked with a
+//! `// sezgi decision:` or `// sezgi simplification:` comment at the site.
+
+use sezgi_core::rng::RngStream;
 
 /// Pareto-dominance for minimization: `a` dominates `b` iff `a <= b` in
 /// every objective and `a < b` in at least one. See the module doc for the
@@ -246,6 +398,155 @@ pub fn crowding_distance(front: &[usize], objectives: &[Vec<f64>]) -> Vec<f64> {
         }
     }
     distance
+}
+
+/// Simulated Binary Crossover (SBX), bounded form, on one Float-vector
+/// pair. Pinned to the KanGAL reference C code `crossover.c`, function
+/// `realcross` (see the module doc's "SBX crossover and polynomial
+/// mutation" section for the exact quoted structure and per-branch draw
+/// counts). `lo`/`hi` are per-variable bounds (same length as `p1`/`p2`).
+/// Returns `(child1, child2)`.
+pub fn sbx_pair(
+    p1: &[f64],
+    p2: &[f64],
+    lo: &[f64],
+    hi: &[f64],
+    eta_c: f64,
+    p_c: f64,
+    rng: &mut RngStream,
+) -> (Vec<f64>, Vec<f64>) {
+    debug_assert_eq!(p1.len(), p2.len(), "sbx_pair: parent vectors must have equal length");
+    debug_assert_eq!(p1.len(), lo.len(), "sbx_pair: bounds must match parent length");
+    debug_assert_eq!(p1.len(), hi.len(), "sbx_pair: bounds must match parent length");
+    let n = p1.len();
+
+    // Whole-pair gate: ONE draw for the whole pair (realcross's
+    // `if (randomperc() <= pcross_real)`). On failure, copy both parents
+    // verbatim -- zero further draws for the whole pair (the C code's
+    // per-variable loop is in the `else` branch, never entered here).
+    if rng.next_f64() > p_c {
+        return (p1.to_vec(), p2.to_vec());
+    }
+
+    // sezgi decision: EPS pinned to the KanGAL reference's own constant
+    // (global.h: `#define EPS 1.0e-14`), not re-derived.
+    const EPS: f64 = 1.0e-14;
+
+    let mut c1 = Vec::with_capacity(n);
+    let mut c2 = Vec::with_capacity(n);
+    for i in 0..n {
+        // Per-variable exchange gate: ONE draw.
+        if rng.next_f64() > 0.5 {
+            c1.push(p1[i]);
+            c2.push(p2[i]);
+            continue;
+        }
+
+        // EPS guard: parents effectively equal in this variable -> copy
+        // verbatim, no further draws for this variable.
+        if (p1[i] - p2[i]).abs() <= EPS {
+            c1.push(p1[i]);
+            c2.push(p2[i]);
+            continue;
+        }
+
+        let (y1, y2) = if p1[i] < p2[i] { (p1[i], p2[i]) } else { (p2[i], p1[i]) };
+        let yl = lo[i];
+        let yu = hi[i];
+
+        // ONE draw, reused verbatim for BOTH children's betaq computation
+        // (verified against realcross: `rand` is drawn once, read twice).
+        let rand = rng.next_f64();
+        let inv_eta1 = 1.0 / (eta_c + 1.0);
+
+        // Child "1" side: distance from the smaller parent y1 to the
+        // nearer bound yl.
+        let beta1 = 1.0 + 2.0 * (y1 - yl) / (y2 - y1);
+        let alpha1 = 2.0 - beta1.powf(-(eta_c + 1.0));
+        let betaq1 = if rand <= 1.0 / alpha1 {
+            (rand * alpha1).powf(inv_eta1)
+        } else {
+            (1.0 / (2.0 - rand * alpha1)).powf(inv_eta1)
+        };
+        let mut v1 = 0.5 * ((y1 + y2) - betaq1 * (y2 - y1));
+
+        // Child "2" side: symmetric form, distance from the larger parent
+        // y2 to the nearer bound yu.
+        let beta2 = 1.0 + 2.0 * (yu - y2) / (y2 - y1);
+        let alpha2 = 2.0 - beta2.powf(-(eta_c + 1.0));
+        let betaq2 = if rand <= 1.0 / alpha2 {
+            (rand * alpha2).powf(inv_eta1)
+        } else {
+            (1.0 / (2.0 - rand * alpha2)).powf(inv_eta1)
+        };
+        let mut v2 = 0.5 * ((y1 + y2) + betaq2 * (y2 - y1));
+
+        v1 = v1.clamp(yl, yu);
+        v2 = v2.clamp(yl, yu);
+
+        // Final per-variable swap gate: ONE draw. Verified: the C code
+        // SWAPS on success (child1=c2, child2=c1), assigns in order on
+        // failure (child1=c1, child2=c2) -- a swap gate, not a plain
+        // assign-by-draw.
+        if rng.next_f64() <= 0.5 {
+            c1.push(v2);
+            c2.push(v1);
+        } else {
+            c1.push(v1);
+            c2.push(v2);
+        }
+    }
+    (c1, c2)
+}
+
+/// Bounded polynomial mutation, in place. Pinned to the KanGAL reference C
+/// code `mutation.c`, function `real_mutate_ind` (see the module doc's
+/// "SBX crossover and polynomial mutation" section for the exact quoted
+/// structure and per-branch draw counts). `lo`/`hi` are per-variable bounds
+/// (same length as `x`).
+pub fn polynomial_mutation(
+    x: &mut [f64],
+    lo: &[f64],
+    hi: &[f64],
+    eta_m: f64,
+    p_m: f64,
+    rng: &mut RngStream,
+) {
+    debug_assert_eq!(x.len(), lo.len(), "polynomial_mutation: bounds must match x length");
+    debug_assert_eq!(x.len(), hi.len(), "polynomial_mutation: bounds must match x length");
+    let n = x.len();
+    let mut_pow = 1.0 / (eta_m + 1.0);
+
+    for j in 0..n {
+        // Per-variable gate: ONE draw. On failure, leave the variable
+        // unchanged -- no further draw for it.
+        if rng.next_f64() > p_m {
+            continue;
+        }
+
+        let y = x[j];
+        let yl = lo[j];
+        let yu = hi[j];
+        let delta1 = (y - yl) / (yu - yl);
+        let delta2 = (yu - y) / (yu - yl);
+
+        // ONE more draw: `rnd` both branches the deltaq formula AND
+        // supplies the numeric value used inside it -- no separate
+        // branch-selector draw distinct from the value draw.
+        let rnd = rng.next_f64();
+        let deltaq = if rnd <= 0.5 {
+            let xy = 1.0 - delta1;
+            let val = 2.0 * rnd + (1.0 - 2.0 * rnd) * xy.powf(eta_m + 1.0);
+            val.powf(mut_pow) - 1.0
+        } else {
+            let xy = 1.0 - delta2;
+            let val = 2.0 * (1.0 - rnd) + 2.0 * (rnd - 0.5) * xy.powf(eta_m + 1.0);
+            1.0 - val.powf(mut_pow)
+        };
+
+        let y_new = (y + deltaq * (yu - yl)).clamp(yl, yu);
+        x[j] = y_new;
+    }
 }
 
 #[cfg(test)]
@@ -524,5 +825,273 @@ mod tests {
     fn sort_empty_population() {
         let objectives: Vec<Vec<f64>> = vec![];
         assert_eq!(fast_non_dominated_sort(&objectives), Vec::<Vec<usize>>::new());
+    }
+
+    // ==================================================================
+    // sbx_pair / polynomial_mutation (Task 5)
+    // ==================================================================
+
+    // ---- determinism ---------------------------------------------------
+
+    #[test]
+    fn sbx_pair_same_seed_bit_identical() {
+        let p1 = vec![1.0, -2.5, 3.0];
+        let p2 = vec![4.0, 2.5, -1.0];
+        let lo = vec![-5.0, -5.0, -5.0];
+        let hi = vec![5.0, 5.0, 5.0];
+        let run = || {
+            let mut rng = RngStream::from_master(42, &[]);
+            sbx_pair(&p1, &p2, &lo, &hi, 15.0, 0.9, &mut rng)
+        };
+        let (a1, a2) = run();
+        let (b1, b2) = run();
+        assert_eq!(a1, b1, "same seed must produce bit-identical child1");
+        assert_eq!(a2, b2, "same seed must produce bit-identical child2");
+    }
+
+    #[test]
+    fn polynomial_mutation_same_seed_bit_identical() {
+        let x0 = vec![1.0, -2.5, 3.0];
+        let lo = vec![-5.0, -5.0, -5.0];
+        let hi = vec![5.0, 5.0, 5.0];
+        let run = || {
+            let mut x = x0.clone();
+            let mut rng = RngStream::from_master(7, &[]);
+            polynomial_mutation(&mut x, &lo, &hi, 20.0, 0.5, &mut rng);
+            x
+        };
+        assert_eq!(run(), run(), "same seed must produce bit-identical mutants");
+    }
+
+    // ---- bounds property -------------------------------------------------
+    //
+    // Seeded batch over mixed per-variable bounds (a ZDT4-style layout:
+    // variable 0 in [0,1], variables 1..4 in [-5,5]) and randomly-drawn
+    // parents/individuals within those bounds: crossover children and
+    // mutants must never leave [lo,hi].
+
+    #[test]
+    fn sbx_and_mutation_stay_within_bounds() {
+        let lo = vec![0.0, -5.0, -5.0, -5.0, -5.0];
+        let hi = vec![1.0, 5.0, 5.0, 5.0, 5.0];
+        let dim = lo.len();
+        let mut rng = RngStream::from_master(123, &[]);
+
+        let draw_point = |rng: &mut RngStream| -> Vec<f64> {
+            (0..dim).map(|j| lo[j] + rng.next_f64() * (hi[j] - lo[j])).collect()
+        };
+
+        for _ in 0..300 {
+            let p1 = draw_point(&mut rng);
+            let p2 = draw_point(&mut rng);
+            let (c1, c2) = sbx_pair(&p1, &p2, &lo, &hi, 15.0, 0.9, &mut rng);
+            for j in 0..dim {
+                assert!(c1[j] >= lo[j] && c1[j] <= hi[j],
+                    "child1[{j}]={} outside [{}, {}]", c1[j], lo[j], hi[j]);
+                assert!(c2[j] >= lo[j] && c2[j] <= hi[j],
+                    "child2[{j}]={} outside [{}, {}]", c2[j], lo[j], hi[j]);
+            }
+
+            let mut m1 = c1.clone();
+            let mut m2 = c2.clone();
+            polynomial_mutation(&mut m1, &lo, &hi, 20.0, 0.4, &mut rng);
+            polynomial_mutation(&mut m2, &lo, &hi, 20.0, 0.4, &mut rng);
+            for j in 0..dim {
+                assert!(m1[j] >= lo[j] && m1[j] <= hi[j],
+                    "mutant1[{j}]={} outside [{}, {}]", m1[j], lo[j], hi[j]);
+                assert!(m2[j] >= lo[j] && m2[j] <= hi[j],
+                    "mutant2[{j}]={} outside [{}, {}]", m2[j], lo[j], hi[j]);
+            }
+        }
+    }
+
+    // ---- distribution sanity, anchored -----------------------------------
+    //
+    // p1=[0.0], p2=[10.0], eta_c=20, p_c=1.0 (pair gate always passes).
+    // Bounds lo=-90, hi=100 are chosen so the bounds midpoint equals the
+    // parents' midpoint (yl+yu = 10 = p1+p2): y1-yl = 0-(-90) = 90 and
+    // yu-y2 = 100-10 = 90 are EQUAL, so beta1==beta2, alpha1==alpha2, and
+    // (since `rand` is the SAME draw reused for both, per the module doc)
+    // betaq1==betaq2 exactly on every trial where the compute branch is
+    // taken -- giving c1+c2 == y1+y2 exactly (algebraic identity, not a
+    // statistical one). On the branch where the exchange gate fails,
+    // c1=p1, c2=p2, whose sum is also y1+y2. So (c1+c2)/2 == 5.0 on EVERY
+    // trial, exactly (modulo clamping, which the wide bounds relative to
+    // eta_c=20's tight spread never trigger here) -- measured over 2000
+    // trials (seed 999): max_mid_dev == 0.0 exactly (see reconnaissance
+    // probe used to derive this test).
+    //
+    // Separately, children differ from the parents whenever the 0.5
+    // per-variable exchange gate passes (roughly half the time; measured
+    // differs_fraction == 0.4625 over these same 2000 trials, well inside
+    // a generous [0.35, 0.65] anchor band for a Bernoulli(0.5) proportion
+    // at this sample size).
+    #[test]
+    fn sbx_pair_distribution_sanity_symmetric_pair() {
+        let p1 = vec![0.0];
+        let p2 = vec![10.0];
+        let lo = vec![-90.0];
+        let hi = vec![100.0];
+        let mut rng = RngStream::from_master(999, &[]);
+        let trials = 2000;
+        let mut differs = 0usize;
+        let mut max_mid_dev: f64 = 0.0;
+
+        for _ in 0..trials {
+            let (c1, c2) = sbx_pair(&p1, &p2, &lo, &hi, 20.0, 1.0, &mut rng);
+            if c1[0] != p1[0] {
+                differs += 1;
+            }
+            let mid_dev = ((c1[0] + c2[0]) / 2.0 - 5.0).abs();
+            if mid_dev > max_mid_dev {
+                max_mid_dev = mid_dev;
+            }
+        }
+
+        assert!(max_mid_dev < 1e-9,
+            "symmetric-pair mean must stay at the parents' midpoint (max dev {max_mid_dev})");
+        let frac = differs as f64 / trials as f64;
+        assert!((0.35..=0.65).contains(&frac),
+            "differs_fraction {frac} should be near 0.5 (the per-variable exchange-gate rate)");
+    }
+
+    // ---- p_m=0 mutation is identity ---------------------------------------
+
+    #[test]
+    fn polynomial_mutation_zero_pm_is_identity() {
+        let x0 = vec![1.0, -3.5, 4.9, 0.0];
+        let mut x = x0.clone();
+        let lo = vec![-5.0, -5.0, -5.0, -5.0];
+        let hi = vec![5.0, 5.0, 5.0, 5.0];
+        let mut rng = RngStream::from_master(2024, &[]);
+        polynomial_mutation(&mut x, &lo, &hi, 20.0, 0.0, &mut rng);
+        assert_eq!(x, x0, "p_m=0 must leave every variable unchanged");
+    }
+
+    // ---- p_c gate fails: children == parents verbatim ---------------------
+    //
+    // Seed 1's first raw draw is 0.8116121588818848 (verified via the
+    // reconnaissance probe against RngStream::from_master(1, &[])), which
+    // is > p_c=0.5, so realcross's whole-pair gate fails deterministically
+    // and both children must equal the parents verbatim with zero further
+    // draws consumed for the whole pair.
+
+    #[test]
+    fn sbx_pair_gate_fails_children_equal_parents_verbatim() {
+        let p1 = vec![1.0, 3.0];
+        let p2 = vec![4.0, 3.0];
+        let lo = vec![-5.0, -5.0];
+        let hi = vec![5.0, 5.0];
+        let mut rng = RngStream::from_master(1, &[]);
+        let (c1, c2) = sbx_pair(&p1, &p2, &lo, &hi, 2.0, 0.5, &mut rng);
+        assert_eq!(c1, p1, "pair-gate failure must copy parent1 verbatim into child1");
+        assert_eq!(c2, p2, "pair-gate failure must copy parent2 verbatim into child2");
+    }
+
+    // ---- EPS guard exercised: equal-in-one-variable parents -----------------
+    //
+    // p1[1] == p2[1] == 3.0 exactly (diff 0.0 <= EPS=1e-14): with the
+    // per-variable exchange gate passing for variable 1 (seed 16, verified
+    // via the reconnaissance probe below), the EPS guard must fire and
+    // copy variable 1 verbatim into both children instead of running the
+    // SBX math (which would otherwise divide by y2-y1 == 0).
+
+    #[test]
+    fn sbx_pair_eps_guard_copies_equal_variable() {
+        let p1 = vec![1.0, 3.0];
+        let p2 = vec![4.0, 3.0];
+        let lo = vec![-5.0, -5.0];
+        let hi = vec![5.0, 5.0];
+        let mut rng = RngStream::from_master(16, &[]);
+        let (c1, c2) = sbx_pair(&p1, &p2, &lo, &hi, 2.0, 1.0, &mut rng);
+        assert_eq!(c1[1], 3.0, "EPS-guarded variable must be copied verbatim into child1");
+        assert_eq!(c2[1], 3.0, "EPS-guarded variable must be copied verbatim into child2");
+        // Variable 0 (distinct parents) DOES go through the SBX math and
+        // differs from both parents.
+        assert_ne!(c1[0], p1[0]);
+        assert_ne!(c2[0], p2[0]);
+    }
+
+    // ---- draw-count / twin-stream raw-replay ---------------------------
+    //
+    // Two fixed cases replaying the raw uniform stream against a twin
+    // RngStream clone of the pre-call state, asserting the NEXT draw after
+    // the call matches the twin's next raw draw at the predicted index --
+    // if sbx_pair/polynomial_mutation consumed a different number of draws
+    // than pinned in the module doc, the two streams would (with
+    // overwhelming probability) diverge from here on. Pattern follows the
+    // existing twin-stream test in woa.rs.
+
+    #[test]
+    fn sbx_pair_draw_count_pass_branch() {
+        // seed=16, p1=[1.0,3.0], p2=[4.0,3.0], p_c=1.0 (pair gate passes,
+        // 1 draw): var0 -- exchange gate passes (1 draw), parents differ
+        // (no EPS-guard draw), rand drawn once and reused for both
+        // children (1 draw), final swap gate (1 draw) = 3 draws; var1 --
+        // exchange gate passes (1 draw), EPS guard fires (parents equal,
+        // 0 further draws) = 1 draw. Total = 1 (pair) + 3 (var0) + 1
+        // (var1) = 5 draws.
+        let p1 = vec![1.0, 3.0];
+        let p2 = vec![4.0, 3.0];
+        let lo = vec![-5.0, -5.0];
+        let hi = vec![5.0, 5.0];
+
+        let rng_before = RngStream::from_master(16, &[]);
+        let mut rng = rng_before.clone();
+        let (c1, c2) = sbx_pair(&p1, &p2, &lo, &hi, 2.0, 1.0, &mut rng);
+        assert_eq!(c1.len(), 2);
+        assert_eq!(c2.len(), 2);
+
+        let mut twin = rng_before;
+        for _ in 0..5 {
+            let _ = twin.next_f64();
+        }
+        assert_eq!(rng.next_f64(), twin.next_f64(),
+            "sbx_pair (pair gate pass) must consume exactly 5 draws for this fixed case");
+    }
+
+    #[test]
+    fn sbx_pair_draw_count_pair_gate_fail_branch() {
+        // seed=1: first draw 0.8116... > p_c=0.5, pair gate fails -> ONE
+        // draw total for the whole pair, zero per-variable draws.
+        let p1 = vec![1.0, 3.0];
+        let p2 = vec![4.0, 3.0];
+        let lo = vec![-5.0, -5.0];
+        let hi = vec![5.0, 5.0];
+
+        let rng_before = RngStream::from_master(1, &[]);
+        let mut rng = rng_before.clone();
+        let (c1, c2) = sbx_pair(&p1, &p2, &lo, &hi, 2.0, 0.5, &mut rng);
+        assert_eq!(c1, p1);
+        assert_eq!(c2, p2);
+
+        let mut twin = rng_before;
+        let _pair_gate = twin.next_f64();
+        assert_eq!(rng.next_f64(), twin.next_f64(),
+            "sbx_pair (pair gate fail) must consume exactly 1 draw for the whole pair");
+    }
+
+    #[test]
+    fn polynomial_mutation_draw_count_mixed_pass_fail() {
+        // seed=9, p_m=0.5, x=[1.0,3.0]: var0 gate fails (draw 0.5990 >
+        // 0.5, 1 draw, unchanged); var1 gate passes (draw 0.4297 <= 0.5,
+        // 1 draw) then `rnd` is drawn once more (1 draw) = 2 draws.
+        // Total = 1 + 2 = 3 draws.
+        let lo = vec![-5.0, -5.0];
+        let hi = vec![5.0, 5.0];
+
+        let rng_before = RngStream::from_master(9, &[]);
+        let mut rng = rng_before.clone();
+        let mut x = vec![1.0, 3.0];
+        polynomial_mutation(&mut x, &lo, &hi, 2.0, 0.5, &mut rng);
+        assert_eq!(x[0], 1.0, "var0's gate must fail and leave it unchanged");
+        assert_ne!(x[1], 3.0, "var1's gate must pass and mutate it");
+
+        let mut twin = rng_before;
+        for _ in 0..3 {
+            let _ = twin.next_f64();
+        }
+        assert_eq!(rng.next_f64(), twin.next_f64(),
+            "polynomial_mutation must consume exactly 3 draws for this mixed pass/fail case");
     }
 }
