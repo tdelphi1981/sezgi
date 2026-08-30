@@ -120,7 +120,10 @@
 //!   // from a single-dimension fluke the way the toolbox's 36-test,
 //!   // multi-dimension aggregation can -- `per_dim_ks`/`per_dim_ad` are
 //!   // still returned in full so a caller (or a human) can make that
-//!   // judgment from the raw per-dimension evidence.
+//!   // judgment from the raw per-dimension evidence. Note the combined
+//!   // false-Evidence bound: each family's Holm step controls FWER at
+//!   // `ALPHA` WITHIN that family, so OR-ing the two families bounds the
+//!   // overall Type-I probability at ~`2 * ALPHA` (~0.02), not `ALPHA`.
 //!
 //! # f0-domain verdict
 //!
@@ -136,8 +139,9 @@
 //! mixes `BIAS_SEED_BASE` into its own master before deriving its stream, so
 //! reusing the same numeric `cfg.seed` for both purposes does NOT collide
 //! the two RNG namespaces. Each run gets its own independent engine stream
-//! family via its own `run_id` (same derivation `crates/bench/src/
-//! experiment.rs` uses: one master seed, `run_id` varying per run) --
+//! family via its own `run_id` (`crates/bench/src/experiment.rs` varies
+//! both the seed and `run_id` per run; this module varies `run_id` only,
+//! which the engine's stream derivation already keeps collision-free) --
 //! never reusing `run_id = 0` for every run, which would collapse every
 //! run's engine-side randomness to an identical sequence (the project-wide
 //! ban on single-seed comparisons, adapted here to "single algorithm,
