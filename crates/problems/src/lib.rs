@@ -1,8 +1,10 @@
 pub mod bbob;
+pub mod cec2022;
 pub mod dtlz;
 pub mod tsp;
 pub mod zdt;
 pub use bbob::{BbobError, BbobProblem};
+pub use cec2022::{Cec2022, Cec2022Error};
 pub use dtlz::{Dtlz, DtlzError};
 pub use tsp::{Tsp, TspError};
 pub use zdt::{Zdt, ZdtError};
