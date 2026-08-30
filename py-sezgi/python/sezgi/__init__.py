@@ -422,4 +422,15 @@ problems = SimpleNamespace(
 
 __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_experiment", "presets",
            "stats", "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf",
-           "coco_export", "bias", "mo", "problems"]
+           "coco_export", "bias", "mo", "problems", "Algorithm", "algo"]
+
+
+# Algorithm-authoring surface (M3-4 Task 2): sezgi.Algorithm is the pure-
+# Python ABC for subclassing an algorithm's setup()/step() over the
+# EvalSession ask/tell core. sezgi.algo also exposes AlgoContext,
+# SolveResult, BudgetExhausted for direct import. Imported last since
+# sezgi/algo.py itself does `import sezgi` (module-level attribute access
+# happens only inside Algorithm.solve(), at call time, well after this
+# module has finished initializing).
+from sezgi import algo
+from sezgi.algo import Algorithm
