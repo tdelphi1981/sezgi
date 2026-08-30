@@ -9,7 +9,7 @@ import sys
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-PAIRS = ["gwo", "woa", "hs", "cs", "goa"]  # extended by later tasks
+PAIRS = ["gwo", "woa", "hs", "cs", "goa", "sca", "jaya", "mfo", "ssa"]
 
 FIELDS = re.compile(r"evals_used=(\S+) best_f=(\S+) gap=(\S+)")
 
