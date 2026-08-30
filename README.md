@@ -238,6 +238,46 @@ is always `None`/`NULL` until the method can be verified from a real source.
 See `docs/DECISIONS.md`'s M3-1 record for the full method-provenance table,
 pinned KS/AD formulas, and the deferral's search log.
 
+## Multi-objective optimization (M3-2)
+
+`sezgi.mo`/an `sz_nsga2`-family of functions run NSGA-II (Deb, Pratap,
+Agarwal & Meyarivan 2002) against the ZDT (Zitzler, Deb & Thiele 2000) and
+DTLZ (Deb, Thiele, Laumanns & Zitzler 2005) test-problem suites, plus the
+2-objective hypervolume and IGD quality indicators:
+
+    import sezgi
+
+    result = sezgi.mo.nsga2("zdt1", dim=10, pop_size=40, budget=4000, seed=20260830)
+    front0 = [result["objectives"][i] for i in result["front0"]]
+    ref_front = sezgi.mo.pareto_front("zdt1", dim=10, n=200)
+    print(len(front0), result["evals_used"])
+    print(sezgi.mo.hypervolume_2d(front0, [1.1, 1.1]))
+    print(sezgi.mo.igd(front0, ref_front))
+
+Output (live-run, same scenario as `examples/python/nsga2_zdt1.py`):
+
+    40 4000
+    0.8580576535101335
+    0.01254540902919091
+
+R mirrors this 1:1 with `sz_nsga2()`/`sz_mo_hypervolume_2d()`/
+`sz_mo_igd()`/`sz_mo_pareto_front()`, same keys, same numbers (both
+bindings call the same Rust core, so a same-seed run is bit-identical
+across languages) — see `examples/r/nsga2_zdt1.R` for the full matched
+example, including the R-idiomatic matrix inputs `hypervolume_2d`/`igd`
+expect.
+
+Honestly: NSGA-II ships as a self-contained, seeded reference runner over
+a parallel `MoProblem`/`MoEvaluator` surface, not as a component graph you
+assemble through an `ExperimentSpec` — the engine, `Ctx`, `Population`,
+and every `Replacer`/`Adapter` are scalar-fitness-pinned surfaces, and
+generalizing the executor to multi-objective fitness is v2-scale surgery
+across all 25 presets, so MO component-graph spec integration is deferred
+to v2 (see `docs/DECISIONS.md`'s M3-2 record for the full ruling).
+`pop_size` must be a multiple of 4, not merely even — a KanGAL-faithful
+tightening of the naive "even, >= 4" rule that NSGA-II's own reference C
+code (`nsga2r.c`) enforces for its double-permutation tournament pairing.
+
 ## Examples
 
 `examples/` holds a catalog of all **17** labeled-metaphor algorithms (GWO,
@@ -253,6 +293,12 @@ hho,alo,abc,gsa}.rs`). See `examples/README.md` for the full catalog table
 (primary + equivalence-critique references, and what each pure script
 teaches vs. its preset).
 
+`examples/python/nsga2_zdt1.py` / `examples/r/nsga2_zdt1.R` are a separate
+matched PAIR (M3-2): NSGA-II on ZDT1, run directly through the Rust core in
+both languages (bit-identical output, not merely statistically
+comparable). No `specs/nsga2_zdt1.toml` exists — see "Multi-objective
+optimization (M3-2)" above for why.
+
 ## Development
 
     cargo test --workspace --release        # Rust tests
@@ -260,6 +306,23 @@ teaches vs. its preset).
     R CMD INSTALL --preclean r-sezgi && Rscript -e 'testthat::test_dir("r-sezgi/tests/testthat", package = "sezgi")' # R tests
 
 ## Status
+
+M3-2 (multi-objective optimization) **complete** — NSGA-II (Deb, Pratap,
+Agarwal & Meyarivan 2002) as a self-contained, seeded reference runner
+(`crates/components/src/nsga2.rs`) over a new parallel MO core surface
+(`MoProblem`/`MoEvaluator`/`MoPopulation`, `crates/core/src/mo.rs`); the
+ZDT (Zitzler, Deb & Thiele 2000) and DTLZ (Deb, Thiele, Laumanns & Zitzler
+2005) test-problem suites (`crates/problems`); 2-objective hypervolume and
+IGD quality indicators (`crates/stats/src/moo_indicators.rs`); a KanGAL
+(`nsga2r.c`) source-code finding that the reference tournament uses raw
+pairwise dominance rather than reading rank (a paper-vs-code divergence,
+C behavior implemented and documented); Python (`sezgi.mo.*`) and R
+(`sz_nsga2`/`sz_mo_*`) bindings with 1:1 key mirroring and cross-language
+bit-equal output; a matched Python/R NSGA-II-on-ZDT1 example pair. MO
+component-graph spec integration (an `ExperimentSpec` you assemble NSGA-II
+from) is deferred to v2 — see `docs/DECISIONS.md`'s "M3-2 completed"
+record for the full method-provenance table, every ruling, and the
+deferrals list. Next: M3-3 (CEC benchmark suites, mixed-type problems).
 
 M3-1 (bias-scanning module) **complete** — `crates/bias` (structural bias,
 central bias, and a one-call `bias_report`), exposed as `sezgi.bias.*` /

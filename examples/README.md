@@ -77,3 +77,44 @@ or in R:
     library(sezgi)
     records <- sz_run_experiment(paste(readLines("examples/specs/gwo.toml"), collapse = "\n"))
     print(records)
+
+## Multi-objective: NSGA-II on ZDT1 (M3-2)
+
+A separate, matched PAIR (not a triplet like the 17 above): NSGA-II (Deb,
+Pratap, Agarwal & Meyarivan 2002) on ZDT1 (Zitzler, Deb & Thiele 2000),
+run directly through `sezgi.mo.nsga2()` / `sz_nsga2()` -- both bindings
+call the SAME Rust `nsga2_run` core, so this pair's reported numbers are
+bit-identical across languages, not merely statistically comparable like
+the pure-Python/pure-R algorithm scripts above.
+
+| Algorithm | Primary reference | Files | What it demonstrates |
+|---|---|---|---|
+| NSGA-II (on ZDT1) | Deb, Pratap, Agarwal & Meyarivan (2002), "A Fast and Elitist Multiobjective Genetic Algorithm: NSGA-II", *IEEE Transactions on Evolutionary Computation*, 6(2), 182-197; problem: Zitzler, Deb & Thiele (2000), "Comparison of Multiobjective Evolutionary Algorithms: Empirical Results", *Evolutionary Computation*, 8(2), 173-195 | `python/nsga2_zdt1.py`, `r/nsga2_zdt1.R` | A one-call, seeded, small-budget NSGA-II run, reporting final non-dominated front size, `evals_used`, 2-objective hypervolume, and IGD against a 200-point analytic Pareto-front sample, plus plot-ready `(f1, f2)` front points. |
+
+**No `specs/nsga2_zdt1.toml` exists in this catalog.** NSGA-II ships as a
+self-contained, seeded Rust runner over a parallel `MoProblem`/
+`MoEvaluator` surface, not as a composable `ExperimentSpec` component
+graph -- the MO spec-graph integration this catalog's `specs/*.toml` path
+depends on is deferred to v2 (see the main `README.md`'s "Multi-objective
+optimization (M3-2)" section and `docs/DECISIONS.md`'s M3-2 record for the
+full spec-tension ruling).
+
+Run:
+
+    ./py-sezgi/.venv/bin/python examples/python/nsga2_zdt1.py
+    Rscript examples/r/nsga2_zdt1.R
+
+Live output (`dim=10`, `pop_size=40`, `budget=4000`, `seed=20260830`,
+measured by running both scripts from the repo root):
+
+    problem: zdt1  dim=10  pop_size=40  budget=4000  seed=20260830
+    front size: 40
+    evals_used: 4000
+    hypervolume_2d (ref_point=[1.1, 1.1]): 0.8580576535101335
+    igd (vs pareto_front(200)): 0.01254540902919091
+    front points (f1, f2), sorted by f1, first 5 (plot-ready -- x=f1, y=f2):
+      0.000000  1.003359
+      0.000911  0.972881
+      0.003438  0.944386
+      0.007097  0.917851
+      0.015445  0.878219
