@@ -74,8 +74,14 @@ pub enum BiasVerdict {
 /// Errors produced by this crate's bias scans.
 #[derive(Debug, thiserror::Error)]
 pub enum BiasError {
-    /// A statistics-crate computation rejected its input (should not happen
-    /// for in-domain f0 output, but is not assumed away).
+    /// A statistics-crate computation rejected its input. `structural_bias_scan`
+    /// itself now handles the two expected boundary/out-of-domain cases (an
+    /// exact `0.0`/`1.0` sample under `ad_uniform`, an out-of-`[0,1]` raw
+    /// `best_x` under `ks_uniform`) before they can reach here -- see
+    /// `structural`'s module doc, "Domain handling for out-of-domain /
+    /// boundary final positions". A `Stats` error surfacing from a bias scan
+    /// therefore indicates a genuine, unexpected input (e.g. a non-finite
+    /// coordinate), not the domain-mapping question that section resolves.
     #[error(transparent)]
     Stats(#[from] sezgi_stats::StatsError),
     /// `AlgorithmSpec` failed to validate against f0's own search space.

@@ -751,4 +751,47 @@ mod tests {
              be pinned from accessible sources"
         ));
     }
+
+    // ---- C1 regression: bias_report (structural + central + LaTeX) must
+    // COMPLETE for a boundary-clamping preset, and the LaTeX table must
+    // render NaN/inf-free ----
+    //
+    // ANCHORED: measured at this exact config, captured from this test's own
+    // first successful run after the fix. Before the fix, `bias_report`
+    // propagated `structural_bias_scan`'s own `ad_uniform` boundary error
+    // for pso here too (`bias_report` calls `structural_bias_scan`
+    // internally with no separate error handling of its own).
+    #[test]
+    fn live_bias_report_pso_completes_and_latex_is_nan_inf_free_anchored() {
+        let spec = sezgi_components::presets::pso(20, 3000);
+        let cfg = BiasReportConfig {
+            dim: 3,
+            budget: 3000,
+            seed: 20260830,
+            structural_runs: 30,
+            central_fids: vec![1],
+            central_instances: vec![1],
+            central_runs_per: 5,
+        };
+
+        let r = bias_report(&spec, &cfg)
+            .expect("pso must now COMPLETE bias_report (pre-fix: errored via structural_bias_scan)");
+
+        // Measured: pso's boundary clamping drives Evidence on the
+        // structural AD row (a2 = infinity, rendered "n/a" -- see
+        // `fmt_stat`); central is unaffected (a different scan, different
+        // problem family), matching the C1 finding's "scope check" that
+        // `central_bias_scan` was never broken by this defect.
+        assert!(matches!(r.structural.verdict, BiasVerdict::Evidence { .. }),
+            "got {:?}", r.structural.verdict);
+
+        // NaN/inf-free LaTeX: never the literal Rust-formatted "NaN"/"inf"
+        // text, even though the underlying AD statistic is a genuine
+        // f64::INFINITY (rendered as the plain "n/a" fallback, see
+        // `fmt_stat`'s own `is_finite()` check -- unmodified by this fix).
+        assert!(!r.latex_summary.contains("NaN"), "got:\n{}", r.latex_summary);
+        assert!(!r.latex_summary.to_lowercase().contains("inf"), "got:\n{}", r.latex_summary);
+        assert!(r.latex_summary.contains("n/a"),
+            "expected the infinite AD statistic to render as 'n/a', got:\n{}", r.latex_summary);
+    }
 }
