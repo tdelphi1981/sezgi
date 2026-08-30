@@ -240,7 +240,7 @@ pinned KS/AD formulas, and the deferral's search log.
 
 ## Multi-objective optimization (M3-2)
 
-`sezgi.mo`/an `sz_nsga2`-family of functions run NSGA-II (Deb, Pratap,
+The Python `sezgi.mo` namespace and the R `sz_nsga2`/`sz_mo_*` functions run NSGA-II (Deb, Pratap,
 Agarwal & Meyarivan 2002) against the ZDT (Zitzler, Deb & Thiele 2000) and
 DTLZ (Deb, Thiele, Laumanns & Zitzler 2005) test-problem suites, plus the
 2-objective hypervolume and IGD quality indicators:
