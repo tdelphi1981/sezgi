@@ -586,18 +586,24 @@ impl PyEvalSession {
                 "EvalSession supports continuous (float) problems only")),
         };
 
-        // sezgi decision (final-review fix, narrowing scope ruling 3): IOH
-        // logging via for_problem is restricted to BBOB sessions only, not
-        // "any problem with a known optimum" -- CEC 2022 also has an f_opt,
-        // but the on-disk IOH record key (algo, fid, dim, instance, seed,
-        // budget) carries no suite discriminator, so a CEC 2022 run and a
-        // BBOB run sharing that key would silently merge into one
-        // results_matrix cell (read_ioh_records cannot tell them apart).
-        // This matches solve()'s pre-existing, already-documented policy
-        // exactly -- see docs/DECISIONS.md's M3-4 record.
-        if log_dir.is_some() && !matches!(&problem.inner, Inner::Bbob(_)) {
+        // sezgi decision (M3-5 scope ruling 2, widening M3-4's final-review
+        // narrowing): IOH logging via for_problem is restricted to BBOB and
+        // CEC 2022 sessions -- the two arms whose SessionMeta carries a real
+        // fid identity and a known optimum -- not to "any problem with a
+        // known optimum" (Callable/F0 have neither). M3-4's final review
+        // blocked CEC 2022 logging because the on-disk IOH record key
+        // (algo, fid, dim, instance, seed, budget) carried no suite
+        // discriminator, so a CEC 2022 run and a BBOB run sharing that key
+        // would silently merge into one results_matrix cell. M3-5 Task 1
+        // added a "suite" discriminator to that record key (RunKey::suite,
+        // threaded through read_ioh_records/results_matrix), closing that
+        // gap, so CEC 2022 is admitted here too. Callable and F0 arms keep
+        // the rejection: their SessionMeta has no fid identity or f_opt, so
+        // there is nothing to build an IOH archive against (with_log itself
+        // also rejects a None f_opt) -- see docs/DECISIONS.md's M3-5 record.
+        if log_dir.is_some() && !matches!(&problem.inner, Inner::Bbob(_) | Inner::Cec2022(_)) {
             return Err(PyValueError::new_err(
-                "IOH logging is currently supported for BBOB problems only"));
+                "IOH logging is currently supported for BBOB and CEC 2022 problems only"));
         }
 
         let mut session = EvalSession::new_owned(boxed, meta, budget)

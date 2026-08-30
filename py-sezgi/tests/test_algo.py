@@ -248,3 +248,24 @@ def test_custom_algorithm_bias_scan_end_to_end():
     # RandomSearch's uniform per-batch resampling having no directional
     # operator to induce structural bias against f0's own random landscape.
     assert out["verdict"] == "no_evidence"  # uniform sampler must scan clean
+
+
+# M3-5 Task 2: CEC 2022 IOH logging from custom sessions (scope ruling 2 --
+# widens the M3-4 final-review's BBOB-only for_problem log_dir restriction
+# to BBOB + CEC 2022, now that T1's suite-aware record key means a CEC 2022
+# run and a BBOB run at the same (fid, dim, instance, seed, budget) no
+# longer silently merge into one results_matrix cell).
+
+def test_no_collision_bbob_vs_cec2022_same_fid(tmp_path):
+    # the M3-4 final review's exact collision scenario as a regression test:
+    # one BBOB f1 d10 run and one cec2022 f1 d10 run, same algo/seed/budget,
+    # logged into the same tree; read back and build the matrix.
+    class RS(sezgi.Algorithm):
+        def setup(self, ctx): ctx.evaluate([ctx.random_point() for _ in range(10)])
+        def step(self, ctx): ctx.evaluate([ctx.random_point() for _ in range(10)])
+    RS().solve(sezgi.bbob(1, 10, 1), budget=30, seed=1, log_dir=str(tmp_path))
+    RS().solve(sezgi.problems.cec2022(1, 10), budget=30, seed=1, log_dir=str(tmp_path))
+    recs = sezgi.read_ioh_records(str(tmp_path), [30])
+    assert len(recs) == 2
+    algos, problems, matrix = sezgi.results_matrix(recs, budget=30)
+    assert sorted(problems) == ["cec2022-f1d10i1", "f1d10i1"]
