@@ -702,17 +702,31 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
             // batch via Python::with_gil (standard PyO3 pattern).
             (run_with_bridge(py, || run(&cp, None))?, None)
         }
-        // sezgi decision: CEC 2022/TSP are solve()-eligible (Inner::Cec2022,
-        // Inner::Tsp) additively -- same shape as Inner::Bbob minus IOH
-        // logging (no fid/instance/name scenario metadata to log against for
-        // either, so log_dir is rejected the same way Inner::Callable
-        // rejects it).
+        // sezgi decision (M3-5 scope ruling 2, fix round 1): CEC 2022 is
+        // solve()-eligible (Inner::Cec2022) additively -- same shape as
+        // Inner::Bbob, IOH logging included. Widened alongside
+        // `EvalSession::for_problem`'s own CEC 2022 log_dir widening: the
+        // two entry points must agree on one handle's logging behavior (an
+        // asymmetry here would re-create the exact asymmetry M3-4's final
+        // review fixed, just in the opposite direction). Suite/fid/name/
+        // instance mirror `for_problem`'s Inner::Cec2022 SessionMeta
+        // exactly ("sezgi-cec2022", p.fid(), "cec2022-f{fid}", instance 1),
+        // so a run logged via solve() and one logged via for_problem
+        // reconstruct with identical identity keys. TSP still has no
+        // fid/instance/name scenario metadata to log against, so it keeps
+        // rejecting log_dir the same way Inner::Callable does.
         Inner::Cec2022(p) => {
-            if log_dir.is_some() {
-                return Err(PyValueError::new_err(
-                    "log_dir is only supported for builtin (bbob) problems"));
-            }
-            (run_with_bridge(py, || run(p, None))?, None)
+            if let Some(dir) = log_dir {
+                let name = algo_name.unwrap_or(&spec.name).to_string();
+                let scenario_name = format!("cec2022-f{}", p.fid());
+                let mut lg = IohLogger::new(std::path::Path::new(dir), &name,
+                    "sezgi-cec2022", p.fid(), &scenario_name,
+                    p.space().dim());
+                let obs = lg.start_run_with(1, master_seed, p.f_star(), spec.termination.budget);
+                let r = run_with_bridge(py, || run(p, Some(Box::new(obs))))?;
+                let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                (r, Some(fin.skipped_empty_runs as u64))
+            } else { (run_with_bridge(py, || run(p, None))?, None) }
         }
         Inner::Tsp(p) => {
             if log_dir.is_some() {
