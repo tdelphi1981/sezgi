@@ -29,35 +29,60 @@
 //!
 //! # RNG stream path
 //!
-//! `F0Random::new` treats its own `seed` argument as the RNG master (never
-//! the engine's `cfg.master_seed`/`run_id`), the same pattern
-//! `sezgi_problems::BbobProblem` uses for its own per-function master
-//! (`BBOB_SEED_BASE + fid`) — a problem owns and derives its own RNG
-//! namespace, independent of whatever engine run later evaluates it. Under
-//! that master, f0 draws from a single stream at path `[3_000_000]`.
+//! `F0Random::new` derives its RNG master from `BIAS_SEED_BASE + seed`
+//! (wrapping), mirroring `sezgi_problems::BbobProblem`'s own precedent of
+//! mixing a crate-owned base constant into a per-function master
+//! (`BBOB_SEED_BASE + fid`) rather than passing a caller-supplied value
+//! through unmixed. A problem owns and derives its own RNG namespace,
+//! independent of whatever engine run later evaluates it — but that
+//! independence has to be STRUCTURAL (guaranteed by the derivation formula
+//! itself), not merely an accident of typical seed choices. Under that
+//! mixed master, f0 draws from a single stream at path `[3_000_000]`.
 //!
 //! This cannot collide with the engine's per-run stream family
 //! (`crates/core/src/engine.rs`: `[run_id, 0]` init, `[run_id, 1000]`
 //! boundary, `[run_id, 1 + 2*i]`/`[run_id, 2 + 2*i]` per-stage
 //! generator/replacer, `[run_id, 1_000_000 + i]` per-stage adapter,
-//! `[run_id, 2_000_000]` restart) for two independent reasons: (1) a
-//! `Problem`'s `seed` and the engine's `cfg.master_seed` are different,
-//! caller-chosen values in normal use, and (2) EVEN IF a caller reuses the
-//! same numeric value for both, `RngStream::from_master`'s path folding
-//! makes collision impossible by construction — f0's single-element path
-//! performs exactly one SplitMix64 fold from the shared master, while every
-//! engine stream's two-element path performs a SECOND fold on top of that
-//! (a second fold is never the identity of the first digest), so the final
-//! internal state always differs. `3_000_000` also sits well above every
-//! existing engine tag range (max `2_000_000 + restart-split`), leaving
-//! headroom for future f1..fN bias-toolbox problems in this crate to claim
-//! their own tags in the same style without approaching that boundary.
+//! `[run_id, 2_000_000]` restart), for two layered reasons:
+//!
+//! 1. **Structural (primary):** the master actually fed to `RngStream` is
+//!    `BIAS_SEED_BASE.wrapping_add(seed)`, never the raw `seed` and never
+//!    `cfg.master_seed`. A caller who (accidentally or deliberately) reuses
+//!    the SAME numeric value for both a `Problem`'s `seed` and an engine
+//!    run's `cfg.master_seed` therefore does NOT produce identical masters —
+//!    by construction, not by luck. Reproducing `cfg.master_seed` exactly
+//!    would require the caller to deliberately choose
+//!    `seed = cfg.master_seed.wrapping_sub(BIAS_SEED_BASE)`, an adversarial,
+//!    reverse-engineered value with no plausible accidental occurrence.
+//! 2. **Path-shape (secondary, still holds even in that adversarial case):**
+//!    `RngStream::from_master`'s path folding means f0's single-element path
+//!    performs exactly one SplitMix64 fold from its master, while every
+//!    engine stream's two-element path performs a SECOND fold on top of
+//!    that (a second fold is never the identity of the first digest), so
+//!    the final internal state still differs even if the two masters were
+//!    somehow made to coincide.
+//!
+//! `3_000_000` also sits well above every existing engine tag range (max
+//! `2_000_000 + restart-split`), leaving headroom for future f1..fN
+//! bias-toolbox problems in this crate to claim their own tags in the same
+//! style without approaching that boundary; such future problems should
+//! also mix `BIAS_SEED_BASE` into their own master (optionally with a
+//! further per-function offset, mirroring `BBOB_SEED_BASE + fid`) rather
+//! than reintroducing an unmixed caller seed.
 
 use std::sync::Mutex;
 
 use sezgi_core::problem::Problem;
 use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, Genotype, SearchSpace};
+
+/// Crate-owned base constant mixed into every bias-crate problem's RNG
+/// master, mirroring `sezgi_problems::BbobProblem`'s `BBOB_SEED_BASE`. This
+/// is what makes a bias-crate stream's namespace STRUCTURALLY distinct from
+/// the engine's own `cfg.master_seed`-rooted family, rather than relying on
+/// avalanche behavior alone — see the module doc's "RNG stream path"
+/// section.
+pub const BIAS_SEED_BASE: u64 = 0xB1A5;
 
 /// f0's domain lower bound, `[0,1]^d` per the BIAS-toolbox convention.
 /// Change this (and [`F0_HI`]) in this one place if Task 4's source
@@ -75,9 +100,9 @@ impl F0Random {
     pub fn new(dim: usize, seed: u64) -> Self {
         let space = SearchSpace::new(vec![Block::Float { lo: F0_LO, hi: F0_HI, n: dim }])
             .expect("F0_LO < F0_HI by construction, so SearchSpace::new cannot fail here");
-        // stream path: [3_000_000] under this instance's own `seed` as master —
+        // stream path: [3_000_000] under master = BIAS_SEED_BASE + seed (wrapping) —
         // see the module doc's "RNG stream path" section for the collision analysis.
-        let rng = RngStream::from_master(seed, &[3_000_000]);
+        let rng = RngStream::from_master(BIAS_SEED_BASE.wrapping_add(seed), &[3_000_000]);
         Self { space, rng: Mutex::new(rng) }
     }
 }
@@ -125,7 +150,7 @@ mod tests {
     fn kth_eval_matches_kth_raw_stream_draw() {
         let seed = 99;
         let p = F0Random::new(3, seed);
-        let mut raw = RngStream::from_master(seed, &[3_000_000]);
+        let mut raw = RngStream::from_master(BIAS_SEED_BASE.wrapping_add(seed), &[3_000_000]);
         let expected: Vec<f64> = (0..5).map(|_| raw.next_f64()).collect();
         let pop: Vec<Genotype> = (0..5).map(|i| g(&[i as f64, i as f64, i as f64])).collect();
         assert_eq!(p.evaluate_batch(&pop), expected);
@@ -206,14 +231,14 @@ mod tests {
         let pop: Vec<Genotype> = (0..10_000).map(|i| g(&[(i as f64) / 10_000.0])).collect();
         let fs = p.evaluate_batch(&pop);
         let mean: f64 = fs.iter().sum::<f64>() / fs.len() as f64;
-        // Measured mean at seed=2026, n=10_000: 0.503289303825652.
+        // Measured mean at seed=2026, n=10_000: 0.49510406858025235.
         // U(0,1)'s own natural per-draw spread is std = 1/sqrt(12) ~= 0.2887
         // (the sample mean's spread, SE = std/sqrt(n) ~= 0.00289, is far
         // tighter, but a coarse sanity smoke test -- not the rigorous KS/AD
         // battery that lands in Task 3 -- should not assert down near SE
         // resolution). Bounds are anchored around the MEASURED value with
-        // +/-0.1 headroom on each side: headroom (~0.097 to the measured
-        // mean's low side, ~0.103 to its high side) clears 0.3 * std
+        // +/-0.1 headroom on each side: headroom (~0.0951 to the measured
+        // mean's low side, ~0.1049 to its high side) clears 0.3 * std
         // (~0.0866), i.e. at least "0.3 natural-spread units" of headroom,
         // matching this project's other anchored-threshold tests'
         // ">=0.3 headroom" convention but expressed relative to f0's own
