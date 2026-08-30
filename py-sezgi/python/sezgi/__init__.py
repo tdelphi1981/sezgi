@@ -6,6 +6,34 @@ from sezgi._sezgi import Problem, EvalSession, bbob, from_callable
 from sezgi import _sezgi
 
 
+# EvalSession / Problem surface (M3-4 Task 1): EvalSession's ask/tell core
+# (evaluate/evals_used/budget/best/f_opt/finish) is no longer BBOB-only.
+#
+# EvalSession(fid, dim, instance, budget, log_dir=None, algo_name="custom",
+#   seed=0) -- the original, frozen BBOB constructor: unchanged.
+#
+# EvalSession.for_problem(problem, budget, log_dir=None, algo_name="custom",
+#   seed=0) -- staticmethod building a session over any continuous (float)
+#   Problem handle: bbob(...), problems.cec2022(...), or from_callable(...).
+#   Raises ValueError for problems.tsp(...) (a permutation space, not
+#   continuous) and for log_dir on a problem with no known optimum (only
+#   from_callable(...) today -- there is nothing to record as f_opt in the
+#   IOH archive meta).
+#
+# f_opt() now returns float | None (was always float, since only BBOB
+#   existed): None for a problem with no analytically known optimum (e.g.
+#   from_callable(...)); a session built via the BBOB constructor above
+#   always returns a float, unchanged.
+#
+# Problem handle accessors, usable on any handle above:
+#   p.dim() -> int: the search space's dimensionality.
+#   p.bounds() -> (float, float): the uniform (lo, hi) bounds of a
+#     continuous (float) space. ValueError for a non-continuous space (e.g.
+#     problems.tsp(...)'s permutation space).
+#   p.optimum() -> float | None: the problem's known optimum, or None (a
+#     from_callable(...) handle always returns None).
+
+
 def solve(spec, problem, master_seed=0, run_id=0, log_dir=None, algo_name=None):
     """Run an algorithm spec against a problem.
 

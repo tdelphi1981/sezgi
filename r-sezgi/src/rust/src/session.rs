@@ -266,7 +266,12 @@ impl EvalSession {
     /// @returns A numeric scalar.
     fn f_opt(&self) -> savvy::Result<Sexp> {
         let session = self.inner.as_ref().ok_or_else(session_finished_err)?;
-        session.f_opt().try_into()
+        // `CoreSession::f_opt()` is now `Option<f64>` (M3-4 Task 1 generalized
+        // `EvalSession` beyond BBOB); R only constructs BBOB sessions today
+        // (`new()` above always calls `CoreSession::new_bbob`), which always
+        // have a known optimum.
+        // sezgi decision: unwrap with `.expect(...)` rather than threading `Option` through this binding, since no R entry point can build a non-BBOB session.
+        session.f_opt().expect("BBOB sessions always have a known optimum").try_into()
     }
 
     /// Flushes the IOH log (if logging was enabled) and marks the session
