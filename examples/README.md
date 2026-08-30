@@ -99,6 +99,26 @@ depends on is deferred to v2 (see the main `README.md`'s "Multi-objective
 optimization (M3-2)" section and `docs/DECISIONS.md`'s M3-2 record for the
 full spec-tension ruling).
 
+Run:
+
+    ./py-sezgi/.venv/bin/python examples/python/nsga2_zdt1.py
+    Rscript examples/r/nsga2_zdt1.R
+
+Live output (`dim=10`, `pop_size=40`, `budget=4000`, `seed=20260830`,
+measured by running both scripts from the repo root):
+
+    problem: zdt1  dim=10  pop_size=40  budget=4000  seed=20260830
+    front size: 40
+    evals_used: 4000
+    hypervolume_2d (ref_point=[1.1, 1.1]): 0.8580576535101335
+    igd (vs pareto_front(200)): 0.01254540902919091
+    front points (f1, f2), sorted by f1, first 5 (plot-ready -- x=f1, y=f2):
+      0.000000  1.003359
+      0.000911  0.972881
+      0.003438  0.944386
+      0.007097  0.917851
+      0.015445  0.878219
+
 ## CEC 2022 and TSPLIB/permutation quickstarts (M3-3)
 
 Two more matched Python/R PAIRS (not triplets -- no `specs/*.toml` for
@@ -122,20 +142,32 @@ run.
 
 Run:
 
-    ./py-sezgi/.venv/bin/python examples/python/nsga2_zdt1.py
-    Rscript examples/r/nsga2_zdt1.R
+    ./py-sezgi/.venv/bin/python examples/python/cec2022_shade.py
+    Rscript examples/r/cec2022_shade.R
+    ./py-sezgi/.venv/bin/python examples/python/tsp_ga_perm.py
+    Rscript examples/r/tsp_ga_perm.R
 
-Live output (`dim=10`, `pop_size=40`, `budget=4000`, `seed=20260830`,
-measured by running both scripts from the repo root):
+Live output (measured by running all four scripts from the repo root;
+`seed=20260830` throughout):
 
-    problem: zdt1  dim=10  pop_size=40  budget=4000  seed=20260830
-    front size: 40
-    evals_used: 4000
-    hypervolume_2d (ref_point=[1.1, 1.1]): 0.8580576535101335
-    igd (vs pareto_front(200)): 0.01254540902919091
-    front points (f1, f2), sorted by f1, first 5 (plot-ready -- x=f1, y=f2):
-      0.000000  1.003359
-      0.000911  0.972881
-      0.003438  0.944386
-      0.007097  0.917851
-      0.015445  0.878219
+    CEC 2022 f3 (dim=10), SHADE, pop_size=20 budget=5000 seed=20260830 -- SMOKE DEMO, single seed
+    F* (report's pinned optimum): 600.0
+    best_f: 600.0040181437115
+    gap (best_f - F*): 0.004018143711505218
+    evals_used: 5000  iterations: 249
+
+    CEC 2022 f3 (dim=10), pure-R DE/rand/1/bin (NOT the SHADE preset -- see this file's header), pop_size=20 budget=5000 seed=20260830 -- SMOKE DEMO, single seed
+    F* (report's pinned optimum): 600
+    best_f: 600.488807581254
+    gap (best_f - F*): 0.488807581253923
+    evals_used: 5000
+
+    TSP berlin52 (52 cities), ga-perm, pop_size=32 budget=5000 seed=20260830 -- SMOKE DEMO, single seed
+    known optimum (TSPLIB): 7542.0
+    best tour length: 11771.0
+    gap (best - optimum): 4229.0  ratio: 1.5607
+    evals_used: 4992  iterations: 155
+
+The R `tsp_ga_perm.R` run prints the same tour length (`11771`) -- the TSP
+pair runs the same Rust core in both languages, so the numbers agree
+exactly (R's default printing drops the trailing `.0`).
