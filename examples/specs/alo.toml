@@ -1,0 +1,56 @@
+# Ant Lion Optimizer (Mirjalili 2015) -- the built-in `alo` preset
+# (crates/components/src/presets.rs::alo), run through
+# `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# Component decomposition (see crates/components/src/alo.rs's module doc
+# for the full provenance extraction against the author's own ALO.m/
+# Random_walk_around_antlion.m/RouletteWheelSelection.m, the faithful
+# full-walk cost decision, and the elitism design adjudication):
+#   - init:      init/uniform              -- uniform-random ants/antlions
+#   - generator: gen/alo                   -- per ant: 1 roulette draw
+#                                              (1/fitness weights, floor-
+#                                              shifted when needed), then a
+#                                              FULL t_max-step cumsum random
+#                                              walk (2 sign-flip draws +
+#                                              dim*t_max step draws) around
+#                                              the selected antlion AND
+#                                              around the elite, min-max
+#                                              normalized into a SHRINKING
+#                                              I-ratio bound, averaged
+#                                              (RA+RE)/2
+#   - boundary:  boundary/clamp            -- clamps a moved-out-of-bounds
+#                                              coord
+#   - replacer:  replace/mu-plus-lambda    -- pop+offspring merged, sorted
+#                                              ascending, truncated to
+#                                              pop_size (ALO.m's own antlion-
+#                                              update mechanism, reused
+#                                              as-is -- no blackboard state
+#                                              needed, see the module doc's
+#                                              elitism adjudication)
+#   - adapter:   none
+#
+# `pop_size = 25` is the ant/antlion count (canonical per the source
+# paper). `t_max` (the walk horizon) is derived once from budget/pop_size,
+# matching ALO.m's own Max_iter.
+#
+# What this preset gives you that examples/python/alo.py + examples/r/
+# alo.R do NOT: a bit-identical, semver-pinned RNG-stream contract (per
+# ant: roulette draw, then RA's 2 sign draws + dim*t_max walk draws, then
+# RE's same), IOH-profiler logging via `log_dir=`, and reproducibility
+# across the whole sezgi statistics pipeline. The pure scripts teach the
+# SAME full-horizon-walk mechanism and the SAME merge-sort-truncate
+# elitism with nothing but a stdlib RNG.
+
+name = "alo-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "alo"
+preset = { kind = "alo", pop_size = 25 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]

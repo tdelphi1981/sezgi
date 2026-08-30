@@ -187,6 +187,230 @@ fn sz_preset_goa(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds a Sine Cosine Algorithm spec (Mirjalili 2016 -- a labeled
+/// metaphor preset, see `crates/components/src/sca.rs`'s module doc for the
+/// tier note, citation, the `SCA.m`-verified pinned draw order and the
+/// mealpy-`OriginalSCA` replacer delta) as JSON, ready to pass to
+/// `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (number of search agents). Canonical is 30.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_sca(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::sca(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
+/// Builds a JAYA spec (Rao 2016 -- a labeled metaphor preset, see
+/// `crates/components/src/jaya.rs`'s module doc for the tier note,
+/// citation, the primary-paper-verified worked-example reproduction, the
+/// shared-per-dimension-per-generation `r1`/`r2` draw finding and the
+/// greedy-replacement delta vs mealpy's misleadingly-named `OriginalJA`) as
+/// JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (candidate count). Canonical is 30.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_jaya(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::jaya(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
+/// Builds an MFO (Moth-Flame Optimization; Mirjalili 2015 -- a labeled
+/// metaphor preset, see `crates/components/src/mfo.rs`'s module doc for the
+/// tier note, citation, the verified `MFO.m` loop structure, the two subtle
+/// draw/index deltas found vs the plan's sketch, and the blackboard
+/// flame-memory design) spec as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (number of search agents). Canonical is 30.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_mfo(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::mfo(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
+/// Builds an SSA (Salp Swarm Algorithm; Mirjalili et al. 2017 -- a labeled
+/// metaphor preset, see `crates/components/src/ssa.rs`'s module doc for the
+/// tier note, citation, the verified `SSA.m` half-population leader/follower
+/// split, the leader sign-branch pin, the verified in-place follower-chain
+/// semantics, and the persisted-food-vs-current-pop-best delta) spec as
+/// JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (number of salps). Canonical is 30.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_ssa(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::ssa(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
+/// Builds a Firefly Algorithm (Yang, X.-S., *Nature-Inspired Metaheuristic
+/// Algorithms*, 2nd ed., Luniver Press, 2010 -- a labeled metaphor preset,
+/// see `crates/components/src/fa.rs`'s module doc for the tier note,
+/// citation, the verified `fa_ndim.m`/`ffa_move.m` loop structure, the
+/// floored attractiveness formula, the closed-form `alpha` decay, and the
+/// hybrid in-place-self/live-distance/frozen-target double-loop semantics)
+/// spec as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (number of fireflies). Canonical is 25.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_firefly(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::firefly(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
+/// Builds a Bat Algorithm spec (Yang, X.-S. 2010, NICSO -- a labeled
+/// metaphor preset, see `crates/components/src/ba.rs`'s module doc for the
+/// tier note, citation, the verified `bat_algorithm.m` loop structure, the
+/// verified fixed-loudness/pulse-rate finding, the two composing
+/// sign-inversion deltas in the frequency draw and velocity term, and the
+/// design adjudication for the new `replace/bat-loudness-greedy`
+/// acceptance-coupled replacer) as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (number of bats). Canonical is 30.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_bat(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::bat(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
+/// Builds a Flower Pollination Algorithm spec (Yang, X.-S. 2012, UCNC -- a
+/// labeled metaphor preset, see `crates/components/src/fpa.rs`'s module doc
+/// for the tier note, citation, the verified `fpa_demo.m` loop structure,
+/// the switch-branch orientation delta, the global-step sign delta reusing
+/// `cs.rs`'s `cs_dim_step` verbatim, the local-step self-selection-not-
+/// excluded finding, and the min_pop adjustment from 3 down to 2) as JSON,
+/// ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (number of flowers). Canonical is 25.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_fpa(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::fpa(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
+/// Builds a Teaching-Learning-Based Optimization spec (Rao, Savsani &
+/// Vakharia 2011, Computer-Aided Design -- a labeled metaphor preset, and
+/// sezgi's FIRST multi-stage preset: two `[[stages]]` (teacher, then
+/// learner) run in sequence every generation. See
+/// `crates/components/src/tlbo.rs`'s module doc for the full provenance
+/// extraction against Yarpiz's `tlbo.m` -- explicitly labeled third-party,
+/// not Rao's own code -- the per-learner teaching-factor finding, the
+/// unconditionally-distinct partner-selection finding, the min_pop
+/// adjustment from 3 down to 2, and the "parameter-free" framing's
+/// Črepinšek/Liu/Mernik (2012) counterpoint) as JSON, ready to pass to
+/// `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (class size). Canonical is 30.
+/// @param budget Evaluation budget. A full generation costs `2 * pop_size`
+///   evaluations (both stages evaluate).
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_tlbo(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::tlbo(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
+/// Builds a Harris Hawks Optimization spec (Heidari, Mirjalili, Faris,
+/// Aljarah, Mafarja & Chen 2019, Future Generation Computer Systems -- a
+/// labeled metaphor preset, and the wave's most structurally complex one: a
+/// multi-branch escape-energy tree whose progressive rapid-dive
+/// sub-branches evaluate mid-`generate()`. See
+/// `crates/components/src/hho.rs`'s module doc for the full provenance
+/// extraction against the paper author's own `HHO.m`, the hard/soft
+/// besiege mapping delta, the mean(X)/random-hawk in-place semantics, and
+/// the prominent in-generator-evaluation eval-accounting design decision)
+/// as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (hawk count). Canonical is 30.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_hho(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::hho(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
+/// Builds an Ant Lion Optimizer spec (Mirjalili 2015, Advances in
+/// Engineering Software -- a labeled metaphor preset; see
+/// `crates/components/src/alo.rs`'s module doc for the full provenance
+/// extraction against the author's own `ALO.m`/`Random_walk_around_
+/// antlion.m`/`RouletteWheelSelection.m`, the faithful-full-walk cost
+/// decision, and the elitism design adjudication -- the antlion population
+/// itself is the persisted memory via `replace/mu-plus-lambda`, no
+/// blackboard state needed) as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (ant/antlion count). Canonical is 25.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_alo(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::alo(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
+/// Builds an Artificial Bee Colony spec (Karaboga 2005, TR-06 / Karaboga &
+/// Basturk 2007, Journal of Global Optimization -- a labeled metaphor
+/// preset; see `crates/components/src/abc.rs`'s module doc for the full
+/// provenance extraction against the author's own `ABCorig.m` plus the
+/// official `Python_ABC` port, the pop<->food-source convention
+/// resolution, the fitness-transform monotonicity proof, and the
+/// phase-design adjudication -- a SINGLE stage, not two symmetric stages
+/// like `tlbo`: `gen/abc-employed` + the new `replace/abc-trial-greedy`,
+/// plus the new `adapter/abc-onlooker-scout` folding the onlooker AND
+/// scout phases together) as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (food-source count `SN`, NOT Karaboga's
+///   colony size `NP=2*SN`). Canonical is 20.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_abc(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::abc(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
+/// Builds a Gravitational Search Algorithm spec (Rashedi, Nezamabadi-pour &
+/// Saryazdi 2009, Information Sciences -- a labeled metaphor preset, and the
+/// wave's LAST stateful/blackboard algorithm; see
+/// `crates/components/src/gsa.rs`'s module doc for the full provenance
+/// extraction against the author's own `GSA.m`/`Gconstant.m`/
+/// `massCalculation.m`/`Gfield.m`/`move.m`, the verified `M_i`-free force
+/// delta, and the confirmation that GSA's own `Fbest`/`Lbest` never feed
+/// back into the mechanism) as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (agent count). Canonical is 30.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_gsa(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::gsa(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
 /// Builds a simulated annealing (Metropolis, geometric cooling) algorithm
 /// spec as JSON, ready to pass to `sz_solve_bbob()`.
 ///

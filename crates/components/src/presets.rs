@@ -230,6 +230,361 @@ pub fn goa(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Sine Cosine Algorithm (Mirjalili 2016) -- a labeled metaphor preset (see
+/// `sca.rs`'s module doc for the tier note, citation, verified-against-
+/// `SCA.m` pinned draw order and the mealpy-`OriginalSCA` replacer delta).
+/// Uniform init, `boundary/clamp` (same as `gwo`/`woa`/`goa`), unconditional
+/// generational replacement (`replace/generational`, GWO's kind, reused as
+/// -- `SCA.m`'s own reference loop overwrites every agent's position every
+/// iteration with no per-agent fitness-improvement test). `pop_size` is the
+/// number of search agents; canonical is 30 per the source paper. `min_pop
+/// = 2` (needs a best-so-far distinct from `i` for the update to be
+/// meaningful), enforced via `AlgorithmSpec::validate`.
+pub fn sca(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "sca".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/sca", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
+/// JAYA (Rao 2016) -- a labeled metaphor preset (see `jaya.rs`'s module doc
+/// for the tier note, citation, the primary-paper-verified worked-example
+/// reproduction, the shared-per-dimension-per-generation `r1`/`r2` draw
+/// finding and the greedy-replacement delta vs mealpy's misleadingly-named
+/// `OriginalJA`). Uniform init, `boundary/clamp` (same as `gwo`/`woa`/`sca`),
+/// greedy same-index replacement (`replace/one-to-one-greedy`, DE's kind,
+/// reused as-is -- the paper's own Fig. 1 flowchart and worked Table 3
+/// confirm per-candidate greedy acceptance). `pop_size` is the candidate
+/// count; canonical is 30 per this wave's convention (the paper itself uses
+/// a demonstration population of 5). `min_pop = 2` (needs a best AND a
+/// worst distinct selection for the update to be meaningful), enforced via
+/// `AlgorithmSpec::validate`.
+pub fn jaya(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "jaya".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/jaya", serde_json::json!({})),
+            replacer: comp("replace/one-to-one-greedy", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
+/// Moth-Flame Optimization (Mirjalili 2015) -- a labeled metaphor preset
+/// (see `mfo.rs`'s module doc for the full provenance extraction, the
+/// verified `MFO.m` loop structure, the two subtle draw/index deltas found
+/// vs the plan's sketch, and the blackboard flame-memory design). Uniform
+/// init, `boundary/clamp` (same as `gwo`/`woa`/`sca`/`jaya`), `gen/mfo`
+/// paired with `adapter/mfo-flame-update` (the flame memory's canonical
+/// owner -- merge-sort-truncate each generation, per `MFO.m`), generational
+/// replacement (`replace/generational`, reused as-is -- the flames, not the
+/// moth population, carry the elitism). `pop_size` is the number of search
+/// agents; canonical is 30 per the source paper. `min_pop = 2`, enforced
+/// via `AlgorithmSpec::validate`.
+pub fn mfo(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "mfo".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/mfo", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: Some(comp("adapter/mfo-flame-update", serde_json::json!({}))),
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
+/// Salp Swarm Algorithm (Mirjalili et al. 2017) -- a labeled metaphor
+/// preset (see `ssa.rs`'s module doc for the full provenance extraction,
+/// the verified `SSA.m` half-population leader/follower split, the leader
+/// sign-branch pin, the verified in-place follower-chain semantics, and the
+/// persisted-food-vs-current-pop-best delta). Uniform init, `boundary/clamp`
+/// (same as `gwo`/`woa`/`sca`/`jaya`/`mfo`), unconditional generational
+/// replacement (`replace/generational`, reused as-is -- `SSA.m`'s own
+/// reference loop overwrites every salp's position every iteration with no
+/// per-agent fitness-improvement test). `pop_size` is the number of salps;
+/// canonical is 30 per the source paper. `min_pop = 2` (one leader, one
+/// follower, the minimal meaningful split), enforced via
+/// `AlgorithmSpec::validate`.
+pub fn ssa(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "ssa".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/ssa", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
+/// Firefly Algorithm (Yang, X.-S., *Nature-Inspired Metaheuristic
+/// Algorithms*, 2nd ed., Luniver Press, 2010) -- a labeled metaphor preset
+/// (see `fa.rs`'s module doc for the full provenance extraction, the
+/// verified `fa_ndim.m`/`ffa_move.m` loop structure, the floored
+/// attractiveness formula and its non-vanishing `gamma -> infinity` limit,
+/// the closed-form `alpha` decay, and the hybrid in-place-self/live-
+/// distance/frozen-target double-loop semantics). Uniform init,
+/// `boundary/clamp` (same as `gwo`/`woa`/`sca`/`jaya`/`mfo`/`ssa`),
+/// generational replacement (`replace/generational`, reused as-is --
+/// `fa_ndim.m`'s own reference loop overwrites the whole population every
+/// generation with no per-firefly fitness-improvement test). `pop_size` is
+/// the number of fireflies; canonical is 25 per this wave's convention (the
+/// source's own demo uses 20). `min_pop = 2`, enforced via
+/// `AlgorithmSpec::validate`. `O(pop_size^2 * dim)` per generation -- see
+/// `fa.rs`'s "Cost note".
+pub fn firefly(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "firefly".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/fa", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
+/// Bat Algorithm (Yang, X.-S. 2010, NICSO) -- a labeled metaphor preset (see
+/// `ba.rs`'s module doc for the full provenance extraction, the verified
+/// `bat_algorithm.m` loop structure, the verified fixed-loudness/pulse-rate
+/// finding that rules out the plan's sketched `A_i`/`r_i` decay dynamics,
+/// the two composing sign-inversion deltas in the frequency draw and
+/// velocity term, and the design adjudication for the new
+/// `replace/bat-loudness-greedy` acceptance-coupled replacer). Uniform init,
+/// `boundary/clamp` (same as `gwo`/`woa`/`sca`/`jaya`/`mfo`/`ssa`/`firefly`),
+/// `gen/ba` (owns the persisted `ba/velocity` blackboard state, no separate
+/// adapter -- same self-owning shape as `pso`) paired with the new
+/// `replace/bat-loudness-greedy` (fixed `loudness = BA_A0 = 0.5`, the
+/// verified source's own default). `pop_size` is the number of bats;
+/// canonical is 30 per this wave's convention (the source's own demo uses
+/// 20). `min_pop = 2`, enforced via `AlgorithmSpec::validate`.
+pub fn bat(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "bat".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/ba", serde_json::json!({})),
+            replacer: comp("replace/bat-loudness-greedy", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
+/// Flower Pollination Algorithm (Yang, X.-S. 2012, UCNC) -- a labeled
+/// metaphor preset (see `fpa.rs`'s module doc for the full provenance
+/// extraction, the verified `fpa_demo.m` loop structure, the switch-branch
+/// orientation delta -- `rand>p` selects global, not `u<p` -- the
+/// global-step sign delta reusing `cs.rs`'s `cs_dim_step` verbatim, the
+/// local-step `j,k` self-selection-not-excluded finding, and the
+/// min_pop adjustment from the plan's sketched 3 down to 2). Uniform init,
+/// `boundary/clamp` (same as `cs`/`gwo`/`woa`/`sca`/`jaya`/`mfo`/`ssa`/
+/// `firefly`/`bat`), greedy same-index replacement
+/// (`replace/one-to-one-greedy`, DE's kind, reused as-is -- the verified
+/// source's own `if (Fnew<=Fitness(i))` acceptance). `pop_size` is the
+/// flower/pollen-gamete count; canonical is 25 per the source's demo.
+/// `min_pop = 2` (a HARD requirement -- `pick_two_distinct`'s rejection
+/// loop for `k` never terminates with `n < 2`), enforced via
+/// `AlgorithmSpec::validate`.
+pub fn fpa(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "fpa".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/fpa", serde_json::json!({})),
+            replacer: comp("replace/one-to-one-greedy", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
+/// Teaching-Learning-Based Optimization (Rao, Savsani & Vakharia 2011,
+/// Computer-Aided Design) -- a labeled metaphor preset, and sezgi's FIRST
+/// **multi-stage** preset: two `[[stages]]` run in sequence every
+/// generation, `gen/tlbo-teacher` then `gen/tlbo-learner` (see `tlbo.rs`'s
+/// module doc for the full provenance extraction against Yarpiz's `tlbo.m`
+/// -- explicitly labeled third-party, not Rao's own code -- the per-learner
+/// teaching-factor finding, the unconditionally-distinct partner-selection
+/// finding, the min_pop adjustment from the plan's sketched 3 down to 2, and
+/// the "parameter-free" framing's Črepinšek/Liu/Mernik (2012) counterpoint).
+/// Both stages: uniform init, `boundary/clamp` (same as every other preset
+/// in this crate), `replace/one-to-one-greedy` (DE's kind, reused as-is --
+/// each phase's own `if newsol.Cost<pop(i).Cost` acceptance). A full
+/// generation costs `2 * pop_size` evaluations (both stages evaluate; see
+/// `sezgi_core::engine`'s two-stage budget-accounting test). `pop_size` is
+/// the class size; canonical is 30 per the source paper. `min_pop = 2` --
+/// the learner phase's partner selection is a HARD requirement (needs
+/// exactly one OTHER member at minimum), enforced via `AlgorithmSpec::
+/// validate`.
+pub fn tlbo(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "tlbo".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![
+            StageSpec {
+                generator: comp("gen/tlbo-teacher", serde_json::json!({})),
+                replacer: comp("replace/one-to-one-greedy", serde_json::json!({})),
+                adapter: None,
+            },
+            StageSpec {
+                generator: comp("gen/tlbo-learner", serde_json::json!({})),
+                replacer: comp("replace/one-to-one-greedy", serde_json::json!({})),
+                adapter: None,
+            },
+        ],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
+/// Harris Hawks Optimization (Heidari, Mirjalili, Faris, Aljarah, Mafarja &
+/// Chen 2019, *Future Generation Computer Systems*) -- a labeled metaphor
+/// preset (see `hho.rs`'s module doc for the full provenance extraction
+/// against the paper AUTHOR's own `HHO.m`, the wave's most complex
+/// multi-branch escape-energy tree, the hard/soft besiege mapping delta,
+/// the rapid-dive in-generator-evaluation design decision, and the
+/// mean(X)/random-hawk in-place semantics). Uniform init, `boundary/clamp`
+/// (same as every other preset in this crate), `replace/generational`
+/// (finding 10 -- the source's own exploration/besiege-without-dive
+/// branches overwrite unconditionally; the dive branches' accept/reject is
+/// resolved entirely inside `gen/hho` itself). `pop_size` is the hawk
+/// count; canonical is 30 per the source's own demo. `min_pop = 2`,
+/// enforced via `AlgorithmSpec::validate`.
+pub fn hho(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "hho".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/hho", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
+/// Ant Lion Optimizer (Mirjalili 2015) -- a labeled metaphor preset (see
+/// `alo.rs`'s module doc for the full provenance extraction against the
+/// author's own `ALO.m`/`Random_walk_around_antlion.m`/
+/// `RouletteWheelSelection.m`, the faithful-full-walk cost decision, the
+/// elitism design adjudication -- reusing `replace/mu-plus-lambda` as-is,
+/// no blackboard state needed -- and the negative-fitness roulette-weight
+/// simplification). Uniform init, `boundary/clamp` (same as every other
+/// preset in this crate), `gen/alo` paired with `replace/mu-plus-lambda`
+/// (ES's kind, reused as-is -- `ALO.m`'s own antlion-update merge-sort-
+/// truncate mechanism, verified to be exactly this shape). `pop_size` is
+/// the ant/antlion count; canonical is 25 per this wave's convention.
+/// `min_pop = 2`, enforced via `AlgorithmSpec::validate`.
+pub fn alo(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "alo".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/alo", serde_json::json!({})),
+            replacer: comp("replace/mu-plus-lambda", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
+/// Artificial Bee Colony (Karaboga 2005, TR-06 / Karaboga & Basturk 2007,
+/// *Journal of Global Optimization*) -- a labeled metaphor preset (see
+/// `abc.rs`'s module doc for the full provenance extraction against the
+/// author's own `ABCorig.m` plus the official `Python_ABC` port, the
+/// pop<->food-source convention resolution, the fitness-transform
+/// monotonicity proof, the probability-formula delta from the plan's
+/// sketch, and the phase-design adjudication -- a single stage, not two
+/// symmetric stages like `tlbo`). `gen/abc-employed` paired with the new
+/// `replace/abc-trial-greedy` (the trial counters' bootstrap-then-owning
+/// pair, mirroring `mfo.rs`'s flame-memory pattern) plus the new
+/// `adapter/abc-onlooker-scout` (the onlooker AND scout phases, folded into
+/// one self-contained adapter -- see the module doc for why the onlooker
+/// scan cannot fit the `Generator`+`Replacer` shape). `pop_size` IS `SN`
+/// (the food-source count) directly, NOT Karaboga's colony size `NP=2*SN`;
+/// canonical is 20 per this module's resolved convention. `min_pop = 2`
+/// (the neighbour `k!=i` rejection loop's hard floor), enforced via
+/// `AlgorithmSpec::validate`. A full cycle costs `2*pop_size` evaluations
+/// (`+1` when a scout fires) -- see the module doc's "Eval accounting".
+pub fn abc(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "abc".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/abc-employed", serde_json::json!({})),
+            replacer: comp("replace/abc-trial-greedy", serde_json::json!({})),
+            adapter: Some(comp("adapter/abc-onlooker-scout", serde_json::json!({}))),
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
+/// Gravitational Search Algorithm (Rashedi, Nezamabadi-pour & Saryazdi 2009,
+/// *Information Sciences*) -- a labeled metaphor preset, and the wave's LAST
+/// stateful/blackboard algorithm (see `gsa.rs`'s module doc for the full
+/// provenance extraction against the author's own `GSA.m`/`Gconstant.m`/
+/// `massCalculation.m`/`Gfield.m`/`move.m`, the verified `M_i`-free force/
+/// acceleration delta from the plan's sketch, the per-`(i,j,d)` rand-
+/// placement finding, and the confirmation that GSA's own persisted
+/// `Fbest`/`Lbest` are pure reporting bookkeeping never fed back into the
+/// mechanism -- settling the current-pop-convention controller ruling).
+/// Uniform init, `boundary/clamp` (`GSA.m`'s own `space_bound`, same as
+/// every other preset in this crate), `gen/gsa` (owns the persisted
+/// `gsa/velocity` blackboard state, no separate adapter -- same self-owning
+/// shape as `pso`/`bat`) paired with unconditional generational replacement
+/// (`replace/generational` -- `move.m` overwrites every agent's position
+/// unconditionally, no per-agent fitness-improvement test). `pop_size` is
+/// the agent count; canonical is 30 per this wave's convention. `min_pop =
+/// 2` (the force loop needs a distinct `j != i` to contribute at all),
+/// enforced via `AlgorithmSpec::validate`.
+pub fn gsa(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "gsa".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/gsa", serde_json::json!({})),
+            replacer: comp("replace/generational", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),

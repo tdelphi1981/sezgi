@@ -765,6 +765,42 @@ fn per_budget_packages(
 #[pyfunction] fn preset_goa(pop_size: usize, budget: u64) -> String {
     presets::goa(pop_size, budget).to_json()
 }
+#[pyfunction] fn preset_sca(pop_size: usize, budget: u64) -> String {
+    presets::sca(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_jaya(pop_size: usize, budget: u64) -> String {
+    presets::jaya(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_mfo(pop_size: usize, budget: u64) -> String {
+    presets::mfo(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_ssa(pop_size: usize, budget: u64) -> String {
+    presets::ssa(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_firefly(pop_size: usize, budget: u64) -> String {
+    presets::firefly(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_bat(pop_size: usize, budget: u64) -> String {
+    presets::bat(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_fpa(pop_size: usize, budget: u64) -> String {
+    presets::fpa(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_tlbo(pop_size: usize, budget: u64) -> String {
+    presets::tlbo(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_hho(pop_size: usize, budget: u64) -> String {
+    presets::hho(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_alo(pop_size: usize, budget: u64) -> String {
+    presets::alo(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_abc(pop_size: usize, budget: u64) -> String {
+    presets::abc(pop_size, budget).to_json()
+}
+#[pyfunction] fn preset_gsa(pop_size: usize, budget: u64) -> String {
+    presets::gsa(pop_size, budget).to_json()
+}
 #[pyfunction] fn preset_sa(budget: u64) -> String {
     presets::sa(budget).to_json()
 }
@@ -862,6 +898,18 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(preset_harmony_search, m)?)?;
     m.add_function(wrap_pyfunction!(preset_cuckoo_search, m)?)?;
     m.add_function(wrap_pyfunction!(preset_goa, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_sca, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_jaya, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_mfo, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_ssa, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_firefly, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_bat, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_fpa, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_tlbo, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_hho, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_alo, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_abc, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_gsa, m)?)?;
     m.add_function(wrap_pyfunction!(preset_sa, m)?)?;
     m.add_function(wrap_pyfunction!(preset_shade, m)?)?;
     m.add_function(wrap_pyfunction!(preset_lshade, m)?)?;

@@ -64,6 +64,21 @@ SEXP savvy_sz_per_budget_packages_raw__impl(SEXP c_arg__algo, SEXP c_arg__fid, S
     return handle_result(res);
 }
 
+SEXP savvy_sz_preset_abc__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_abc__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_alo__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_alo__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_bat__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_bat__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_preset_cmaes__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_cmaes__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
@@ -94,6 +109,16 @@ SEXP savvy_sz_preset_es_mu_plus_lambda_raw__impl(SEXP c_arg__pop_size, SEXP c_ar
     return handle_result(res);
 }
 
+SEXP savvy_sz_preset_firefly__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_firefly__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_fpa__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_fpa__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_preset_ga_real__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_ga_real__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
@@ -101,6 +126,11 @@ SEXP savvy_sz_preset_ga_real__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
 
 SEXP savvy_sz_preset_goa__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_goa__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_gsa__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_gsa__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
 }
 
@@ -114,6 +144,16 @@ SEXP savvy_sz_preset_harmony_search__impl(SEXP c_arg__pop_size, SEXP c_arg__budg
     return handle_result(res);
 }
 
+SEXP savvy_sz_preset_hho__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_hho__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_jaya__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_jaya__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_preset_jde__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_jde__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
@@ -121,6 +161,11 @@ SEXP savvy_sz_preset_jde__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
 
 SEXP savvy_sz_preset_lshade__impl(SEXP c_arg__dim, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_lshade__ffi(c_arg__dim, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_mfo__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_mfo__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
 }
 
@@ -144,8 +189,23 @@ SEXP savvy_sz_preset_sa__impl(SEXP c_arg__budget) {
     return handle_result(res);
 }
 
+SEXP savvy_sz_preset_sca__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_sca__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_preset_shade__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_shade__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_ssa__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_ssa__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_tlbo__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_tlbo__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
 }
 
@@ -251,23 +311,35 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_coco_export__impl", (DL_FUNC) &savvy_sz_coco_export__impl, 2},
     {"savvy_sz_ecdf_raw__impl", (DL_FUNC) &savvy_sz_ecdf_raw__impl, 3},
     {"savvy_sz_per_budget_packages_raw__impl", (DL_FUNC) &savvy_sz_per_budget_packages_raw__impl, 13},
+    {"savvy_sz_preset_abc__impl", (DL_FUNC) &savvy_sz_preset_abc__impl, 2},
+    {"savvy_sz_preset_alo__impl", (DL_FUNC) &savvy_sz_preset_alo__impl, 2},
+    {"savvy_sz_preset_bat__impl", (DL_FUNC) &savvy_sz_preset_bat__impl, 2},
     {"savvy_sz_preset_cmaes__impl", (DL_FUNC) &savvy_sz_preset_cmaes__impl, 2},
     {"savvy_sz_preset_cmaes_ipop__impl", (DL_FUNC) &savvy_sz_preset_cmaes_ipop__impl, 2},
     {"savvy_sz_preset_cuckoo_search__impl", (DL_FUNC) &savvy_sz_preset_cuckoo_search__impl, 2},
     {"savvy_sz_preset_de_best_1__impl", (DL_FUNC) &savvy_sz_preset_de_best_1__impl, 2},
     {"savvy_sz_preset_de_rand_1__impl", (DL_FUNC) &savvy_sz_preset_de_rand_1__impl, 2},
     {"savvy_sz_preset_es_mu_plus_lambda_raw__impl", (DL_FUNC) &savvy_sz_preset_es_mu_plus_lambda_raw__impl, 9},
+    {"savvy_sz_preset_firefly__impl", (DL_FUNC) &savvy_sz_preset_firefly__impl, 2},
+    {"savvy_sz_preset_fpa__impl", (DL_FUNC) &savvy_sz_preset_fpa__impl, 2},
     {"savvy_sz_preset_ga_real__impl", (DL_FUNC) &savvy_sz_preset_ga_real__impl, 2},
     {"savvy_sz_preset_goa__impl", (DL_FUNC) &savvy_sz_preset_goa__impl, 2},
+    {"savvy_sz_preset_gsa__impl", (DL_FUNC) &savvy_sz_preset_gsa__impl, 2},
     {"savvy_sz_preset_gwo__impl", (DL_FUNC) &savvy_sz_preset_gwo__impl, 2},
     {"savvy_sz_preset_harmony_search__impl", (DL_FUNC) &savvy_sz_preset_harmony_search__impl, 2},
+    {"savvy_sz_preset_hho__impl", (DL_FUNC) &savvy_sz_preset_hho__impl, 2},
+    {"savvy_sz_preset_jaya__impl", (DL_FUNC) &savvy_sz_preset_jaya__impl, 2},
     {"savvy_sz_preset_jde__impl", (DL_FUNC) &savvy_sz_preset_jde__impl, 2},
     {"savvy_sz_preset_lshade__impl", (DL_FUNC) &savvy_sz_preset_lshade__impl, 2},
+    {"savvy_sz_preset_mfo__impl", (DL_FUNC) &savvy_sz_preset_mfo__impl, 2},
     {"savvy_sz_preset_nelder_mead__impl", (DL_FUNC) &savvy_sz_preset_nelder_mead__impl, 2},
     {"savvy_sz_preset_pso__impl", (DL_FUNC) &savvy_sz_preset_pso__impl, 2},
     {"savvy_sz_preset_random_search__impl", (DL_FUNC) &savvy_sz_preset_random_search__impl, 2},
     {"savvy_sz_preset_sa__impl", (DL_FUNC) &savvy_sz_preset_sa__impl, 1},
+    {"savvy_sz_preset_sca__impl", (DL_FUNC) &savvy_sz_preset_sca__impl, 2},
     {"savvy_sz_preset_shade__impl", (DL_FUNC) &savvy_sz_preset_shade__impl, 2},
+    {"savvy_sz_preset_ssa__impl", (DL_FUNC) &savvy_sz_preset_ssa__impl, 2},
+    {"savvy_sz_preset_tlbo__impl", (DL_FUNC) &savvy_sz_preset_tlbo__impl, 2},
     {"savvy_sz_preset_woa__impl", (DL_FUNC) &savvy_sz_preset_woa__impl, 2},
     {"savvy_sz_read_ioh_records__impl", (DL_FUNC) &savvy_sz_read_ioh_records__impl, 2},
     {"savvy_sz_results_matrix_raw__impl", (DL_FUNC) &savvy_sz_results_matrix_raw__impl, 11},

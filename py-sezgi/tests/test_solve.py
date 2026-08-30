@@ -52,6 +52,121 @@ def test_preset_goa_is_dict_with_stages():
     assert spec["stages"][0]["replacer"]["kind"] == "replace/generational"
 
 
+def test_preset_sca_is_dict_with_stages():
+    """M2d-4 Task 1: sezgi.presets.sca() parses as JSON with the expected shape."""
+    spec = sezgi.presets.sca(pop_size=30, budget=2000)
+    assert spec["pop_size"] == 30
+    assert spec["stages"][0]["generator"]["kind"] == "gen/sca"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/generational"
+
+
+def test_preset_jaya_is_dict_with_stages():
+    """M2d-4 Task 2: sezgi.presets.jaya() parses as JSON with the expected shape."""
+    spec = sezgi.presets.jaya(pop_size=30, budget=2000)
+    assert spec["pop_size"] == 30
+    assert spec["stages"][0]["generator"]["kind"] == "gen/jaya"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/one-to-one-greedy"
+
+
+def test_preset_mfo_is_dict_with_stages():
+    """M2d-4 Task 3: sezgi.presets.mfo() parses as JSON with the expected shape."""
+    spec = sezgi.presets.mfo(pop_size=30, budget=2000)
+    assert spec["pop_size"] == 30
+    assert spec["stages"][0]["generator"]["kind"] == "gen/mfo"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/generational"
+    assert spec["stages"][0]["adapter"]["kind"] == "adapter/mfo-flame-update"
+
+
+def test_preset_ssa_is_dict_with_stages():
+    """M2d-4 Task 4: sezgi.presets.ssa() parses as JSON with the expected shape."""
+    spec = sezgi.presets.ssa(pop_size=30, budget=2000)
+    assert spec["pop_size"] == 30
+    assert spec["stages"][0]["generator"]["kind"] == "gen/ssa"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/generational"
+
+
+def test_preset_firefly_is_dict_with_stages():
+    """M2d-4 Task 5: sezgi.presets.firefly() parses as JSON with the expected shape."""
+    spec = sezgi.presets.firefly(pop_size=25, budget=2000)
+    assert spec["pop_size"] == 25
+    assert spec["stages"][0]["generator"]["kind"] == "gen/fa"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/generational"
+
+
+def test_preset_bat_is_dict_with_stages():
+    """M2d-4 Task 6: sezgi.presets.bat() parses as JSON with the expected shape."""
+    spec = sezgi.presets.bat(pop_size=30, budget=2000)
+    assert spec["pop_size"] == 30
+    assert spec["stages"][0]["generator"]["kind"] == "gen/ba"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/bat-loudness-greedy"
+
+
+def test_preset_fpa_is_dict_with_stages():
+    """M2d-4 Task 7: sezgi.presets.fpa() parses as JSON with the expected shape."""
+    spec = sezgi.presets.fpa(pop_size=25, budget=2000)
+    assert spec["pop_size"] == 25
+    assert spec["stages"][0]["generator"]["kind"] == "gen/fpa"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/one-to-one-greedy"
+
+
+def test_preset_tlbo_is_dict_with_two_stages():
+    """M2d-4 Task 8: sezgi.presets.tlbo() parses as JSON with the expected
+    two-stage shape (the first multi-stage preset)."""
+    spec = sezgi.presets.tlbo(pop_size=30, budget=2000)
+    assert spec["pop_size"] == 30
+    assert len(spec["stages"]) == 2
+    assert spec["stages"][0]["generator"]["kind"] == "gen/tlbo-teacher"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/one-to-one-greedy"
+    assert spec["stages"][1]["generator"]["kind"] == "gen/tlbo-learner"
+    assert spec["stages"][1]["replacer"]["kind"] == "replace/one-to-one-greedy"
+
+
+def test_preset_hho_is_dict_with_stages():
+    """M2d-4 Task 9: sezgi.presets.hho() parses as JSON with the expected
+    shape (single-stage, generational replacer -- see hho.rs's module doc
+    for the eval-accounting design behind the internal rapid-dive evaluations)."""
+    spec = sezgi.presets.hho(pop_size=30, budget=2000)
+    assert spec["pop_size"] == 30
+    assert spec["stages"][0]["generator"]["kind"] == "gen/hho"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/generational"
+
+
+def test_preset_alo_is_dict_with_stages():
+    """M2d-4 Task 10: sezgi.presets.alo() parses as JSON with the expected
+    shape (single-stage, mu-plus-lambda replacer -- see alo.rs's module doc
+    for the elitism design adjudication: the antlion population itself is
+    the persisted memory, no blackboard state needed)."""
+    spec = sezgi.presets.alo(pop_size=25, budget=2000)
+    assert spec["pop_size"] == 25
+    assert spec["stages"][0]["generator"]["kind"] == "gen/alo"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/mu-plus-lambda"
+
+
+def test_preset_abc_is_dict_with_single_stage():
+    """M2d-4 Task 11: sezgi.presets.abc() parses as JSON with the expected
+    shape -- a SINGLE stage (unlike tlbo's two symmetric stages), the
+    trial-coupled greedy replacer, and the onlooker+scout adapter -- see
+    abc.rs's module doc for the phase-design adjudication."""
+    spec = sezgi.presets.abc(pop_size=20, budget=2000)
+    assert spec["pop_size"] == 20
+    assert len(spec["stages"]) == 1
+    assert spec["stages"][0]["generator"]["kind"] == "gen/abc-employed"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/abc-trial-greedy"
+    assert spec["stages"][0]["adapter"]["kind"] == "adapter/abc-onlooker-scout"
+
+
+def test_preset_gsa_is_dict_with_single_stage():
+    """M2d-4 Task 12: sezgi.presets.gsa() parses as JSON with the expected
+    shape -- a SINGLE stage (gen/gsa self-owns the persisted gsa/velocity
+    blackboard state, no separate adapter -- same self-owning shape as
+    pso/bat), generational replacement -- see gsa.rs's module doc."""
+    spec = sezgi.presets.gsa(pop_size=30, budget=2000)
+    assert spec["pop_size"] == 30
+    assert len(spec["stages"]) == 1
+    assert spec["stages"][0]["generator"]["kind"] == "gen/gsa"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/generational"
+
+
 def test_bbob_solve_deterministic():
     p = sezgi.bbob(fid=1, dim=5, instance=1)
     spec = sezgi.presets.de_rand_1(pop_size=20, budget=2000)
@@ -157,6 +272,18 @@ def test_all_presets_solve_smoke():
         "harmony_search": sezgi.presets.harmony_search(pop_size=30, budget=budget),
         "cuckoo_search": sezgi.presets.cuckoo_search(pop_size=25, budget=budget),
         "goa": sezgi.presets.goa(pop_size=30, budget=budget),
+        "sca": sezgi.presets.sca(pop_size=30, budget=budget),
+        "jaya": sezgi.presets.jaya(pop_size=30, budget=budget),
+        "mfo": sezgi.presets.mfo(pop_size=30, budget=budget),
+        "ssa": sezgi.presets.ssa(pop_size=30, budget=budget),
+        "firefly": sezgi.presets.firefly(pop_size=25, budget=budget),
+        "bat": sezgi.presets.bat(pop_size=30, budget=budget),
+        "fpa": sezgi.presets.fpa(pop_size=25, budget=budget),
+        "tlbo": sezgi.presets.tlbo(pop_size=30, budget=budget),
+        "hho": sezgi.presets.hho(pop_size=30, budget=budget),
+        "alo": sezgi.presets.alo(pop_size=25, budget=budget),
+        "abc": sezgi.presets.abc(pop_size=20, budget=budget),
+        "gsa": sezgi.presets.gsa(pop_size=30, budget=budget),
         "jde": sezgi.presets.jde(pop_size=20, budget=budget),
         "shade": sezgi.presets.shade(pop_size=20, budget=budget),
         "lshade": sezgi.presets.lshade(dim=dim, budget=budget),

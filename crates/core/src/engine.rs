@@ -704,4 +704,205 @@ mod tests {
                 "restart_counter must survive the blackboard clear across restarts, got sequence {:?}", *seen);
         }
     }
+
+    // ---- Multi-stage engine-interaction tests (M2d-4 Task 8: TLBO is the
+    // first preset with more than one `[[stages]]` entry -- these exercise
+    // the generic engine machinery, not any specific algorithm, using the
+    // same minimal test components as the rest of this module. ----
+
+    fn two_stage_spec(base: &AlgorithmSpec) -> AlgorithmSpec {
+        let mut s = base.clone();
+        s.stages.push(base.stages[0].clone());
+        s
+    }
+
+    /// (a) Budget accounting across two stages per generation: EVERY stage
+    /// evaluates, so one generation of a two-stage spec consumes
+    /// `2 * pop_size` evaluations, on top of the one-time `pop_size` init
+    /// batch. Chosen so the budget divides EXACTLY (no partial generation),
+    /// making the expected `evals_used`/`iterations` arithmetic exact.
+    #[test]
+    fn two_stage_budget_accounting_consumes_2x_pop_per_generation() {
+        let (reg, spec, p) = setup(); // pop_size = 10 (see setup())
+        let mut spec = two_stage_spec(&spec);
+        let generations = 4u64;
+        let pop_size = spec.pop_size as u64;
+        spec.termination.budget = pop_size + generations * 2 * pop_size; // 10 + 4*20 = 90
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+        assert_eq!(r.evals_used, spec.termination.budget,
+            "an exactly-divisible budget must be used up exactly: init + generations*2*pop_size");
+        assert_eq!(r.iterations, generations,
+            "each iteration must run BOTH stages (2*pop_size evals) before incrementing");
+    }
+
+    /// A generator that plants a caller-given genotype for every offspring
+    /// (deterministic, consumes no RNG) -- used by (b) to force stage 0 to
+    /// evaluate the exact optimum.
+    struct PlantExactGen { point: Vec<f64> }
+    impl Generator for PlantExactGen {
+        fn generate(&self, pop: &Population, _c: &mut Ctx) -> Vec<Genotype> {
+            (0..pop.len())
+                .map(|_| Genotype { blocks: vec![BlockValues::Float(self.point.clone())] })
+                .collect()
+        }
+        fn meta(&self) -> ComponentMeta {
+            ComponentMeta::new("plant-exact-gen", SupportedBlocks::All)
+        }
+    }
+
+    /// A generator that increments a shared counter every time it is
+    /// called, so a test can prove it was (or was not) invoked -- used by
+    /// (b) as stage 1, which must NEVER run once stage 0's own evaluation
+    /// already satisfies `target`.
+    struct CountingGen(std::sync::Arc<std::sync::atomic::AtomicU64>);
+    impl Generator for CountingGen {
+        fn generate(&self, pop: &Population, ctx: &mut Ctx) -> Vec<Genotype> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            (0..pop.len()).map(|_| uniform_sample(ctx.space, ctx.rng)).collect()
+        }
+        fn meta(&self) -> ComponentMeta {
+            ComponentMeta::new("counting-gen", SupportedBlocks::All)
+        }
+    }
+
+    /// (b) A target-hit triggered by STAGE 0's own generator-evaluate call
+    /// must stop the run cleanly BEFORE stage 1 ever runs (the per-stage
+    /// `reached()` check, right after stage 0's own adapter-scan slot --
+    /// same placement the M2d-3 Task 8 engine fix established for
+    /// adapter-triggered hits, exercised here for the plain generator-stage
+    /// path with a SECOND stage present). `setup()`'s problem is
+    /// `SphereShifted` with optimum at `shift = [1.0, -2.0]` (f=0.0 there).
+    #[test]
+    fn target_hit_in_stage_0_stops_before_stage_1_runs() {
+        let (mut reg, spec, p) = setup();
+        let shift = vec![1.0, -2.0];
+        let stage1_calls = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        {
+            let shift = shift.clone();
+            reg.register_generator("plant-exact-gen", move |_| {
+                Ok(Box::new(PlantExactGen { point: shift.clone() }) as Box<dyn Generator>)
+            });
+        }
+        {
+            let stage1_calls = stage1_calls.clone();
+            reg.register_generator("counting-gen", move |_| {
+                Ok(Box::new(CountingGen(stage1_calls.clone())) as Box<dyn Generator>)
+            });
+        }
+        let mut spec = spec;
+        spec.stages[0].generator = ComponentSpec { kind: "plant-exact-gen".into(), params: serde_json::json!({}) };
+        spec.stages.push(StageSpec {
+            generator: ComponentSpec { kind: "counting-gen".into(), params: serde_json::json!({}) },
+            replacer: ComponentSpec { kind: "greedy".into(), params: serde_json::json!({}) },
+            adapter: None,
+        });
+        spec.termination.target = Some(0.0); // stage 0's own evaluate() must be what triggers this
+
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+
+        assert_eq!(r.iterations, 0,
+            "target must be hit within stage 0 of the FIRST generation, never reaching the bottom of the outer loop");
+        assert_eq!(stage1_calls.load(std::sync::atomic::Ordering::SeqCst), 0,
+            "stage 1's generator must NEVER run once stage 0's own evaluate already satisfied target");
+        assert_eq!(r.best_f, 0.0, "the exact optimum planted by stage 0 must be captured as best_f");
+        let BlockValues::Float(xs) = &r.best_x.blocks[0] else { panic!("expected a float block") };
+        assert_eq!(xs, &shift);
+        assert_eq!(r.evals_used, spec.pop_size as u64 * 2,
+            "only the init batch plus stage 0's own evaluate -- stage 1 must not have evaluated anything");
+    }
+
+    /// A generator that records every raw `next_f64()` draw it consumes
+    /// (in order) into a shared log, and draws EXACTLY ONE value per
+    /// offspring (no further RNG consumption -- unlike `uniform_sample`,
+    /// which would draw once per dimension and break the 1-draw-per-
+    /// individual stride this test relies on) -- used by (c) to compare a
+    /// stage's ACTUAL consumed stream against an independently-
+    /// reconstructed `RngStream` at that stage's documented path.
+    struct ProbeGen(std::sync::Arc<std::sync::Mutex<Vec<f64>>>);
+    impl Generator for ProbeGen {
+        fn generate(&self, pop: &Population, ctx: &mut Ctx) -> Vec<Genotype> {
+            let BlockValues::Float(x0) = &pop.individuals[0].blocks[0] else {
+                unreachable!("this test only uses float blocks")
+            };
+            let dim = x0.len();
+            (0..pop.len()).map(|_| {
+                let v = ctx.rng.next_f64();
+                self.0.lock().unwrap().push(v);
+                Genotype { blocks: vec![BlockValues::Float(vec![v; dim])] }
+            }).collect()
+        }
+        fn meta(&self) -> ComponentMeta {
+            ComponentMeta::new("probe-gen", SupportedBlocks::All)
+        }
+    }
+
+    /// (c) Stage RNG streams: per the engine's `stage_rngs` derivation
+    /// (`[run_id, 1 + 2*i]` for stage `i`'s generator stream), stage 0's
+    /// generator must draw from `RngStream::from_master(seed, &[run_id,
+    /// 1])` and stage 1's generator from `RngStream::from_master(seed,
+    /// &[run_id, 3])` -- entirely independent streams. This test documents
+    /// AND verifies both indices directly, by reconstructing each stream
+    /// standalone and comparing its raw draws to what each stage's probe
+    /// actually consumed.
+    #[test]
+    fn stage_rng_streams_use_the_documented_per_stage_indices() {
+        let (mut reg, spec, p) = setup();
+        let log0 = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log1 = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        {
+            let log0 = log0.clone();
+            reg.register_generator("probe-gen-0", move |_| {
+                Ok(Box::new(ProbeGen(log0.clone())) as Box<dyn Generator>)
+            });
+        }
+        {
+            let log1 = log1.clone();
+            reg.register_generator("probe-gen-1", move |_| {
+                Ok(Box::new(ProbeGen(log1.clone())) as Box<dyn Generator>)
+            });
+        }
+        let mut spec = spec;
+        spec.stages[0].generator = ComponentSpec { kind: "probe-gen-0".into(), params: serde_json::json!({}) };
+        spec.stages.push(StageSpec {
+            generator: ComponentSpec { kind: "probe-gen-1".into(), params: serde_json::json!({}) },
+            replacer: ComponentSpec { kind: "greedy".into(), params: serde_json::json!({}) },
+            adapter: None,
+        });
+        spec.termination.budget = spec.pop_size as u64 * 3; // init + exactly ONE generation (2 stages)
+
+        let seed = 99u64;
+        let run_id = 5u64;
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        let r = e.run(&p, RunConfig { master_seed: seed, run_id }, None).unwrap();
+        assert_eq!(r.iterations, 1, "exactly one generation must have run");
+
+        // No `target` is set, so the outer `while !reached(&eval)` loop
+        // always attempts a SECOND generation, and `gen.generate()` runs
+        // speculatively BEFORE the budget check that then fails inside
+        // `eval.evaluate(&offspring)` (see `Engine::run`'s `'outer` loop) --
+        // so stage 0's probe logs `pop_size` MORE draws from that doomed
+        // second attempt (stage 1's probe never runs a second time, since
+        // the `break 'outer` on stage 0's failed evaluate happens first).
+        // Only the FIRST `pop_size` entries of stage 0's log belong to the
+        // one completed generation this test is about.
+        let got0_all = log0.lock().unwrap().clone();
+        let got1 = log1.lock().unwrap().clone();
+        assert_eq!(got1.len(), spec.pop_size);
+        assert!(got0_all.len() >= spec.pop_size);
+        let got0 = got0_all[..spec.pop_size].to_vec();
+        assert_ne!(got0, got1, "the two stages' generator streams must be independent, not the same sequence");
+
+        // Documented path: stage i's generator stream is [run_id, 1 + 2*i].
+        let mut expected0 = RngStream::from_master(seed, &[run_id, 1]); // stage 0
+        let expected0: Vec<f64> = (0..spec.pop_size).map(|_| expected0.next_f64()).collect();
+        assert_eq!(got0, expected0,
+            "stage 0's generator must draw from RngStream::from_master(seed, &[run_id, 1])");
+
+        let mut expected1 = RngStream::from_master(seed, &[run_id, 3]); // stage 1 (1 + 2*1 = 3)
+        let expected1: Vec<f64> = (0..spec.pop_size).map(|_| expected1.next_f64()).collect();
+        assert_eq!(got1, expected1,
+            "stage 1's generator must draw from RngStream::from_master(seed, &[run_id, 3])");
+    }
 }

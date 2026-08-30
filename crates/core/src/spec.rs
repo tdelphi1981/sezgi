@@ -74,6 +74,14 @@ impl AlgorithmSpec {
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("spec could not be serialized")
     }
+    /// TOML round-trip counterpart to [`Self::from_toml`] -- mirrors
+    /// [`Self::to_json`]. Added for the multi-stage spec round-trip test
+    /// (M2d-4 Task 8: TLBO is the first spec with more than one `[[stages]]`
+    /// entry; this method plus `from_toml` are exercised on it by
+    /// `sezgi_bench`'s test suite via the `spec_toml` path).
+    pub fn to_toml(&self) -> String {
+        toml::to_string_pretty(self).expect("spec could not be serialized")
+    }
 
     pub fn validate(&self, reg: &Registry, space: &SearchSpace) -> Result<(), SpecError> {
         if self.stages.is_empty() {

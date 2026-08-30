@@ -1,0 +1,64 @@
+# Artificial Bee Colony (Karaboga 2005, TR-06 / Karaboga & Basturk 2007,
+# Journal of Global Optimization) -- the built-in `abc` preset
+# (crates/components/src/presets.rs::abc), run through
+# `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# ONE stage (not two symmetric ones like `tlbo`) -- see
+# crates/components/src/abc.rs's module doc for the full provenance
+# extraction against Karaboga & Basturk's OWN `ABCorig.m`, the pop<->food-
+# source convention resolution, and the phase-design adjudication that
+# rules out both a naive multi-stage AND a single-Generator shape:
+#   - init:      init/uniform                    -- uniform-random food
+#                                                    sources
+#   - generator: gen/abc-employed                 -- the EMPLOYED phase:
+#                                                    one candidate per
+#                                                    source, against a
+#                                                    FROZEN snapshot (a
+#                                                    tagged simplification
+#                                                    of ABCorig.m's own
+#                                                    in-place chaining --
+#                                                    see the module doc)
+#   - boundary:  boundary/clamp                   -- clamps a moved-out-of-
+#                                                    bounds coord
+#   - replacer:  replace/abc-trial-greedy         -- per-source greedy
+#                                                    accept coupled with the
+#                                                    `abc/trials` counter
+#                                                    (reset on accept, +1 on
+#                                                    reject) -- no fitness
+#                                                    transform needed (the
+#                                                    monotonicity proof, see
+#                                                    the module doc)
+#   - adapter:   adapter/abc-onlooker-scout        -- the ONLOOKER phase (a
+#                                                    repeated linear scan,
+#                                                    LITERALLY in-place, no
+#                                                    simplification needed)
+#                                                    immediately followed by
+#                                                    the SCOUT phase (at
+#                                                    most one re-randomized
+#                                                    source per cycle)
+#
+# `pop_size = 20` IS the food-source count SN directly (NOT Karaboga's
+# colony size NP=2*SN -- there is only ever one array of solutions).
+# `limit = SN*dim` (Karaboga & Akay 2009's dimension-scaling default).
+# Eval cost per cycle: `2*SN` (no scout) or `2*SN+1` (with a scout).
+#
+# What this preset gives you that examples/python/abc.py + examples/r/
+# abc.R do NOT: a bit-identical, semver-pinned RNG-stream contract, exact
+# blackboard-owned trial-counter state, IOH-profiler logging via
+# `log_dir=`, and reproducibility across the whole sezgi statistics
+# pipeline. The pure scripts teach the SAME three-phase decomposition and
+# the SAME honest per-phase eval accounting with nothing but a stdlib RNG.
+
+name = "abc-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "abc"
+preset = { kind = "abc", pop_size = 20 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]

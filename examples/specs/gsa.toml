@@ -1,0 +1,58 @@
+# Gravitational Search Algorithm (Rashedi, Nezamabadi-pour & Saryazdi
+# 2009) -- the built-in `gsa` preset (crates/components/src/presets.rs::
+# gsa), run through `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# Component decomposition (see crates/components/src/gsa.rs's module doc
+# for the full provenance extraction against the author's own GSA.m/
+# Gconstant.m/massCalculation.m/Gfield.m/move.m, the wave's LAST
+# stateful/blackboard algorithm):
+#   - init:      init/uniform              -- uniform-random agents
+#   - generator: gen/gsa                   -- owns the persisted
+#                                              `gsa/velocity` blackboard
+#                                              state; per generation: mass
+#                                              normalization (degenerate
+#                                              all-equal guard -> uniform),
+#                                              G decay, a Kbest elite set
+#                                              that SHRINKS with progress
+#                                              (no floor -- can reach 0),
+#                                              a per-(i,j,d) force draw
+#                                              (NO M_i term), then a
+#                                              SEPARATE per-(i,d) velocity/
+#                                              position update
+#                                              (v'=rand*v+accel)
+#   - boundary:  boundary/clamp            -- clamps a moved-out-of-bounds
+#                                              coord (GSA.m's own
+#                                              space_bound)
+#   - replacer:  replace/generational      -- every agent's position
+#                                              overwritten unconditionally
+#                                              (no per-agent fitness test
+#                                              in the source)
+#   - adapter:   none
+#
+# `pop_size = 30` is the agent count (this wave's convention). GSA.m's own
+# persisted `Fbest`/`Lbest` are VERIFIED pure reporting bookkeeping, never
+# fed back into the mechanism -- confirming the wave's current-population
+# convention needs no attractor/best-so-far blackboard state here at all.
+#
+# What this preset gives you that examples/python/gsa.py + examples/r/
+# gsa.R do NOT: a bit-identical, semver-pinned RNG-stream contract (all
+# per-(i,j,d) force draws first, completing the whole acceleration array,
+# THEN all per-(i,d) velocity draws), the velocity owned as real Rust
+# blackboard state, IOH-profiler logging via `log_dir=`, and
+# reproducibility across the whole sezgi statistics pipeline. The pure
+# scripts teach the SAME mass/G/Kbest/force/velocity mechanism with
+# nothing but a stdlib RNG.
+
+name = "gsa-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "gsa"
+preset = { kind = "gsa", pop_size = 30 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]

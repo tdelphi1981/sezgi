@@ -442,3 +442,616 @@ fn goa_min_pop_2_enforced_by_spec_validation() {
         other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
     }
 }
+
+// ---- Sine Cosine Algorithm (M2d-4 Task 1) ----
+
+#[test]
+fn sca_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::sca(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Deterministic achieved gap at seed 42: gap ~= 0.1823560084 (SCA
+    // converges on the separable, unimodal BBOB f1/Sphere in 20k
+    // evaluations, pop 30 -- looser than GWO/GOA's tighter gaps, consistent
+    // with SCA's unconditional non-elitist replacement never re-locking onto
+    // a previously-found best position once the population drifts past it).
+    // Anchored bound rounded up to the next 0.5 (0.5), giving ample (>=0.3)
+    // headroom, per convention (see gwo_solves_bbob_f1_dim5 above).
+    assert!(gap < 0.5,
+        "SCA should land close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap}");
+}
+
+#[test]
+fn sca_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::sca(1, 500); // below min_pop = 2 (best-so-far + one other)
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/sca") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    // Also assert the underlying SpecError variant directly.
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/sca");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+// ---- JAYA (M2d-4 Task 2) ----
+
+#[test]
+fn jaya_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::jaya(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Deterministic achieved gap at seed 42: gap ~= 0.0005521661213379048
+    // (JAYA converges tightly on the separable, unimodal BBOB f1/Sphere in
+    // 20k evaluations, pop 30 -- greedy same-index acceptance keeps every
+    // improvement, and the shared per-dimension r1/r2 draws still let each
+    // candidate individually converge toward best/away from worst).
+    // Anchored bound rounded up to the next 0.5 (0.5), giving ample
+    // (>=0.3) headroom, per convention (see sca_solves_bbob_f1_dim5 above).
+    assert!(gap < 0.5,
+        "JAYA should land close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap}");
+}
+
+#[test]
+fn jaya_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::jaya(1, 500); // below min_pop = 2 (best + worst)
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/jaya") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    // Also assert the underlying SpecError variant directly.
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/jaya");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+// ---- MFO (M2d-4 Task 3) ----
+
+#[test]
+fn mfo_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::mfo(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop 30/budget 20k: EXACTLY 0.0 (best_f is
+    // bit-identical to f_opt -- the flame-elitist memory's narrowing
+    // spiral converges past double-precision resolution on the separable,
+    // unimodal BBOB f1/Sphere well within 20k evaluations). Anchored bound
+    // rounded up to the next 0.5 above the measured value (0.5), matching
+    // this wave's other anchored-threshold tests' bound; ample (>=0.3)
+    // headroom.
+    assert!(gap < 0.5,
+        "MFO should land at (or extremely close to) the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+#[test]
+fn mfo_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::mfo(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/mfo") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/mfo");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+// ---- SSA (M2d-4 Task 4) ----
+
+#[test]
+fn ssa_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::ssa(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop 30/budget 20k: ~6.54e-13 (essentially
+    // converged to the optimum on the separable, unimodal BBOB f1/Sphere --
+    // the half-population leader block's narrowing c1 schedule plus the
+    // follower chain's averaging pull the whole population in tight well
+    // within 20k evaluations). Anchored bound rounded up to the next 0.5
+    // above the measured value (0.5), matching this wave's other
+    // anchored-threshold tests' bound; ample (>=0.3) headroom.
+    assert!(gap < 0.5,
+        "SSA should land at (or extremely close to) the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+#[test]
+fn ssa_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::ssa(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/ssa") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/ssa");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+// ---- FA / Firefly Algorithm (M2d-4 Task 5) ----
+
+#[test]
+fn firefly_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::firefly(25, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop 25/budget 20k: ~5.92e-8 (the pairwise
+    // brighter-attracts-dimmer mechanism converges tightly on the
+    // separable, unimodal BBOB f1/Sphere well within 20k evaluations).
+    // Anchored bound rounded up to the next 0.5 above the measured value
+    // (0.5), matching this wave's other anchored-threshold tests' bound;
+    // ample (>=0.3) headroom.
+    assert!(gap < 0.5,
+        "firefly should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+#[test]
+fn firefly_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::firefly(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/fa") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/fa");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+// ---- BA / Bat Algorithm (M2d-4 Task 6) ----
+
+#[test]
+fn bat_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::bat(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop 30/budget 20k: ~3.7007 (BA's velocity
+    // accumulates with NO inertia/decay term at all, per the verified
+    // bat_algorithm.m source -- see ba.rs's module doc -- and the
+    // loudness-gated replacer can reject genuine improvements, so a looser
+    // gap than MFO/SSA/JAYA's near-exact convergence is expected here).
+    // Anchored bound: the next 0.5 multiple above the measured value (4.0)
+    // gives only ~0.30 headroom, short of this wave's >=0.3 convention, so
+    // one further 0.5 step (4.5) is used instead, giving ample (~0.80)
+    // headroom.
+    assert!(gap < 4.5,
+        "bat should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+#[test]
+fn bat_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::bat(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/ba") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/ba");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+// ---- FPA / Flower Pollination Algorithm (M2d-4 Task 7) ----
+
+#[test]
+fn fpa_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::fpa(25, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop 25/budget 20k: EXACTLY 0.0 (best_f is
+    // bit-identical to f_opt -- FPA's greedy same-index acceptance never
+    // loses ground, and the global branch's Lévy step reusing cs.rs's
+    // cs_dim_step converges past double-precision resolution on the
+    // separable, unimodal BBOB f1/Sphere well within 20k evaluations --
+    // same phenomenon already observed for mfo_solves_bbob_f1_dim5 above).
+    // Anchored bound rounded up to the next 0.5 above the measured value
+    // (0.5), matching this wave's other anchored-threshold tests' bound;
+    // ample (>=0.3) headroom.
+    assert!(gap < 0.5,
+        "fpa should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+#[test]
+fn fpa_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::fpa(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/fpa") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/fpa");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+// ---- TLBO / Teaching-Learning-Based Optimization (M2d-4 Task 8, first
+// multi-stage preset) ----
+
+#[test]
+fn tlbo_is_a_two_stage_spec() {
+    let spec = presets::tlbo(30, 2000);
+    assert_eq!(spec.stages.len(), 2, "tlbo must have exactly two [[stages]]: teacher, then learner");
+    assert_eq!(spec.stages[0].generator.kind, "gen/tlbo-teacher");
+    assert_eq!(spec.stages[0].replacer.kind, "replace/one-to-one-greedy");
+    assert_eq!(spec.stages[1].generator.kind, "gen/tlbo-learner");
+    assert_eq!(spec.stages[1].replacer.kind, "replace/one-to-one-greedy");
+}
+
+#[test]
+fn tlbo_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::tlbo(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop 30/budget 20k: EXACTLY 0.0 (best_f is
+    // bit-identical to f_opt -- TLBO's greedy same-index acceptance after
+    // EACH phase never loses ground, and the teacher phase's pull toward
+    // the current-pop best plus the learner phase's toward-better/
+    // away-from-worse pairwise moves converge past double-precision
+    // resolution on the separable, unimodal BBOB f1/Sphere well within the
+    // 2*pop_size-per-generation budget). Anchored bound rounded up to the
+    // next 0.5 above the measured value (0.5), matching this wave's other
+    // anchored-threshold tests' bound; ample (>=0.3) headroom.
+    assert!(gap < 0.5,
+        "TLBO should land at (or extremely close to) the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+#[test]
+fn tlbo_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::tlbo(1, 500); // below min_pop = 2 (learner phase needs a distinct partner)
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    // validate() checks each stage's components in order, so the FIRST
+    // stage's generator (gen/tlbo-teacher) is the one reported here.
+    assert!(err_str.contains("gen/tlbo-teacher") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/tlbo-teacher");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+// ---- HHO / Harris Hawks Optimization (M2d-4 Task 9, the wave's most
+// complex multi-branch escape-energy tree, with in-generator evaluation for
+// the rapid-dive sub-branches) ----
+
+#[test]
+fn hho_is_a_single_stage_generational_spec() {
+    let spec = presets::hho(30, 2000);
+    assert_eq!(spec.stages.len(), 1);
+    assert_eq!(spec.stages[0].generator.kind, "gen/hho");
+    assert_eq!(spec.stages[0].replacer.kind, "replace/generational");
+}
+
+#[test]
+fn hho_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::hho(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop 30/budget 20k, RE-MEASURED after fix
+    // round 1 (the soft-dive Y formula correction, HHO.m line 105 vs line
+    // 98 -- see hho.rs's finding 4): approximately 8.39e-3 (0.00839) --
+    // HHO's escape-energy tree and rapid-dive greedy acceptance still make
+    // steady progress on the separable, unimodal BBOB f1/Sphere well within
+    // the budget (the internal dive-trial evaluations also consume part of
+    // the 20k budget, per this module's eval-accounting design, so fewer
+    // generations complete than a single-eval-per-hawk preset would get at
+    // the same budget -- but still comfortably converges). Anchored bound
+    // rounded up to the next 0.5 above the measured value (0.5), matching
+    // this wave's other anchored-threshold tests' bound; ample (>=0.3,
+    // here ~0.49) headroom.
+    assert!(gap < 0.5,
+        "hho should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+#[test]
+fn hho_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::hho(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/hho") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/hho");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+// ---- ALO / Ant Lion Optimizer (M2d-4 Task 10, faithful full-walk
+// construction -- see alo.rs's module doc's "Cost design" section) ----
+
+#[test]
+fn alo_is_a_single_stage_generational_spec() {
+    let spec = presets::alo(25, 2000);
+    assert_eq!(spec.stages.len(), 1);
+    assert_eq!(spec.stages[0].generator.kind, "gen/alo");
+    // The elitism adjudication (see alo.rs's module doc): the antlion
+    // population itself is the persisted memory, via mu-plus-lambda's
+    // merge-sort-truncate -- no blackboard state, no new replacer.
+    assert_eq!(spec.stages[0].replacer.kind, "replace/mu-plus-lambda");
+}
+
+#[test]
+fn alo_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::alo(25, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop 25/budget 20k: ~1.28e-13 (essentially
+    // converged to double-precision resolution) -- despite this instance's
+    // negative f_opt (~-125.95, so fitness is negative throughout almost
+    // the entire run, exercising alo_roulette_weights's negative-fitness
+    // floor-shift branch, not just the literal-reciprocal common case), the
+    // elite-walk term (RE, always toward the current best-ever via
+    // mu-plus-lambda's elitist merge) and the shrinking I-ratio bounds
+    // still drive convergence past double-precision resolution well within
+    // 20k evaluations on the separable, unimodal BBOB f1/Sphere. Anchored
+    // bound rounded up to the next 0.5 above the measured value (0.5),
+    // matching this wave's other anchored-threshold tests' bound; ample
+    // (>=0.3) headroom.
+    assert!(gap < 0.5,
+        "alo should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+#[test]
+fn alo_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::alo(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/alo") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/alo");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+// ---- ABC / Artificial Bee Colony (M2d-4 Task 11 -- see abc.rs's module
+// doc's "Phase-design adjudication": a single stage, not two symmetric
+// stages like tlbo, since the onlooker scan cannot fit the
+// Generator+Replacer shape) ----
+
+#[test]
+fn abc_is_a_single_stage_spec_with_the_trial_coupled_replacer_and_onlooker_scout_adapter() {
+    let spec = presets::abc(20, 2000);
+    assert_eq!(spec.stages.len(), 1, "ABC is a single-stage preset, unlike tlbo's two symmetric stages");
+    assert_eq!(spec.stages[0].generator.kind, "gen/abc-employed");
+    assert_eq!(spec.stages[0].replacer.kind, "replace/abc-trial-greedy");
+    assert_eq!(spec.stages[0].adapter.as_ref().unwrap().kind, "adapter/abc-onlooker-scout");
+}
+
+#[test]
+fn abc_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::abc(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/abc-employed") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/abc-employed");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+/// Budget-accounting honesty (the brief's explicit ask): with trial
+/// counters far from the limit (`SN*dim`, large relative to a handful of
+/// generations), no scout ever fires, so a full multi-generation run must
+/// consume EXACTLY `pop_size (init) + generations * 2 * pop_size`
+/// evaluations -- `SN` for the employed phase (the engine's own
+/// `eval.evaluate(&offspring)` call) plus `SN` for the onlooker phase
+/// (`adapter/abc-onlooker-scout`'s own `SN` internal `ctx.eval.evaluate`
+/// calls), never `4*SN` (which an HHO-style "generator internally
+/// evaluates, then the engine re-evaluates the same offspring again" design
+/// would have produced -- see the module doc's phase-design adjudication
+/// for why that shape was rejected).
+#[test]
+fn abc_evals_are_exactly_2x_pop_per_cycle_when_no_scout_fires() {
+    let pop_size = 10usize;
+    let dim = 5;
+    // limit = SN*dim = 50: each source's trial can increment at most TWICE
+    // per cycle (once in the employed phase, once if visited-and-rejected
+    // in the onlooker phase), so after only 3 cycles no source's trial can
+    // possibly exceed 6 -- nowhere near 50, so the scout provably never
+    // fires in this fixture, and the budget divides EXACTLY (no partial
+    // generation), making the expected evals_used arithmetic exact --
+    // mirroring the engine's own `two_stage_budget_accounting_consumes_2x_
+    // pop_per_generation` test (M2d-4 Task 8) at the component level.
+    let p = SphereShifted::new(vec![0.0; dim], -5.0, 5.0);
+    let generations = 3u64;
+    let budget = pop_size as u64 + generations * 2 * pop_size as u64; // exactly divisible
+    let spec = presets::abc(pop_size, budget);
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    assert_eq!(r.evals_used, budget,
+        "an exactly-divisible budget must be used up exactly: init + generations*2*pop_size, honestly (never 4*pop_size)");
+    assert_eq!(r.iterations, generations);
+}
+
+#[test]
+fn abc_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::abc(20, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop_size 20 (=SN)/budget 20k: exactly 0.0
+    // (bit-identical convergence to the optimum, best_f == f_opt ==
+    // -125.9497035670884 -- cross-checked at seeds 7/100/999 too, same
+    // exact result each time). On this easy, unimodal, separable BBOB
+    // f1/dim5 instance, ABC's single-dimension coordinate-wise employed
+    // and onlooker moves (each visit only ever perturbs ONE dimension) act
+    // like a highly effective coordinate-descent-with-restarts search over
+    // 500 cycles (20k/(2*20)), so exact convergence is unsurprising here --
+    // same class of result `alo.rs`'s own anchored test measured (~1.28e-13,
+    // essentially converged) on the identical instance. Anchored per this
+    // wave's convention: round UP to the next 0.5 above the measured value
+    // with >=0.3 headroom -- measured 0.0, so anchor at 0.5 (headroom 0.5).
+    assert!(gap < 0.5,
+        "abc should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}
+
+// ---- GSA / Gravitational Search Algorithm (M2d-4 Task 12 -- the wave's
+// LAST stateful/blackboard algorithm; see gsa.rs's module doc for the full
+// provenance extraction against Rashedi's own GSA.m/Gconstant.m/
+// massCalculation.m/Gfield.m/move.m, the verified M_i-free force delta, and
+// the confirmation that GSA's own Fbest/Lbest never feed back into the
+// mechanism -- settling the current-pop-convention controller ruling) ----
+
+#[test]
+fn gsa_is_a_single_stage_spec_with_generational_replacement() {
+    let spec = presets::gsa(30, 2000);
+    assert_eq!(spec.stages.len(), 1);
+    assert_eq!(spec.stages[0].generator.kind, "gen/gsa");
+    assert_eq!(spec.stages[0].replacer.kind, "replace/generational");
+    assert!(spec.stages[0].adapter.is_none(),
+        "gsa/velocity is owned entirely by gen/gsa itself, no separate adapter (same self-owning shape as pso/bat)");
+}
+
+#[test]
+fn gsa_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::gsa(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/gsa") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/gsa");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+#[test]
+fn gsa_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::gsa(30, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop_size 30/budget 20k: exactly 0.0
+    // (bit-identical convergence to the optimum, best_f == f_opt ==
+    // -125.9497035670884 -- cross-checked at seeds 7/100/999 too, same
+    // exact result each time). On this easy, unimodal, separable BBOB
+    // f1/dim5 instance, GSA's gravitational pull toward the current heaviest
+    // (best-fitness) agents converges cleanly, same class of result
+    // `abc.rs`'s/`alo.rs`'s own anchored tests measured on the identical
+    // instance. Anchored per this wave's convention: round UP to the next
+    // 0.5 above the measured value with >=0.3 headroom -- measured 0.0, so
+    // anchor at 0.5 (headroom 0.5).
+    assert!(gap < 0.5,
+        "gsa should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}

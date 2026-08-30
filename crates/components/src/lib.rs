@@ -18,6 +18,18 @@ pub mod woa;
 pub mod hs;
 pub mod cs;
 pub mod goa;
+pub mod sca;
+pub mod jaya;
+pub mod mfo;
+pub mod ssa;
+pub mod fa;
+pub mod ba;
+pub mod fpa;
+pub mod tlbo;
+pub mod hho;
+pub mod alo;
+pub mod abc;
+pub mod gsa;
 
 use sezgi_core::component::Registry;
 
@@ -40,4 +52,16 @@ pub fn register_builtins(reg: &mut Registry) {
     hs::register(reg);
     cs::register(reg);
     goa::register(reg);
+    sca::register(reg);
+    jaya::register(reg);
+    mfo::register(reg);
+    ssa::register(reg);
+    fa::register(reg);
+    ba::register(reg);
+    fpa::register(reg);
+    tlbo::register(reg);
+    hho::register(reg);
+    alo::register(reg);
+    abc::register(reg);
+    gsa::register(reg);
 }
