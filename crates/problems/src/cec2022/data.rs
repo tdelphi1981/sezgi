@@ -25,14 +25,38 @@
 //!   reshapes the same flat, whitespace-split stream into `Vec<Vec<f64>>`
 //!   rows, matching that indexing.
 //!
-//! ## Extension points for T6/T7 (one line each -- do NOT extend the
-//! functions below for these; the file grammar itself changes)
+//! ## T6 addendum: hybrid data (fid 6-8, dim 10/20 only)
 //!
-//! - **Hybrid shuffle indices (fid 6-8)**: add `shuffle_data_<fid>_D<dim>.txt`
-//!   embeds (present in the vendored `input_data/` for fid 6/7/8, dim 10/20
-//!   only -- fid 6-8 have NO dim=2 data at all, see `cec2022/mod.rs`'s doc)
-//!   plus a new `shuffle_indices(fid, dim) -> Vec<usize>` parser (one `int`
-//!   per line via `%d`, 0-based per the C `SS` array).
+//! `shift_data_{6,7,8}.txt` follow the SAME single-shift-vector grammar as
+//! fid 1-5 above (only the first `dim` of up to 100 whitespace-separated
+//! values matter) -- [`shift_vector`] therefore needed NO changes, just new
+//! `fid` match arms. One file-shape surprise worth recording precisely:
+//! `shift_data_8.txt` is laid out as 10 lines of 100 values each (`wc -l` ->
+//! 10, vs. `shift_data_6.txt`/`shift_data_7.txt`'s single line) -- but since
+//! the C loader's `fscanf(fpt,"%lf",&OShift[i])` loop (quoted above) reads
+//! `nx` whitespace-delimited tokens off the stream regardless of newlines,
+//! and `dim` is always `<=20 < 100`, only line 1 is EVER read for fid 8 at
+//! any supported dim; lines 2-10 are vendored (byte-for-byte, unmodified)
+//! but dead weight, exactly mirroring the reference's own read pattern.
+//! `M_{6,7,8}_D{10,20}.txt` follow the SAME `dim`x`dim` row-major grammar as
+//! fid 1-5's -- [`rotation_matrix`] needed only new `fid` match arms too.
+//! `M_*_D2.txt` for fid 6-8 are deliberately NOT vendored (`cec2022/mod.rs`'s
+//! doc: fid 6-8 reject `dim==2` uniformly regardless of which per-fid M file
+//! happens to exist at dim=2, so no dim=2 data is needed here at all).
+//!
+//! - **Hybrid shuffle indices (fid 6-8)**: `shuffle_data_<fid>_D<dim>.txt`
+//!   embeds (vendored for fid 6/7/8, dim 10/20 only -- dim=2 shuffle data is
+//!   uniformly ABSENT upstream for fid 6-8, see `cec2022/mod.rs`'s doc) --
+//!   ONE line of `dim` whitespace-separated 1-based `int`s (`%d`-scanned by
+//!   the C loader, `for(i=0;i<nx;i++) fscanf(fpt,"%d",&SS[i]);`), a
+//!   permutation of `1..=dim`. [`shuffle_indices`] parses this and converts
+//!   to 0-based (subtracting 1 per element) so callers can index directly
+//!   (matches the C's own `y[i]=z[S[i]-1]`, `cec22_test_func.cpp`'s `hf02`/
+//!   `hf06`/`hf10`, quoted in `cec2022/mod.rs`'s doc).
+//!
+//! ## Extension points for T7 (composition functions, fid 9-12) -- do NOT
+//! extend the functions above for these; the file grammar itself changes
+//!
 //! - **Composition data (fid 9-12)**: `shift_data_9..12.txt` and
 //!   `M_9..12_D<dim>.txt` use a DIFFERENT layout -- `cf_num=12` STACKED
 //!   shift rows (`cf_num*nx` values total, `nx` per sub-function) and
@@ -48,6 +72,9 @@ const SHIFT_2: &str = include_str!("../../data/cec2022/shift_data_2.txt");
 const SHIFT_3: &str = include_str!("../../data/cec2022/shift_data_3.txt");
 const SHIFT_4: &str = include_str!("../../data/cec2022/shift_data_4.txt");
 const SHIFT_5: &str = include_str!("../../data/cec2022/shift_data_5.txt");
+const SHIFT_6: &str = include_str!("../../data/cec2022/shift_data_6.txt");
+const SHIFT_7: &str = include_str!("../../data/cec2022/shift_data_7.txt");
+const SHIFT_8: &str = include_str!("../../data/cec2022/shift_data_8.txt");
 
 const M_1_D2: &str = include_str!("../../data/cec2022/M_1_D2.txt");
 const M_1_D10: &str = include_str!("../../data/cec2022/M_1_D10.txt");
@@ -64,6 +91,19 @@ const M_4_D20: &str = include_str!("../../data/cec2022/M_4_D20.txt");
 const M_5_D2: &str = include_str!("../../data/cec2022/M_5_D2.txt");
 const M_5_D10: &str = include_str!("../../data/cec2022/M_5_D10.txt");
 const M_5_D20: &str = include_str!("../../data/cec2022/M_5_D20.txt");
+const M_6_D10: &str = include_str!("../../data/cec2022/M_6_D10.txt");
+const M_6_D20: &str = include_str!("../../data/cec2022/M_6_D20.txt");
+const M_7_D10: &str = include_str!("../../data/cec2022/M_7_D10.txt");
+const M_7_D20: &str = include_str!("../../data/cec2022/M_7_D20.txt");
+const M_8_D10: &str = include_str!("../../data/cec2022/M_8_D10.txt");
+const M_8_D20: &str = include_str!("../../data/cec2022/M_8_D20.txt");
+
+const SHUFFLE_6_D10: &str = include_str!("../../data/cec2022/shuffle_data_6_D10.txt");
+const SHUFFLE_6_D20: &str = include_str!("../../data/cec2022/shuffle_data_6_D20.txt");
+const SHUFFLE_7_D10: &str = include_str!("../../data/cec2022/shuffle_data_7_D10.txt");
+const SHUFFLE_7_D20: &str = include_str!("../../data/cec2022/shuffle_data_7_D20.txt");
+const SHUFFLE_8_D10: &str = include_str!("../../data/cec2022/shuffle_data_8_D10.txt");
+const SHUFFLE_8_D20: &str = include_str!("../../data/cec2022/shuffle_data_8_D20.txt");
 
 /// Parse a whitespace-separated stream of `f64` values. Embedded-data parse
 /// failure panics with a clear message (acceptable for `include_str!`-baked
@@ -81,10 +121,11 @@ fn parse_floats(text: &str, source: &str) -> Vec<f64> {
 }
 
 /// `fid`'s shift vector `o`, truncated to the first `dim` values (module
-/// doc: every `shift_data_<fid>.txt` carries up to 100 values; only `dim`
-/// of them are the actual shift for that `dim`). `fid` must be `1..=5`
-/// (caller's responsibility -- [`crate::cec2022::Cec2022::new`] validates
-/// before calling this).
+/// doc: every `shift_data_<fid>.txt` carries up to 100 values -- or, for
+/// fid 8, up to 100 values PER LINE across 10 lines, module doc's T6
+/// addendum -- only `dim` of them are the actual shift for that `dim`).
+/// `fid` must be `1..=8` (caller's responsibility --
+/// [`crate::cec2022::Cec2022::new`] validates before calling this).
 pub(crate) fn shift_vector(fid: u32, dim: usize) -> Vec<f64> {
     let (text, name) = match fid {
         1 => (SHIFT_1, "shift_data_1.txt"),
@@ -92,6 +133,9 @@ pub(crate) fn shift_vector(fid: u32, dim: usize) -> Vec<f64> {
         3 => (SHIFT_3, "shift_data_3.txt"),
         4 => (SHIFT_4, "shift_data_4.txt"),
         5 => (SHIFT_5, "shift_data_5.txt"),
+        6 => (SHIFT_6, "shift_data_6.txt"),
+        7 => (SHIFT_7, "shift_data_7.txt"),
+        8 => (SHIFT_8, "shift_data_8.txt"),
         other => unreachable!("shift_vector called with unsupported fid {other}"),
     };
     let all = parse_floats(text, name);
@@ -105,7 +149,10 @@ pub(crate) fn shift_vector(fid: u32, dim: usize) -> Vec<f64> {
 
 /// `fid`'s `dim`x`dim` rotation matrix `M`, row-major (module doc): row `i`
 /// is `matrix[i]`, `matrix[i][j]` is the C reference's `M[i*nx+j]`. `fid`
-/// must be `1..=5` and `dim` one of `{2,10,20}` (caller's responsibility).
+/// must be `1..=8` and `dim` one of `{2,10,20}` for fid 1-5, `{10,20}` for
+/// fid 6-8 (caller's responsibility -- `Cec2022::new` rejects `(6..=8, 2)`
+/// before this is ever called for those fids, module doc's T6 addendum: no
+/// `M_{6,7,8}_D2.txt` is vendored).
 pub(crate) fn rotation_matrix(fid: u32, dim: usize) -> Vec<Vec<f64>> {
     let (text, name) = match (fid, dim) {
         (1, 2) => (M_1_D2, "M_1_D2.txt"),
@@ -123,6 +170,12 @@ pub(crate) fn rotation_matrix(fid: u32, dim: usize) -> Vec<Vec<f64>> {
         (5, 2) => (M_5_D2, "M_5_D2.txt"),
         (5, 10) => (M_5_D10, "M_5_D10.txt"),
         (5, 20) => (M_5_D20, "M_5_D20.txt"),
+        (6, 10) => (M_6_D10, "M_6_D10.txt"),
+        (6, 20) => (M_6_D20, "M_6_D20.txt"),
+        (7, 10) => (M_7_D10, "M_7_D10.txt"),
+        (7, 20) => (M_7_D20, "M_7_D20.txt"),
+        (8, 10) => (M_8_D10, "M_8_D10.txt"),
+        (8, 20) => (M_8_D20, "M_8_D20.txt"),
         (other_fid, other_dim) => {
             unreachable!("rotation_matrix called with unsupported (fid={other_fid}, dim={other_dim})")
         }
@@ -136,6 +189,50 @@ pub(crate) fn rotation_matrix(fid: u32, dim: usize) -> Vec<Vec<f64>> {
         flat.len()
     );
     (0..dim).map(|i| flat[i * dim..(i + 1) * dim].to_vec()).collect()
+}
+
+/// `fid`'s (`6..=8`) shuffle permutation for `dim` (`{10,20}` only, module
+/// doc's T6 addendum), already converted to 0-based indices (the vendored
+/// file's `int`s are 1-based, module doc: mirrors the C reference's own
+/// `y[i]=z[S[i]-1]` -- subtracting 1 here means callers can write
+/// `y[i] = z[shuffle[i]]` directly, no further `-1` needed). Caller's
+/// responsibility to only call this for `fid in 6..=8`, `dim in {10,20}`
+/// ([`crate::cec2022::Cec2022::new`] validates first).
+pub(crate) fn shuffle_indices(fid: u32, dim: usize) -> Vec<usize> {
+    let (text, name) = match (fid, dim) {
+        (6, 10) => (SHUFFLE_6_D10, "shuffle_data_6_D10.txt"),
+        (6, 20) => (SHUFFLE_6_D20, "shuffle_data_6_D20.txt"),
+        (7, 10) => (SHUFFLE_7_D10, "shuffle_data_7_D10.txt"),
+        (7, 20) => (SHUFFLE_7_D20, "shuffle_data_7_D20.txt"),
+        (8, 10) => (SHUFFLE_8_D10, "shuffle_data_8_D10.txt"),
+        (8, 20) => (SHUFFLE_8_D20, "shuffle_data_8_D20.txt"),
+        (other_fid, other_dim) => {
+            unreachable!("shuffle_indices called with unsupported (fid={other_fid}, dim={other_dim})")
+        }
+    };
+    let ints: Vec<i64> = text
+        .split_whitespace()
+        .map(|tok| {
+            tok.parse::<i64>().unwrap_or_else(|e| {
+                panic!("cec2022 embedded data {name}: malformed int {tok:?}: {e}")
+            })
+        })
+        .collect();
+    assert_eq!(
+        ints.len(),
+        dim,
+        "cec2022 embedded data {name}: expected {dim} 1-based shuffle indices, got {}",
+        ints.len()
+    );
+    ints.iter()
+        .map(|&one_based| {
+            assert!(
+                (1..=dim as i64).contains(&one_based),
+                "cec2022 embedded data {name}: shuffle index {one_based} out of range 1..={dim}"
+            );
+            (one_based - 1) as usize
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -221,6 +318,105 @@ mod tests {
                 let m = rotation_matrix(fid, dim);
                 assert_eq!(m.len(), dim, "fid={fid} dim={dim}");
                 assert!(m.iter().all(|row| row.len() == dim), "fid={fid} dim={dim}");
+            }
+        }
+    }
+
+    // ---- T6 addendum: fid 6-8 (hybrid) embedded data ----
+
+    #[test]
+    fn shift_vector_6_dim2_matches_vendored_file() {
+        // data/cec2022/shift_data_6.txt, first two tokens:
+        // "1.8154450402667024e+01  1.8479176246784164e+00 ...".
+        let o = shift_vector(6, 2);
+        assert_eq!(o, vec![1.8154450402667024e+01, 1.8479176246784164e+00]);
+    }
+
+    #[test]
+    fn shift_vector_7_dim2_matches_vendored_file() {
+        // data/cec2022/shift_data_7.txt, first two tokens:
+        // "-3.0590574643849664e+01  -5.5788039181282763e+01 ...".
+        let o = shift_vector(7, 2);
+        assert_eq!(o, vec![-3.0590574643849664e+01, -5.5788039181282763e+01]);
+    }
+
+    #[test]
+    fn shift_vector_8_dim10_reads_only_line1_of_the_10x100_file() {
+        // data/cec2022/shift_data_8.txt has 10 LINES of 100 values each
+        // (module doc's T6 addendum -- a file-shape surprise unique to fid
+        // 8) but the C loader's fscanf loop reads `dim` tokens off the
+        // stream regardless of newlines, so at dim=10 only line 1's first
+        // 10 values are ever used. Spot-check against line 1's own first
+        // and 10th tokens (transcribed from the raw file).
+        let o = shift_vector(8, 10);
+        assert_eq!(o.len(), 10);
+        assert_eq!(o[0], -1.4386804758751207e+01);
+        // 10th token of line 1 (index 9), NOT line 2's first token --
+        // confirms the "line breaks don't matter, only token count does"
+        // reading this module doc describes.
+        assert_eq!(o[9], 4.1910300289238947e+01);
+    }
+
+    #[test]
+    fn rotation_matrix_6_dim10_row_major_spot_check() {
+        // data/cec2022/M_6_D10.txt row 1: "-3.0784412248344223e-001  0 ...
+        // -5.5680434188808448e-001"; row 2 starts "0 5.0035979531831165e-001
+        // ...".
+        let m = rotation_matrix(6, 10);
+        assert_eq!(m.len(), 10);
+        assert_eq!(m[0][0], -3.0784412248344223e-001);
+        assert_eq!(m[0][9], -5.5680434188808448e-001);
+        assert_eq!(m[1][1], 5.0035979531831165e-001);
+    }
+
+    #[test]
+    fn shuffle_indices_6_dim10_matches_vendored_file_0_based() {
+        // data/cec2022/shuffle_data_6_D10.txt: "4 7 9 3 5 2 10 8 6 1"
+        // (1-based); [`shuffle_indices`] subtracts 1 from each.
+        let s = shuffle_indices(6, 10);
+        assert_eq!(s, vec![3, 6, 8, 2, 4, 1, 9, 7, 5, 0]);
+    }
+
+    #[test]
+    fn shuffle_indices_7_dim10_matches_vendored_file_0_based() {
+        // data/cec2022/shuffle_data_7_D10.txt: "10 9 7 6 3 2 8 5 4 1".
+        let s = shuffle_indices(7, 10);
+        assert_eq!(s, vec![9, 8, 6, 5, 2, 1, 7, 4, 3, 0]);
+    }
+
+    #[test]
+    fn shuffle_indices_6_dim20_matches_vendored_file_0_based() {
+        // data/cec2022/shuffle_data_6_D20.txt:
+        // "5 11 12 20 14 19 1 13 18 6 17 16 4 15 3 2 8 9 10 7".
+        let s = shuffle_indices(6, 20);
+        assert_eq!(
+            s,
+            vec![4, 10, 11, 19, 13, 18, 0, 12, 17, 5, 16, 15, 3, 14, 2, 1, 7, 8, 9, 6]
+        );
+    }
+
+    #[test]
+    fn shuffle_indices_is_a_permutation_of_0_dot_dot_dim_for_every_fid_6_to_8_and_dim() {
+        for fid in 6u32..=8 {
+            for &dim in &[10usize, 20] {
+                let mut s = shuffle_indices(fid, dim);
+                s.sort_unstable();
+                assert_eq!(s, (0..dim).collect::<Vec<_>>(), "fid={fid} dim={dim}");
+            }
+        }
+    }
+
+    #[test]
+    fn all_fid_6_to_8_dims_10_20_parse_without_panic() {
+        for fid in 6u32..=8 {
+            for &dim in &[10usize, 20] {
+                let o = shift_vector(fid, dim);
+                assert_eq!(o.len(), dim, "fid={fid} dim={dim}");
+                let m = rotation_matrix(fid, dim);
+                assert_eq!(m.len(), dim, "fid={fid} dim={dim}");
+                assert!(m.iter().all(|row| row.len() == dim), "fid={fid} dim={dim}");
+                let s = shuffle_indices(fid, dim);
+                assert_eq!(s.len(), dim, "fid={fid} dim={dim}");
             }
         }
     }
