@@ -25,9 +25,10 @@
 //!
 //! [`central::central_bias_scan`] runs an [`sezgi_core::spec::
 //! AlgorithmSpec`] on paired centered/shifted BBOB conditions (via
-//! [`central::CenteredProblem`]) and tests whether its performance gap
-//! differs between them, per Kudela's center-bias-exploitation method --
-//! see `central`'s module doc for the full, citation-backed provenance.
+//! [`sezgi_problems::BbobProblem::recentered`]) and tests whether its
+//! performance gap differs between them, per Kudela's
+//! center-bias-exploitation method -- see `central`'s module doc for the
+//! full, citation-backed provenance.
 //!
 //! [`BiasVerdict`] is shared by every bias-scan flavour this crate hosts
 //! (structural bias, central bias here; T6's own scan reuses it): its
@@ -40,7 +41,7 @@ pub mod central;
 pub mod f0;
 pub mod structural;
 
-pub use central::{central_bias_scan, CentralBiasConfig, CentralBiasResult, CenteredProblem};
+pub use central::{central_bias_scan, CentralBiasConfig, CentralBiasResult};
 pub use f0::F0Random;
 pub use structural::{structural_bias_scan, StructuralBiasConfig, StructuralBiasResult};
 

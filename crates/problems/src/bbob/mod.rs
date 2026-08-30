@@ -26,6 +26,18 @@ pub enum BbobError {
     NotImplemented(u32),
     #[error("dim must be >= 2")]
     BadDim,
+    /// Returned by [`BbobProblem::recentered`] for a fid whose objective
+    /// formula consumes `x_opt` directly beyond a coordinate shift (see
+    /// [`BbobProblem::is_translation_invariant`]) -- forcing `x_opt` to the
+    /// domain center for such a fid would change the landscape's SHAPE,
+    /// not just relocate its optimum, so `recentered` refuses rather than
+    /// silently producing a wrong landscape.
+    #[error(
+        "fid {0} is not translation-invariant: its formula consumes x_opt directly \
+         (beyond a coordinate shift), so BbobProblem::recentered cannot move its optimum \
+         to the domain center without changing the landscape's shape"
+    )]
+    NotTranslationInvariant(u32),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -121,6 +133,72 @@ impl BbobProblem {
     pub fn x_opt(&self) -> &[f64] { &self.x_opt }
     pub fn f_opt(&self) -> f64 { self.f_opt }
     pub fn fid(&self) -> u32 { self.fid }
+
+    /// `true` iff `fid`'s objective formula uses `x_opt` ONLY as the origin
+    /// of a coordinate shift (`shift(xs, x_opt) = xs - x_opt`, feeding an
+    /// otherwise `x_opt`-independent core function, with any boundary
+    /// penalty `f_pen` computed on the RAW, untranslated `xs`) -- i.e.
+    /// whether [`BbobProblem::recentered`] can move `x_opt` to the domain
+    /// center while leaving every other aspect of the landscape (shape,
+    /// conditioning, rotation) untouched.
+    ///
+    /// `false` for fids 5 (`LinearSlope`), 6 (`AttractiveSector`), 20
+    /// (`Schwefel`), and 24 (`LunacekBiRastrigin`): each consumes `x_opt`
+    /// DIRECTLY inside its core formula beyond a shift --
+    /// `functions::linear_slope`'s per-axis slope sign `oi.signum()`,
+    /// `functions::attractive_sector`'s per-axis sector selection
+    /// `zi * oi > 0.0`, and fid 20/24's own `o.signum()`-driven
+    /// `xhat`/asymmetry construction (this module's `evaluate_batch`).
+    /// Forcing `x_opt` to the domain center (all zeros) would zero every
+    /// one of those per-dimension signs uniformly (`0.0_f64.signum() ==
+    /// 1.0`), collapsing the intended random per-dimension asymmetry into a
+    /// degenerate, structurally SIMPLER landscape -- an actual change of
+    /// shape, not a relocation of the same one.
+    pub fn is_translation_invariant(fid: u32) -> bool {
+        !matches!(fid, 5 | 6 | 20 | 24)
+    }
+
+    /// Returns a variant of this instance with `x_opt` -- and, for fid
+    /// 21/22, the Gallagher data's own coincident first peak -- FORCED to
+    /// the exact center of the declared domain, instead of wherever this
+    /// instance's own construction drew it. `f_opt`, every rotation
+    /// matrix, and (for 21/22) every OTHER Gallagher peak/weight/alpha are
+    /// UNCHANGED: only the optimum's location moves.
+    ///
+    /// This is the NATIVE "centered" condition for a central-bias scan
+    /// (`sezgi_bias::central`): unlike a wrapper that translates evaluated
+    /// POINTS to relocate the apparent optimum, this translates the
+    /// INSTANCE's own stored optimum once, up front -- so every
+    /// subsequent `evaluate_batch` call runs on the caller's own,
+    /// untranslated coordinates, and any boundary penalty (`f_pen`, used
+    /// by roughly a third of the 24 fids) is computed on the SAME
+    /// coordinates the caller actually queried, never on a translated
+    /// (and potentially out-of-declared-domain) point.
+    ///
+    /// # Errors
+    /// [`BbobError::NotTranslationInvariant`] if
+    /// [`BbobProblem::is_translation_invariant`] is `false` for this
+    /// instance's `fid` -- see that method's doc for exactly which fids
+    /// and why recentering them is refused rather than silently producing
+    /// a different-shaped landscape.
+    pub fn recentered(mut self) -> Result<Self, BbobError> {
+        if !Self::is_translation_invariant(self.fid) {
+            return Err(BbobError::NotTranslationInvariant(self.fid));
+        }
+        let center = match &self.space.blocks()[0] {
+            Block::Float { lo, hi, .. } => (lo + hi) / 2.0,
+            other => unreachable!(
+                "BbobProblem's space is always a single Float block by construction, got {other:?}"
+            ),
+        };
+        self.x_opt = vec![center; self.x_opt.len()];
+        if let Some(gd) = self.gallagher.as_mut() {
+            // fid 21/22's first peak IS x_opt by construction (`peaks.push(x_opt.clone())`
+            // in `BbobProblem::new`); keep that invariant after recentering.
+            gd.peaks[0] = self.x_opt.clone();
+        }
+        Ok(self)
+    }
     pub fn name(&self) -> &'static str {
         match self.fid { 1 => "Sphere", 2 => "Ellipsoidal", 3 => "Rastrigin", 4 => "BucheRastrigin",
                          5 => "LinearSlope", 6 => "AttractiveSector", 7 => "StepEllipsoidal", 8 => "Rosenbrock", 9 => "RosenbrockRotated",
@@ -487,5 +565,83 @@ mod tests {
         let far = g(vec![4.9; 5]);
         let f_far = p.evaluate_batch(&[far])[0];
         assert!(f_far > p.f_opt());
+    }
+
+    // ---- BbobProblem::recentered / is_translation_invariant (review fix) ----
+
+    #[test]
+    fn is_translation_invariant_excludes_expected_fids() {
+        for fid in 1u32..=24 {
+            let expected = !matches!(fid, 5 | 6 | 20 | 24);
+            assert_eq!(BbobProblem::is_translation_invariant(fid), expected, "fid {fid}");
+        }
+    }
+
+    #[test]
+    fn recentered_rejects_non_translation_invariant_fids() {
+        for fid in [5u32, 6, 20, 24] {
+            let p = BbobProblem::new(fid, 5, 1).unwrap();
+            match p.recentered() {
+                Ok(_) => panic!("fid {fid}: expected NotTranslationInvariant error, got Ok"),
+                Err(BbobError::NotTranslationInvariant(f)) => assert_eq!(f, fid),
+                Err(_) => panic!("fid {fid}: expected NotTranslationInvariant, got a different BbobError"),
+            }
+        }
+    }
+
+    #[test]
+    fn recentered_moves_optimum_to_domain_center_exactly() {
+        for fid in [1u32, 4, 8, 21] {
+            let p = BbobProblem::new(fid, 5, 3).unwrap().recentered().expect("translation-invariant fid");
+            let center: Vec<f64> = match &p.space().blocks()[0] {
+                Block::Float { lo, hi, n } => vec![(lo + hi) / 2.0; *n],
+                other => panic!("expected a single Float block, got {other:?}"),
+            };
+            let f = p.evaluate_batch(&[g(center)])[0];
+            assert!((f - p.f_opt()).abs() < 1e-6, "fid {fid}: {f} != {}", p.f_opt());
+        }
+    }
+
+    // Proves `recentered` is a PURE relocation of the optimum for
+    // translation-invariant fids: evaluating `x_opt_orig + delta` on the
+    // original (shifted) instance must equal evaluating `center + delta`
+    // on its `.recentered()` counterpart, for the SAME instance (same fid,
+    // dim, instance number -- so identical rotation/Gallagher data), for
+    // every fid category this fix touches (plain shift: 1; f_pen fids: 4,
+    // 16, 23; Gallagher: 21).
+    #[test]
+    fn recentered_is_a_pure_translation_of_the_same_landscape() {
+        let dim = 5;
+        let delta = [0.3, -0.2, 0.1, 0.0, -0.15];
+        for fid in [1u32, 4, 16, 21, 23] {
+            let original = BbobProblem::new(fid, dim, 2).unwrap();
+            let center = match &original.space().blocks()[0] {
+                Block::Float { lo, hi, .. } => (lo + hi) / 2.0,
+                other => panic!("expected a single Float block, got {other:?}"),
+            };
+            let x_opt_orig = original.x_opt().to_vec();
+            let recentered = BbobProblem::new(fid, dim, 2).unwrap().recentered().expect("translation-invariant fid");
+
+            let x_shifted: Vec<f64> = x_opt_orig.iter().zip(&delta).map(|(o, d)| o + d).collect();
+            let x_centered: Vec<f64> = delta.iter().map(|&d| center + d).collect();
+
+            let f_shifted = original.evaluate_batch(&[g(x_shifted)])[0];
+            let f_centered = recentered.evaluate_batch(&[g(x_centered)])[0];
+            assert!(
+                (f_shifted - f_centered).abs() < 1e-9,
+                "fid {fid}: recentered must be a pure translation of the same landscape, got \
+                 f_shifted={f_shifted} vs f_centered={f_centered}"
+            );
+        }
+    }
+
+    #[test]
+    fn recentered_preserves_f_opt() {
+        for fid in [1u32, 4, 10, 21] {
+            let original = BbobProblem::new(fid, 5, 4).unwrap();
+            let f_opt = original.f_opt();
+            let recentered = original.recentered().expect("translation-invariant fid");
+            assert_eq!(recentered.f_opt(), f_opt, "fid {fid}");
+        }
     }
 }

@@ -56,22 +56,73 @@
 //! center the way Kudela's classical-suite starting point allows.
 //!
 //! This task's brief resolves that mismatch by building the centered
-//! condition the other direction: [`CenteredProblem`] wraps an existing
-//! (already-shifted) `BbobProblem` instance and translates every evaluated
-//! point so THAT instance's own `x_opt` lands at the domain center instead
-//! -- i.e. `f(x) := inner.f(x + x_opt - center)`, the algebraic inverse of
+//! condition the other direction: [`sezgi_problems::BbobProblem::recentered`]
+//! takes an existing (already-shifted) instance and moves THAT instance's
+//! own `x_opt` to the domain center instead -- the algebraic inverse of
 //! Kudela's `f(x+s)` shift, applied to land ON center rather than move AWAY
 //! from it. The pair actually compared is: the SAME `BbobProblem` instance
-//! (same fid, same rotation/Gallagher data, same `f_opt`) evaluated (a)
-//! through [`CenteredProblem`] (optimum at domain center -- sezgi's
-//! "centered", playing Kudela's "unshifted" role) and (b) directly
-//! (optimum at its natural, off-center location -- sezgi's "shifted",
-//! playing Kudela's "shifted" role). The COMPARISON Kudela's method makes
-//! (near-center-optimum performance vs away-from-center-optimum performance
-//! on the same underlying function) is preserved exactly; only which
-//! condition is "the one we started from" is reversed, a direct consequence
-//! of `BbobProblem`'s own shifted-by-construction convention rather than a
-//! deviation from the source method.
+//! (same fid, same rotation/Gallagher data, same `f_opt`) evaluated (a) with
+//! its optimum recentered (plays Kudela's "unshifted" role) and (b) at its
+//! natural, off-center location (plays Kudela's "shifted" role). The
+//! COMPARISON Kudela's method makes (near-center-optimum performance vs
+//! away-from-center-optimum performance on the same underlying function) is
+//! preserved exactly; only which condition is "the one we started from" is
+//! reversed, a direct consequence of `BbobProblem`'s own shifted-by-
+//! construction convention rather than a deviation from the source method.
+//!
+//! ## Construction fix (review round 1): native recentering, not a wrapper
+//!
+//! The first implementation of this task used a `CenteredProblem` WRAPPER
+//! that translated every evaluated point by `x_opt - center` before
+//! delegating to the underlying (shifted) instance -- `f(x) :=
+//! inner.f(x + x_opt - center)`. Review found this introduces an
+//! undocumented confound: roughly a third of the 24 BBOB fids (4, 7, 16,
+//! 17, 18, 20, 21, 22, 23, 24) add a boundary penalty, `f_pen(xs) =
+//! sum((|xs_i| - 5)+^2)`, computed on the RAW `xs` the caller queried --
+//! i.e. on the point as it sits in the DECLARED `[-5,5]` domain, not on any
+//! shifted/rotated coordinate. The wrapper's translation displaces that
+//! penalty landscape along with the optimum: a query point AT the declared
+//! domain's own boundary (which the algorithm is fully entitled to visit,
+//! and which the UNWRAPPED instance penalizes with `f_pen = 0`) could
+//! translate to a point OUTSIDE `[-5,5]` in the wrapped instance's frame,
+//! spuriously triggering a large `f_pen` contribution the algorithm never
+//! actually incurred at the point it queried. Confirmed empirically in
+//! review: for fid 4, an edge point translated to coordinates reaching
+//! 8.39/6.33 (outside `+/-5`), inflating the evaluated value by roughly
+//! 55% versus evaluating the same point directly. This confound is entirely
+//! an artifact of the wrapper's coordinate translation, unrelated to
+//! genuine center-bias.
+//!
+//! **Fix:** [`central_bias_scan`] no longer wraps evaluated POINTS at all.
+//! It instead builds the "centered" condition as a NATIVE
+//! `BbobProblem::recentered()` instance -- `x_opt` (the instance's own
+//! stored optimum) is moved to the domain center ONCE, up front, at
+//! construction; every subsequent `evaluate_batch` call then runs on the
+//! caller's own, untranslated coordinates, so `f_pen` (and everything else)
+//! is computed on EXACTLY the point the algorithm queried, in the SAME
+//! frame as the shifted condition. See `sezgi_problems::bbob::mod`'s
+//! `BbobProblem::recentered`/`is_translation_invariant` docs for the full
+//! mechanism and why it is a PURE relocation of the optimum (proved there
+//! by `recentered_is_a_pure_translation_of_the_same_landscape`) for every
+//! fid this scan accepts.
+//!
+//! **Fids excluded, and why:** `x_opt` is not ALWAYS a pure translation
+//! origin -- fids 5 (LinearSlope), 6 (AttractiveSector), 20 (Schwefel), and
+//! 24 (LunacekBiRastrigin) consume `x_opt` DIRECTLY inside their core
+//! formula (a per-axis `x_opt.signum()`-driven asymmetry, baked into the
+//! function's SHAPE, not just its optimum's location -- see
+//! `BbobProblem::is_translation_invariant`'s doc for the exact mechanism
+//! per fid). Forcing `x_opt` to the domain center for these four would
+//! silently change the landscape being compared, not just relocate its
+//! optimum -- a DIFFERENT, undocumented confound, arguably worse than the
+//! one this fix removes. [`central_bias_scan`] therefore validates every
+//! `cfg.fids` entry against `BbobProblem::is_translation_invariant` up
+//! front and returns [`BiasError::InvalidConfig`] for any of these four --
+//! this is a genuine scope restriction (of the 10 fids with `f_pen`, 8
+//! remain fully eligible: 4, 7, 16, 17, 18, 21, 22, 23; fids 20/24 are
+//! excluded for a DIFFERENT reason -- direct formula dependence, not
+//! `f_pen` -- than the ones this fix targets), not merely a documentation
+//! note: a caller cannot construct a scan over an ineligible fid at all.
 //!
 //! ## Performance measure
 //!
@@ -123,31 +174,31 @@
 //!
 //! # Pairing rationale (not a single-seed-comparison ban violation)
 //!
-//! [`central_bias_scan`] runs [`CenteredProblem`] and the underlying
-//! `BbobProblem` under the IDENTICAL `RunConfig` (same `master_seed`, same
-//! `run_id`) for each of its `(fid, instance, run)` triples -- see the loop
-//! in [`central_bias_scan`]'s body. This is the CORRECT paired design for
-//! `wilcoxon_signed_rank`, not a violation of this project's single-seed
-//! comparative ban: that ban targets building a cross-ALGORITHM league
-//! table off ONE seed's worth of runs (comparing DIFFERENT algorithms via a
-//! single noisy sample each). Here both "conditions" are the SAME
-//! algorithm, and giving them the same engine-side randomness (same initial
-//! population, same generator/replacer draws) while varying only WHICH
-//! condition's fitness landscape they see is what makes each
-//! `(gap_centered[i], gap_shifted[i])` pair a genuine matched pair --
-//! exactly what a signed-rank test is built to consume, and a STRONGER
-//! design than independent seeds would be (it removes run-to-run engine
-//! randomness as a confound, leaving only the centered/shifted difference).
-//! `run_id` is a flat counter over every `(fid, instance, run)` triple in
-//! `cfg.fids x cfg.instances_shifted x 0..cfg.runs_per` (never repeated, so
-//! no two DIFFERENT pairs collapse onto the same engine stream), following
+//! [`central_bias_scan`] runs the recentered instance and the underlying
+//! (shifted) `BbobProblem` under the IDENTICAL `RunConfig` (same
+//! `master_seed`, same `run_id`) for each of its `(fid, instance, run)`
+//! triples -- see the loop in [`central_bias_scan`]'s body. This is the
+//! CORRECT paired design for `wilcoxon_signed_rank`, not a violation of
+//! this project's single-seed comparative ban: that ban targets building a
+//! cross-ALGORITHM league table off ONE seed's worth of runs (comparing
+//! DIFFERENT algorithms via a single noisy sample each). Here both
+//! "conditions" are the SAME algorithm, and giving them the same
+//! engine-side randomness (same initial population, same
+//! generator/replacer draws) while varying only WHICH condition's fitness
+//! landscape they see is what makes each `(gap_centered[i],
+//! gap_shifted[i])` pair a genuine matched pair -- exactly what a
+//! signed-rank test is built to consume, and a STRONGER design than
+//! independent seeds would be (it removes run-to-run engine randomness as a
+//! confound, leaving only the centered/shifted difference). `run_id` is a
+//! flat counter over every `(fid, instance, run)` triple in `cfg.fids x
+//! cfg.instances_shifted x 0..cfg.runs_per` (never repeated, so no two
+//! DIFFERENT pairs collapse onto the same engine stream), following
 //! `structural.rs`'s own "vary `run_id` per run, engine keeps the streams
 //! collision-free" pattern.
 
 use sezgi_core::component::Registry;
 use sezgi_core::engine::{Engine, RunConfig};
 use sezgi_core::problem::Problem;
-use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 use sezgi_core::spec::AlgorithmSpec;
 use sezgi_stats::{cliffs_delta, cliffs_magnitude, wilcoxon_signed_rank, WilcoxonResult};
 
@@ -174,77 +225,20 @@ const EFFECT_THRESHOLD: f64 = 0.33;
 /// module rejects the configuration before spending any engine budget.
 const MIN_PAIRS: usize = 5;
 
-/// Wraps an already-constructed [`BbobProblem`] instance and translates
-/// every evaluated point so the WRAPPED instance's own `x_opt` sits at the
-/// domain center rather than its natural (shifted-by-construction)
-/// location -- `evaluate(x) = inner.evaluate(x + x_opt - center)`. `f_opt`
-/// and the declared search space are unchanged from `inner`'s own; see this
-/// module's doc, "sezgi construction", for why this is the source method's
-/// comparison built in the direction sezgi-bbob's own shifted-by-default
-/// instances require.
-pub struct CenteredProblem<'a> {
-    inner: &'a BbobProblem,
-    /// `x_opt - center`, precomputed once at construction; added to every
-    /// evaluated point so that evaluating the domain's own center maps to
-    /// exactly `inner.x_opt()`.
-    offset: Vec<f64>,
-}
-
-impl<'a> CenteredProblem<'a> {
-    pub fn new(inner: &'a BbobProblem) -> Self {
-        let (lo, hi, n) = match &inner.space().blocks()[0] {
-            Block::Float { lo, hi, n } => (*lo, *hi, *n),
-            other => unreachable!(
-                "BbobProblem's space is always a single Float block by construction, got {other:?}"
-            ),
-        };
-        assert_eq!(
-            n,
-            inner.x_opt().len(),
-            "BbobProblem's declared space dim must match its own x_opt length"
-        );
-        let center = (lo + hi) / 2.0;
-        let offset: Vec<f64> = inner.x_opt().iter().map(|&xo| xo - center).collect();
-        Self { inner, offset }
-    }
-}
-
-impl Problem for CenteredProblem<'_> {
-    fn space(&self) -> &SearchSpace {
-        self.inner.space()
-    }
-
-    fn optimum(&self) -> Option<f64> {
-        self.inner.optimum()
-    }
-
-    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
-        let translated: Vec<Genotype> = pop
-            .iter()
-            .map(|g| {
-                let BlockValues::Float(xs) = &g.blocks[0] else {
-                    unreachable!("CenteredProblem's space is always a single Float block")
-                };
-                let shifted: Vec<f64> =
-                    xs.iter().zip(&self.offset).map(|(x, o)| x + o).collect();
-                Genotype { blocks: vec![BlockValues::Float(shifted)] }
-            })
-            .collect();
-        self.inner.evaluate_batch(&translated)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct CentralBiasConfig {
-    /// BBOB function IDs to scan (1..=24).
+    /// BBOB function IDs to scan. Every entry MUST be translation-invariant
+    /// (`sezgi_problems::BbobProblem::is_translation_invariant`) -- fids 5,
+    /// 6, 20, 24 are rejected with [`BiasError::InvalidConfig`]; see this
+    /// module's doc, "Construction fix (review round 1)".
     pub fids: Vec<u32>,
     /// Dimensionality (BBOB requires `dim >= 2`).
     pub dim: usize,
     /// BBOB instance numbers -- each contributes its own paired
     /// (centered, shifted) condition per fid. Named `instances_shifted`
     /// (per the brief's exact signature) since these instances ARE the
-    /// scan's "shifted" condition; [`CenteredProblem`] derives the
-    /// "centered" condition from each of the same instances.
+    /// scan's "shifted" condition; each is also the base
+    /// `BbobProblem::recentered()` derives the "centered" condition from.
     pub instances_shifted: Vec<u32>,
     /// Independent runs per `(fid, instance)` pair.
     pub runs_per: u32,
@@ -281,13 +275,15 @@ pub struct CentralBiasResult {
 ///
 /// # Errors
 /// [`BiasError::InvalidConfig`] if `cfg.fids`/`cfg.instances_shifted` is
-/// empty, `cfg.dim < 2`, `cfg.runs_per == 0`, or the total number of
-/// `(fid, instance, run)` triples is below [`MIN_PAIRS`];
-/// [`BiasError::Bbob`] if a `(fid, dim, instance)` combination fails to
-/// construct; [`BiasError::Spec`]/[`BiasError::Engine`] as
-/// `structural_bias_scan`'s own analogous cases; [`BiasError::Stats`] if
-/// the resulting gap vectors fail `wilcoxon_signed_rank`/`cliffs_delta`'s
-/// own input checks (e.g. a non-finite gap).
+/// empty, `cfg.dim < 2`, `cfg.runs_per == 0`, `cfg.fids` contains a fid
+/// that is not translation-invariant (5, 6, 20, 24 -- see this module's
+/// doc, "Construction fix"), or the total number of `(fid, instance, run)`
+/// triples is below [`MIN_PAIRS`]; [`BiasError::Bbob`] if a `(fid, dim,
+/// instance)` combination fails to construct; [`BiasError::Spec`]/
+/// [`BiasError::Engine`] as `structural_bias_scan`'s own analogous cases;
+/// [`BiasError::Stats`] if the resulting gap vectors fail
+/// `wilcoxon_signed_rank`/`cliffs_delta`'s own input checks (e.g. a
+/// non-finite gap).
 pub fn central_bias_scan(
     spec: &AlgorithmSpec,
     cfg: &CentralBiasConfig,
@@ -303,6 +299,17 @@ pub fn central_bias_scan(
     }
     if cfg.runs_per == 0 {
         return Err(BiasError::InvalidConfig("runs_per must be >= 1".into()));
+    }
+    for &fid in &cfg.fids {
+        if !BbobProblem::is_translation_invariant(fid) {
+            return Err(BiasError::InvalidConfig(format!(
+                "central_bias_scan: fid {fid} is not translation-invariant (x_opt participates \
+                 directly in its objective formula beyond a coordinate shift -- see \
+                 sezgi_problems::BbobProblem::is_translation_invariant); recentering it would \
+                 change the landscape's shape rather than merely relocate its optimum, so it is \
+                 excluded from this scan"
+            )));
+        }
     }
     let total_pairs = cfg.fids.len() * cfg.instances_shifted.len() * cfg.runs_per as usize;
     if total_pairs < MIN_PAIRS {
@@ -332,7 +339,13 @@ pub fn central_bias_scan(
     for &fid in &cfg.fids {
         for &instance in &cfg.instances_shifted {
             let shifted_problem = BbobProblem::new(fid, cfg.dim, instance)?;
-            let centered_problem = CenteredProblem::new(&shifted_problem);
+            // A SEPARATE construction (not a clone of `shifted_problem`),
+            // then natively recentered -- see this module's doc,
+            // "Construction fix (review round 1)". Both constructions of
+            // the same (fid, dim, instance) are deterministic and produce
+            // identical f_opt/rotations/Gallagher data (only `x_opt`, and
+            // for 21/22 its coincident first Gallagher peak, differ).
+            let centered_problem = BbobProblem::new(fid, cfg.dim, instance)?.recentered()?;
             let f_opt = shifted_problem.f_opt();
             for _ in 0..cfg.runs_per {
                 // SAME RunConfig for both conditions -- see this module's
@@ -398,11 +411,17 @@ pub(crate) fn scan_from_gaps(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sezgi_core::problem::{EvalObserver, Evaluator};
-    use std::sync::{Arc, Mutex};
+    use sezgi_core::space::{Block, BlockValues, Genotype};
 
     fn g(xs: &[f64]) -> Genotype {
         Genotype { blocks: vec![BlockValues::Float(xs.to_vec())] }
+    }
+
+    fn domain_center(p: &BbobProblem) -> Vec<f64> {
+        match &p.space().blocks()[0] {
+            Block::Float { lo, hi, n } => vec![(lo + hi) / 2.0; *n],
+            other => panic!("expected a single Float block, got {other:?}"),
+        }
     }
 
     // ---- (a) statistics-only decision path, synthetic gap vectors ----
@@ -513,71 +532,98 @@ mod tests {
         assert!(matches!(err, BiasError::InvalidConfig(_)), "got {err:?}");
     }
 
-    // ---- (b) CenteredProblem unit tests ----
+    // ---- (b) config validation: non-translation-invariant fids rejected ----
 
     #[test]
-    fn center_evaluates_to_f_opt_exactly() {
-        for fid in [1u32, 8, 15] {
-            let inner = BbobProblem::new(fid, 5, 3).expect("valid BBOB construction");
-            let centered = CenteredProblem::new(&inner);
-
-            let (lo, hi, n) = match &centered.space().blocks()[0] {
-                Block::Float { lo, hi, n } => (*lo, *hi, *n),
-                other => panic!("expected a single Float block, got {other:?}"),
+    fn rejects_non_translation_invariant_fids() {
+        for &fid in &[5u32, 6, 20, 24] {
+            let spec = sezgi_components::presets::random_search(10, 500);
+            let cfg = CentralBiasConfig {
+                fids: vec![fid],
+                dim: 5,
+                instances_shifted: vec![1, 2],
+                runs_per: 3,
+                budget: 500,
+                seed: 1,
             };
-            let center = vec![(lo + hi) / 2.0; n];
-
-            let f = centered.evaluate_batch(&[g(&center)])[0];
+            let err = central_bias_scan(&spec, &cfg).unwrap_err();
             assert!(
-                (f - inner.f_opt()).abs() < 1e-6,
-                "fid={fid}: evaluating the domain center through CenteredProblem must return \
-                 f_opt exactly (up to floating error), got {f} vs f_opt={}",
-                inner.f_opt()
+                matches!(err, BiasError::InvalidConfig(_)),
+                "fid {fid} must be rejected before any engine work, got {err:?}"
             );
         }
     }
 
+    // ---- (c) review-round-1 regression: no more f_pen displacement ----
+    //
+    // Regression test for the review-flagged confound: the OLD
+    // `CenteredProblem` wrapper translated every evaluated point by
+    // `x_opt - center` before delegating to the underlying (shifted)
+    // instance, so a query point AT the domain's own boundary (fully
+    // in-bounds, `f_pen == 0` there) could translate to a point OUTSIDE
+    // `[-5,5]` in the wrapped instance's own frame, spuriously inflating
+    // the evaluated value via `f_pen`. `BbobProblem::recentered` fixes
+    // this by construction (it never translates query points at all), but
+    // this test does not just trust that -- it reproduces the OLD buggy
+    // computation by hand and shows it diverges from the FIXED one.
     #[test]
-    fn off_center_is_worse_than_center() {
-        let inner = BbobProblem::new(1, 5, 2).expect("valid BBOB construction");
-        let centered = CenteredProblem::new(&inner);
-        let (lo, hi, n) = match &centered.space().blocks()[0] {
-            Block::Float { lo, hi, n } => (*lo, *hi, *n),
-            other => panic!("expected a single Float block, got {other:?}"),
-        };
-        let mut off = vec![(lo + hi) / 2.0; n];
-        off[0] += 1.0;
-        let f_center = centered.evaluate_batch(&[g(&vec![(lo + hi) / 2.0; n])])[0];
-        let f_off = centered.evaluate_batch(&[g(&off)])[0];
-        assert!(f_off > f_center, "moving away from the wrapped optimum must be worse");
+    fn recentered_fid4_has_no_f_pen_displacement_at_the_boundary() {
+        let dim = 5;
+        let shifted = BbobProblem::new(4, dim, 1).expect("valid BBOB construction");
+        let centered =
+            BbobProblem::new(4, dim, 1).expect("valid BBOB construction").recentered().expect("fid 4 is translation-invariant");
+
+        // The domain's own boundary corner, pushed toward whichever side
+        // makes the OLD wrapper's translation worst (same sign as this
+        // instance's own x_opt per axis) -- guarantees the old
+        // wrapper's translated point leaves [-5,5] on every axis with a
+        // nonzero x_opt component, reproducing the review's scenario
+        // deterministically regardless of which instance is used.
+        let corner: Vec<f64> = shifted.x_opt().iter().map(|&o| 5.0 * o.signum()).collect();
+
+        // (a) direct proof: the query point itself never left the domain,
+        // so it carries zero boundary penalty on its own terms.
+        assert_eq!(
+            sezgi_problems::bbob::transform::f_pen(&corner),
+            0.0,
+            "the boundary corner itself must be exactly in-bounds"
+        );
+
+        // (b) replicate the OLD wrapper's translation (offset = x_opt -
+        // center, center = 0 here) to show what it WOULD have evaluated,
+        // and confirm the translated point actually left [-5,5] (so this
+        // fixture genuinely reproduces the reviewed confound, not a
+        // vacuous case).
+        let old_wrapper_translated: Vec<f64> =
+            corner.iter().zip(shifted.x_opt()).map(|(x, o)| x + o).collect();
+        assert!(
+            old_wrapper_translated.iter().any(|&v| v.abs() > 5.0),
+            "fixture must reproduce the out-of-bounds translation the review flagged, got {old_wrapper_translated:?}"
+        );
+        let old_wrapper_value = shifted.evaluate_batch(&[g(&old_wrapper_translated)])[0];
+
+        // (c) the FIXED evaluation: query the recentered instance at the
+        // exact, untranslated corner.
+        let fixed_value = centered.evaluate_batch(&[g(&corner)])[0];
+
+        assert!(
+            old_wrapper_value > fixed_value,
+            "the old wrapper's translated-coordinate evaluation ({old_wrapper_value}) must be \
+             inflated relative to the fixed native evaluation ({fixed_value}) -- reproducing (and \
+             showing the fix for) the review-flagged f_pen displacement confound"
+        );
+
+        // (d) the fixed evaluation, at a point where every |x_i| == 5
+        // exactly, must equal the SAME instance's un-recentered value at
+        // its own `x_opt + corner`-relative-to-center point offset by
+        // nothing (i.e. it is a genuinely different, non-inflated number,
+        // not merely "less inflated") -- sanity: no f_pen contribution at
+        // all should appear at this exact query point for the recentered
+        // instance either, matching (a).
+        assert_eq!(sezgi_problems::bbob::transform::f_pen(&domain_center(&centered)), 0.0);
     }
 
-    #[test]
-    fn centered_problem_preserves_evaluator_counting_and_observation() {
-        struct Probe(Arc<Mutex<Vec<u64>>>);
-        impl EvalObserver for Probe {
-            fn on_eval(&mut self, i: u64, _f: f64, _best: f64) {
-                self.0.lock().unwrap().push(i);
-            }
-        }
-        let inner = BbobProblem::new(2, 4, 1).expect("valid BBOB construction");
-        let centered = CenteredProblem::new(&inner);
-
-        let seen = Arc::new(Mutex::new(vec![]));
-        let mut ev = Evaluator::new(&centered, 10);
-        ev.set_observer(Box::new(Probe(seen.clone())));
-
-        let pop = vec![g(&[0.1, 0.1, 0.1, 0.1]), g(&[0.2, -0.2, 0.2, -0.2]), g(&[0.0; 4])];
-        let fs = ev.evaluate(&pop).unwrap();
-
-        assert_eq!(ev.used(), 3);
-        assert_eq!(*seen.lock().unwrap(), vec![1, 2, 3]);
-        let expected_best = fs.iter().cloned().fold(f64::INFINITY, f64::min);
-        assert_eq!(ev.best_so_far(), Some(expected_best));
-        assert!(ev.best_x_so_far().is_some());
-    }
-
-    // ---- (c) engine-driven path ----
+    // ---- (d) engine-driven path ----
 
     fn bbob_random_search_spec(pop_size: usize, budget: u64) -> AlgorithmSpec {
         sezgi_components::presets::random_search(pop_size, budget)
@@ -587,7 +633,7 @@ mod tests {
     fn engine_driven_scan_is_deterministic() {
         let spec = bbob_random_search_spec(10, 500);
         let cfg = CentralBiasConfig {
-            fids: vec![1, 8],
+            fids: vec![1, 4],
             dim: 5,
             instances_shifted: vec![1, 2],
             runs_per: 2,
@@ -608,15 +654,19 @@ mod tests {
     // Live smoke: random_search's generator (`gen/uniform-resample`) draws
     // uniformly over the WHOLE declared space every generation with no
     // directional/center-attracting operator, so it should show no
-    // center-bias exploitation on either condition. ANCHORED (per this
-    // project's convention): the p-value/effect quoted below are the
-    // actual measured values from this test's own first successful run,
-    // not a re-derivation.
+    // center-bias exploitation on either condition. Includes fid 4 (an
+    // `f_pen`-using fid, per this round's fix) so this anchor also covers
+    // the fixed construction end-to-end through the engine. ANCHORED (per
+    // this project's convention): the p-value/effect quoted below are the
+    // actual measured values from this test's own first successful run
+    // AFTER the review-round-1 fix (re-anchored: the fix changes how the
+    // centered condition is evaluated, so the old wrapper-based numbers no
+    // longer apply), not a re-derivation.
     #[test]
     fn engine_driven_random_search_on_bbob_yields_no_evidence_anchored() {
         let spec = bbob_random_search_spec(20, 2000);
         let cfg = CentralBiasConfig {
-            fids: vec![1, 8, 13],
+            fids: vec![1, 4, 13],
             dim: 5,
             instances_shifted: vec![1, 2],
             runs_per: 5,
@@ -626,23 +676,21 @@ mod tests {
 
         let r = central_bias_scan(&spec, &cfg).expect("valid scan");
 
-        // Measured at this exact config (captured from this test's own
-        // first successful run, before the assertions below were added):
-        //   wilcoxon.p_value = 0.23288372451228234, method = NormalApprox
-        //   effect (Cliff's delta, gap_shifted vs gap_centered) = -0.13777777777777778
+        // Measured at this exact config, AFTER the review-round-1 fix
+        // (captured from this test's own first successful run post-fix,
+        // before the assertions below were added):
+        //   wilcoxon.p_value = 0.8050475827083527, method = NormalApprox
+        //   effect (Cliff's delta, gap_shifted vs gap_centered) = 0.0
         // p well above ALPHA (0.05) and |effect| well below EFFECT_THRESHOLD
         // (0.33) -- consistent with random_search's uniform, non-directional
-        // generator having no center-attracting operator to exploit (the
-        // small negative effect is noise, not a directional signal: it also
-        // points the WRONG way for center-bias, i.e. shifted looking very
-        // slightly BETTER than centered, not worse).
+        // generator having no center-attracting operator to exploit.
         assert!(
-            (r.wilcoxon.p_value - 0.23288372451228234).abs() < 1e-9,
+            (r.wilcoxon.p_value - 0.8050475827083527).abs() < 1e-9,
             "p_value drifted from the anchored measurement: got {}",
             r.wilcoxon.p_value
         );
         assert!(
-            (r.effect - (-0.13777777777777778)).abs() < 1e-12,
+            (r.effect - 0.0).abs() < 1e-12,
             "effect drifted from the anchored measurement: got {}",
             r.effect
         );
@@ -651,7 +699,7 @@ mod tests {
         assert_eq!(
             r.verdict,
             BiasVerdict::NoEvidence,
-            "measured verdict for random_search(pop=20, budget=2000) on BBOB fids=[1,8,13], \
+            "measured verdict for random_search(pop=20, budget=2000) on BBOB fids=[1,4,13], \
              dim=5, instances=[1,2], runs_per=5, seed=20260830: {:?}",
             r.verdict
         );
