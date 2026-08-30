@@ -1,0 +1,44 @@
+# Flower Pollination Algorithm (Yang, X.-S. 2012) -- the built-in `fpa`
+# preset (crates/components/src/presets.rs::fpa), run through
+# `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# Component decomposition (see crates/components/src/fpa.rs's module doc
+# for the pinned update rule, the verified branch-orientation and
+# distinct-index findings):
+#   - init:      init/uniform              -- uniform-random flowers
+#   - generator: gen/fpa                   -- per flower: 1 branch-switch
+#                                              draw (u>p -> GLOBAL Levy step
+#                                              reusing gen/cuckoo_levy's
+#                                              cs_dim_step; else -> LOCAL
+#                                              epsilon*(X_j-X_k) step, j/k
+#                                              distinct from EACH OTHER
+#                                              only, never excluded from i)
+#   - boundary:  boundary/clamp            -- clamps a stepped-out-of-bounds
+#                                              coord
+#   - replacer:  replace/one-to-one-greedy -- offspring i replaces parent i
+#                                              iff strictly better
+#   - adapter:   none
+#
+# `pop_size = 25` is the flower count (this wave's convention).
+#
+# What this preset gives you that examples/python/fpa.py + examples/r/
+# fpa.R do NOT: a bit-identical, semver-pinned RNG-stream contract (branch
+# switch first, then per-dim Levy calls OR epsilon+pick_two_distinct, per
+# flower), IOH-profiler logging via `log_dir=`, and reproducibility across
+# the whole sezgi statistics pipeline. The pure scripts teach the SAME
+# switch-orientation and index-distinctness findings with nothing but a
+# stdlib RNG and `math.gamma`/base-R `gamma()`.
+
+name = "fpa-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "fpa"
+preset = { kind = "fpa", pop_size = 25 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]

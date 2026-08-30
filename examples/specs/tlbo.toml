@@ -1,0 +1,53 @@
+# Teaching-Learning-Based Optimization (Rao, Savsani & Vakharia 2011) --
+# the built-in `tlbo` preset (crates/components/src/presets.rs::tlbo), run
+# through `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# sezgi's FIRST multi-stage preset: TWO [[stages]] run in sequence every
+# generation (see crates/components/src/tlbo.rs's module doc for the full
+# provenance extraction against Yarpiz's `tlbo.m` -- explicitly labeled
+# third-party, not Rao's own code):
+#   - stage 0 (teacher phase):
+#       generator: gen/tlbo-teacher            -- population mean + current-
+#                                                  pop-best teacher (no draw),
+#                                                  then per learner: TF =
+#                                                  randi{1,2} (ONE draw),
+#                                                  then per-dim r
+#       replacer:  replace/one-to-one-greedy   -- offspring i replaces
+#                                                  parent i iff strictly
+#                                                  better
+#   - stage 1 (learner phase):
+#       generator: gen/tlbo-learner             -- per learner: partner j
+#                                                  drawn UNCONDITIONALLY
+#                                                  distinct from i, then
+#                                                  per-dim r; moves toward j
+#                                                  if j is strictly better,
+#                                                  away otherwise
+#       replacer:  replace/one-to-one-greedy    -- same greedy accept
+#   - init:      init/uniform, boundary: boundary/clamp (both stages)
+#
+# `pop_size = 30` is the learner count. Each generation costs 2*pop_size
+# evaluations (both stages have their own greedy accept) -- sezgi does NOT
+# implement any duplicate-removal step some of Rao's own comparisons
+# quietly relied on (see Crepinsek, Liu & Mernik 2012, Information Sciences
+# 212, 79-93); every evaluation is counted honestly.
+#
+# What this preset gives you that examples/python/tlbo.py + examples/r/
+# tlbo.R do NOT: a bit-identical, semver-pinned RNG-stream contract (per
+# stage: TF then per-dim r, or j then per-dim r, per learner), IOH-profiler
+# logging via `log_dir=`, and reproducibility across the whole sezgi
+# statistics pipeline. The pure scripts teach the SAME two-stage structure
+# with nothing but a stdlib RNG.
+
+name = "tlbo-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "tlbo"
+preset = { kind = "tlbo", pop_size = 30 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]

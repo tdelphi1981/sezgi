@@ -1,0 +1,52 @@
+# Harris Hawks Optimization (Heidari, Mirjalili, Faris, Aljarah, Mafarja &
+# Chen 2019) -- the built-in `hho` preset
+# (crates/components/src/presets.rs::hho), run through
+# `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# Component decomposition (see crates/components/src/hho.rs's module doc
+# for the full provenance extraction against the paper AUTHOR's own
+# HHO.m, the wave's most structurally complex preset):
+#   - init:      init/uniform              -- uniform-random hawks
+#   - generator: gen/hho                   -- per hawk: E0/E draws, then an
+#                                              explore/exploit branch tree;
+#                                              the two rapid-dive
+#                                              sub-branches EVALUATE mid-
+#                                              generate() (0/1/2 extra trial
+#                                              evals per diving hawk, exactly
+#                                              mirroring HHO.m's own dive-
+#                                              trial cost)
+#   - boundary:  boundary/clamp            -- clamps AFTER generate()
+#                                              returns (HHO.m's own Loop-1-
+#                                              only clipping)
+#   - replacer:  replace/generational      -- every hawk's final decided
+#                                              position overwrites
+#                                              unconditionally (no per-agent
+#                                              greedy compare in the source)
+#   - adapter:   none
+#
+# `pop_size = 30` is the hawk count (this wave's convention).
+#
+# What this preset gives you that examples/python/hho.py + examples/r/
+# hho.R do NOT: a bit-identical, semver-pinned RNG-stream contract (the
+# full branch-tree draw order, including the interleaved per-dim S/Levy
+# draws inside a dive's Z trial), IOH-profiler logging via `log_dir=`, and
+# reproducibility across the whole sezgi statistics pipeline -- including
+# exact budget accounting for the in-generator dive-trial evaluations
+# (see hho.rs's module doc, "In-generator evaluation and the eval-
+# accounting design decision"). The pure scripts teach the SAME branch
+# tree and the SAME corrected soft-dive Y formula with nothing but a
+# stdlib RNG and math.gamma/base-R gamma().
+
+name = "hho-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "hho"
+preset = { kind = "hho", pop_size = 30 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]
