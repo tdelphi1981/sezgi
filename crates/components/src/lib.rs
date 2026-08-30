@@ -31,6 +31,7 @@ pub mod alo;
 pub mod abc;
 pub mod gsa;
 pub mod nsga2;
+pub mod perm;
 
 use sezgi_core::component::Registry;
 
@@ -65,4 +66,5 @@ pub fn register_builtins(reg: &mut Registry) {
     alo::register(reg);
     abc::register(reg);
     gsa::register(reg);
+    perm::register(reg);
 }

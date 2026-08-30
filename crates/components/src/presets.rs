@@ -85,6 +85,44 @@ pub fn ga_real(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Permutation GA (M3-3 Task 4) -- a labeled preset validated on TSP
+/// instances (see `crates/problems/src/tsp.rs`'s `Tsp`). Mirrors `ga_real`'s
+/// own preset structure exactly (`init` + `boundary` + one `[[stages]]`
+/// entry pairing a fused crossover+mutation `Generator` with
+/// `replace/mu-plus-lambda`), swapped to the Permutation representation:
+/// `init/perm-random` (Fisher-Yates, per `perm.rs`'s own doc) instead of
+/// `init/uniform`, `gen/ga-perm` ([`crate::perm::GaPermGenerator`] -- the
+/// FUSED OX-crossover + swap-mutation generator, per the controller ruling
+/// recorded in `perm.rs`'s module doc "Composition decision": the
+/// standalone `gen/ox`/`gen/perm-swap` pair, composed as two engine stages,
+/// would yield a TLBO-style two-phase algorithm instead of the classic GA
+/// loop) instead of `gen/ga-real`, and `replace/mu-plus-lambda` REUSED
+/// as-is (same elitist merge-sort-truncate replacer `ga_real` uses --
+/// `SupportedBlocks::All`, so it needs no permutation-specific variant).
+/// `boundary/clamp` is likewise reused as-is: its `Block::Permutation`
+/// branch is a documented no-op (`boundary.rs`: "cat/perm/bin: structurally
+/// cannot go out of bounds"), so it is safe here purely for spec-shape
+/// uniformity with every other preset in this crate, not because
+/// permutations need repairing. `pop_size` is the population size (no
+/// canonical value from a single source -- the caller picks it, same as
+/// `ga_real`). `min_pop = 2` (tournament selection needs a population of at
+/// least 2), enforced via `AlgorithmSpec::validate`.
+pub fn ga_perm(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "ga-perm".into(), pop_size,
+        init: comp("init/perm-random", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/ga-perm", serde_json::json!(
+                {"tournament_k": 2, "pc": 0.8})),
+            replacer: comp("replace/mu-plus-lambda", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn pso(pop_size: usize, budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "pso/clerc-kennedy".into(), pop_size,

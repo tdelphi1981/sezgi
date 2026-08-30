@@ -6,7 +6,7 @@ use sezgi_core::engine::{Engine, RunConfig};
 use sezgi_core::problem::Problem;
 use sezgi_core::space::BlockValues;
 use sezgi_core::spec::AlgorithmSpec;
-use sezgi_problems::BbobProblem;
+use sezgi_problems::{BbobProblem, Tsp};
 
 /// Casts a non-negative-checked, WHOLE-NUMBER-checked `f64` (as passed
 /// from R, which has no native unsigned integer type) to `u64`, rejecting
@@ -500,6 +500,22 @@ fn sz_preset_random_search(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds a permutation-space GA spec (tournament selection, order
+/// crossover, swap mutation -- `gen/ga-perm` + `replace/mu-plus-lambda`) as
+/// JSON, ready to pass to `sz_solve_tsp()`. Binds
+/// [`sezgi_components::presets::ga_perm`] exactly -- same preset py-sezgi's
+/// `sezgi.presets.ga_perm` binds (M3-3 Task 9).
+///
+/// @param pop_size Population size.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_ga_perm(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::ga_perm(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
 /// Parses the `dist` string + flattened distribution params accepted by
 /// `sz_preset_es_mu_plus_lambda_raw()` into a `Distribution`. Duplicated
 /// (rather than shared via a private cross-crate import) from py-sezgi's
@@ -643,6 +659,69 @@ fn sz_solve_bbob(
         OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
     )?;
     out.set_name_and_value(2, "best_x", OwnedRealSexp::try_from_slice(xs.as_slice())?)?;
+
+    Ok(out.into())
+}
+
+/// Runs an algorithm spec on a TSPLIB VENDORED instance (`"berlin52"`,
+/// `"eil51"`, `"st70"` -- via [`Tsp::vendored`]; UNLIKE `sz_tsp_load()`/
+/// `sz_tsp_tour_length()` in `problems.rs`, raw TSPLIB text is not accepted
+/// here -- mirrors py-sezgi's `sezgi.problems.tsp(name)`, which is likewise
+/// vendored-only) and returns the result. Same output shape as
+/// `sz_solve_bbob()` (`best_f`/`evals`/`best_x`), not py-sezgi's own
+/// `solve()` dict shape (`best_f`/`best_x`/`evals_used`/`iterations`) -- the
+/// established r-sezgi `sz_solve_*` convention governs here, not py-sezgi's
+/// key names (see `problems.rs`'s module doc, "Index-convention decision",
+/// for the general 1-based-vs-0-based rule this function's `best_x` also
+/// follows).
+///
+/// @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_ga_perm()`).
+/// @param name A vendored TSPLIB instance name.
+/// @param master_seed Master RNG seed.
+/// @param run_id Run id (mixed into the seed for independent replicate streams).
+/// @returns A named list with `best_f` (double), `evals` (double), and
+///   `best_x` (double vector -- a 1-based permutation of `1:n_cities`, the
+///   best EVALUATED tour, paired with `best_f`).
+///
+/// # Errors
+/// A savvy error if `name` is not one of the three vendored instances, for
+/// any [`sezgi_core::spec`] parse error, or any [`sezgi_core::engine`] run
+/// error.
+/// @export
+#[savvy]
+fn sz_solve_tsp(spec_json: &str, name: &str, master_seed: f64, run_id: f64) -> savvy::Result<Sexp> {
+    let spec = AlgorithmSpec::from_json(spec_json).map_err(|e| savvy_err!("{e}"))?;
+    let reg = registry();
+
+    let problem = Tsp::vendored(name).map_err(|e| savvy_err!("{e}"))?;
+
+    let engine = Engine::from_spec(&spec, &reg, problem.space()).map_err(|e| savvy_err!("{e}"))?;
+    let result = engine
+        .run(
+            &problem,
+            RunConfig {
+                master_seed: f64_to_u64("master_seed", master_seed)?,
+                run_id: f64_to_u64("run_id", run_id)?,
+            },
+            None,
+        )
+        .map_err(|e| savvy_err!("{e}"))?;
+
+    let BlockValues::Perm(order) = &result.best_x.blocks[0] else {
+        return Err(savvy_err!("unexpected genotype"));
+    };
+    // 0-based (Rust) -> 1-based (R) -- see `problems.rs`'s module doc,
+    // "Index-convention decision".
+    let best_x: Vec<f64> = order.iter().map(|&c| (c + 1) as f64).collect();
+
+    let mut out = OwnedListSexp::new(3, true)?;
+    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name_and_value(
+        1,
+        "evals",
+        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
+    )?;
+    out.set_name_and_value(2, "best_x", OwnedRealSexp::try_from_slice(best_x.as_slice())?)?;
 
     Ok(out.into())
 }

@@ -4,6 +4,7 @@ mod anytime;
 mod bias;
 mod experiment;
 mod mo;
+mod problems;
 mod session;
 mod solve;
 mod stats;

@@ -23,7 +23,7 @@ use sezgi_core::mo::MoProblem;
 use sezgi_core::problem::Problem;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 use sezgi_core::spec::AlgorithmSpec;
-use sezgi_problems::{BbobProblem, Dtlz, Zdt};
+use sezgi_problems::{BbobProblem, Cec2022, Dtlz, Tsp, TspError, Zdt};
 use sezgi_stats::{
     bayesian_plackett_luce, bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman,
     hypervolume_2d as stats_hypervolume_2d, igd as stats_igd, paper_package, plackett_luce,
@@ -35,6 +35,8 @@ use std::path::Path;
 
 enum Inner {
     Bbob(BbobProblem),
+    Cec2022(Cec2022),
+    Tsp(Tsp),
     Callable { f: Py<PyAny>, space: SearchSpace },
 }
 
@@ -119,6 +121,154 @@ fn from_callable(f: Py<PyAny>, lo: f64, hi: f64, dim: usize) -> PyResult<PyProbl
     let space = SearchSpace::new(vec![Block::Float { lo, hi, n: dim }])
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(PyProblem { inner: Inner::Callable { f, space } })
+}
+
+/// `sezgi.problems.cec2022(fid, dim)` -- a [`Problem`] handle for a CEC 2022
+/// function (`sezgi_problems::Cec2022::new`), usable with `solve()` (via
+/// `sezgi.presets.*` + `sezgi.solve`) exactly like `sezgi.bbob(...)`. See
+/// [`Cec2022::new`]'s own doc for the exact `fid`/`dim` domain.
+///
+/// # Errors
+/// `ValueError` for [`sezgi_problems::Cec2022Error`]: `fid` outside `1..=12`,
+/// `dim` outside `{2, 10, 20}`, or `dim=2` for a hybrid function (`fid`
+/// 6-8).
+#[pyfunction]
+fn cec2022(fid: u32, dim: usize) -> PyResult<PyProblem> {
+    Ok(PyProblem { inner: Inner::Cec2022(
+        Cec2022::new(fid, dim).map_err(|e| PyValueError::new_err(e.to_string()))?) })
+}
+
+/// `sezgi.problems.cec2022_evaluate(fid, dim, x)` -- direct, one-shot
+/// evaluation of a CEC 2022 function at `x` (a length-`dim` list of floats),
+/// bypassing `solve()`'s budget/engine machinery entirely. Returns the exact
+/// `f64` [`Cec2022::evaluate_batch`] computes (`Problem::evaluate_batch`'s
+/// own `xs.len() == self.dim` check is redundant with the explicit length
+/// check below, but the explicit check gives a clear `ValueError` message
+/// instead of a silent `f64::INFINITY` sentinel).
+///
+/// # Errors
+/// `ValueError` for the same [`sezgi_problems::Cec2022Error`] cases as
+/// `cec2022(...)`, plus a `ValueError` if `len(x) != dim`.
+#[pyfunction]
+fn cec2022_evaluate(fid: u32, dim: usize, x: Vec<f64>) -> PyResult<f64> {
+    let p = Cec2022::new(fid, dim).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    if x.len() != dim {
+        return Err(PyValueError::new_err(format!(
+            "x must have exactly {dim} coordinates (dim={dim}), got {}", x.len())));
+    }
+    let g = Genotype { blocks: vec![BlockValues::Float(x)] };
+    Ok(p.evaluate_batch(&[g])[0])
+}
+
+/// `sezgi.problems.cec2022_f_star(fid)` -- the report's pinned `F_i*` bias
+/// ([`Cec2022::f_star`], module doc section 1.2's table). `f_star` does not
+/// depend on `dim`, so an internal probe `dim=10` is used purely to validate
+/// `fid` (every `fid` in `1..=12` accepts `dim=10`, hybrids included) --
+/// `dim` is not itself a parameter of this function.
+///
+/// # Errors
+/// `ValueError` if `fid` is outside `1..=12`.
+#[pyfunction]
+fn cec2022_f_star(fid: u32) -> PyResult<f64> {
+    let p = Cec2022::new(fid, 10).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(p.f_star())
+}
+
+/// `sezgi.problems.tsp(name)` -- a [`Problem`] handle for a VENDORED TSPLIB
+/// instance (`sezgi_problems::Tsp::vendored`: `"berlin52"`, `"eil51"`, or
+/// `"st70"`), usable with `solve()` exactly like `sezgi.bbob(...)` /
+/// `sezgi.problems.cec2022(...)`.
+///
+/// # Errors
+/// `ValueError` if `name` is not one of the three vendored instances.
+#[pyfunction]
+fn tsp(name: &str) -> PyResult<PyProblem> {
+    Ok(PyProblem { inner: Inner::Tsp(
+        Tsp::vendored(name).map_err(|e| PyValueError::new_err(e.to_string()))?) })
+}
+
+/// Shared `name_or_text` resolver for `tsp_load`/`tsp_tour_length`: tries
+/// `Tsp::vendored(name_or_text)` first (a vendored instance name), and on
+/// [`TspError::UnknownVendored`] only, falls back to parsing `name_or_text`
+/// as raw TSPLIB `.tsp` file text via `Tsp::from_tsplib`. Any other
+/// [`TspError`] (from either path) is surfaced as `ValueError` directly.
+fn load_tsp(name_or_text: &str) -> PyResult<Tsp> {
+    match Tsp::vendored(name_or_text) {
+        Ok(t) => Ok(t),
+        Err(TspError::UnknownVendored(_)) => {
+            Tsp::from_tsplib(name_or_text).map_err(|e| PyValueError::new_err(e.to_string()))
+        }
+        Err(e) => Err(PyValueError::new_err(e.to_string())),
+    }
+}
+
+/// `sezgi.problems.tsp_load(name_or_text)` -- loads a TSPLIB `EUC_2D`
+/// instance, either a vendored instance name or raw TSPLIB file text (see
+/// `load_tsp`), and returns a dict describing it: `name` (str), `n_cities`
+/// (int), `coords` (list of `(x, y)` tuples, index `c` is the coordinate
+/// pair `Tsp::coords()[c]` -- genotype index `c` maps to TSPLIB node
+/// `c + 1`, see `tsp.rs`'s module doc), `known_optimum` (float, or `None` for
+/// an instance parsed from raw text rather than a vendored name).
+///
+/// # Errors
+/// `ValueError` for any [`TspError`] (unknown vendored name that also fails
+/// to parse as TSPLIB text, malformed TSPLIB text, unsupported
+/// `EDGE_WEIGHT_TYPE`, ...).
+#[pyfunction]
+fn tsp_load(py: Python<'_>, name_or_text: &str) -> PyResult<Py<PyDict>> {
+    let t = load_tsp(name_or_text)?;
+    let d = PyDict::new(py);
+    d.set_item("name", t.name())?;
+    d.set_item("n_cities", t.n_cities())?;
+    let coords = PyList::empty(py);
+    for &(x, y) in t.coords() {
+        coords.append((x, y))?;
+    }
+    d.set_item("coords", coords)?;
+    d.set_item("known_optimum", t.known_optimum())?;
+    Ok(d.into())
+}
+
+/// `sezgi.problems.tsp_tour_length(name_or_text, tour)` -- closed-tour
+/// length of a 0-based `tour` (a permutation of `0..n_cities`) on the
+/// instance named/parsed by `name_or_text` (see `load_tsp`), via
+/// `Tsp::evaluate_batch`'s `nint`-rounded `EUC_2D` sum (`tsp.rs`'s module
+/// doc). UNLIKE `Tsp::evaluate_batch` itself (which returns `f64::INFINITY`
+/// for a malformed genotype, since genotype validity is normally the
+/// engine's `SearchSpace::validate` job, not `Tsp`'s own) -- this binding
+/// validates `tour` itself (exact length, every entry in `0..n_cities`, no
+/// repeats) and raises a precise `ValueError` instead, since a `tour` coming
+/// directly from Python has no engine-side validation gate in front of it.
+///
+/// # Errors
+/// `ValueError` for any [`TspError`] resolving `name_or_text`, or if `tour`
+/// is not a permutation of `0..n_cities` (wrong length, an out-of-range
+/// entry, or a repeated entry).
+#[pyfunction]
+fn tsp_tour_length(name_or_text: &str, tour: Vec<i64>) -> PyResult<f64> {
+    let t = load_tsp(name_or_text)?;
+    let n = t.n_cities();
+    if tour.len() != n {
+        return Err(PyValueError::new_err(format!(
+            "tour must have exactly {n} entries (one per city), got {}", tour.len())));
+    }
+    let mut seen = vec![false; n];
+    let mut order = Vec::with_capacity(n);
+    for &c in &tour {
+        if c < 0 || c as usize >= n {
+            return Err(PyValueError::new_err(format!(
+                "tour entry {c} out of range for a {n}-city instance (expected 0..{n})")));
+        }
+        let ci = c as usize;
+        if seen[ci] {
+            return Err(PyValueError::new_err(format!(
+                "tour has a repeated city {ci}; not a valid permutation")));
+        }
+        seen[ci] = true;
+        order.push(ci as u32);
+    }
+    let g = Genotype { blocks: vec![BlockValues::Perm(order)] };
+    Ok(t.evaluate_batch(&[g])[0])
 }
 
 /// Raised by every [`PyEvalSession`] method once the session has been
@@ -256,14 +406,38 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
             // batch via Python::with_gil (standard PyO3 pattern).
             (run_with_bridge(py, || run(&cp, None))?, None)
         }
+        // sezgi decision: CEC 2022/TSP are solve()-eligible (Inner::Cec2022,
+        // Inner::Tsp) additively -- same shape as Inner::Bbob minus IOH
+        // logging (no fid/instance/name scenario metadata to log against for
+        // either, so log_dir is rejected the same way Inner::Callable
+        // rejects it).
+        Inner::Cec2022(p) => {
+            if log_dir.is_some() {
+                return Err(PyValueError::new_err(
+                    "log_dir is only supported for builtin (bbob) problems"));
+            }
+            (run_with_bridge(py, || run(p, None))?, None)
+        }
+        Inner::Tsp(p) => {
+            if log_dir.is_some() {
+                return Err(PyValueError::new_err(
+                    "log_dir is only supported for builtin (bbob) problems"));
+            }
+            (run_with_bridge(py, || run(p, None))?, None)
+        }
     };
 
     let d = PyDict::new(py);
     d.set_item("best_f", result.best_f)?;
-    let BlockValues::Float(xs) = &result.best_x.blocks[0] else {
-        return Err(PyValueError::new_err("unexpected genotype"));
-    };
-    d.set_item("best_x", PyList::new(py, xs)?)?;
+    // best_x's block shape follows the problem's own space: Float for
+    // Bbob/Cec2022/Callable, Perm for Tsp (a permutation genotype, per
+    // tsp.rs's module doc) -- both are surfaced as a plain list of Python
+    // numbers (float or int respectively).
+    match &result.best_x.blocks[0] {
+        BlockValues::Float(xs) => d.set_item("best_x", PyList::new(py, xs)?)?,
+        BlockValues::Perm(xs) => d.set_item("best_x", PyList::new(py, xs)?)?,
+        _ => return Err(PyValueError::new_err("unexpected genotype")),
+    }
     d.set_item("evals_used", result.evals_used)?;
     d.set_item("iterations", result.iterations)?;
     if let Some(skipped) = skipped_empty_runs_opt {
@@ -1278,6 +1452,9 @@ fn mo_pareto_front(problem: &str, dim: usize, n: usize, m: Option<usize>) -> PyR
 #[pyfunction] fn preset_random_search(pop_size: usize, budget: u64) -> String {
     presets::random_search(pop_size, budget).to_json()
 }
+#[pyfunction] fn preset_ga_perm(pop_size: usize, budget: u64) -> String {
+    presets::ga_perm(pop_size, budget).to_json()
+}
 /// Parses the dist string + flattened params accepted by
 /// `preset_es_mu_plus_lambda` into a `Distribution`. Shared with the R
 /// binding's semantics (duplicated there per the "no shared private crate
@@ -1329,6 +1506,12 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEvalSession>()?;
     m.add_function(wrap_pyfunction!(bbob, m)?)?;
     m.add_function(wrap_pyfunction!(from_callable, m)?)?;
+    m.add_function(wrap_pyfunction!(cec2022, m)?)?;
+    m.add_function(wrap_pyfunction!(cec2022_evaluate, m)?)?;
+    m.add_function(wrap_pyfunction!(cec2022_f_star, m)?)?;
+    m.add_function(wrap_pyfunction!(tsp, m)?)?;
+    m.add_function(wrap_pyfunction!(tsp_load, m)?)?;
+    m.add_function(wrap_pyfunction!(tsp_tour_length, m)?)?;
     m.add_function(wrap_pyfunction!(solve, m)?)?;
     m.add_function(wrap_pyfunction!(run_experiment, m)?)?;
     m.add_function(wrap_pyfunction!(read_ioh_records, m)?)?;
@@ -1381,5 +1564,6 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(preset_nelder_mead, m)?)?;
     m.add_function(wrap_pyfunction!(preset_random_search, m)?)?;
     m.add_function(wrap_pyfunction!(preset_es_mu_plus_lambda, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_ga_perm, m)?)?;
     Ok(())
 }
