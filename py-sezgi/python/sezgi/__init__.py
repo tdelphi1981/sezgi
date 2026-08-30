@@ -185,6 +185,7 @@ presets = SimpleNamespace(
     cmaes=_preset(_sezgi.preset_cmaes),
     cmaes_ipop=_preset(_sezgi.preset_cmaes_ipop),
     es_mu_plus_lambda=_preset(_sezgi.preset_es_mu_plus_lambda),
+    ga_perm=_preset(_sezgi.preset_ga_perm),
 )
 
 def _paper_package(algo_names, problem_names, results, rope=0.0, samples=20000, seed=1):
@@ -326,6 +327,60 @@ mo = SimpleNamespace(
     pareto_front=_mo_pareto_front,
 )
 
+# Problems namespace (M3-3 Task 9): CEC 2022 + TSPLIB, mirroring
+# `bias`/`mo`'s own SimpleNamespace-of-bound-functions convention. Every f64
+# here is passed through EXACTLY as the Rust core computed it -- no
+# rounding/formatting anywhere in this section (T10's R bindings assert
+# bit-equality against these same values).
+#
+# problems.cec2022(fid, dim) -> Problem: a solve()-eligible handle for a CEC
+#   2022 function (crates/problems/src/cec2022/mod.rs Cec2022::new), usable
+#   exactly like sezgi.bbob(...): `sezgi.solve(spec, sezgi.problems.cec2022(1,
+#   10), ...)`. fid in 1..=12; dim in {2, 10, 20} (fid 6-8, the hybrid
+#   functions, reject dim=2). ValueError for any out-of-domain (fid, dim).
+#
+# problems.cec2022_evaluate(fid, dim, x) -> float: direct, one-shot
+#   evaluation at x (a length-dim list of floats), bypassing solve()'s
+#   budget/engine machinery. Same (fid, dim) domain as cec2022(...); also
+#   ValueError if len(x) != dim.
+#
+# problems.cec2022_f_star(fid) -> float: the report's pinned F_i* bias
+#   (Cec2022::f_star). Does not depend on dim. ValueError if fid is outside
+#   1..=12.
+#
+# problems.tsp(name) -> Problem: a solve()-eligible handle for a VENDORED
+#   TSPLIB instance (Tsp::vendored: "berlin52", "eil51", or "st70"), usable
+#   exactly like sezgi.bbob(...) / problems.cec2022(...). ValueError for any
+#   other name.
+#
+# problems.tsp_load(name_or_text) -> dict: loads a TSPLIB EUC_2D instance,
+#   either a vendored instance name OR raw TSPLIB ".tsp" file text (a
+#   vendored name is tried first; only if that name is unrecognized does it
+#   fall back to parsing name_or_text as raw TSPLIB text). Returns
+#   {"name": str, "n_cities": int, "coords": [(x, y), ...], "known_optimum":
+#   float or None (None unless name_or_text is a vendored name)}.
+#
+# problems.tsp_tour_length(name_or_text, tour) -> float: closed-tour length
+#   of a 0-based tour (a permutation of range(n_cities)) on the instance
+#   named/parsed by name_or_text, via the module's nint-rounded EUC_2D sum
+#   (see tsp.rs's module doc). ValueError if name_or_text does not resolve,
+#   or if tour is not a valid permutation of range(n_cities) (wrong length,
+#   an out-of-range entry, or a repeated entry).
+#
+# ga-perm (crates/components/src/perm.rs's fused OX-crossover + swap-mutation
+# generator) runs through the SAME solve()/presets path as every other
+# labeled preset -- no problems.* entry point of its own:
+#   sezgi.solve(sezgi.presets.ga_perm(pop_size, budget),
+#               sezgi.problems.tsp("berlin52"), master_seed=...)
+problems = SimpleNamespace(
+    cec2022=_sezgi.cec2022,
+    cec2022_evaluate=_sezgi.cec2022_evaluate,
+    cec2022_f_star=_sezgi.cec2022_f_star,
+    tsp=_sezgi.tsp,
+    tsp_load=_sezgi.tsp_load,
+    tsp_tour_length=_sezgi.tsp_tour_length,
+)
+
 __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_experiment", "presets",
            "stats", "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf",
-           "coco_export", "bias", "mo"]
+           "coco_export", "bias", "mo", "problems"]
