@@ -143,7 +143,7 @@
 //! ## DTLZ5/DTLZ6 front for `m > 3`: `pareto_front` returns `None`, documented
 //!
 //! The chapter's own degenerate-curve claim (quoted above) is contradicted
-//! by later work for `m > 3`: Hisao Ishibuchi, Yu Masuda, Yusuke Nojima,
+//! by later work for `m > 3`: Hisao Ishibuchi, Hiroyuki Masuda, Yusuke Nojima,
 //! "Pareto Fronts of Many-Objective Degenerate Test Problems", *IEEE
 //! Transactions on Evolutionary Computation*, 2016 (fetched PDF,
 //! TEVC-00187-2015, p.2, section II.B) states verbatim: "As pointed out in
