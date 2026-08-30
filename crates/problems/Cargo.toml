@@ -10,3 +10,7 @@ thiserror = "2"
 
 [dev-dependencies]
 sezgi-components = { path = "../components" }
+# float_roundtrip: the CEC 2022 cross-check fixture stores full-precision f64
+# reprs; the default parser is best-effort (up to 1 ULP off), which would
+# silently widen the crosscheck's own tolerance.
+serde_json = { version = "1", features = ["float_roundtrip"] }

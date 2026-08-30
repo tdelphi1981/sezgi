@@ -495,6 +495,7 @@ dependencies = [
 name = "sezgi-problems"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "sezgi-components",
  "sezgi-core",
  "thiserror",
