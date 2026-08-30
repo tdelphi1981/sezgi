@@ -134,9 +134,12 @@ NULL
 #' @param central_runs_per Optional double, cast to `u32`; `NULL` uses 20.
 #' @param central_fids Optional numeric vector; `NULL` uses `c(1, 4, 13)`.
 #' @param central_instances Optional numeric vector; `NULL` uses `c(1, 2)`.
-#' @returns A named list with `structural`, `central`, `signature` (always
-#'   `NULL` -- T6 is deferred, see this module's own doc), `latex_summary`
-#'   (never contains the literal `"NaN"`), `plot_data` (mirrors py-sezgi's
+#' @returns A named list with `structural`, `central`, `signature` (`NULL`
+#'   today, since T6 is deferred and `BiasReport::signature` is always
+#'   `None` -- see this module's own doc; when non-`NULL`, a two-element
+#'   list `list(verdict = ..., detail = ...)`, same shape as `structural`'s/
+#'   `central`'s own `verdict`/`detail`), `latex_summary` (never contains
+#'   the literal `"NaN"`), `plot_data` (mirrors py-sezgi's
 #'   `sezgi.bias.report()` dict keys exactly).
 #' @noRd
 `sz_bias_report_raw` <- function(`spec_json`, `dim`, `budget`, `seed`, `structural_runs` = NULL, `central_runs_per` = NULL, `central_fids` = NULL, `central_instances` = NULL) {
@@ -205,6 +208,117 @@ NULL
 #' @noRd
 `sz_ecdf_raw` <- function(`log_root`, `per_algo`, `targets` = NULL) {
   .Call(savvy_sz_ecdf_raw__impl, `log_root`, `per_algo`, `targets`)
+}
+
+#' Exact 2-objective hypervolume (Zitzler & Thiele 1999 S-metric,
+#' reference-point variant; minimization) -- binds
+#' [`sezgi_stats::hypervolume_2d`] exactly. See that function's doc for the
+#' pinned definition.
+#'
+#' @param front A numeric matrix, rows = points, 2 columns (`f1`, `f2`) --
+#'   R-idiomatic (unlike py-sezgi's `list[[f1,f2],...]`); see this module's
+#'   own doc, "Container-idiom decisions". Build with `rbind()`/`matrix()`.
+#' @param ref_point A 2-element numeric vector.
+#' @returns A numeric scalar.
+#'
+#' # Errors
+#' A savvy error if `ref_point` does not have exactly 2 values, if `front`
+#' is not a matrix, or for any [`sezgi_stats::StatsError`] (empty front, a
+#' non-2-objective row, or a non-finite value).
+#' @export
+`sz_mo_hypervolume_2d` <- function(`front`, `ref_point`) {
+  .Call(savvy_sz_mo_hypervolume_2d__impl, `front`, `ref_point`)
+}
+
+#' Inverted Generational Distance (Ishibuchi et al. 2015, eq. 12, `p = 1`)
+#' -- binds [`sezgi_stats::igd`] exactly. Any (equal, consistent) number of
+#' objectives across both `front` and `reference_front`.
+#'
+#' @param front A numeric matrix, rows = points -- see this module's own
+#'   doc, "Container-idiom decisions".
+#' @param reference_front A numeric matrix, rows = points, same column
+#'   count as `front`.
+#' @returns A numeric scalar.
+#'
+#' # Errors
+#' A savvy error if either argument is not a matrix, or for any
+#' [`sezgi_stats::StatsError`] (an empty `front`/`reference_front`, a
+#' dimension mismatch, or a non-finite value).
+#' @export
+`sz_mo_igd` <- function(`front`, `reference_front`) {
+  .Call(savvy_sz_mo_igd__impl, `front`, `reference_front`)
+}
+
+#' A deterministic `n`-point sample of the analytic Pareto front in
+#' OBJECTIVE space, if known -- binds [`sezgi_core::mo::MoProblem::pareto_front`].
+#' Same `problem`/`m` mapping as `sz_nsga2_raw` (see this module's own doc).
+#'
+#' This is the raw savvy-generated binding (required args only, `m`
+#' trailing since it is optional). The public R entry point with R-native
+#' defaults (`m = NULL`) is the hand-written wrapper `sz_mo_pareto_front()`
+#' in `R/mo.R`, which calls this function -- same raw/wrapper pattern as
+#' `sz_nsga2()` / `sz_nsga2_raw()`.
+#'
+#' @param problem Same mapping as `sz_nsga2_raw`.
+#' @param dim Decision-space dimensionality (double, cast to `usize`).
+#' @param n Number of front points to sample (double, cast to `usize`).
+#' @param m Optional number of objectives (double, cast to `usize`).
+#'   REQUIRED for dtlz, must be `NULL` for zdt -- same rule as
+#'   `sz_nsga2_raw`.
+#' @returns A `list` of `n` numeric vectors (see this module's own doc,
+#'   "Container-idiom decisions"), or `NULL` when the problem has no known
+#'   analytic front sample at this `m` (verified case: DTLZ5/DTLZ6 with
+#'   `m > 3`) -- mirrors py-sezgi's `sezgi.mo.pareto_front()` return
+#'   exactly.
+#'
+#' # Errors
+#' Same as `sz_nsga2_raw`'s problem-construction errors.
+#' @noRd
+`sz_mo_pareto_front_raw` <- function(`problem`, `dim`, `n`, `m` = NULL) {
+  .Call(savvy_sz_mo_pareto_front_raw__impl, `problem`, `dim`, `n`, `m`)
+}
+
+#' NSGA-II run (Deb, Pratap, Agarwal & Meyarivan 2002) -- binds
+#' [`sezgi_components::nsga2::nsga2_run`]. See this module's own doc for the
+#' `problem`/`m` mapping.
+#'
+#' This is the raw savvy-generated binding (required args only, optional
+#' args -- `m`/`p_m` -- trailing; savvy has no way to express a non-`NULL`
+#' default for a required argument in the generated signature, and requires
+#' optional args last). The public R entry point with R-native defaults
+#' (`m = NULL`, `seed = 0`, `eta_c = 20.0`, `eta_m = 20.0`, `p_c = 0.9`,
+#' `p_m = NULL`) is the hand-written wrapper `sz_nsga2()` in `R/mo.R`, which
+#' calls this function -- same raw/wrapper pattern as `sz_bias_structural()`
+#' / `sz_bias_structural_raw()`.
+#'
+#' @param problem One of `"zdt1"`, `"zdt2"`, `"zdt3"`, `"zdt4"`, `"zdt6"`,
+#'   or `"dtlz1"`..`"dtlz7"`.
+#' @param dim Decision-space dimensionality (double, cast to `usize`).
+#' @param pop_size Population size (double, cast to `usize`). Must be
+#'   `>= 4` and a multiple of 4 (KanGAL's double-permutation tournament
+#'   pairing requires it -- NOT merely "even, >= 4").
+#' @param budget Total evaluation budget (double, cast to `u64`).
+#' @param seed Master RNG seed (double, cast to `u64`).
+#' @param eta_c SBX distribution index. Paper default: `20.0`.
+#' @param eta_m Polynomial-mutation distribution index. Paper default:
+#'   `20.0`.
+#' @param p_c SBX crossover probability. Paper default: `0.9`.
+#' @param m Optional number of objectives (double, cast to `usize`).
+#'   REQUIRED for dtlz problems; must be `NULL` for zdt problems.
+#' @param p_m Optional per-variable mutation probability. `NULL` resolves
+#'   on the Rust side to `1 / n_variables` (the paper's own default), never
+#'   re-derived here.
+#' @returns A named list with `individuals`, `objectives`, `front0`,
+#'   `evals_used` -- see this module's own doc.
+#'
+#' # Errors
+#' A savvy error for an unrecognized `problem` string, an `m` given for a
+#' zdt problem, a missing `m` for a dtlz problem, or any
+#' [`sezgi_components::nsga2::Nsga2Error`] (including `pop_size` failing
+#' the `>= 4 && pop_size % 4 == 0` check).
+#' @noRd
+`sz_nsga2_raw` <- function(`problem`, `dim`, `pop_size`, `budget`, `seed`, `eta_c`, `eta_m`, `p_c`, `m` = NULL, `p_m` = NULL) {
+  .Call(savvy_sz_nsga2_raw__impl, `problem`, `dim`, `pop_size`, `budget`, `seed`, `eta_c`, `eta_m`, `p_c`, `m`, `p_m`)
 }
 
 #' Builds one `sezgi_stats::PaperPackage` PER DISTINCT BUDGET present in a
