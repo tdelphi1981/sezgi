@@ -57,6 +57,6 @@ accessible sources (no reachable source fully specifies its statistical
 procedure). There is no `sz_bias_signature()`; the returned list's
 `signature` element is mapped through properly (not hardcoded), so it is
 `NULL` today only because the crate's own result is always `NULL` today --
-see above -- and `latex_summary` renders an honest "not run" row for it
+see below -- and `latex_summary` renders an honest "not run" row for it
 instead of a fabricated result.
 }

@@ -14,18 +14,20 @@ use sezgi_bias::{
     central_bias_scan, structural_bias_scan, BiasReportConfig, BiasVerdict, CentralBiasConfig,
     CentralBiasResult, StructuralBiasConfig, StructuralBiasResult,
 };
+use sezgi_components::nsga2::{nsga2_run, Nsga2Config};
 use sezgi_components::{presets, register_builtins};
 use sezgi_core::component::Registry;
 use sezgi_core::dist::Distribution;
 use sezgi_core::engine::{Engine, RunConfig};
+use sezgi_core::mo::MoProblem;
 use sezgi_core::problem::Problem;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 use sezgi_core::spec::AlgorithmSpec;
-use sezgi_problems::BbobProblem;
+use sezgi_problems::{BbobProblem, Dtlz, Zdt};
 use sezgi_stats::{
     bayesian_plackett_luce, bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman,
-    paper_package, plackett_luce, wilcoxon_signed_rank, PaperPackage, WilcoxonMethod,
-    WilcoxonResult,
+    hypervolume_2d as stats_hypervolume_2d, igd as stats_igd, paper_package, plackett_luce,
+    wilcoxon_signed_rank, PaperPackage, WilcoxonMethod, WilcoxonResult,
 };
 use sezgi_stats::uniformity::{AdResult, KsResult};
 use std::panic::{self, AssertUnwindSafe};
@@ -1004,6 +1006,191 @@ fn bias_report(
     Ok(d.into())
 }
 
+// ---------------------------------------------------------------------
+// Multi-objective bindings (sezgi.mo) -- M3-2 Task 9.
+//
+// Binds T6's NSGA-II runner (`sezgi_components::nsga2::nsga2_run`), the
+// ZDT/DTLZ benchmark suites (`sezgi_problems::{Zdt, Dtlz}`), and the exact
+// 2-objective hypervolume / IGD indicators (`sezgi_stats::{hypervolume_2d,
+// igd}`). Every scalar/vector f64 is passed through EXACTLY as the Rust
+// core computed it -- no rounding/formatting anywhere in this section (T10's
+// R bindings assert bit-equality against these same values).
+//
+// Problem-string mapping (shared by `mo_nsga2` and `mo_pareto_front`, via
+// `mo_problem_from_str`): `"zdt1"`, `"zdt2"`, `"zdt3"`, `"zdt4"`, `"zdt6"`
+// (ZDT5 is a binary-coded problem, out of scope -- see
+// `sezgi_problems::zdt`'s module doc; `"zdt5"` is rejected the same way any
+// other unrecognized ZDT number is, via `Zdt::new`'s own `UnknownWhich`
+// error) and `"dtlz1"`..`"dtlz7"`. **`m` (number of objectives) is DTLZ-only
+// and REQUIRED there** (`Dtlz::new` has no default `m` to fall back to);
+// **passing `m` for a `zdt*` problem is a `ValueError`** (zdt problems are
+// always 2-objective by construction, so a caller-supplied `m` could never
+// be honored silently -- rejecting it outright surfaces the mistake instead
+// of quietly ignoring the argument).
+// ---------------------------------------------------------------------
+
+/// Shared problem-string -> `Box<dyn MoProblem>` builder for `mo_nsga2` and
+/// `mo_pareto_front`. See this section's own doc for the full mapping.
+fn mo_problem_from_str(problem: &str, dim: usize, m: Option<usize>) -> PyResult<Box<dyn MoProblem>> {
+    let unknown = || {
+        PyValueError::new_err(format!(
+            "unknown problem `{problem}` (expected one of zdt1, zdt2, zdt3, zdt4, zdt6, or dtlz1..dtlz7)"
+        ))
+    };
+    if let Some(rest) = problem.strip_prefix("zdt") {
+        let which: u32 = rest.parse().map_err(|_| unknown())?;
+        if m.is_some() {
+            return Err(PyValueError::new_err(
+                "m is DTLZ-only (number of objectives); zdt problems are always 2-objective -- \
+                 omit m (or pass m=None) for a zdt problem",
+            ));
+        }
+        let p = Zdt::new(which, dim).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Box::new(p))
+    } else if let Some(rest) = problem.strip_prefix("dtlz") {
+        let which: u32 = rest.parse().map_err(|_| unknown())?;
+        let m = m.ok_or_else(|| {
+            PyValueError::new_err("m (number of objectives) is required for dtlz problems")
+        })?;
+        let p = Dtlz::new(which, m, dim).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Box::new(p))
+    } else {
+        Err(unknown())
+    }
+}
+
+/// Flattens a [`Genotype`] into a single `Vec<f64>` (concatenating every
+/// block in order) -- these are always single- or multi-Float-block
+/// genotypes here, since `nsga2_run` validates an all-`Block::Float` space
+/// before ever constructing one (`Nsga2Error::NonFloatSpace`). Mirrors
+/// `solve`'s own `best_x` conversion above (`BlockValues::Float(xs) => ...`),
+/// generalized to however many Float blocks the space has (ZDT4 has two:
+/// `x1` and the rest).
+fn genotype_to_flat_vec(g: &Genotype) -> Vec<f64> {
+    let mut out = Vec::new();
+    for b in &g.blocks {
+        if let BlockValues::Float(xs) = b {
+            out.extend_from_slice(xs);
+        }
+    }
+    out
+}
+
+/// `sezgi.mo.nsga2(problem, dim, pop_size, budget, m=None, seed=0,
+/// eta_c=20.0, eta_m=20.0, p_c=0.9, p_m=None)` -- binds
+/// [`sezgi_components::nsga2::nsga2_run`]. `eta_c`/`eta_m`/`p_c` default to
+/// the paper's own pinned experimental settings (Deb et al. 2002, Sec.
+/// IV.A: eta_c=20, eta_m=20, p_c=0.9 -- see that module's "Defaults"
+/// doc section); `p_m=None` resolves on the Rust side to `1 / n_variables`
+/// (the paper's own default), never re-derived here.
+///
+/// Returns a dict mirroring `MoRunResult` 1:1: `individuals` (list of
+/// float-lists, one per final-population member, flattened across every
+/// Float block), `objectives` (list of float-lists, parallel to
+/// `individuals`), `front0` (list of ints: indices of the final
+/// population's non-dominated set), `evals_used` (int).
+///
+/// # Errors
+/// `ValueError` for an unrecognized `problem` string, an `m` given for a
+/// zdt problem, a missing `m` for a dtlz problem, or any
+/// [`sezgi_components::nsga2::Nsga2Error`] (including `pop_size` failing
+/// the `>= 4 && pop_size % 4 == 0` check -- NOT merely "even, >= 4").
+#[pyfunction]
+#[pyo3(signature = (problem, dim, pop_size, budget, m=None, seed=0, eta_c=20.0, eta_m=20.0, p_c=0.9, p_m=None))]
+#[allow(clippy::too_many_arguments)]
+fn mo_nsga2(
+    py: Python<'_>,
+    problem: &str,
+    dim: usize,
+    pop_size: usize,
+    budget: u64,
+    m: Option<usize>,
+    seed: u64,
+    eta_c: f64,
+    eta_m: f64,
+    p_c: f64,
+    p_m: Option<f64>,
+) -> PyResult<Py<PyDict>> {
+    let prob = mo_problem_from_str(problem, dim, m)?;
+    let cfg = Nsga2Config { pop_size, budget, seed, eta_c, eta_m, p_c, p_m };
+
+    let result = run_with_bridge(py, || {
+        nsga2_run(prob.as_ref(), &cfg).map_err(|e| PyValueError::new_err(e.to_string()))
+    })?;
+
+    let d = PyDict::new(py);
+
+    let individuals = PyList::empty(py);
+    for g in &result.individuals {
+        individuals.append(PyList::new(py, genotype_to_flat_vec(g))?)?;
+    }
+    d.set_item("individuals", individuals)?;
+
+    let objectives = PyList::empty(py);
+    for row in &result.objectives {
+        objectives.append(PyList::new(py, row)?)?;
+    }
+    d.set_item("objectives", objectives)?;
+
+    d.set_item("front0", PyList::new(py, &result.front0)?)?;
+    d.set_item("evals_used", result.evals_used)?;
+
+    Ok(d.into())
+}
+
+/// `sezgi.mo.hypervolume_2d(front, ref_point)` -- binds
+/// [`sezgi_stats::hypervolume_2d`] exactly (see that function's doc for the
+/// pinned S-metric definition and reference-point convention). `front`: a
+/// list of `[f1, f2]` rows (minimization). `ref_point`: a 2-element
+/// `[f64; 2]`-shaped list.
+///
+/// # Errors
+/// `ValueError` if `ref_point` does not have exactly 2 values, or for any
+/// [`sezgi_stats::StatsError`] (empty front, a non-2-objective row, or a
+/// non-finite value).
+#[pyfunction]
+fn mo_hypervolume_2d(front: Vec<Vec<f64>>, ref_point: Vec<f64>) -> PyResult<f64> {
+    let rp: [f64; 2] = ref_point.clone().try_into().map_err(|_| {
+        PyValueError::new_err(format!(
+            "ref_point must have exactly 2 values, got {}",
+            ref_point.len()
+        ))
+    })?;
+    stats_hypervolume_2d(&front, &rp).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// `sezgi.mo.igd(front, reference_front)` -- binds [`sezgi_stats::igd`]
+/// exactly (Ishibuchi et al. 2015, eq. 12, `p = 1`; see that function's doc
+/// for the pinned definition). Any (equal, consistent) number of objectives
+/// across both `front` and `reference_front`.
+///
+/// # Errors
+/// `ValueError` for any [`sezgi_stats::StatsError`] (an empty `front` or
+/// `reference_front`, a dimension mismatch, or a non-finite value).
+#[pyfunction]
+fn mo_igd(front: Vec<Vec<f64>>, reference_front: Vec<Vec<f64>>) -> PyResult<f64> {
+    stats_igd(&front, &reference_front).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// `sezgi.mo.pareto_front(problem, dim, n, m=None)` -- a deterministic
+/// `n`-point sample of the analytic Pareto front in OBJECTIVE space, via
+/// [`sezgi_core::mo::MoProblem::pareto_front`]. Same `problem`/`m` mapping
+/// as `mo_nsga2` (see this section's own doc). Returns `None` when the
+/// problem has no known analytic front sample at this `m` (e.g. DTLZ5/DTLZ6
+/// with `m > 3` -- verified only for `m <= 3`, see `sezgi_problems::dtlz`'s
+/// module doc), a list of `n` float-lists otherwise.
+///
+/// # Errors
+/// Same as `mo_nsga2`'s problem-construction errors (unrecognized `problem`,
+/// `m` given for zdt, `m` missing for dtlz, or any
+/// `ZdtError`/`DtlzError`).
+#[pyfunction]
+#[pyo3(signature = (problem, dim, n, m=None))]
+fn mo_pareto_front(problem: &str, dim: usize, n: usize, m: Option<usize>) -> PyResult<Option<Vec<Vec<f64>>>> {
+    let prob = mo_problem_from_str(problem, dim, m)?;
+    Ok(prob.pareto_front(n))
+}
+
 #[pyfunction] fn preset_de_rand_1(pop_size: usize, budget: u64) -> String {
     presets::de_rand_1(pop_size, budget).to_json()
 }
@@ -1160,6 +1347,10 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bias_structural, m)?)?;
     m.add_function(wrap_pyfunction!(bias_central, m)?)?;
     m.add_function(wrap_pyfunction!(bias_report, m)?)?;
+    m.add_function(wrap_pyfunction!(mo_nsga2, m)?)?;
+    m.add_function(wrap_pyfunction!(mo_hypervolume_2d, m)?)?;
+    m.add_function(wrap_pyfunction!(mo_igd, m)?)?;
+    m.add_function(wrap_pyfunction!(mo_pareto_front, m)?)?;
     m.add_function(wrap_pyfunction!(preset_de_rand_1, m)?)?;
     m.add_function(wrap_pyfunction!(preset_de_best_1, m)?)?;
     m.add_function(wrap_pyfunction!(preset_jde, m)?)?;

@@ -30,6 +30,7 @@ pub mod hho;
 pub mod alo;
 pub mod abc;
 pub mod gsa;
+pub mod nsga2;
 
 use sezgi_core::component::Registry;
 

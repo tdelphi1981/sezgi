@@ -276,6 +276,56 @@ bias = SimpleNamespace(
     report=_bias_report,
 )
 
+def _mo_nsga2(problem, dim, pop_size, budget, m=None, seed=0,
+              eta_c=20.0, eta_m=20.0, p_c=0.9, p_m=None):
+    return _sezgi.mo_nsga2(problem, dim, pop_size, budget, m=m, seed=seed,
+                           eta_c=eta_c, eta_m=eta_m, p_c=p_c, p_m=p_m)
+
+
+def _mo_pareto_front(problem, dim, n, m=None):
+    return _sezgi.mo_pareto_front(problem, dim, n, m=m)
+
+
+# Multi-objective namespace (M3-2 Task 9): binds T6's NSGA-II runner, the
+# ZDT/DTLZ benchmark suites, and the exact 2-objective hypervolume/IGD
+# indicators. Every f64 is passed through EXACTLY as the Rust core computed
+# it (bit-equality mandate: T10's R bindings assert against these same
+# values), so nothing here rounds or reformats a number.
+#
+# Problem strings: "zdt1", "zdt2", "zdt3", "zdt4", "zdt6" (ZDT5 is a
+# binary-coded problem, out of scope) and "dtlz1".."dtlz7". `m` (number of
+# objectives) is DTLZ-only and REQUIRED there; passing `m` for a zdt problem
+# raises ValueError (zdt problems are always 2-objective).
+#
+# mo.nsga2(problem, dim, pop_size, budget, m=None, seed=0, eta_c=20.0,
+#   eta_m=20.0, p_c=0.9, p_m=None) -> dict with keys individuals (list of
+#   float-lists, one per final-population member), objectives (list of
+#   float-lists, parallel to individuals), front0 (list of ints: indices of
+#   the final population's non-dominated set), evals_used (int).
+#   eta_c/eta_m/p_c default to the NSGA-II paper's own pinned experimental
+#   settings (Deb et al. 2002, Sec. IV.A); p_m=None resolves on the Rust
+#   side to 1/n_variables. pop_size must be >= 4 AND a multiple of 4 (a
+#   KanGAL-faithful tightening of the naive "even, >= 4" rule) or this
+#   raises ValueError.
+#
+# mo.hypervolume_2d(front, ref_point) -> float: the exact 2-objective
+#   S-metric hypervolume (front: list of [f1, f2] rows; ref_point: a
+#   2-element list).
+#
+# mo.igd(front, reference_front) -> float: Inverted Generational Distance
+#   (Ishibuchi et al. 2015, eq. 12, p=1). Any equal, consistent number of
+#   objectives.
+#
+# mo.pareto_front(problem, dim, n, m=None) -> list of float-lists, or None
+#   when the problem has no known analytic front sample at this m (e.g.
+#   DTLZ5/DTLZ6 with m > 3).
+mo = SimpleNamespace(
+    nsga2=_mo_nsga2,
+    hypervolume_2d=_sezgi.mo_hypervolume_2d,
+    igd=_sezgi.mo_igd,
+    pareto_front=_mo_pareto_front,
+)
+
 __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_experiment", "presets",
            "stats", "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf",
-           "coco_export", "bias"]
+           "coco_export", "bias", "mo"]

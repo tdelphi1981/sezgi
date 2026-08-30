@@ -477,6 +477,8 @@ dependencies = [
  "serde_json",
  "sezgi-core",
  "sezgi-problems",
+ "sezgi-stats",
+ "thiserror",
 ]
 
 [[package]]

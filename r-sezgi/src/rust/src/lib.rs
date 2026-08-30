@@ -3,6 +3,7 @@ use savvy::savvy;
 mod anytime;
 mod bias;
 mod experiment;
+mod mo;
 mod session;
 mod solve;
 mod stats;
