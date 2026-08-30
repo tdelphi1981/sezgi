@@ -65,14 +65,25 @@
 //! if (nx==2&&(func_num==6||func_num==7||func_num==8))
 //!     printf("\nError:  NOT defined for D=2.\n");
 //! ```
-//! Confirmed independently by the vendored `input_data/` file listing
-//! itself: `M_7_D2.txt` (and its `shift`/`shuffle` counterparts for fid 6-8)
-//! is simply ABSENT from the archive, while `M_1_D2.txt` through
-//! `M_5_D2.txt` and `M_9_D2.txt` through `M_12_D2.txt` are all present. Not
-//! relevant to fid 1-5 (this task: all five ship complete dim=2 data, see
-//! `data.rs`'s data-integrity tests), but recorded here for T6/T7, which
-//! will need `Cec2022::new` to reject `(fid in 6..=8, dim == 2)` explicitly
-//! rather than fail obscurely on a missing embed.
+//! Checked PRECISELY (not just "fid 6-8 dim=2 is missing") against the
+//! vendored `input_data/` file listing, since the exact shape of the gap
+//! matters for T6's own data decisions: `M_6_D2.txt` and `M_8_D2.txt` DO
+//! exist (fid 6 and fid 8 each have a complete `M_*_D2.txt` rotation-matrix
+//! file); only `M_7_D2.txt` is genuinely ABSENT. What IS uniformly absent
+//! for all three of fid 6/7/8, however, is dim=2 SHUFFLE data --
+//! `shuffle_data_6_D2.txt`, `shuffle_data_7_D2.txt`, and
+//! `shuffle_data_8_D2.txt` all do not exist (only their `_D10`/`_D20`
+//! counterparts are present) -- which is what actually makes dim=2 unusable
+//! for these hybrid functions regardless of fid 6/8's otherwise-present M
+//! matrix, and is consistent with the C code's own blanket guard (quoted
+//! above) rejecting `nx==2` for `func_num` 6, 7, AND 8 uniformly. `M_1_D2.txt`
+//! through `M_5_D2.txt` and `M_9_D2.txt` through `M_12_D2.txt` are all
+//! present. Not relevant to fid 1-5 (this task: all five ship complete
+//! dim=2 data, see `data.rs`'s data-integrity tests), but recorded here
+//! PRECISELY for T6/T7: `Cec2022::new` will need to reject `(fid in 6..=8,
+//! dim == 2)` explicitly because of the missing SHUFFLE data (and, for fid
+//! 7 specifically, the missing M matrix too) -- not because every fid 6-8
+//! M matrix is missing at dim=2, which it is not.
 //!
 //! ## 1.3. Definitions of the Basic Functions (quoted, section numbers as
 //! printed) -- the UNSHIFTED, UNROTATED core `f_i`, before section 1.4's
@@ -103,7 +114,10 @@
 //! used by hybrid/composition fid -- and, per the F3 discrepancy below,
 //! ALSO the actual formula standalone problem 3 dispatches to):
 //! `f16(x) = [1/(D-1) sum_{i=1}^{D-1} (sqrt(s_i) (sin(50 s_i^0.2) + 1))]^2`,
-//! `s_i = sqrt(x_i^2 + x_{i+1}^2)` (NON-cyclic, `D-1` terms).
+//! `s_i = sqrt(x_i^2 + x_{i+1}^2)` (NON-cyclic, `D-1` terms), AS PRINTED --
+//! this is the report's literal text; it does NOT match the code's squared
+//! sine (a fourth discrepancy, documented in its own entry below, right
+//! after F3's).
 //!
 //! ## 1.4.A. Basic Functions -- shift/rotate/scale composition (quoted
 //! equations 16-20 as printed; see the discrepancy notes for where the
@@ -165,6 +179,19 @@
 //! deliberately left UNUSED by fid 3's `evaluate_batch` arm, matching the
 //! verified reference behavior.
 //!
+//! ### f16 formula (the Schaffer's F7 core F3 dispatches to): report prints
+//! `sin(50 s_i^0.2)`, code computes `sin^2(50 s_i^0.2)`.
+//!
+//! Report eq (16), quoted above: `f16(x) = [1/(D-1) sum (sqrt(s_i)
+//! (sin(50 s_i^0.2) + 1))]^2` -- the sine term is NOT squared as printed.
+//! `schaffer_F7_func`, quoted: `tmp=sin(50.0*pow(z[i],0.2));
+//! f[0] += pow(z[i],0.5)+pow(z[i],0.5)*tmp*tmp;` -- `tmp*tmp` is `sin^2`,
+//! multiplying `sqrt(z_i)`, so the actual per-term contribution is
+//! `sqrt(s_i) * (1 + sin^2(50 s_i^0.2))`, not `sqrt(s_i) * (1 + sin(50
+//! s_i^0.2))`. This module (`f16_schaffer_f7_base`) follows the code:
+//! `.sin().powi(2)`, matching `tmp*tmp` exactly, not the report's printed
+//! (unsquared) form.
+//!
 //! ### F4: report's own function name ("Non-Continuous Rastrigin's") and
 //! dispatch (`step_rastrigin_func`) both signal a genuinely non-continuous
 //! function; the code's non-continuous transform is DEAD CODE due to an
@@ -211,6 +238,19 @@
 //! `sr_func (x, z, nx, Os, Mr, 1.0, s_flag, r_flag)`: `sh_rate = 1.0`, NO
 //! scale. This module follows the code: fid 5 shifts and rotates with no
 //! extra scale factor.
+//!
+//! ### CONTROLLER RULING (recorded decision, Task 5 fix round 1): sezgi
+//! follows the OFFICIAL C CODE wherever it and the printed report diverge
+//! (F3, F4, F5, and the f16 sine-squaring above), because the C code is
+//! what scored the CEC 2022 competition and produced its published results
+//! -- the code IS the benchmark; the report is its (imperfect) documentation.
+//! A consequence worth stating plainly: any re-implementation that instead
+//! follows the printed report on these points (e.g. `opfunu`, if it does)
+//! will disagree with sezgi on F3/F4/F5/f16 BY CONSTRUCTION, not by either
+//! side's error. T8's cross-validation therefore treats the COMPILED
+//! official C code as the primary reference for these functions, with
+//! `opfunu` as a secondary check whose expected disagreements on exactly
+//! these points are documented rather than "fixed" to force agreement.
 //!
 //! ## `x = o` pin (Step 2): why `F_i(o_i) == F_i*` EXACTLY for every fid
 //! 1-5, independent of every discrepancy above
