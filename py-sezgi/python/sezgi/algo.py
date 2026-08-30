@@ -159,11 +159,19 @@ def bbob_records(factory, fids, dims, instances, seeds, budget, log_dir=None):
     instances: list of BBOB instances (1..).
     seeds: list of random seeds.
     budget: fixed evaluation budget for all runs.
-    log_dir: optional path to an IOH output directory. When given, each run's
-        IOH log is appended to the same tree, organized by (algo, fid, dim)
-        scenario. Omitting it keeps the behavior unchanged (no IOH logging).
-        The resulting archive is readable via `read_ioh_records`, `ecdf`, and
-        `coco_export`, mirroring `run_experiment`'s contract exactly.
+    log_dir: optional path to an IOH output directory. When given, each run
+        calls `algo.solve(..., log_dir=log_dir)` on its own fresh session,
+        which creates a fresh IohLogger and `finish()`es it once per run.
+        `IohLogger::finish` merges that single run into any existing
+        (algo, fid, dim) scenario BY RUN IDENTITY -- an (instance, seed,
+        budget) not already present is appended, and a re-run of the exact
+        same (instance, seed, budget) rewrites its own prior entry in place
+        rather than duplicating it -- so sweeping multiple seeds through
+        this helper accumulates every seed's run into one archive instead of
+        each solve() call clobbering the last. Omitting log_dir keeps the
+        behavior unchanged (no IOH logging). The resulting archive is
+        readable via `read_ioh_records`, `ecdf`, and `coco_export`,
+        mirroring `run_experiment`'s contract exactly.
 
     Returns: list[dict], one record per (fid, dim, instance, seed) run,
         with keys exactly {algo, fid, dim, instance, seed, budget, best_f,
