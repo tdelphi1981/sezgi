@@ -14,11 +14,14 @@ from sezgi import _sezgi
 #
 # EvalSession.for_problem(problem, budget, log_dir=None, algo_name="custom",
 #   seed=0) -- staticmethod building a session over any continuous (float)
-#   Problem handle: bbob(...), problems.cec2022(...), or from_callable(...).
-#   Raises ValueError for problems.tsp(...) (a permutation space, not
-#   continuous) and for log_dir on a problem with no known optimum (only
-#   from_callable(...) today -- there is nothing to record as f_opt in the
-#   IOH archive meta).
+#   Problem handle: bbob(...), problems.cec2022(...), from_callable(...), or
+#   bias.f0(...). Raises ValueError for problems.tsp(...) (a permutation
+#   space, not continuous) and for log_dir on any non-BBOB problem: IOH
+#   logging is currently supported for BBOB problems only, matching
+#   solve()'s pre-existing policy -- a known optimum (which cec2022(...)
+#   also has) is necessary but not sufficient, since the on-disk IOH record
+#   key carries no suite discriminator and a non-BBOB run would silently
+#   merge with a BBOB run at the same (fid, dim, instance, seed, budget).
 #
 # f_opt() now returns float | None (was always float, since only BBOB
 #   existed): None for a problem with no analytically known optimum (e.g.

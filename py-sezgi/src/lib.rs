@@ -496,19 +496,25 @@ impl PyEvalSession {
     }
 
     /// Builds a session over any continuous [`PyProblem`] handle —
-    /// `sezgi.bbob(...)`, `sezgi.problems.cec2022(...)`, or
-    /// `sezgi.from_callable(...)`. See [`sezgi_bench::EvalSession::new_owned`]
-    /// for the generalization this delegates to; each `Inner` arm below
-    /// builds its own [`SessionMeta`] (suite/fid/name/instance/f_opt), so
-    /// adding a new continuous-problem arm elsewhere in this crate is a
-    /// self-contained extension of this match.
+    /// `sezgi.bbob(...)`, `sezgi.problems.cec2022(...)`,
+    /// `sezgi.from_callable(...)`, or `sezgi.bias.f0(...)`. See
+    /// [`sezgi_bench::EvalSession::new_owned`] for the generalization this
+    /// delegates to; each `Inner` arm below builds its own [`SessionMeta`]
+    /// (suite/fid/name/instance/f_opt), so adding a new continuous-problem
+    /// arm elsewhere in this crate is a self-contained extension of this
+    /// match.
     ///
     /// # Errors
     /// - `ValueError` for `sezgi.problems.tsp(...)`: its permutation space
     ///   is not a continuous problem `EvalSession` can evaluate.
-    /// - `ValueError` if `log_dir` is given for a problem with no known
-    ///   optimum (currently only `sezgi.from_callable(...)`): the IOH
-    ///   archive's meta has nothing to record as `f_opt`.
+    /// - `ValueError` if `log_dir` is given for any non-BBOB problem
+    ///   (`sezgi.problems.cec2022(...)`, `sezgi.from_callable(...)`, or
+    ///   `sezgi.bias.f0(...)`): IOH logging is restricted to BBOB sessions
+    ///   only, matching `solve()`'s existing policy. A known optimum
+    ///   (which CEC 2022 also has) is necessary but not sufficient — the
+    ///   on-disk IOH record key carries no suite discriminator, so a
+    ///   non-BBOB run sharing `(fid, dim, instance, seed, budget)` with a
+    ///   BBOB run would silently merge into one `results_matrix` cell.
     #[staticmethod]
     #[pyo3(signature = (problem, budget, log_dir=None, algo_name="custom", seed=0))]
     fn for_problem(
@@ -580,9 +586,18 @@ impl PyEvalSession {
                 "EvalSession supports continuous (float) problems only")),
         };
 
-        if log_dir.is_some() && meta.f_opt.is_none() {
+        // sezgi decision (final-review fix, narrowing scope ruling 3): IOH
+        // logging via for_problem is restricted to BBOB sessions only, not
+        // "any problem with a known optimum" -- CEC 2022 also has an f_opt,
+        // but the on-disk IOH record key (algo, fid, dim, instance, seed,
+        // budget) carries no suite discriminator, so a CEC 2022 run and a
+        // BBOB run sharing that key would silently merge into one
+        // results_matrix cell (read_ioh_records cannot tell them apart).
+        // This matches solve()'s pre-existing, already-documented policy
+        // exactly -- see docs/DECISIONS.md's M3-4 record.
+        if log_dir.is_some() && !matches!(&problem.inner, Inner::Bbob(_)) {
             return Err(PyValueError::new_err(
-                "log_dir requires a problem with a known optimum (f_opt)"));
+                "IOH logging is currently supported for BBOB problems only"));
         }
 
         let mut session = EvalSession::new_owned(boxed, meta, budget)

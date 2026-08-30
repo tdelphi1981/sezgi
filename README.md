@@ -414,6 +414,18 @@ scripts already use, just expressed as a boundary condition instead of a
 loop guard. `solve()` returns a `SolveResult` (`algo`, `seed`, `budget`,
 `evals_used`, `best_x`, `best_f`, `f_opt`, `gap` — `f_opt`/`gap` are `None`
 for a problem with no known optimum, e.g. a raw `from_callable` handle).
+`solve()` always calls `session.finish()` exactly once before returning
+OR raising, so a run's IOH archive (if `log_dir=` was passed) is flushed
+even when `setup()`/`step()` raises.
+
+`ctx.evaluate(points)` has two distinct error types, not one: `BudgetExhausted`
+(above) for a batch that doesn't fit the remaining budget — checked before
+the session is touched, so a rejected batch charges nothing — and a plain
+`ValueError`, raised by the underlying session itself, for a row with the
+wrong length or a non-finite (NaN/inf) coordinate. The second is the
+failure an author is most likely to hit in practice (a diverging custom
+algorithm producing NaN), and it is NOT `BudgetExhausted` — catch
+`ValueError` separately if a subclass wants to handle it.
 
 **Feeding a custom algorithm into the stats pipeline.** `sezgi.algo.bbob_records`
 sweeps a factory-constructed `Algorithm` across combinations of BBOB
@@ -460,8 +472,9 @@ Output (live run):
 
 **Bias-scanning a custom algorithm.** `sezgi.bias.f0(dim, seed)` is a
 `Problem` handle over the BIAS-toolbox's own `[0,1]^d` random test function
-(no known optimum — `log_dir`/IOH logging is rejected for it, same as any
-`f_opt=None` problem, see the scope ruling below); `sezgi.bias.structural_positions(final_positions)`
+(no known optimum, and — like every non-BBOB problem — `log_dir`/IOH
+logging is rejected for it, see the scope ruling below);
+`sezgi.bias.structural_positions(final_positions)`
 runs the SAME statistical KS/AD structural-bias scan described in the "Bias
 scanning (M3-1)" section above, but over a plain list of final-position
 vectors collected from ANY externally-driven algorithm, not just a
@@ -496,11 +509,15 @@ problems only"), and authoring a custom permutation-space algorithm this
 way is out of scope, deferred onward (this project's `Algorithm` ABC is
 Python-only for v1 too — an equivalent R-side authoring surface is a
 separate, deferred item, see the v1.0 readiness checklist below). IOH
-logging from a custom `Algorithm` requires a problem with a known optimum
-(`f_opt` — the same `LogRequiresKnownOptimum` rule `EvalSession.with_log`
-enforces everywhere in this project): `sezgi.bbob(...)`/`sezgi.problems.cec2022(...)`
-work with `log_dir=`, but `sezgi.bias.f0(...)` or a raw `from_callable`
-handle with no known optimum do not.
+logging from a custom `Algorithm` is restricted to BBOB problems only —
+`sezgi.bbob(...)` works with `log_dir=`, but `sezgi.problems.cec2022(...)`,
+`sezgi.bias.f0(...)`, and a raw `from_callable` handle all raise
+`ValueError`, matching `sezgi.solve()`'s own, pre-existing policy for the
+identical handles exactly. A known optimum (`f_opt`) is necessary but not
+sufficient for `log_dir` — CEC 2022 has one too, but the on-disk IOH
+record key carries no suite discriminator, so a CEC 2022 run and a BBOB
+run sharing `(fid, dim, instance, seed, budget)` would otherwise silently
+merge into one `results_matrix` cell.
 
 ## Examples
 
@@ -553,9 +570,13 @@ the `from_callable` handle, honored identically by `solve()` and
 `for_problem`; the `bias.f0`/`bias.structural_positions` bridge letting a
 structural-bias scan run over final positions collected from ANY
 externally-driven algorithm; and OOP twins of **all 17** example
-algorithms (`examples/python/oop/`) behind a 17-pair bit-exact parity gate
-(`py-sezgi/tests/test_examples_oop_parity.py`) against the pre-existing
-pure scripts, which remain untouched. Scope: continuous problems only in
+algorithms (`examples/python/oop/`) behind a 17-pair parity gate
+(`py-sezgi/tests/test_examples_oop_parity.py`) comparing each twin's
+printed `%.6g` output fields string-exactly against its pre-existing pure
+script, which remains untouched (raw f64 bit-pattern equality of
+`best_f`/`gap`/`best_x` for all 17 pairs was additionally verified at the
+2026-08-30 final whole-branch review — see `examples/README.md`'s "OOP
+twins" section). Scope: continuous problems only in
 v1 (TSP/permutation authoring deferred); Python authoring only (R deferred
 to the v1.0 checklist below). See `docs/DECISIONS.md`'s "M3-4 completed"
 record for the full ruling list. Next: v1.0 prep (see the checklist).

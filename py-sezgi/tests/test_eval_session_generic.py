@@ -50,6 +50,18 @@ def test_for_problem_log_dir_requires_known_optimum(tmp_path):
         sezgi.EvalSession.for_problem(p, budget=10, log_dir=str(tmp_path))
 
 
+def test_for_problem_cec2022_log_dir_rejected(tmp_path):
+    """Final-review fix (narrowing scope ruling 3): a known optimum (which
+    cec2022(...) has) is necessary but no longer sufficient for log_dir --
+    IOH logging via for_problem is restricted to BBOB sessions only, since
+    the on-disk record key has no suite discriminator and a CEC 2022 run
+    would otherwise silently merge with a BBOB run at the same
+    (fid, dim, instance, seed, budget)."""
+    p = sezgi.problems.cec2022(1, 10)
+    with pytest.raises(ValueError, match="BBOB"):
+        sezgi.EvalSession.for_problem(p, budget=10, log_dir=str(tmp_path))
+
+
 def test_for_problem_from_callable_vectorized_default_works_batch_style():
     """`for_problem` honors the handle's DEFAULT (vectorized=True)
     convention too: f is called once per evaluate() batch, with the whole

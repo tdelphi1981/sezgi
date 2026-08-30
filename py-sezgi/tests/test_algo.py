@@ -60,6 +60,20 @@ def test_no_progress_step_raises():
     with pytest.raises(RuntimeError, match="consumed no budget"):
         Lazy().solve(sezgi.bbob(1, 2, 1), budget=10, seed=1)
 
+def test_solve_error_path_still_finishes_ioh_archive(tmp_path):
+    """Final-review fix (N3): session.finish() must run even when solve()
+    raises, or a run that dies mid-flight silently loses its whole IOH
+    archive. Reuses the no-progress RuntimeError guard as the error path,
+    but with log_dir set -- the setup() eval is already logged before
+    step() triggers the guard, so a *.dat file must exist afterward."""
+    class Lazy(sezgi.Algorithm):
+        def setup(self, ctx): ctx.evaluate([ctx.random_point()])
+        def step(self, ctx): pass  # consumes nothing -> RuntimeError
+    with pytest.raises(RuntimeError, match="consumed no budget"):
+        Lazy().solve(sezgi.bbob(1, 2, 1), budget=10, seed=1,
+                     log_dir=str(tmp_path))
+    assert any(tmp_path.rglob("*.dat")), "IOH archive lost on the error path"
+
 def test_setup_alone_never_evaluating_raises():
     class Never(sezgi.Algorithm):
         def setup(self, ctx): pass

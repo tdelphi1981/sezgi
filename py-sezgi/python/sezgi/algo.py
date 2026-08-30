@@ -70,6 +70,16 @@ class AlgoContext:
         return [self.rng.uniform(lo, hi) for _ in range(self.dim)]
 
     def evaluate(self, points):
+        """Evaluates a batch of points, all-or-nothing.
+
+        Raises `BudgetExhausted` (this module) if `points` doesn't fit the
+        remaining budget -- checked BEFORE calling the session, so nothing
+        is charged on a rejected batch. Raises `ValueError` (from the
+        underlying `EvalSession`, not `BudgetExhausted`) if any row is the
+        wrong length or contains a non-finite coordinate (NaN/inf) --
+        that check happens session-side, so it fires even for a batch that
+        fits the budget.
+        """
         if len(points) > self.remaining:
             raise BudgetExhausted(
                 f"batch of {len(points)} exceeds remaining budget {self.remaining}")
@@ -92,27 +102,37 @@ class Algorithm(abc.ABC):
         session = sezgi.EvalSession.for_problem(
             problem, budget, log_dir=log_dir, algo_name=algo_name, seed=seed)
         ctx = AlgoContext(session, problem.dim(), problem.bounds(), seed)
+        # finish() must run exactly once no matter how the run ends --
+        # including a RuntimeError from the driver's own guards below, or
+        # any exception a subclass's setup()/step() raises -- so the whole
+        # body is wrapped in try/finally. BudgetExhausted is still caught
+        # (and swallowed) INSIDE the try, before finish(), since ctx.best()
+        # below still needs the session alive; finish() itself is called
+        # only in the finally, after the result fields are read off ctx (a
+        # second call after that would raise "session finished").
         try:
-            self.setup(ctx)
-            while ctx.remaining > 0:
-                before = ctx.evals_used
-                self.step(ctx)
-                if ctx.evals_used == before:
-                    raise RuntimeError(
-                        "step() consumed no budget; a step must evaluate at "
-                        "least one point or raise BudgetExhausted")
-        except BudgetExhausted:
-            pass
-        best = ctx.best()
-        if best is None:
-            raise RuntimeError("run ended with no evaluations at all")
-        best_x, best_f = best
-        f_opt = ctx.f_opt
-        result = SolveResult(
-            algo=algo_name, seed=seed, budget=budget,
-            evals_used=ctx.evals_used, best_x=list(best_x), best_f=best_f,
-            f_opt=f_opt, gap=None if f_opt is None else best_f - f_opt)
-        session.finish()
+            try:
+                self.setup(ctx)
+                while ctx.remaining > 0:
+                    before = ctx.evals_used
+                    self.step(ctx)
+                    if ctx.evals_used == before:
+                        raise RuntimeError(
+                            "step() consumed no budget; a step must evaluate at "
+                            "least one point or raise BudgetExhausted")
+            except BudgetExhausted:
+                pass
+            best = ctx.best()
+            if best is None:
+                raise RuntimeError("run ended with no evaluations at all")
+            best_x, best_f = best
+            f_opt = ctx.f_opt
+            result = SolveResult(
+                algo=algo_name, seed=seed, budget=budget,
+                evals_used=ctx.evals_used, best_x=list(best_x), best_f=best_f,
+                f_opt=f_opt, gap=None if f_opt is None else best_f - f_opt)
+        finally:
+            session.finish()
         return result
 
 
@@ -124,9 +144,9 @@ def bbob_records(factory, fids, dims, instances, seeds, budget):
     same dict shape as `run_experiment`: (algo, fid, dim, instance, seed,
     budget, best_f, f_opt, gap, evals_used, wall_secs).
 
-    The record-key contract matches `run_experiment` (see sezgi.__init__.py:66),
-    allowing this helper's output to mix freely with Rust-side records in one
-    call to results_matrix/per_budget_packages.
+    The record-key contract matches `run_experiment` (see its own docstring
+    in `sezgi.__init__`), allowing this helper's output to mix freely with
+    Rust-side records in one call to results_matrix/per_budget_packages.
 
     Piotrowski et al. (2025) show algorithm rankings on benchmark comparisons
     can flip depending on which evaluation budget is examined (documented in

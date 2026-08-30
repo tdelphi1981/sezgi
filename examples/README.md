@@ -193,8 +193,16 @@ dim 5, budget 2000, seed 42) the twin's printed `evals_used`/`best_f`/`gap`
 fields are STRING-IDENTICAL to the pure script's, not just close. This is
 gated by `py-sezgi/tests/test_examples_oop_parity.py`: for each of the 17
 algorithms it runs both `examples/python/<algo>.py` and
-`examples/python/oop/<algo>.py` as subprocesses and asserts their printed
-`evals_used=... best_f=... gap=...` fields match exactly.
+`examples/python/oop/<algo>.py` as subprocesses and compares their printed
+`evals_used=... best_f=... gap=...` fields -- each formatted `%.6g` by the
+scripts themselves (pure Python, untouched by this project) -- for exact
+string equality. The gate therefore enforces agreement to 6 significant
+digits, not full IEEE-754 precision; the stronger claim holds too, but was
+verified separately, not by this gate: the 2026-08-30 final whole-branch
+review additionally captured the raw f64 bit patterns of `best_f`, `gap`,
+`evals_used`, and every `best_x` coordinate for all 17 pairs and found them
+byte-identical on all four, confirming the twins are bit-exact and not
+merely 6-digit-equal.
 
 **The pure scripts remain the pedagogical/provenance originals** --
 `examples/python/<algo>.py` files were not touched by this port (verified
