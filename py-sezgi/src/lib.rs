@@ -37,18 +37,34 @@ enum Inner {
     Bbob(BbobProblem),
     Cec2022(Cec2022),
     Tsp(Tsp),
-    Callable { f: Py<PyAny>, space: SearchSpace },
+    Callable { f: Py<PyAny>, space: SearchSpace, vectorized: bool },
 }
 
 #[pyclass(name = "Problem")]
 struct PyProblem { inner: Inner }
 
-struct CallableProblem<'a> { f: &'a Py<PyAny>, space: &'a SearchSpace }
-
-impl Problem for CallableProblem<'_> {
-    fn space(&self) -> &SearchSpace { self.space }
-    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
-        Python::with_gil(|py| {
+/// Shared calling convention for a `from_callable(...)` handle's Python
+/// callback `f`, dispatched on `vectorized` -- the flag lives on the HANDLE
+/// (`Inner::Callable`/`from_callable`'s own `vectorized` parameter), not on
+/// the consumer, so a given handle has exactly ONE contract everywhere it is
+/// used (`solve()`'s [`CallableProblem`] and
+/// `EvalSession::for_problem`'s [`OwnedCallableProblem`] both call this).
+///
+/// - `vectorized=true` (the default): `f` is called ONCE per
+///   `evaluate_batch` call, with the WHOLE population written into a single
+///   2-D `(n, d)` float64 numpy array, and must return `n` values (a numpy
+///   array or a plain list) -- this is the ORIGINAL, frozen convention
+///   (unchanged byte-for-byte: `solve()`'s existing tests, including "must
+///   be a SINGLE call per population", still pass unmodified).
+/// - `vectorized=false`: `f` is called ONCE PER POINT, with a 1-D
+///   length-`dim` float64 numpy array, and must return a scalar `float`.
+///   Natural for `EvalSession`'s ask/tell callers, which evaluate
+///   individually-generated candidate points, and for an ordinary
+///   single-point objective function generally -- without requiring every
+///   `from_callable` caller to write batch-aware code.
+fn call_callable(f: &Py<PyAny>, vectorized: bool, pop: &[Genotype]) -> Vec<f64> {
+    Python::with_gil(|py| {
+        if vectorized {
             let rows: Vec<Vec<f64>> = pop.iter().map(|g| match &g.blocks[0] {
                 BlockValues::Float(v) => v.clone(),
                 _ => unreachable!("from_callable only builds Float spaces"),
@@ -60,7 +76,7 @@ impl Problem for CallableProblem<'_> {
                 Err(e) => panic::panic_any(PyValueError::new_err(
                     format!("could not convert population to numpy array: {e}"))),
             };
-            let out = match self.f.call1(py, (arr,)) {
+            let out = match f.call1(py, (arr,)) {
                 Ok(o) => o,
                 // A Python exception inside the callback is thrown here as a
                 // panic; `catch_unwind` inside `solve` downcasts it and
@@ -76,34 +92,13 @@ impl Problem for CallableProblem<'_> {
                     Err(e) => panic::panic_any(e),
                 }
             }
-        })
-    }
-}
-
-/// Owned counterpart of [`CallableProblem`], used only by
-/// `EvalSession::for_problem` (which needs a `'static` `Box<dyn Problem>`,
-/// unlike `solve()`'s synchronous, borrow-for-the-run-lifetime use of
-/// `CallableProblem`). Unlike `CallableProblem`'s frozen, population-batched
-/// convention (one call per `evaluate_batch`, a 2-D array in and an array
-/// out — `solve()`'s engine always evaluates a full population at once),
-/// this variant calls `f` once PER POINT, a 1-D length-`dim` array in and a
-/// scalar `float` out: `EvalSession`'s ask/tell callers evaluate
-/// individually-generated candidate points, so a plain scalar-in/scalar-out
-/// callback is the natural shape there, mirroring an ordinary single-point
-/// objective function.
-struct OwnedCallableProblem { f: Py<PyAny>, space: SearchSpace }
-
-impl Problem for OwnedCallableProblem {
-    fn space(&self) -> &SearchSpace { &self.space }
-    // sezgi decision: per-point calling convention (see struct doc above), deliberately diverging from CallableProblem's batched one.
-    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
-        Python::with_gil(|py| {
+        } else {
             pop.iter().map(|g| {
                 let BlockValues::Float(v) = &g.blocks[0] else {
                     unreachable!("from_callable only builds Float spaces")
                 };
                 let arr = PyArray1::from_vec(py, v.clone());
-                let out = match self.f.call1(py, (arr,)) {
+                let out = match f.call1(py, (arr,)) {
                     Ok(o) => o,
                     Err(e) => panic::panic_any(e),
                 };
@@ -112,8 +107,31 @@ impl Problem for OwnedCallableProblem {
                     Err(e) => panic::panic_any(e),
                 }
             }).collect()
-        })
-    }
+        }
+    })
+}
+
+/// Borrowed [`Problem`] wrapper around a `from_callable(...)` handle, used
+/// by `solve()` (which runs synchronously and can borrow the `PyProblem`'s
+/// own fields for the run's lifetime). Calling convention: see
+/// [`call_callable`]'s doc.
+struct CallableProblem<'a> { f: &'a Py<PyAny>, space: &'a SearchSpace, vectorized: bool }
+
+impl Problem for CallableProblem<'_> {
+    fn space(&self) -> &SearchSpace { self.space }
+    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> { call_callable(self.f, self.vectorized, pop) }
+}
+
+/// Owned counterpart of [`CallableProblem`], used only by
+/// `EvalSession::for_problem` (which needs a `'static` `Box<dyn Problem>`,
+/// unlike `solve()`'s borrow-for-the-run-lifetime use of `CallableProblem`
+/// above). Same calling convention (dispatched on the SAME `vectorized`
+/// flag carried on the handle) -- see [`call_callable`]'s doc.
+struct OwnedCallableProblem { f: Py<PyAny>, space: SearchSpace, vectorized: bool }
+
+impl Problem for OwnedCallableProblem {
+    fn space(&self) -> &SearchSpace { &self.space }
+    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> { call_callable(&self.f, self.vectorized, pop) }
 }
 
 /// The uniform `(lo, hi)` bounds of a continuous (all-`Float`-block) space:
@@ -224,11 +242,18 @@ fn bbob(fid: u32, dim: usize, instance: u32) -> PyResult<PyProblem> {
             .map_err(|e| PyValueError::new_err(e.to_string()))?) })
 }
 
+/// `sezgi.from_callable(f, lo, hi, dim, vectorized=True)` -- a [`Problem`]
+/// handle wrapping a Python function `f`. `vectorized` fixes `f`'s calling
+/// convention for every consumer of this handle (`solve()`,
+/// `EvalSession.for_problem`) -- see [`call_callable`]'s doc for the exact
+/// contract of each value. Defaults to `True`: the original, frozen
+/// population-batched convention, unchanged for every existing caller.
 #[pyfunction]
-fn from_callable(f: Py<PyAny>, lo: f64, hi: f64, dim: usize) -> PyResult<PyProblem> {
+#[pyo3(signature = (f, lo, hi, dim, vectorized=true))]
+fn from_callable(f: Py<PyAny>, lo: f64, hi: f64, dim: usize, vectorized: bool) -> PyResult<PyProblem> {
     let space = SearchSpace::new(vec![Block::Float { lo, hi, n: dim }])
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
-    Ok(PyProblem { inner: Inner::Callable { f, space } })
+    Ok(PyProblem { inner: Inner::Callable { f, space, vectorized } })
 }
 
 /// `sezgi.problems.cec2022(fid, dim)` -- a [`Problem`] handle for a CEC 2022
@@ -485,8 +510,10 @@ impl PyEvalSession {
                 };
                 (Box::new(fresh), meta)
             }
-            Inner::Callable { f, space } => {
-                let owned = OwnedCallableProblem { f: f.clone_ref(py), space: space.clone() };
+            Inner::Callable { f, space, vectorized } => {
+                let owned = OwnedCallableProblem {
+                    f: f.clone_ref(py), space: space.clone(), vectorized: *vectorized,
+                };
                 let meta = SessionMeta {
                     suite: "sezgi-custom".into(),
                     fid: 0,
@@ -591,12 +618,12 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
                 (r, Some(fin.skipped_empty_runs as u64))
             } else { (run_with_bridge(py, || run(p, None))?, None) }
         }
-        Inner::Callable { f, space } => {
+        Inner::Callable { f, space, vectorized } => {
             if log_dir.is_some() {
                 return Err(PyValueError::new_err(
                     "log_dir is only supported for builtin (bbob) problems"));
             }
-            let cp = CallableProblem { f, space };
+            let cp = CallableProblem { f, space, vectorized: *vectorized };
             // GIL is released for the run; the callback reacquires it each
             // batch via Python::with_gil (standard PyO3 pattern).
             (run_with_bridge(py, || run(&cp, None))?, None)

@@ -32,6 +32,17 @@ from sezgi import _sezgi
 #     problems.tsp(...)'s permutation space).
 #   p.optimum() -> float | None: the problem's known optimum, or None (a
 #     from_callable(...) handle always returns None).
+#
+# from_callable(f, lo, hi, dim, vectorized=True) -- vectorized fixes f's
+#   calling convention for EVERY consumer of the returned handle (solve()
+#   AND EvalSession.for_problem alike: one handle, one contract everywhere).
+#   vectorized=True (default, unchanged from before M3-4): f is called ONCE
+#     per evaluate_batch call, with the whole population as a single 2-D
+#     (n, dim) float64 numpy array, and must return n values.
+#   vectorized=False: f is called ONCE PER POINT, with a 1-D length-dim
+#     float64 numpy array, and must return a scalar float -- natural for
+#     EvalSession's ask/tell callers (which evaluate individually-generated
+#     points) and for an ordinary single-point objective function.
 
 
 def solve(spec, problem, master_seed=0, run_id=0, log_dir=None, algo_name=None):
