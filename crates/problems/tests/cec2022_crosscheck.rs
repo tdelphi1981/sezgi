@@ -6,7 +6,7 @@
 //! (`github.com/P-N-Suganthan/2022-SO-BO`) diverge, sezgi follows the C
 //! code -- the code scored the competition. This test therefore treats the
 //! COMPILED official C as the PRIMARY reference (1e-8 relative tolerance,
-//! see `TOLERANCE_RATIONALE` below) and `opfunu` (a widely used,
+//! see `TOLERANCE`'s doc comment below) and `opfunu` (a widely used,
 //! MIT-licensed, independent Python CEC-benchmark package) as a SECONDARY
 //! cross-check, asserted against on every point NOT tagged with an
 //! exclusion in the fixture.
@@ -47,7 +47,8 @@ use sezgi_core::problem::Problem;
 use sezgi_core::space::{BlockValues, Genotype};
 use sezgi_problems::Cec2022;
 
-/// independent summation order across sezgi (Rust), the compiled C
+/// Tolerance rationale: 1e-8 RELATIVE, because independent summation order
+/// across sezgi (Rust), the compiled C
 /// reference (C++), and opfunu (numpy) means bit-exactness is not expected
 /// from any of these pairings. In practice sezgi vs. the compiled C
 /// measured far tighter than this in this task's own generation run: max

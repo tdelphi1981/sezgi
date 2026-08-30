@@ -292,8 +292,15 @@
 //! entries `f6`-`f13` that hadn't been needed yet) and `CEC2022.zip`'s
 //! `cec22_test_func.cpp` (this time `hf02`/`hf06`/`hf10` and `sr_func`'s
 //! `s_flag==0` branch). Both re-verified byte-identical to T5's fetch
-//! (`CEC2022.zip` re-hashed to the SAME `sha1=176e677743774c8aa5397542caa7ae77776253f3`
-//! T5's report recorded). A THIRD artifact was added for this task
+//! (`CEC2022.zip` re-hashed to the SAME `176e677743774c8aa5397542caa7ae77776253f3`
+//! T5's report recorded; NOTE, reconciled at milestone close: that value is
+//! the GitHub contents-API **git blob SHA** of the zip, not a plain file
+//! sha1 -- the SAME bytes hash to plain
+//! `sha1=417d65fdb87747f03bb9fb5f94530ab958768308` /
+//! `sha256=dd46b9efcfe79253c1dc0cb0f09c7f0ed0e24d5eb235ee14ca09be29f7def626`,
+//! the values later fetches recorded; `git hash-object` on the identical
+//! file reproduces `176e6777...`, so every fetch this milestone retrieved
+//! byte-identical content). A THIRD artifact was added for this task
 //! specifically because the hybrid pipeline's pointer/buffer aliasing is too
 //! easy to misread by eye (see the fid-7 discrepancy below, found this way):
 //! the vendored C was actually COMPILED (`g++`, stripping only the
