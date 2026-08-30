@@ -5,9 +5,14 @@ port 17 example algorithms onto (with bit-exact RNG parity against existing
 pure scripts). A subclass implements `setup(ctx)`/`step(ctx)`; `solve()`
 drives the setup/step loop over an `AlgoContext` until the budget is
 exhausted and returns a `SolveResult`.
+
+M3-4 Task 3: `bbob_records` provides a multi-scenario sweep helper that records
+runs in the same shape as `run_experiment`, allowing custom Algorithm instances
+to feed sezgi's stats pipeline (results_matrix, per_budget_packages).
 """
 import abc
 import random
+import time
 from dataclasses import dataclass
 
 import sezgi
@@ -109,3 +114,57 @@ class Algorithm(abc.ABC):
             f_opt=f_opt, gap=None if f_opt is None else best_f - f_opt)
         session.finish()
         return result
+
+
+def bbob_records(factory, fids, dims, instances, seeds, budget):
+    """BBOB-scenario sweep helper that records runs in stats-pipeline shape.
+
+    Runs an algorithm across a multi-scenario sweep (combinations of BBOB
+    functions, dimensions, instances, and seeds) and records results in the
+    same dict shape as `run_experiment`: (algo, fid, dim, instance, seed,
+    budget, best_f, f_opt, gap, evals_used, wall_secs).
+
+    The record-key contract matches `run_experiment` (see sezgi.__init__.py:66),
+    allowing this helper's output to mix freely with Rust-side records in one
+    call to results_matrix/per_budget_packages.
+
+    Piotrowski et al. (2025) show algorithm rankings on benchmark comparisons
+    can flip depending on which evaluation budget is examined (documented in
+    `per_budget_packages`), motivating multi-budget reporting as the default.
+
+    factory: zero-arg callable returning a FRESH Algorithm instance per run
+        (a bare Algorithm subclass works).
+    fids: list of BBOB function IDs (1..24).
+    dims: list of dimensions.
+    instances: list of BBOB instances (1..).
+    seeds: list of random seeds.
+    budget: fixed evaluation budget for all runs.
+
+    Returns: list[dict], one record per (fid, dim, instance, seed) run,
+        with keys exactly {algo, fid, dim, instance, seed, budget, best_f,
+        f_opt, gap, evals_used, wall_secs}.
+    """
+    records = []
+    for fid in fids:
+        for dim in dims:
+            for instance in instances:
+                for seed in seeds:
+                    algo = factory()
+                    start = time.perf_counter()
+                    result = algo.solve(
+                        sezgi.bbob(fid, dim, instance), budget=budget, seed=seed)
+                    elapsed = time.perf_counter() - start
+                    records.append({
+                        "algo": result.algo,
+                        "fid": fid,
+                        "dim": dim,
+                        "instance": instance,
+                        "seed": seed,
+                        "budget": result.budget,
+                        "best_f": result.best_f,
+                        "f_opt": result.f_opt,
+                        "gap": result.gap,
+                        "evals_used": result.evals_used,
+                        "wall_secs": elapsed,
+                    })
+    return records
