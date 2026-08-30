@@ -156,12 +156,19 @@ use sezgi_core::space::{Block, BlockValues, Genotype};
 /// input (its termination is `(pop_size, budget)`), so `max_iter` is
 /// DERIVED once per `generate()` call as `t_max = (budget / pop_size).max(1)`
 /// -- the "budget/pop mapping" the plan anticipated -- computed identically
-/// every call (both operands are constant across a run, so no drift; with
-/// `budget` an exact multiple of `pop_size`, `t_max` equals the engine's
-/// actual total generation count exactly, keeping every row index in
-/// bounds with no clamping needed in practice -- a defensive `.min(t_max)`
-/// is still applied to `row` as a belt-and-suspenders guard, see
-/// [`AloGenerator::generate`]).
+/// every call (both operands are constant across a run, so no drift).
+/// `t_max` plays the role of `ALO.m`'s own `Max_iter`, not sezgi's actual
+/// generation count: one `pop_size`-sized eval batch is always spent on the
+/// initial population BEFORE any `generate()` call (exactly matching
+/// `ALO.m`'s own "iteration 1" setup), so with `budget` an exact multiple of
+/// `pop_size` the engine runs exactly `t_max - 1` generations
+/// (`ctx.iteration` ranges `0..=t_max-2`), and `current_iter = ctx.iteration
+/// + 2` therefore ranges over EXACTLY `{2, .., t_max}` -- matching `ALO.m`'s
+/// own `Current_iter` range (`2..Max_iter` inclusive) precisely, term for
+/// term. This keeps every `row` index within the walk's valid `[0, t_max]`
+/// bounds with no clamping actually needed in practice -- a defensive
+/// `.min(t_max)` is still applied to `row` as a belt-and-suspenders guard,
+/// see [`AloGenerator::generate`]).
 ///
 /// **DECISION: faithful, full-walk construction, chosen over a tagged
 /// simplification.** Measured at this wave's anchored-BBOB-test scale (
@@ -206,23 +213,44 @@ use sezgi_core::space::{Block, BlockValues, Genotype};
 ///
 /// This also settles the separate `Elite_antlion_position`/
 /// `Elite_antlion_fitness` tracking + the `Sorted_antlions(1,:)=
-/// Elite_antlion_position` force-injection at the end of every iteration:
-/// **by induction, this is a genuine no-op in exact arithmetic, not a
-/// mechanism sezgi needs to reproduce separately.** Base case: at setup,
-/// `Elite_antlion_position` is seeded EXACTLY equal to
-/// `Sorted_antlions(1,:)` (the initial best antlion). Inductive step: if
-/// `Sorted_antlions(1,:)` already equals the running best-ever fitness
-/// BEFORE an iteration's merge, then since `Sorted_antlions` (containing
-/// that running best) is concatenated INTO `double_population` and a
-/// stable ascending sort + truncate-to-`N` can never drop the single
-/// smallest-fitness member of a non-empty combined pool, `Sorted_antlions
-/// (1,:)` after the merge is STILL the running best-ever -- so
-/// `antlions_fitness(1) < Elite_antlion_fitness` NEVER actually fires (it
-/// is always `==`, never `<`), and the force-injection overwrites
-/// `Sorted_antlions(1,:)` with a value it (by induction) ALREADY holds --
-/// the exact same class of provably-redundant code `mfo.rs`'s module doc
-/// already documented for `MFO.m`'s own re-assigned-every-iteration `b=1`
-/// constant. `pop.best_index()` (the wave's established "current-generation
+/// Elite_antlion_position` force-injection at the end of every iteration.
+/// **Correction (fix round 1): an earlier version of this doc claimed the
+/// improving branch (`antlions_fitness(1) < Elite_antlion_fitness`) "never
+/// actually fires" -- that is FALSE. That condition firing is EXACTLY the
+/// mechanism by which `Elite_antlion_fitness` improves over a run; it fires
+/// routinely.** The correct argument is that the force-injection line is a
+/// no-op in EITHER branch of that condition, for two DIFFERENT reasons --
+/// not because one branch is unreachable:
+///
+/// - **(a) The condition FIRES** (`antlions_fitness(1) <
+///   Elite_antlion_fitness`, i.e. this iteration's fresh merge found
+///   something strictly better than the previous elite): the SAME branch
+///   already executes `Elite_antlion_position=Sorted_antlions(1,:)` --
+///   `Elite_antlion_position` is set FROM `Sorted_antlions(1,:)` just
+///   above. By the time the (unconditional) force-injection line runs,
+///   `Elite_antlion_position` already EQUALS `Sorted_antlions(1,:)` --
+///   writing it back is a trivial self-assignment.
+/// - **(b) The condition does NOT fire** (`antlions_fitness(1) >=
+///   Elite_antlion_fitness`): here `Elite_antlion_position` is untouched
+///   from before this iteration. By the INDUCTIVE hypothesis (base case:
+///   at setup, `Elite_antlion_position` is seeded EXACTLY equal to
+///   `Sorted_antlions(1,:)`), `Sorted_antlions(1,:)` already equalled
+///   `Elite_antlion_position` going INTO this iteration -- i.e. the elite
+///   occupies row 1 of `Sorted_antlions`, which is concatenated FIRST into
+///   `double_population`. Since the condition's false branch confirms
+///   nothing in this iteration's merge beat the elite (`antlions_fitness
+///   (1) >= Elite_antlion_fitness` after the merge, using the SAME
+///   invariant to identify `antlions_fitness(1)`'s value pre-merge with the
+///   elite's), the elite is a lower bound (minimization) on every entry of
+///   the merged `2N` pool, so a stable ascending sort re-places it at rank
+///   1 (in the generic non-tied case -- see the caveat below) and it
+///   survives truncation unchanged. `Sorted_antlions(1,:)` after the merge
+///   (BEFORE the force-injection line even runs) therefore already equals
+///   `Elite_antlion_position` -- again a no-op write-back, but for the
+///   OPPOSITE reason from case (a).
+///
+/// By induction (base case at setup, inductive step covering both branches
+/// above), `pop.best_index()` (the wave's established "current-generation
 /// best" convention, e.g. `gwo.rs`/`woa.rs`/`ba.rs`) is therefore the exact
 /// same value as `ALO.m`'s `Elite_antlion_position` at every point in the
 /// run where it is read (the START of each `generate()` call, i.e. the
@@ -230,6 +258,17 @@ use sezgi_core::space::{Block, BlockValues, Genotype};
 /// `replace/mu-plus-lambda`) -- see [`AloGenerator::generate`] and the
 /// `elite_equals_pops_best_index_by_induction` test below, which exercises
 /// two full generations end-to-end and checks this invariant directly.
+///
+/// **Caveat (tie-breaking, disclosed not further resolved):** case (b)'s
+/// "the elite lands at rank 1" step assumes ties are broken in the elite's
+/// favor. A DISTINCT genotype whose fitness happens to be EXACTLY equal to
+/// the elite's could in principle share rank 1 in a way that makes the
+/// force-injection a genuine (not merely redundant) overwrite of the
+/// STORED POSITION, even though the stored FITNESS value would be
+/// unaffected either way. This is effectively measure-zero on a
+/// continuous BBOB fitness landscape (floating-point-exact fitness ties
+/// between independently-generated points are not observed in practice),
+/// so it is disclosed here rather than further resolved.
 ///
 /// ## A verified-but-fragile formula: roulette weights under sezgi's
 /// (possibly negative) raw-fitness convention
@@ -239,10 +278,17 @@ use sezgi_core::space::{Block, BlockValues, Genotype};
 /// value is strictly positive. `ALO.m` never checks this -- it is a known,
 /// documented fragility of this exact roulette-wheel idiom (mealpy's
 /// `Optimizer.get_index_roulette_wheel_selection`, the protocol's
-/// secondary/fallback source, patches around it explicitly: shift by
-/// `-min(fitness)` when any value is negative, then invert for
-/// minimization -- see its `ChangeLog`/GitHub issue #80, "Roulette wheel
-/// selection is broken"). sezgi's raw fitness is the objective value
+/// secondary/fallback source, patches around it explicitly -- see its
+/// `ChangeLog`/GitHub issue #80, "Roulette wheel selection is broken").
+/// **Correction (fix round 1):** mealpy's fix shares the shift-on-negative
+/// IDEA (`list_fitness - min(list_fitness)` when any value is negative)
+/// but its actual minimization weighting REPLACES the reciprocal entirely:
+/// `final_fitness = max(list_fitness) - list_fitness` (a linear inversion,
+/// not `1/fitness` at all). sezgi's [`alo_roulette_weights`] is more
+/// conservative than that: it keeps `ALO.m`'s own verified `1/fitness`
+/// reciprocal SHAPE and applies only the minimal floor-shift needed to
+/// keep that reciprocal well-defined, rather than switching to a different
+/// weighting scheme. sezgi's raw fitness is the objective value
 /// directly (not a pre-shifted "cost" guaranteed positive), and this is NOT
 /// a hypothetical: `BbobProblem::new(1, 5, 1).f_opt() == -125.9497...`, so
 /// the anchored BBOB f1/dim5 sanity test below runs with predominantly
