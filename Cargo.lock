@@ -458,6 +458,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sezgi-bias"
+version = "0.1.0"
+dependencies = [
+ "sezgi-core",
+]
+
+[[package]]
 name = "sezgi-components"
 version = "0.1.0"
 dependencies = [
