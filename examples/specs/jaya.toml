@@ -1,0 +1,45 @@
+# JAYA (Rao 2016) -- the built-in `jaya` preset
+# (crates/components/src/presets.rs::jaya), run through
+# `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# Component decomposition (see crates/components/src/jaya.rs's module doc
+# for the pinned update rule and RNG-stream contract this preset enforces):
+#   - init:      init/uniform              -- uniform-random candidates
+#   - generator: gen/jaya                  -- Eq. (1)'s best-minus-worst pull,
+#                                              r1[d]/r2[d] drawn ONCE PER
+#                                              DIMENSION PER GENERATION,
+#                                              shared across every candidate
+#                                              (verified against the paper's
+#                                              own worked example)
+#   - boundary:  boundary/clamp            -- clamps a stepped-out-of-bounds
+#                                              coord
+#   - replacer:  replace/one-to-one-greedy -- offspring i replaces parent i
+#                                              iff strictly better (matches
+#                                              the paper's own Fig. 1
+#                                              flowchart and worked Table 3)
+#   - adapter:   none
+#
+# `pop_size = 30` is the candidate count (this wave's convention; the paper
+# itself demonstrates with only 5).
+#
+# What this preset gives you that examples/python/jaya.py + examples/r/
+# jaya.R do NOT: a bit-identical, semver-pinned RNG-stream contract (exactly
+# 2*dim draws per generation, independent of population size), IOH-profiler
+# logging via `log_dir=`, and reproducibility across the whole sezgi
+# statistics pipeline. The pure scripts teach the SAME equations with
+# nothing but a stdlib RNG -- useful for understanding the algorithm, not
+# for reproducible experiments.
+
+name = "jaya-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "jaya"
+preset = { kind = "jaya", pop_size = 30 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]

@@ -1,0 +1,46 @@
+# Salp Swarm Algorithm (Mirjalili et al. 2017) -- the built-in `ssa`
+# preset (crates/components/src/presets.rs::ssa), run through
+# `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# Component decomposition (see crates/components/src/ssa.rs's module doc
+# for the pinned update rule, the verified half-population leader/follower
+# split, and the verified in-place follower-chain semantics):
+#   - init:      init/uniform          -- uniform-random salps
+#   - generator: gen/ssa               -- indices `0..n/2` are leaders (2
+#                                          draws c2/c3 per (leader, dim),
+#                                          pulled toward the current-
+#                                          population-best food source);
+#                                          indices `n/2..n` are followers
+#                                          (zero draws, chain off the
+#                                          ALREADY-COMPUTED predecessor
+#                                          entry this same call, in
+#                                          ascending index order)
+#   - boundary:  boundary/clamp        -- clamps a stepped-out-of-bounds coord
+#   - replacer:  replace/generational  -- salps overwritten unconditionally
+#                                          (SSA.m's own loop has no greedy
+#                                          comparison)
+#   - adapter:   none
+#
+# `pop_size = 30` is the number of salps (canonical per the source paper).
+#
+# What this preset gives you that examples/python/ssa.py + examples/r/
+# ssa.R do NOT: a bit-identical, semver-pinned RNG-stream contract, IOH-
+# profiler logging via `log_dir=`, and reproducibility across the whole
+# sezgi statistics pipeline. The pure scripts teach the SAME leader/
+# follower split and the SAME in-place follower chain with nothing but a
+# stdlib RNG -- useful for understanding the algorithm, not for
+# reproducible experiments.
+
+name = "ssa-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "ssa"
+preset = { kind = "ssa", pop_size = 30 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]

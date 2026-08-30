@@ -1,0 +1,66 @@
+# Bat Algorithm (Yang, X.-S. 2010) -- the built-in `bat` preset
+# (crates/components/src/presets.rs::bat), run through
+# `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# Component decomposition (see crates/components/src/ba.rs's module doc
+# for the pinned update rule, the verified fixed-loudness/pulse-rate
+# finding, and the two composing sign-inversion deltas in the frequency
+# draw and velocity term):
+#   - init:      init/uniform                    -- uniform-random bats
+#   - generator: gen/ba                           -- owns the persisted
+#                                                     `ba/velocity`
+#                                                     blackboard state; one
+#                                                     frequency draw per bat
+#                                                     (verified `[-2,0]`
+#                                                     range, not `[0,2]`),
+#                                                     velocity += (X-best)*
+#                                                     freq, then an
+#                                                     unconditional local-
+#                                                     walk trigger (one draw
+#                                                     per bat) that, if it
+#                                                     fires, COMPLETELY
+#                                                     overwrites the
+#                                                     candidate with a
+#                                                     Gaussian step around
+#                                                     `best`
+#   - boundary:  boundary/clamp                   -- clamps a moved-out-of-
+#                                                     bounds coord
+#   - replacer:  replace/bat-loudness-greedy      -- accepts offspring i
+#                                                     over parent i iff
+#                                                     `off_fit<=own_fit` AND
+#                                                     an UNCONDITIONAL fresh
+#                                                     draw `< loudness=0.5`
+#                                                     (MATLAB's
+#                                                     non-short-circuiting
+#                                                     `&`, reproduced exactly)
+#   - adapter:   none
+#
+# `pop_size = 30` is the number of bats (this wave's convention; the
+# source's own demo uses 20). `A=0.5`/`r=0.5` are FIXED constants in the
+# verified source (bat_algorithm.m's own comment: loudness/pulse-rate
+# dynamics were deliberately not implemented in the demo) -- sezgi does
+# not invent the paper-prose decay dynamics the source itself lacks.
+#
+# What this preset gives you that examples/python/ba.py + examples/r/ba.R
+# do NOT: a bit-identical, semver-pinned RNG-stream contract, the velocity
+# owned as real Rust blackboard state instead of a plain script-local
+# variable, IOH-profiler logging via `log_dir=`, and reproducibility
+# across the whole sezgi statistics pipeline. The pure scripts teach the
+# SAME two composing sign-inversion quirks (which together produce net
+# attraction toward best, not repulsion) with nothing but a stdlib RNG --
+# useful for understanding the algorithm, not for reproducible
+# experiments.
+
+name = "ba-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "ba"
+preset = { kind = "bat", pop_size = 30 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]

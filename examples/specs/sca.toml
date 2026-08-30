@@ -1,0 +1,39 @@
+# Sine Cosine Algorithm (Mirjalili 2016) -- the built-in `sca` preset
+# (crates/components/src/presets.rs::sca), run through
+# `sezgi.run_experiment` / `sz_run_experiment`.
+#
+# Component decomposition (see crates/components/src/sca.rs's module doc
+# for the pinned update rule and RNG-stream contract this preset enforces):
+#   - init:      init/uniform          -- uniform-random search agents
+#   - generator: gen/sca               -- the pinned sin/cos position update
+#                                          (Eq. 3.1/3.2), 3 draws (r2,r3,r4)
+#                                          per (agent, dimension)
+#   - boundary:  boundary/clamp        -- clamps a stepped-out-of-bounds coord
+#   - replacer:  replace/generational  -- offspring become the whole
+#                                          population unconditionally (SCA.m's
+#                                          own loop has no greedy comparison)
+#   - adapter:   none
+#
+# `pop_size = 30` is the number of search agents (canonical per the source
+# paper).
+#
+# What this preset gives you that examples/python/sca.py + examples/r/sca.R
+# do NOT: a bit-identical, semver-pinned RNG-stream contract (exact draw
+# order per (agent, dimension)), IOH-profiler logging via `log_dir=`, and
+# reproducibility across the whole sezgi statistics pipeline. The pure
+# scripts teach the SAME equations with nothing but a stdlib RNG -- useful
+# for understanding the algorithm, not for reproducible experiments.
+
+name = "sca-example"
+seeds = [42]
+budgets = [2000]
+
+[[algorithms]]
+name = "sca"
+preset = { kind = "sca", pop_size = 30 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 5
+instances = [1]
