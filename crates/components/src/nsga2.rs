@@ -14,9 +14,10 @@
 //! `Ctx`, `Registry`, or `ComponentMeta` -- because NSGA-II is not a
 //! scalar-graph component here; the recorded architecture plan runs
 //! multi-objective search through a dedicated MO runner instead. The runner
-//! itself -- including the tournament selection that consumes the
-//! crowded-comparison operator pinned below -- arrives in a later task of
-//! this milestone.
+//! (`nsga2_run`, Task 6) lives at the bottom of this module, below the
+//! variation operators -- see its own "## NSGA-II main-loop runner" section
+//! for the main-loop provenance (initialization, tournament pairing/
+//! comparison, environmental selection, RNG derivation, budget-tail rule).
 //!
 //! ## Pareto dominance
 //! Pinned to the standard minimization definition, consistent with the
@@ -132,9 +133,13 @@
 //!           or ((i_rank = j_rank) and (i_distance > j_distance))
 //! ```
 //! i.e. lower rank wins; ties broken by larger crowding distance. This
-//! definition is pinned here for the record; it is *used* by the T6
-//! tournament selector, implemented when the MO runner lands, not in this
-//! module.
+//! definition is pinned here for the record, as the paper's own STATED
+//! operator -- **but Task 6's `tournament` does NOT use it as written**: the
+//! verified KanGAL reference C (`tourselect.c`'s `tournament()`) recomputes
+//! raw pairwise dominance directly instead of comparing the assigned `.rank`
+//! field, only falling back to crowding on a dominance tie. See the
+//! "Tournament comparison" part of the "## NSGA-II main-loop runner" section
+//! below for the full verified quote and the discrepancy analysis.
 //!
 //! ## SBX crossover and polynomial mutation (Task 5)
 //! The β/δ polynomials themselves are standard (Deb & Agrawal 1995,
@@ -284,8 +289,266 @@
 //! `sbx_pair` and `polynomial_mutation` below implement exactly this
 //! structure; any single-line deviation is marked with a
 //! `// sezgi decision:` or `// sezgi simplification:` comment at the site.
+//!
+//! ## NSGA-II main-loop runner (Task 6)
+//!
+//! `nsga2_run` below wires the pieces above (`dominates`,
+//! `fast_non_dominated_sort`, `crowding_distance`, `sbx_pair`,
+//! `polynomial_mutation`) into the full generational NSGA-II algorithm,
+//! against [`sezgi_core::mo::MoProblem`] / [`sezgi_core::mo::MoEvaluator`]
+//! (T1's parallel MO surface to the scalar `Problem`/`Evaluator`/`Engine`).
+//! Every structural piece below is fetched and verified from the SAME two
+//! sources T4/T5 pinned: the paper itself (this module's header) and the
+//! KanGAL reference C mirror, `darnir/nsga2` on GitHub
+//! (`https://raw.githubusercontent.com/darnir/nsga2/master/*.c`) --
+//! `initialize.c`, `tourselect.c`, `dominance.c`, `rand.c`, `rank.c`,
+//! `fillnds.c`, `crossover.c`, `mutation.c`, `merge.c`, and `nsga2r.c` (the
+//! `main()` driver, read specifically to establish CALL ORDER between
+//! `selection`/`mutation_pop`/`fill_nondominated_sort` and to confirm the
+//! `popsize % 4 == 0` validation).
+//!
+//! ### Initialization (`initialize.c`, `rand.c`)
+//! Quoted verbatim (irrelevant binary-variable branch elided):
+//! ```text
+//! void initialize_pop (population *pop)
+//! {
+//!     for (i=0; i<popsize; i++)
+//!         initialize_ind (&(pop->ind[i]));
+//! }
+//! void initialize_ind (individual *ind)
+//! {
+//!     if (nreal!=0)
+//!         for (j=0; j<nreal; j++)
+//!             ind->xreal[j] = rndreal (min_realvar[j], max_realvar[j]);
+//! }
+//! /* rand.c */
+//! double rndreal (double low, double high)
+//! {
+//!     return (low + (high-low)*randomperc());
+//! }
+//! ```
+//! i.e. one uniform draw per variable (`low + (high-low)*U(0,1)`),
+//! individuals in order `0..popsize`, variables within an individual in
+//! order `0..nreal` -- exactly the loop nesting `init_population` below
+//! replicates (`lo[j] + (hi[j]-lo[j]) * rng.next_f64()`, individual-major,
+//! variable-minor).
+//!
+//! ### Tournament pairing (`tourselect.c`, `selection`)
+//! Quoted verbatim (the Fisher-Yates-style double-permutation shuffle and
+//! the block-of-4 pairing loop):
+//! ```text
+//! void selection (population *old_pop, population *new_pop)
+//! {
+//!     for (i=0; i<popsize; i++) { a1[i] = a2[i] = i; }
+//!     for (i=0; i<popsize; i++)
+//!     {
+//!         rand = rnd (i, popsize-1);
+//!         temp = a1[rand]; a1[rand] = a1[i]; a1[i] = temp;
+//!         rand = rnd (i, popsize-1);
+//!         temp = a2[rand]; a2[rand] = a2[i]; a2[i] = temp;
+//!     }
+//!     for (i=0; i<popsize; i+=4)
+//!     {
+//!         parent1 = tournament (&old_pop->ind[a1[i]],   &old_pop->ind[a1[i+1]]);
+//!         parent2 = tournament (&old_pop->ind[a1[i+2]], &old_pop->ind[a1[i+3]]);
+//!         crossover (parent1, parent2, &new_pop->ind[i], &new_pop->ind[i+1]);
+//!         parent1 = tournament (&old_pop->ind[a2[i]],   &old_pop->ind[a2[i+1]]);
+//!         parent2 = tournament (&old_pop->ind[a2[i+2]], &old_pop->ind[a2[i+3]]);
+//!         crossover (parent1, parent2, &new_pop->ind[i+2], &new_pop->ind[i+3]);
+//!     }
+//! }
+//! ```
+//! `rand.c`'s `rnd(low, high)`: `res = low + (int)(randomperc()*(high-low+1))`,
+//! clamped down to `high`, but **with NO draw at all when `low >= high`**
+//! (`if (low>=high) res=low;`, an early return before `randomperc()` is ever
+//! called) -- this fires on exactly the LAST shuffle position (`i ==
+//! popsize-1`, a self-swap). Verified structure: TWO independent
+//! permutations `a1`, `a2` of `0..popsize` are built by walking `i =
+//! 0..popsize` and, for EACH `i`, drawing the `a1` swap-partner THEN the
+//! `a2` swap-partner (both draws share the SAME underlying stream,
+//! interleaved per-`i` -- NOT `a1` shuffled fully, then `a2` shuffled
+//! fully) -- `shuffle_two_interleaved` below replicates this draw
+//! INTERLEAVING exactly, not just the resulting permutations' marginal
+//! distribution. Each block of 4 consecutive `a1` (or `a2`) positions
+//! produces ONE mating pair (2 tournament winners -> 1 `crossover` call ->
+//! 2 children); `mutation_pop` (a SEPARATE full pass over the whole
+//! `popsize`-sized child population, `mutation.c`, called from `nsga2r.c`'s
+//! main loop AFTER `selection` returns, never interleaved into it) then
+//! mutates every child in order `0..popsize` -- `generate_offspring` below
+//! replicates this exact two-phase structure (all crossover first, then a
+//! separate full mutation pass over the completed child population).
+//!
+//! **`popsize % 4 == 0` requirement.** The block-of-4 loop above requires
+//! `popsize` to be an exact multiple of 4 for `a1`/`a2` to each divide into
+//! whole blocks; `nsga2r.c`'s own `main()` enforces this directly (`if
+//! (popsize<4 || (popsize%4)!=0) { ...; exit(1); }`). Per the task brief's
+//! own stated preference ("if you keep KanGAL's double-permutation scheme,
+//! implement its Fisher-Yates faithfully ... prefer faithfulness"), this
+//! module keeps the scheme UNCHANGED rather than generalizing it to
+//! arbitrary even sizes. **sezgi decision:** [`Nsga2Config::pop_size`] is
+//! validated as `pop_size >= 4 && pop_size % 4 == 0` -- a strictly
+//! NARROWER, backward-compatible subset of "even, >= 4" -- mirroring
+//! `nsga2r.c`'s own hard validation rather than deviating the pairing
+//! scheme itself.
+//!
+//! ### Tournament comparison (`tourselect.c`'s `tournament`, `dominance.c`)
+//! Quoted verbatim:
+//! ```text
+//! individual* tournament (individual *ind1, individual *ind2)
+//! {
+//!     flag = check_dominance (ind1, ind2);
+//!     if (flag==1)  return (ind1);
+//!     if (flag==-1) return (ind2);
+//!     if (ind1->crowd_dist > ind2->crowd_dist) return(ind1);
+//!     if (ind2->crowd_dist > ind1->crowd_dist) return(ind2);
+//!     if ((randomperc()) <= 0.5) return(ind1); else return(ind2);
+//! }
+//! ```
+//! `check_dominance` (unconstrained branch, `dominance.c`): returns `1` if
+//! `ind1` Pareto-dominates `ind2`, `-1` if `ind2` dominates `ind1`, `0`
+//! otherwise -- EXACTLY this module's own [`dominates`] (minimization, same
+//! truth table), recomputed directly on the two candidates' RAW objective
+//! vectors.
+//!
+//! **Discovered discrepancy vs. the paper's stated `<_n` operator.** This
+//! module's own "Crowded-comparison operator" section above (paper, p. 185)
+//! pins `i <_n j` as `i_rank < j_rank OR (i_rank = j_rank AND i_distance >
+//! j_distance)` -- comparing the ASSIGNED front-rank field first. The
+//! reference C's `tournament()`, quoted above, does NOT read `.rank` at
+//! all: it recomputes raw pairwise dominance between the two candidates
+//! (`check_dominance`) and only falls back to `crowd_dist`, then a
+//! coin-flip, on a dominance TIE (`flag==0`, neither directly dominates the
+//! other). The two agree whenever one candidate directly dominates the
+//! other (a direct dominator always has strictly lower rank than the point
+//! it dominates, by construction of `fast-non-dominated-sort` -- so
+//! `flag==1` implies `i_rank < j_rank` too), but they can DIVERGE when two
+//! candidates from DIFFERENT ranks are pairwise mutually non-dominated
+//! (possible: rank-`(k+1)` membership only requires SOME rank-`<=k` point
+//! to dominate a candidate, not that this SPECIFIC opponent does) -- the
+//! paper's operator would decide by rank alone there; the C code falls
+//! through to `crowd_dist`/coin-flip instead. **Decision (faithful
+//! preferred, per the task brief):** `tournament` below implements the
+//! VERIFIED C reference exactly -- `dominates(a,b)` (reusing this module's
+//! own function directly, since it already matches `check_dominance`'s
+//! unconstrained truth table bit for bit) then `crowd_dist` then a single
+//! `<= 0.5` coin-flip draw on a full tie -- NOT the paper's rank-comparison
+//! paraphrase. This corrects (does not merely extend) the pre-T6 module
+//! doc's speculative note that the rank-based operator "is used by the T6
+//! tournament selector" -- that note predated fetching `tourselect.c` and
+//! is superseded by this verified finding.
+//!
+//! ### Environmental selection (paper pseudocode, p. 186; `fillnds.c`)
+//! Quoted verbatim from the paper's own boxed main-loop pseudocode (p. 186,
+//! immediately below Fig. 2 "NSGA-II procedure"; right-column comments are
+//! the paper's own):
+//! ```text
+//! R_t = P_t union Q_t                    combine parent and offspring population
+//! F = fast-non-dominated-sort(R_t)       F = (F_1, F_2, ...), all nondominated fronts of R_t
+//! P_{t+1} = empty and i = 1
+//! until |P_{t+1}| + |F_i| <= N           until the parent population is filled
+//!     crowding-distance-assignment(F_i)  calculate crowding-distance in F_i
+//!     P_{t+1} = P_{t+1} union F_i        include ith nondominated front in the parent pop
+//!     i = i + 1                          check the next front for inclusion
+//! Sort(F_i, <_n)                          sort in descending order using <_n
+//! P_{t+1} = P_{t+1} union F_i[1:(N - |P_{t+1}|)]   choose the first (N - |P_{t+1}|) elements of F_i
+//! Q_{t+1} = make-new-pop(P_{t+1})        use selection, crossover and mutation to create Q_{t+1}
+//! ```
+//! `environmental_selection` below implements this exactly: combine the
+//! parent and offspring populations (`2 * pop_size` total),
+//! `fast_non_dominated_sort`, accumulate whole fronts while they still fit,
+//! then for the first front that does NOT fit whole, compute
+//! `crowding_distance` for JUST that front and take its highest-crowding
+//! members until the population reaches exactly `pop_size`. `fillnds.c`'s
+//! `fill_nondominated_sort` implements the identical
+//! whole-fronts-then-split-front structure (confirmed by reading it) via a
+//! linked-list dominance scan (`check_dominance` again) rather than this
+//! crate's array-based `fast_non_dominated_sort` -- an implementation-detail
+//! difference with no observable difference in the SET of fronts produced
+//! (both are the standard fast-non-dominated-sort front partition).
+//!
+//! **Split-front truncation order (determinism deviation, pinned).** The
+//! C's `crowding_fill` sorts the split front's members by `crowd_dist` via
+//! `quicksort_dist` (a plain unstable quicksort -- its tie behavior is
+//! whatever the platform's qsort-style implementation happens to do,
+//! unspecified and not reproducible across builds). Per the task brief's
+//! own instruction, this module instead uses Rust's stable `sort_by` with
+//! an EXPLICIT documented tie-break: descending `crowd_dist`, ties broken
+//! by ascending original front-position index. **sezgi decision:**
+//! deterministic by construction, at the cost of not literally reproducing
+//! the C's platform-dependent tie order (itself not a well-defined target
+//! to reproduce).
+//!
+//! ### RNG stream derivation
+//! [`NSGA2_SEED_BASE`] (`0x9531`, a distinct "NSGA"-flavored constant) is
+//! mixed into the run's master exactly like `crates/bias/src/f0.rs`'s
+//! `BIAS_SEED_BASE` (`0xB1A5`) and `sezgi_problems`' `BBOB_SEED_BASE`:
+//! `master = NSGA2_SEED_BASE.wrapping_add(cfg.seed)`, never `cfg.seed`
+//! passed to `RngStream::from_master` directly. Two documented sub-streams
+//! are derived under that master via `RngStream::from_master(master,
+//! path)`: `path = &[1]` for INITIALIZATION (`init_population`'s uniform
+//! draws) and `path = &[2]` for all per-generation VARIATION (the
+//! tournament shuffle, tournament coin-flip ties, `sbx_pair`,
+//! `polynomial_mutation` -- one single shared stream across all of these
+//! each generation, consumed in the fixed order documented above and in
+//! each function's own doc). Non-collision reasoning mirrors `f0`'s own
+//! (`crates/bias/src/f0.rs`'s doc): structurally, `master` here is never
+//! `cfg.master_seed`/`cfg.seed` verbatim (always offset by
+//! `NSGA2_SEED_BASE`, itself distinct from `BIAS_SEED_BASE`), so an
+//! accidental collision with the engine's `[run_id, tag]` family or with
+//! `f0`'s own stream would require an adversarially chosen `cfg.seed`;
+//! path SHAPE (`&[1]`/`&[2]`, single-element, small integers) also differs
+//! from both the engine's two-element `[run_id, tag]` paths and `f0`'s
+//! `[3_000_000]` single-element path, a second independent
+//! fold-count/value difference even in a hypothetical master collision.
+//!
+//! ### Budget-tail rule
+//! Mirrors the scalar `Engine::run` exactly (`crates/core/src/engine.rs`):
+//! offspring are generated SPECULATIVELY every loop attempt (consuming the
+//! variation RNG stream even for a doomed final attempt, exactly as the
+//! scalar engine's own generator stage runs before its budget check), then
+//! `MoEvaluator::evaluate` is called; on `Err` (the batch would exceed the
+//! remaining budget -- `MoEvaluator`'s all-or-nothing rule, T1), the loop
+//! breaks immediately WITHOUT touching the population, and the run returns
+//! the last successfully completed generation's population.
+//! [`MoRunResult::evals_used`] is read directly from `MoEvaluator::used()`.
+//! Exact accounting: the initial batch consumes `pop_size`; each completed
+//! generation consumes exactly `pop_size` more (offspring count always
+//! equals `pop_size`); a budget of the exact form `pop_size + k *
+//! pop_size` is used up completely (verified by a dedicated test below); a
+//! non-exact-multiple budget leaves the unspent tail unused (also
+//! verified).
+//!
+//! ### Defaults (paper, Section IV.A "Test Problems", p. 187)
+//! Quoted verbatim: "The crossover probability of p_c = 0.9 and a mutation
+//! probability of p_m = 1/n or 1/l (where n is the number of decision
+//! variables for real-coded GAs and l is the string length for
+//! binary-coded GAs) are used. For real-coded NSGA-II, we use distribution
+//! indices for crossover and mutation operators as eta_c = 20 and eta_m =
+//! 20, respectively." (Converting the paper's typeset subscripts/Greek
+//! letters to prose, per this file's existing convention.) `Nsga2Config`'s
+//! `p_m: Option<f64>`, when `None`, resolves to `1/n` with `n` = the
+//! problem's total flattened Float-block dimension (`1/l`, the
+//! binary-string case, is out of scope -- this crate's NSGA-II is
+//! real-coded only). **Correction to the task brief:** this defaults
+//! paragraph is in Section **IV** ("Simulation Results"), subsection A
+//! ("Test Problems") -- not "Section V" as the brief's own text guessed;
+//! verified directly against the fetched PDF (the page carrying the boxed
+//! main-loop pseudocode, p. 186, ends with the "IV. SIMULATION RESULTS"
+//! heading, immediately followed on p. 187 by subsection "A. Test
+//! Problems" and this defaults paragraph).
+//!
+//! ### Validation
+//! [`Nsga2Error`]'s variants mirror `nsga2r.c`'s own input-time checks
+//! (`main()`, quoted structurally above under "`popsize % 4 == 0`
+//! requirement"): `popsize<4 || popsize%4!=0` -> exit; `pcross_real`/
+//! `pmut_real` outside `[0,1]` -> exit; `eta_c<=0` / `eta_m<=0` -> exit.
+//! `nsga2_run` additionally requires the problem's [`SearchSpace`] to be
+//! ALL [`Block::Float`] (`Nsga2Error::NonFloatSpace`, per the task brief --
+//! this crate's SBX/polynomial-mutation operators are real-coded only, T5).
 
+use sezgi_core::mo::{MoEvaluator, MoProblem};
 use sezgi_core::rng::RngStream;
+use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 
 /// Pareto-dominance for minimization: `a` dominates `b` iff `a <= b` in
 /// every objective and `a < b` in at least one. See the module doc for the
@@ -548,6 +811,376 @@ pub fn polynomial_mutation(
         let y_new = (y + deltaq * (yu - yl)).clamp(yl, yu);
         x[j] = y_new;
     }
+}
+
+/// Crate-owned base constant mixed into every NSGA-II run's RNG master. See
+/// the module doc's "RNG stream derivation" section for the full
+/// non-collision reasoning against the scalar engine's `[run_id, tag]`
+/// family and the bias crate's own `BIAS_SEED_BASE`.
+pub const NSGA2_SEED_BASE: u64 = 0x9531;
+
+/// NSGA-II run configuration. **PINNED once merged** (see the task-6
+/// brief): field types/names are a contract other tasks (T8/T9) build on.
+/// Defaults for `eta_c`/`eta_m`/`p_c` and `p_m`'s `None` resolution are
+/// pinned to the paper's own experimental settings -- see the module doc's
+/// "Defaults" section for the verified quote.
+#[derive(Debug, Clone)]
+pub struct Nsga2Config {
+    /// Population size: validated `>= 4` and a multiple of 4 (see the
+    /// module doc's "`popsize % 4 == 0` requirement").
+    pub pop_size: usize,
+    /// Total function-evaluation budget (init + every generation), enforced
+    /// all-or-nothing via [`MoEvaluator`] -- see the module doc's
+    /// "Budget-tail rule".
+    pub budget: u64,
+    pub seed: u64,
+    /// SBX distribution index. Paper default: `20.0`. Validated `> 0`.
+    pub eta_c: f64,
+    /// Polynomial-mutation distribution index. Paper default: `20.0`.
+    /// Validated `> 0`.
+    pub eta_m: f64,
+    /// SBX crossover probability. Paper default: `0.9`. Validated in
+    /// `[0,1]`.
+    pub p_c: f64,
+    /// Per-variable mutation probability. `None` resolves to `1 /
+    /// n_variables` (the paper's own default). `Some(p)` is validated in
+    /// `[0,1]`.
+    pub p_m: Option<f64>,
+}
+
+/// One completed NSGA-II run's outcome. **PINNED once merged.**
+#[derive(Debug, Clone, PartialEq)]
+pub struct MoRunResult {
+    /// The final population's decision vectors.
+    pub individuals: Vec<Genotype>,
+    /// Parallel to `individuals`: each row is that individual's objective
+    /// vector.
+    pub objectives: Vec<Vec<f64>>,
+    /// Indices (into `individuals`/`objectives`) of the final population's
+    /// non-dominated set (front 0 of `fast_non_dominated_sort` on the final
+    /// `objectives`).
+    pub front0: Vec<usize>,
+    /// Total evaluations charged, read directly from
+    /// [`MoEvaluator::used`].
+    pub evals_used: u64,
+}
+
+/// Errors from [`nsga2_run`]. See the module doc's "Validation" section for
+/// the verified source of each check.
+#[derive(Debug, thiserror::Error)]
+pub enum Nsga2Error {
+    #[error(
+        "pop_size must be >= 4 and a multiple of 4 (KanGAL's double-permutation \
+         tournament pairing requires it; see nsga2r.c's own `popsize % 4 == 0` check), got {pop_size}"
+    )]
+    InvalidPopSize { pop_size: usize },
+    #[error("{name} must lie in [0, 1], got {value}")]
+    InvalidProbability { name: &'static str, value: f64 },
+    #[error("{name} must be > 0, got {value}")]
+    InvalidEta { name: &'static str, value: f64 },
+    #[error("nsga2_run requires an all-Float search space; block {index} is not Block::Float")]
+    NonFloatSpace { index: usize },
+    #[error("initial population (pop_size={pop_size}) exceeds the evaluation budget ({budget})")]
+    BudgetTooSmallForInit { pop_size: usize, budget: u64 },
+}
+
+fn validate_config(cfg: &Nsga2Config) -> Result<(), Nsga2Error> {
+    if cfg.pop_size < 4 || !cfg.pop_size.is_multiple_of(4) {
+        return Err(Nsga2Error::InvalidPopSize { pop_size: cfg.pop_size });
+    }
+    if !(0.0..=1.0).contains(&cfg.p_c) {
+        return Err(Nsga2Error::InvalidProbability { name: "p_c", value: cfg.p_c });
+    }
+    if let Some(p_m) = cfg.p_m {
+        if !(0.0..=1.0).contains(&p_m) {
+            return Err(Nsga2Error::InvalidProbability { name: "p_m", value: p_m });
+        }
+    }
+    // `is_nan() ||` first, rather than the equivalent `!(x > 0.0)`, so
+    // clippy's `neg_cmp_op_on_partial_ord` doesn't flag a negated
+    // partial-order comparison -- both reject NaN and every `<= 0.0` value.
+    if cfg.eta_c.is_nan() || cfg.eta_c <= 0.0 {
+        return Err(Nsga2Error::InvalidEta { name: "eta_c", value: cfg.eta_c });
+    }
+    if cfg.eta_m.is_nan() || cfg.eta_m <= 0.0 {
+        return Err(Nsga2Error::InvalidEta { name: "eta_m", value: cfg.eta_m });
+    }
+    Ok(())
+}
+
+/// Flattened per-variable lower/upper bounds, plus each block's length (for
+/// reassembling a flat decision vector back into a [`Genotype`]).
+type FloatBounds = (Vec<f64>, Vec<f64>, Vec<usize>);
+
+/// Validates an all-`Block::Float` search space (module doc, "Validation")
+/// and extracts flattened per-variable bounds plus each block's length (for
+/// reassembling flat decision vectors back into a [`Genotype`]).
+fn float_bounds(space: &SearchSpace) -> Result<FloatBounds, Nsga2Error> {
+    let mut lo = Vec::new();
+    let mut hi = Vec::new();
+    let mut block_lens = Vec::new();
+    for (index, b) in space.blocks().iter().enumerate() {
+        match *b {
+            Block::Float { lo: l, hi: h, n } => {
+                for _ in 0..n {
+                    lo.push(l);
+                    hi.push(h);
+                }
+                block_lens.push(n);
+            }
+            _ => return Err(Nsga2Error::NonFloatSpace { index }),
+        }
+    }
+    Ok((lo, hi, block_lens))
+}
+
+/// Reassembles a flat decision vector into a [`Genotype`] matching the
+/// original space's block lengths (each block becomes `BlockValues::Float`).
+fn to_genotype(flat: &[f64], block_lens: &[usize]) -> Genotype {
+    let mut blocks = Vec::with_capacity(block_lens.len());
+    let mut offset = 0;
+    for &len in block_lens {
+        blocks.push(BlockValues::Float(flat[offset..offset + len].to_vec()));
+        offset += len;
+    }
+    Genotype { blocks }
+}
+
+/// Flattens a [`Genotype`] (already validated all-Float by
+/// [`float_bounds`]/[`nsga2_run`]) into a single `Vec<f64>` for the
+/// variation operators.
+fn flatten_genotype(g: &Genotype) -> Vec<f64> {
+    let mut out = Vec::with_capacity(g.blocks.iter().map(|b| match b {
+        BlockValues::Float(xs) => xs.len(),
+        _ => 0,
+    }).sum());
+    for b in &g.blocks {
+        match b {
+            BlockValues::Float(xs) => out.extend_from_slice(xs),
+            _ => unreachable!("nsga2_run validated an all-Float space before ever constructing a Genotype"),
+        }
+    }
+    out
+}
+
+/// Uniform-in-bounds initial population. Draw order pinned to
+/// `initialize.c`/`rand.c` (module doc): individual-major, variable-minor,
+/// one `next_f64()` draw per variable.
+fn init_population(n: usize, lo: &[f64], hi: &[f64], rng: &mut RngStream) -> Vec<Vec<f64>> {
+    (0..n)
+        .map(|_| (0..lo.len()).map(|j| lo[j] + (hi[j] - lo[j]) * rng.next_f64()).collect())
+        .collect()
+}
+
+/// `rand.c`'s `rnd(low, high)`: a uniform integer in `[low, high]`
+/// inclusive, via `low + floor(U(0,1) * (high-low+1))` clamped down to
+/// `high`. Pinned quirk (module doc, "Tournament pairing"): **no draw at
+/// all** when `low >= high`.
+fn rnd(low: usize, high: usize, rng: &mut RngStream) -> usize {
+    if low >= high {
+        return low;
+    }
+    let width = (high - low + 1) as f64;
+    let mut res = low + (rng.next_f64() * width).floor() as usize;
+    if res > high {
+        res = high;
+    }
+    res
+}
+
+/// The `tourselect.c` `selection()` double-permutation shuffle, draws
+/// INTERLEAVED per-index between `a1` and `a2` (module doc, "Tournament
+/// pairing"): for each `i`, one `a1` swap-partner draw, then one `a2`
+/// swap-partner draw, before moving to `i+1`.
+fn shuffle_two_interleaved(n: usize, rng: &mut RngStream) -> (Vec<usize>, Vec<usize>) {
+    let mut a1: Vec<usize> = (0..n).collect();
+    let mut a2: Vec<usize> = (0..n).collect();
+    for i in 0..n {
+        let j1 = rnd(i, n - 1, rng);
+        a1.swap(i, j1);
+        let j2 = rnd(i, n - 1, rng);
+        a2.swap(i, j2);
+    }
+    (a1, a2)
+}
+
+/// `tourselect.c`'s `tournament()`, verified faithful (module doc,
+/// "Tournament comparison"): raw pairwise dominance first (reusing
+/// [`dominates`] directly), then crowding distance, then a single coin-flip
+/// draw on a full tie. Returns the winner's index (`i` or `j`).
+fn tournament(objectives: &[Vec<f64>], crowd: &[f64], i: usize, j: usize, rng: &mut RngStream) -> usize {
+    if dominates(&objectives[i], &objectives[j]) {
+        return i;
+    }
+    if dominates(&objectives[j], &objectives[i]) {
+        return j;
+    }
+    if crowd[i] > crowd[j] {
+        return i;
+    }
+    if crowd[j] > crowd[i] {
+        return j;
+    }
+    if rng.next_f64() <= 0.5 { i } else { j }
+}
+
+/// Crowding distance for an ALREADY-fully-included population (no
+/// truncation): every front is complete, so every individual gets a
+/// `crowd_dist` from [`crowding_distance`] directly. Mirrors `rank.c`'s
+/// `assign_rank_and_crowding_distance`, called once on the initial
+/// population before the generation loop (module doc).
+fn crowd_dist_full(objectives: &[Vec<f64>]) -> Vec<f64> {
+    let fronts = fast_non_dominated_sort(objectives);
+    let mut out = vec![0.0f64; objectives.len()];
+    for front in &fronts {
+        let d = crowding_distance(front, objectives);
+        for (k, &idx) in front.iter().enumerate() {
+            out[idx] = d[k];
+        }
+    }
+    out
+}
+
+/// One generation's offspring: `tourselect.c`'s double-permutation
+/// tournament pairing + `sbx_pair` crossover (block-of-4 loop), followed by
+/// a SEPARATE full `polynomial_mutation` pass over every child in order
+/// (module doc, "Tournament pairing" -- the two-phase structure is pinned,
+/// not interleaved).
+#[allow(clippy::too_many_arguments)]
+fn generate_offspring(
+    genos: &[Genotype],
+    objectives: &[Vec<f64>],
+    crowd: &[f64],
+    lo: &[f64],
+    hi: &[f64],
+    block_lens: &[usize],
+    cfg: &Nsga2Config,
+    p_m: f64,
+    rng: &mut RngStream,
+) -> Vec<Genotype> {
+    let n = genos.len();
+    let flat: Vec<Vec<f64>> = genos.iter().map(flatten_genotype).collect();
+    let (a1, a2) = shuffle_two_interleaved(n, rng);
+    let mut children: Vec<Vec<f64>> = vec![Vec::new(); n];
+
+    let mut i = 0;
+    while i < n {
+        let p1 = tournament(objectives, crowd, a1[i], a1[i + 1], rng);
+        let p2 = tournament(objectives, crowd, a1[i + 2], a1[i + 3], rng);
+        let (c1, c2) = sbx_pair(&flat[p1], &flat[p2], lo, hi, cfg.eta_c, cfg.p_c, rng);
+        children[i] = c1;
+        children[i + 1] = c2;
+
+        let p3 = tournament(objectives, crowd, a2[i], a2[i + 1], rng);
+        let p4 = tournament(objectives, crowd, a2[i + 2], a2[i + 3], rng);
+        let (c3, c4) = sbx_pair(&flat[p3], &flat[p4], lo, hi, cfg.eta_c, cfg.p_c, rng);
+        children[i + 2] = c3;
+        children[i + 3] = c4;
+
+        i += 4;
+    }
+
+    for child in &mut children {
+        polynomial_mutation(child, lo, hi, cfg.eta_m, p_m, rng);
+    }
+
+    children.iter().map(|f| to_genotype(f, block_lens)).collect()
+}
+
+/// `(μ+λ)` environmental selection: combine parent + offspring, sort into
+/// fronts, fill whole fronts, and truncate the first non-fitting front by
+/// descending crowding distance (ascending-index tie-break, deterministic
+/// -- module doc, "Environmental selection"). Returns the new population's
+/// `(individuals, objectives, crowd_dist)`, all parallel and of length `n`.
+fn environmental_selection(
+    mut genos: Vec<Genotype>,
+    mut objectives: Vec<Vec<f64>>,
+    off_genos: Vec<Genotype>,
+    off_objectives: Vec<Vec<f64>>,
+    n: usize,
+) -> (Vec<Genotype>, Vec<Vec<f64>>, Vec<f64>) {
+    genos.extend(off_genos);
+    objectives.extend(off_objectives);
+    let fronts = fast_non_dominated_sort(&objectives);
+
+    let mut new_genos = Vec::with_capacity(n);
+    let mut new_objectives = Vec::with_capacity(n);
+    let mut new_crowd = Vec::with_capacity(n);
+
+    for front in &fronts {
+        if new_genos.len() >= n {
+            break;
+        }
+        let d = crowding_distance(front, &objectives);
+        if new_genos.len() + front.len() <= n {
+            for (k, &idx) in front.iter().enumerate() {
+                new_genos.push(genos[idx].clone());
+                new_objectives.push(objectives[idx].clone());
+                new_crowd.push(d[k]);
+            }
+        } else {
+            let need = n - new_genos.len();
+            let mut order: Vec<usize> = (0..front.len()).collect();
+            // sezgi decision: stable, explicit tie-break (descending
+            // crowd_dist, then ascending front-position index) -- see the
+            // module doc's "Split-front truncation order" paragraph.
+            order.sort_by(|&a, &b| d[b].total_cmp(&d[a]).then(a.cmp(&b)));
+            for &k in order.iter().take(need) {
+                let idx = front[k];
+                new_genos.push(genos[idx].clone());
+                new_objectives.push(objectives[idx].clone());
+                new_crowd.push(d[k]);
+            }
+            break;
+        }
+    }
+    (new_genos, new_objectives, new_crowd)
+}
+
+/// NSGA-II reference runner. See the module doc's "## NSGA-II main-loop
+/// runner" section for the full provenance (initialization, tournament
+/// pairing/comparison, environmental selection, RNG derivation, budget-tail
+/// rule, defaults).
+pub fn nsga2_run(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunResult, Nsga2Error> {
+    validate_config(cfg)?;
+    let (lo, hi, block_lens) = float_bounds(problem.space())?;
+    let dim = lo.len();
+    let p_m = cfg.p_m.unwrap_or(1.0 / dim as f64);
+
+    let master = NSGA2_SEED_BASE.wrapping_add(cfg.seed);
+    let mut init_rng = RngStream::from_master(master, &[1]);
+    let mut var_rng = RngStream::from_master(master, &[2]);
+
+    let mut eval = MoEvaluator::new(problem, cfg.budget);
+
+    let init_flat = init_population(cfg.pop_size, &lo, &hi, &mut init_rng);
+    let mut genos: Vec<Genotype> = init_flat.iter().map(|f| to_genotype(f, &block_lens)).collect();
+    let mut objectives = eval.evaluate(&genos).map_err(|_| Nsga2Error::BudgetTooSmallForInit {
+        pop_size: cfg.pop_size,
+        budget: cfg.budget,
+    })?;
+    let mut crowd = crowd_dist_full(&objectives);
+
+    loop {
+        // Budget-tail rule (module doc): generate speculatively, evaluate,
+        // and break WITHOUT mutating the population on Err -- mirrors the
+        // scalar engine's `Err(_) => break 'outer` exactly.
+        let offspring =
+            generate_offspring(&genos, &objectives, &crowd, &lo, &hi, &block_lens, cfg, p_m, &mut var_rng);
+        let off_objectives = match eval.evaluate(&offspring) {
+            Ok(o) => o,
+            Err(_) => break,
+        };
+        let (new_genos, new_objectives, new_crowd) =
+            environmental_selection(genos, objectives, offspring, off_objectives, cfg.pop_size);
+        genos = new_genos;
+        objectives = new_objectives;
+        crowd = new_crowd;
+    }
+
+    let front0 = fast_non_dominated_sort(&objectives).into_iter().next().unwrap_or_default();
+
+    Ok(MoRunResult { individuals: genos, objectives, front0, evals_used: eval.used() })
 }
 
 #[cfg(test)]
@@ -1094,5 +1727,238 @@ mod tests {
         }
         assert_eq!(rng.next_f64(), twin.next_f64(),
             "polynomial_mutation must consume exactly 3 draws for this mixed pass/fail case");
+    }
+
+    // ==================================================================
+    // nsga2_run (Task 6)
+    // ==================================================================
+
+    use sezgi_problems::Zdt;
+    use sezgi_stats::igd;
+
+    fn base_cfg() -> Nsga2Config {
+        Nsga2Config { pop_size: 8, budget: 200, seed: 7, eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None }
+    }
+
+    // ---- determinism golden ---------------------------------------------
+    //
+    // ZDT1, dim=6, pop=8, budget=200, seed=7. The exact objective values
+    // below were measured ONCE from this implementation (see the task-6
+    // report for the probe) and hardcoded as a bit-exact golden -- this is
+    // a NEW golden (this task's own runner), not a reproduction of any
+    // prior pin.
+    #[test]
+    fn nsga2_run_determinism_golden_zdt1() {
+        let problem = Zdt::new(1, 6).unwrap();
+        let cfg = base_cfg();
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(result.objectives.len(), 8);
+        let got: Vec<[f64; 2]> =
+            result.objectives[..3].iter().map(|row| [row[0], row[1]]).collect();
+        let expect = [
+            [0.943_376_728_949_411, 0.176_336_549_868_822_02],
+            [9.526_467_756_149_07e-6, 1.812_548_914_192_057_7],
+            [0.096_195_882_459_852_06, 1.342_229_206_945_092_7],
+        ];
+        for (i, (g, e)) in got.iter().zip(expect.iter()).enumerate() {
+            assert!((g[0] - e[0]).abs() < 1e-12 && (g[1] - e[1]).abs() < 1e-12,
+                "row {i}: got {g:?}, expected {e:?}");
+        }
+    }
+
+    // ---- same-seed run-twice: bit-identical full result ------------------
+
+    #[test]
+    fn nsga2_run_same_seed_twice_bit_identical() {
+        let problem = Zdt::new(1, 6).unwrap();
+        let cfg = base_cfg();
+        let r1 = nsga2_run(&problem, &cfg).unwrap();
+        let r2 = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(r1, r2, "same seed must reproduce a bit-identical MoRunResult");
+    }
+
+    // ---- budget accounting: exact multiple ---------------------------
+    //
+    // pop=8, budget=200: init consumes 8; each generation consumes exactly
+    // 8 more (offspring count == pop_size); 200 = 8 + 24*8 exactly, so 24
+    // generations complete and the 25th attempt's evaluate fails cleanly
+    // (200 + 8 > 200) -- evals_used must land EXACTLY on 200, not merely
+    // <= 200.
+
+    #[test]
+    fn nsga2_run_budget_accounting_exact_multiple() {
+        let problem = Zdt::new(1, 6).unwrap();
+        let cfg = base_cfg(); // budget=200, pop_size=8: 8 + 24*8 == 200 exactly
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(result.evals_used, 200,
+            "an exactly-divisible budget must be used up exactly: init + generations*pop_size");
+    }
+
+    // ---- budget accounting: non-multiple leaves the tail unspent ---------
+
+    #[test]
+    fn nsga2_run_budget_accounting_non_multiple_leaves_tail() {
+        let problem = Zdt::new(1, 6).unwrap();
+        let mut cfg = base_cfg();
+        cfg.budget = 205; // 8 + 24*8 = 200, remaining 5 < pop_size=8: unspendable tail
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(result.evals_used, 200,
+            "a non-exact-multiple budget must leave the unspendable tail (5 evals) unused");
+    }
+
+    // ---- budget smaller than the initial population -----------------
+
+    #[test]
+    fn nsga2_run_budget_smaller_than_init_is_clear_error() {
+        let problem = Zdt::new(1, 6).unwrap();
+        let mut cfg = base_cfg();
+        cfg.budget = 4; // < pop_size=8
+        let err = nsga2_run(&problem, &cfg).unwrap_err();
+        assert!(matches!(err, Nsga2Error::BudgetTooSmallForInit { pop_size: 8, budget: 4 }),
+            "got {err:?}");
+    }
+
+    // ---- pop_size validation ------------------------------------------
+
+    #[test]
+    fn nsga2_run_odd_pop_size_is_error() {
+        let problem = Zdt::new(1, 6).unwrap();
+        let mut cfg = base_cfg();
+        cfg.pop_size = 7;
+        let err = nsga2_run(&problem, &cfg).unwrap_err();
+        assert!(matches!(err, Nsga2Error::InvalidPopSize { pop_size: 7 }), "got {err:?}");
+    }
+
+    #[test]
+    fn nsga2_run_pop_size_below_4_is_error() {
+        let problem = Zdt::new(1, 6).unwrap();
+        let mut cfg = base_cfg();
+        cfg.pop_size = 2;
+        let err = nsga2_run(&problem, &cfg).unwrap_err();
+        assert!(matches!(err, Nsga2Error::InvalidPopSize { pop_size: 2 }), "got {err:?}");
+    }
+
+    #[test]
+    fn nsga2_run_even_but_not_multiple_of_4_pop_size_is_error() {
+        // sezgi decision (module doc): pop_size must be a multiple of 4,
+        // not merely even -- KanGAL's double-permutation pairing scheme
+        // requires it. 6 is even but not a multiple of 4.
+        let problem = Zdt::new(1, 6).unwrap();
+        let mut cfg = base_cfg();
+        cfg.pop_size = 6;
+        let err = nsga2_run(&problem, &cfg).unwrap_err();
+        assert!(matches!(err, Nsga2Error::InvalidPopSize { pop_size: 6 }), "got {err:?}");
+    }
+
+    // ---- non-Float space is rejected -----------------------------------
+
+    struct TinyIntProblem { space: SearchSpace }
+    impl TinyIntProblem {
+        fn new() -> Self {
+            let space = SearchSpace::new(vec![Block::Int { lo: 0, hi: 10, n: 2 }]).unwrap();
+            Self { space }
+        }
+    }
+    impl MoProblem for TinyIntProblem {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|_| vec![0.0, 0.0]).collect()
+        }
+    }
+
+    #[test]
+    fn nsga2_run_non_float_space_is_error() {
+        let problem = TinyIntProblem::new();
+        let cfg = base_cfg();
+        let err = nsga2_run(&problem, &cfg).unwrap_err();
+        assert!(matches!(err, Nsga2Error::NonFloatSpace { index: 0 }), "got {err:?}");
+    }
+
+    // ---- p_c / p_m / eta validation ------------------------------------
+
+    #[test]
+    fn nsga2_run_p_c_out_of_range_is_error() {
+        let problem = Zdt::new(1, 6).unwrap();
+        for bad in [-0.1, 1.1] {
+            let mut cfg = base_cfg();
+            cfg.p_c = bad;
+            let err = nsga2_run(&problem, &cfg).unwrap_err();
+            assert!(matches!(err, Nsga2Error::InvalidProbability { name: "p_c", .. }), "bad={bad}, got {err:?}");
+        }
+    }
+
+    #[test]
+    fn nsga2_run_p_m_out_of_range_is_error() {
+        let problem = Zdt::new(1, 6).unwrap();
+        for bad in [-0.1, 1.1] {
+            let mut cfg = base_cfg();
+            cfg.p_m = Some(bad);
+            let err = nsga2_run(&problem, &cfg).unwrap_err();
+            assert!(matches!(err, Nsga2Error::InvalidProbability { name: "p_m", .. }), "bad={bad}, got {err:?}");
+        }
+    }
+
+    #[test]
+    fn nsga2_run_eta_c_non_positive_is_error() {
+        let problem = Zdt::new(1, 6).unwrap();
+        for bad in [0.0, -1.0] {
+            let mut cfg = base_cfg();
+            cfg.eta_c = bad;
+            let err = nsga2_run(&problem, &cfg).unwrap_err();
+            assert!(matches!(err, Nsga2Error::InvalidEta { name: "eta_c", .. }), "bad={bad}, got {err:?}");
+        }
+    }
+
+    #[test]
+    fn nsga2_run_eta_m_non_positive_is_error() {
+        let problem = Zdt::new(1, 6).unwrap();
+        for bad in [0.0, -1.0] {
+            let mut cfg = base_cfg();
+            cfg.eta_m = bad;
+            let err = nsga2_run(&problem, &cfg).unwrap_err();
+            assert!(matches!(err, Nsga2Error::InvalidEta { name: "eta_m", .. }), "bad={bad}, got {err:?}");
+        }
+    }
+
+    // ---- front0 sanity: every front0 member is mutually non-dominated -----
+
+    #[test]
+    fn nsga2_run_front0_is_mutually_non_dominated() {
+        let problem = Zdt::new(1, 6).unwrap();
+        let cfg = base_cfg();
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        assert!(!result.front0.is_empty());
+        for &i in &result.front0 {
+            for &j in &result.front0 {
+                if i != j {
+                    assert!(!dominates(&result.objectives[i], &result.objectives[j]),
+                        "front0 member {i} dominates front0 member {j}: not mutually non-dominated");
+                }
+            }
+        }
+    }
+
+    // ---- convergence smoke -----------------------------------------------
+    //
+    // ZDT1, dim=10, pop=40, budget=8000, seed=1. IGD (T7, `sezgi_stats::igd`)
+    // of the final front0's objectives against `zdt1.pareto_front(200)`.
+    // Measured value at this seed: 0.012945771007555612. Anchored threshold
+    // below (0.05) is rounded up with ~4x real headroom over the measured
+    // value (single-seed smoke test, not a comparative claim -- multi-seed
+    // statistics are T8's job).
+    #[test]
+    fn nsga2_run_zdt1_convergence_smoke() {
+        let problem = Zdt::new(1, 10).unwrap();
+        let cfg = Nsga2Config {
+            pop_size: 40, budget: 8000, seed: 1,
+            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None,
+        };
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        let front0_objectives: Vec<Vec<f64>> =
+            result.front0.iter().map(|&i| result.objectives[i].clone()).collect();
+        let reference = problem.pareto_front(200).unwrap();
+        let value = igd(&front0_objectives, &reference).unwrap();
+        assert!(value < 0.05, "measured IGD {value} exceeds the anchored threshold 0.05");
     }
 }
