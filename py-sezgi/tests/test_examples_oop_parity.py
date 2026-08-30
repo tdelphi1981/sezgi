@@ -11,6 +11,7 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 PAIRS = ["gwo", "woa", "hs", "cs", "goa", "sca", "jaya", "mfo", "ssa",
          "fa", "ba", "fpa", "tlbo"]
+PAIRS += ["hho", "alo", "abc", "gsa"]
 
 FIELDS = re.compile(r"evals_used=(\S+) best_f=(\S+) gap=(\S+)")
 
