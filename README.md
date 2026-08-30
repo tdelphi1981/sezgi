@@ -175,15 +175,18 @@ just the `(algo_names, problem_labels, matrix)` triple for one budget.
 
 ## Examples
 
-`examples/` holds a catalog of 5 labeled-metaphor algorithms (GWO, WOA,
-Harmony Search, Cuckoo Search, GOA), each as a triplet: a pure-Python
-teaching implementation (stdlib only, driven through `sezgi.EvalSession`),
-the same in pure R (`sz_eval_session`), and an `ExperimentSpec` TOML running
-sezgi's own built-in, RNG-stream-pinned preset for that algorithm. All three
-forms implement the same pinned update equations documented in the
-algorithm's Rust component (`crates/components/src/{gwo,woa,hs,cs,goa}.rs`).
-See `examples/README.md` for the full catalog table (primary + equivalence-
-critique references, and what each pure script teaches vs. its preset).
+`examples/` holds a catalog of all **17** labeled-metaphor algorithms (GWO,
+WOA, Harmony Search, Cuckoo Search, GOA, SCA, JAYA, MFO, SSA, FA, BA, FPA,
+TLBO, HHO, ALO, ABC, GSA), each as a triplet: a pure-Python teaching
+implementation (stdlib only, driven through `sezgi.EvalSession`), the same
+in pure R (`sz_eval_session`), and an `ExperimentSpec` TOML running sezgi's
+own built-in, RNG-stream-pinned preset for that algorithm — **51 example
+artifacts** in total. All three forms implement the same pinned update
+equations documented in the algorithm's Rust component
+(`crates/components/src/{gwo,woa,hs,cs,goa,sca,jaya,mfo,ssa,fa,ba,fpa,tlbo,
+hho,alo,abc,gsa}.rs`). See `examples/README.md` for the full catalog table
+(primary + equivalence-critique references, and what each pure script
+teaches vs. its preset).
 
 ## Development
 
@@ -193,7 +196,9 @@ critique references, and what each pure script teaches vs. its preset).
 
 ## Status
 
-M2d-3 (labeled metaphor presets, ask/tell `EvalSession`, CRAN dry run) **complete** — five labeled-metaphor algorithm presets (GWO, WOA, Harmony Search, Cuckoo Search/Lévy, GOA) with pinned deterministic draw orders and primary-source citations, plus their pure-Python/pure-R/spec example triplets under `examples/`; ask/tell `EvalSession`/`sz_eval_session()` exposed in both Python and R (no internal RNG, seed-as-label, constructor-only IOH logging); a budget-meta-key lift in IOH logging with two read-side reconciliation policies (`dedupe_same_budget`, `canonical_anytime`); a core-engine `global_best` fix; an `R CMD check --as-cran` dry run and a `cargo vendor` dry run (both recorded, not resolved — see below); `f64_to_u64` strictness and an `ExperimentError::Parse`/`InvalidSpec` diagnostics split. See `docs/DECISIONS.md` for the full M2d-3 record, including the CRAN check's verbatim output and the vendoring restructuring options (decision deferred to v1.0 prep — the R package currently depends on sibling workspace crates by path, which is not CRAN-submittable as-is). Next: second example wave (MFO/SSA/ALO/SCA/FA/BA/FPA/HHO/TLBO/JAYA/ABC/GSA) + the bias-scanning showcase (M3). License: MIT.
+M2d-4 (second and final labeled-metaphor wave) **complete** — twelve more algorithm presets (SCA, JAYA, MFO, SSA, FA, BA, FPA, TLBO, HHO, ALO, ABC, GSA) with pinned deterministic draw orders and primary-source citations, completing the labeled-metaphor catalog at **17 algorithms**, plus their pure-Python/pure-R/spec example triplets under `examples/` (**51 example artifacts** total across all 17); new reusable components `replace/bat-loudness-greedy`, `replace/abc-trial-greedy`, `adapter/abc-onlooker-scout`; TLBO as the project's first multi-stage-per-generation preset (`gen/tlbo-teacher` + `gen/tlbo-learner`); HHO as the project's first in-generator (not adapter) mid-evaluation generator. See `docs/DECISIONS.md`'s "M2d-4 completed" record for the full per-algorithm provenance table (source artifact + sketch-vs-verified deltas found) and the wave's consolidated rulings, including the wave-wide current-pop-argmin parked convention and its MFO-flame/ALO-antlion carve-out.
+
+M2d-3 (labeled metaphor presets, ask/tell `EvalSession`, CRAN dry run) **complete** — five labeled-metaphor algorithm presets (GWO, WOA, Harmony Search, Cuckoo Search/Lévy, GOA) with pinned deterministic draw orders and primary-source citations; ask/tell `EvalSession`/`sz_eval_session()` exposed in both Python and R (no internal RNG, seed-as-label, constructor-only IOH logging); a budget-meta-key lift in IOH logging with two read-side reconciliation policies (`dedupe_same_budget`, `canonical_anytime`); a core-engine `global_best` fix; an `R CMD check --as-cran` dry run and a `cargo vendor` dry run (both recorded, not resolved — see below); `f64_to_u64` strictness and an `ExperimentError::Parse`/`InvalidSpec` diagnostics split. See `docs/DECISIONS.md` for the full M2d-3 record, including the CRAN check's verbatim output and the vendoring restructuring options (decision deferred to v1.0 prep — the R package currently depends on sibling workspace crates by path, which is not CRAN-submittable as-is). Next: the bias-scanning showcase (M3). License: MIT.
 
 ## Algorithms
 
