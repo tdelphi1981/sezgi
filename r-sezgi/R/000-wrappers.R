@@ -144,6 +144,26 @@ NULL
   .Call(savvy_sz_per_budget_packages_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`)
 }
 
+#' Builds an Artificial Bee Colony spec (Karaboga 2005, TR-06 / Karaboga &
+#' Basturk 2007, Journal of Global Optimization -- a labeled metaphor
+#' preset; see `crates/components/src/abc.rs`'s module doc for the full
+#' provenance extraction against the author's own `ABCorig.m` plus the
+#' official `Python_ABC` port, the pop<->food-source convention
+#' resolution, the fitness-transform monotonicity proof, and the
+#' phase-design adjudication -- a SINGLE stage, not two symmetric stages
+#' like `tlbo`: `gen/abc-employed` + the new `replace/abc-trial-greedy`,
+#' plus the new `adapter/abc-onlooker-scout` folding the onlooker AND
+#' scout phases together) as JSON, ready to pass to `sz_solve_bbob()`.
+#'
+#' @param pop_size Population size (food-source count `SN`, NOT Karaboga's
+#'   colony size `NP=2*SN`). Canonical is 20.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_abc` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_abc__impl, `pop_size`, `budget`)
+}
+
 #' Builds an Ant Lion Optimizer spec (Mirjalili 2015, Advances in
 #' Engineering Software -- a labeled metaphor preset; see
 #' `crates/components/src/alo.rs`'s module doc for the full provenance

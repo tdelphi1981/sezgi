@@ -904,3 +904,95 @@ fn alo_min_pop_2_enforced_by_spec_validation() {
         other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
     }
 }
+
+// ---- ABC / Artificial Bee Colony (M2d-4 Task 11 -- see abc.rs's module
+// doc's "Phase-design adjudication": a single stage, not two symmetric
+// stages like tlbo, since the onlooker scan cannot fit the
+// Generator+Replacer shape) ----
+
+#[test]
+fn abc_is_a_single_stage_spec_with_the_trial_coupled_replacer_and_onlooker_scout_adapter() {
+    let spec = presets::abc(20, 2000);
+    assert_eq!(spec.stages.len(), 1, "ABC is a single-stage preset, unlike tlbo's two symmetric stages");
+    assert_eq!(spec.stages[0].generator.kind, "gen/abc-employed");
+    assert_eq!(spec.stages[0].replacer.kind, "replace/abc-trial-greedy");
+    assert_eq!(spec.stages[0].adapter.as_ref().unwrap().kind, "adapter/abc-onlooker-scout");
+}
+
+#[test]
+fn abc_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+
+    let p = SphereShifted::new(vec![0.0; 5], -5.0, 5.0);
+    let spec = presets::abc(1, 500); // below min_pop = 2
+    let err = Engine::from_spec(&spec, &registry(), p.space()).err().unwrap();
+    let err_str = format!("{err}");
+    assert!(err_str.contains("gen/abc-employed") && err_str.contains("2") && err_str.contains("1"),
+        "expected a PopulationTooSmall-shaped error, got: {err_str}");
+
+    match spec.validate(&registry(), p.space()) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/abc-employed");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
+}
+
+/// Budget-accounting honesty (the brief's explicit ask): with trial
+/// counters far from the limit (`SN*dim`, large relative to a handful of
+/// generations), no scout ever fires, so a full multi-generation run must
+/// consume EXACTLY `pop_size (init) + generations * 2 * pop_size`
+/// evaluations -- `SN` for the employed phase (the engine's own
+/// `eval.evaluate(&offspring)` call) plus `SN` for the onlooker phase
+/// (`adapter/abc-onlooker-scout`'s own `SN` internal `ctx.eval.evaluate`
+/// calls), never `4*SN` (which an HHO-style "generator internally
+/// evaluates, then the engine re-evaluates the same offspring again" design
+/// would have produced -- see the module doc's phase-design adjudication
+/// for why that shape was rejected).
+#[test]
+fn abc_evals_are_exactly_2x_pop_per_cycle_when_no_scout_fires() {
+    let pop_size = 10usize;
+    let dim = 5;
+    // limit = SN*dim = 50: each source's trial can increment at most TWICE
+    // per cycle (once in the employed phase, once if visited-and-rejected
+    // in the onlooker phase), so after only 3 cycles no source's trial can
+    // possibly exceed 6 -- nowhere near 50, so the scout provably never
+    // fires in this fixture, and the budget divides EXACTLY (no partial
+    // generation), making the expected evals_used arithmetic exact --
+    // mirroring the engine's own `two_stage_budget_accounting_consumes_2x_
+    // pop_per_generation` test (M2d-4 Task 8) at the component level.
+    let p = SphereShifted::new(vec![0.0; dim], -5.0, 5.0);
+    let generations = 3u64;
+    let budget = pop_size as u64 + generations * 2 * pop_size as u64; // exactly divisible
+    let spec = presets::abc(pop_size, budget);
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    assert_eq!(r.evals_used, budget,
+        "an exactly-divisible budget must be used up exactly: init + generations*2*pop_size, honestly (never 4*pop_size)");
+    assert_eq!(r.iterations, generations);
+}
+
+#[test]
+fn abc_solves_bbob_f1_dim5() {
+    let p = BbobProblem::new(1, 5, 1).unwrap();
+    let spec = presets::abc(20, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), Problem::space(&p)).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    let gap = r.best_f - p.f_opt();
+    // Measured gap at seed 42/pop_size 20 (=SN)/budget 20k: exactly 0.0
+    // (bit-identical convergence to the optimum, best_f == f_opt ==
+    // -125.9497035670884 -- cross-checked at seeds 7/100/999 too, same
+    // exact result each time). On this easy, unimodal, separable BBOB
+    // f1/dim5 instance, ABC's single-dimension coordinate-wise employed
+    // and onlooker moves (each visit only ever perturbs ONE dimension) act
+    // like a highly effective coordinate-descent-with-restarts search over
+    // 500 cycles (20k/(2*20)), so exact convergence is unsurprising here --
+    // same class of result `alo.rs`'s own anchored test measured (~1.28e-13,
+    // essentially converged) on the identical instance. Anchored per this
+    // wave's convention: round UP to the next 0.5 above the measured value
+    // with >=0.3 headroom -- measured 0.0, so anchor at 0.5 (headroom 0.5).
+    assert!(gap < 0.5,
+        "abc should land reasonably close to the BBOB f1 (Sphere) optimum in 20k evaluations: gap={gap:e}");
+}

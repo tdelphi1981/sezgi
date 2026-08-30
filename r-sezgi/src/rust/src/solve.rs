@@ -370,6 +370,28 @@ fn sz_preset_alo(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds an Artificial Bee Colony spec (Karaboga 2005, TR-06 / Karaboga &
+/// Basturk 2007, Journal of Global Optimization -- a labeled metaphor
+/// preset; see `crates/components/src/abc.rs`'s module doc for the full
+/// provenance extraction against the author's own `ABCorig.m` plus the
+/// official `Python_ABC` port, the pop<->food-source convention
+/// resolution, the fitness-transform monotonicity proof, and the
+/// phase-design adjudication -- a SINGLE stage, not two symmetric stages
+/// like `tlbo`: `gen/abc-employed` + the new `replace/abc-trial-greedy`,
+/// plus the new `adapter/abc-onlooker-scout` folding the onlooker AND
+/// scout phases together) as JSON, ready to pass to `sz_solve_bbob()`.
+///
+/// @param pop_size Population size (food-source count `SN`, NOT Karaboga's
+///   colony size `NP=2*SN`). Canonical is 20.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_abc(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::abc(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
 /// Builds a simulated annealing (Metropolis, geometric cooling) algorithm
 /// spec as JSON, ready to pass to `sz_solve_bbob()`.
 ///

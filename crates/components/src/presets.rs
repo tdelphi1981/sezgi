@@ -519,6 +519,39 @@ pub fn alo(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Artificial Bee Colony (Karaboga 2005, TR-06 / Karaboga & Basturk 2007,
+/// *Journal of Global Optimization*) -- a labeled metaphor preset (see
+/// `abc.rs`'s module doc for the full provenance extraction against the
+/// author's own `ABCorig.m` plus the official `Python_ABC` port, the
+/// pop<->food-source convention resolution, the fitness-transform
+/// monotonicity proof, the probability-formula delta from the plan's
+/// sketch, and the phase-design adjudication -- a single stage, not two
+/// symmetric stages like `tlbo`). `gen/abc-employed` paired with the new
+/// `replace/abc-trial-greedy` (the trial counters' bootstrap-then-owning
+/// pair, mirroring `mfo.rs`'s flame-memory pattern) plus the new
+/// `adapter/abc-onlooker-scout` (the onlooker AND scout phases, folded into
+/// one self-contained adapter -- see the module doc for why the onlooker
+/// scan cannot fit the `Generator`+`Replacer` shape). `pop_size` IS `SN`
+/// (the food-source count) directly, NOT Karaboga's colony size `NP=2*SN`;
+/// canonical is 20 per this module's resolved convention. `min_pop = 2`
+/// (the neighbour `k!=i` rejection loop's hard floor), enforced via
+/// `AlgorithmSpec::validate`. A full cycle costs `2*pop_size` evaluations
+/// (`+1` when a scout fires) -- see the module doc's "Eval accounting".
+pub fn abc(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "abc".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/abc-employed", serde_json::json!({})),
+            replacer: comp("replace/abc-trial-greedy", serde_json::json!({})),
+            adapter: Some(comp("adapter/abc-onlooker-scout", serde_json::json!({}))),
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn sa(budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "sa/metropolis-geometric".into(),

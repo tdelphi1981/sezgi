@@ -142,6 +142,19 @@ def test_preset_alo_is_dict_with_stages():
     assert spec["stages"][0]["replacer"]["kind"] == "replace/mu-plus-lambda"
 
 
+def test_preset_abc_is_dict_with_single_stage():
+    """M2d-4 Task 11: sezgi.presets.abc() parses as JSON with the expected
+    shape -- a SINGLE stage (unlike tlbo's two symmetric stages), the
+    trial-coupled greedy replacer, and the onlooker+scout adapter -- see
+    abc.rs's module doc for the phase-design adjudication."""
+    spec = sezgi.presets.abc(pop_size=20, budget=2000)
+    assert spec["pop_size"] == 20
+    assert len(spec["stages"]) == 1
+    assert spec["stages"][0]["generator"]["kind"] == "gen/abc-employed"
+    assert spec["stages"][0]["replacer"]["kind"] == "replace/abc-trial-greedy"
+    assert spec["stages"][0]["adapter"]["kind"] == "adapter/abc-onlooker-scout"
+
+
 def test_bbob_solve_deterministic():
     p = sezgi.bbob(fid=1, dim=5, instance=1)
     spec = sezgi.presets.de_rand_1(pop_size=20, budget=2000)
@@ -257,6 +270,7 @@ def test_all_presets_solve_smoke():
         "tlbo": sezgi.presets.tlbo(pop_size=30, budget=budget),
         "hho": sezgi.presets.hho(pop_size=30, budget=budget),
         "alo": sezgi.presets.alo(pop_size=25, budget=budget),
+        "abc": sezgi.presets.abc(pop_size=20, budget=budget),
         "jde": sezgi.presets.jde(pop_size=20, budget=budget),
         "shade": sezgi.presets.shade(pop_size=20, budget=budget),
         "lshade": sezgi.presets.lshade(dim=dim, budget=budget),

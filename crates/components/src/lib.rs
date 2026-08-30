@@ -28,6 +28,7 @@ pub mod fpa;
 pub mod tlbo;
 pub mod hho;
 pub mod alo;
+pub mod abc;
 
 use sezgi_core::component::Registry;
 
@@ -60,4 +61,5 @@ pub fn register_builtins(reg: &mut Registry) {
     tlbo::register(reg);
     hho::register(reg);
     alo::register(reg);
+    abc::register(reg);
 }

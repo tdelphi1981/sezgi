@@ -64,6 +64,11 @@ SEXP savvy_sz_per_budget_packages_raw__impl(SEXP c_arg__algo, SEXP c_arg__fid, S
     return handle_result(res);
 }
 
+SEXP savvy_sz_preset_abc__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_abc__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_preset_alo__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_alo__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
@@ -301,6 +306,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_coco_export__impl", (DL_FUNC) &savvy_sz_coco_export__impl, 2},
     {"savvy_sz_ecdf_raw__impl", (DL_FUNC) &savvy_sz_ecdf_raw__impl, 3},
     {"savvy_sz_per_budget_packages_raw__impl", (DL_FUNC) &savvy_sz_per_budget_packages_raw__impl, 13},
+    {"savvy_sz_preset_abc__impl", (DL_FUNC) &savvy_sz_preset_abc__impl, 2},
     {"savvy_sz_preset_alo__impl", (DL_FUNC) &savvy_sz_preset_alo__impl, 2},
     {"savvy_sz_preset_bat__impl", (DL_FUNC) &savvy_sz_preset_bat__impl, 2},
     {"savvy_sz_preset_cmaes__impl", (DL_FUNC) &savvy_sz_preset_cmaes__impl, 2},
