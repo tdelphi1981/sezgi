@@ -13,9 +13,12 @@
 //! T6 (the Rajwar-Deep signature-bias test) is DEFERRED in `sezgi-bias`
 //! itself (no `signature_scan` exists -- see `crates/bias/src/report.rs`'s
 //! module doc, "T6 (signature test): deferred"); `sz_bias_report()`'s
-//! `signature` element is therefore always R `NULL`, mirroring
-//! `BiasReport::signature`'s own always-`None` `Option<BiasVerdict>` today
-//! and py-sezgi's `bias_report()["signature"] is None`.
+//! `signature` element is mapped through `BiasReport::signature` properly (a
+//! `Some`/`None` match, not a hardcoded `NullSexp`), so it is R `NULL` today
+//! only because `BiasReport::signature` itself is always `None` today --
+//! mirroring py-sezgi's own `bias_report()["signature"]` mapping. The moment
+//! T6 lands in the crate, both bindings reflect it with no further code
+//! change, rather than silently misreporting `NULL`/`None` forever.
 //!
 //! Every scalar statistic (`d`, `p_value`, `a2`, `w_statistic`, `z`,
 //! `effect`, gap/position entries) is passed through as the exact `f64`
@@ -324,9 +327,12 @@ fn sz_bias_central_raw(
 /// @param central_runs_per Optional double, cast to `u32`; `NULL` uses 20.
 /// @param central_fids Optional numeric vector; `NULL` uses `c(1, 4, 13)`.
 /// @param central_instances Optional numeric vector; `NULL` uses `c(1, 2)`.
-/// @returns A named list with `structural`, `central`, `signature` (always
-///   `NULL` -- T6 is deferred, see this module's own doc), `latex_summary`
-///   (never contains the literal `"NaN"`), `plot_data` (mirrors py-sezgi's
+/// @returns A named list with `structural`, `central`, `signature` (`NULL`
+///   today, since T6 is deferred and `BiasReport::signature` is always
+///   `None` -- see this module's own doc; when non-`NULL`, a two-element
+///   list `list(verdict = ..., detail = ...)`, same shape as `structural`'s/
+///   `central`'s own `verdict`/`detail`), `latex_summary` (never contains
+///   the literal `"NaN"`), `plot_data` (mirrors py-sezgi's
 ///   `sezgi.bias.report()` dict keys exactly).
 /// @noRd
 #[savvy]
@@ -365,9 +371,20 @@ fn sz_bias_report_raw(
     let mut out = OwnedListSexp::new(5, true)?;
     out.set_name_and_value(0, "structural", structural_result_list(&r.structural)?)?;
     out.set_name_and_value(1, "central", central_result_list(&r.central)?)?;
-    // T6 is deferred in sezgi-bias itself -- always NULL, see this module's
-    // own doc.
-    let signature_sexp: Sexp = NullSexp.into();
+    // T6 is deferred in sezgi-bias itself -- `r.signature` is always `None`
+    // TODAY (see this module's own doc), but this maps it through properly
+    // (rather than hardcoding `NullSexp`) so a future T6 landing in the
+    // crate is reflected here automatically, with no silent misreport.
+    let signature_sexp: Sexp = match &r.signature {
+        Some(verdict) => {
+            let (verdict_sexp, detail_sexp) = verdict_detail_sexp(verdict)?;
+            let mut sig = OwnedListSexp::new(2, true)?;
+            sig.set_name_and_value(0, "verdict", verdict_sexp)?;
+            sig.set_name_and_value(1, "detail", detail_sexp)?;
+            sig.into()
+        }
+        None => NullSexp.into(),
+    };
     out.set_name_and_value(2, "signature", signature_sexp)?;
     out.set_name_and_value(
         3,

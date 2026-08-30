@@ -102,9 +102,11 @@
 //! is computed on EXACTLY the point the algorithm queried, in the SAME
 //! frame as the shifted condition. See `sezgi_problems::bbob::mod`'s
 //! `BbobProblem::recentered`/`is_translation_invariant` docs for the full
-//! mechanism and why it is a PURE relocation of the optimum (proved there
-//! by `recentered_is_a_pure_translation_of_the_same_landscape`) for every
-//! fid this scan accepts.
+//! mechanism and why it is a PURE relocation of the optimum (proved there,
+//! for the CORE landscape away from the boundary-penalty region -- see
+//! `recentered_is_a_pure_translation_of_the_core_landscape_away_from_the_
+//! penalty_region`'s own scope note; `f_pen` itself deliberately does NOT
+//! translate, by design) for every fid this scan accepts.
 //!
 //! **Fids excluded, and why:** `x_opt` is not ALWAYS a pure translation
 //! origin -- fids 5 (LinearSlope), 6 (AttractiveSector), 20 (Schwefel), and

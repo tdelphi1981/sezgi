@@ -755,8 +755,11 @@ fn per_budget_packages(
 // T6 (the Rajwar-Deep signature-bias test) is DEFERRED in `sezgi-bias`
 // itself (no `signature_scan` exists yet — see `crates/bias/src/report.rs`'s
 // module doc, "T6 (signature test): deferred"); `bias_report`'s `signature`
-// key is therefore always Python `None` here, mirroring
-// `BiasReport::signature`'s own always-`None` `Option<BiasVerdict>` today.
+// key is mapped through `r.signature` properly (a `Some`/`None` match, not a
+// hardcoded `py.None()`), so it is Python `None` today only because
+// `BiasReport::signature` itself is always `None` today — the moment T6
+// lands in the crate, this binding reflects it with no code change needed
+// here, rather than silently misreporting `None` forever.
 //
 // Every scalar statistic (`d`, `p_value`, `a2`, `w_statistic`, `z`,
 // `effect`, ...) is passed through as the exact `f64` PyO3 already returns
@@ -928,8 +931,11 @@ fn bias_central(
 ///
 /// Returns a dict with keys `structural` (same shape as `bias_structural`'s
 /// return), `central` (same shape as `bias_central`'s return), `signature`
-/// (always Python `None` today — T6 is deferred, see this section's own
-/// doc), `latex_summary` (str, never containing the literal `NaN`), and
+/// (Python `None` today, since `BiasReport::signature` is always `None` — T6
+/// is deferred, see this section's own doc; mapped through properly rather
+/// than hardcoded, so it becomes `{"verdict": ..., "detail": ...}`,
+/// mirroring `structural`/`central`'s own `set_verdict` shape, the moment T6
+/// lands), `latex_summary` (str, never containing the literal `NaN`), and
 /// `plot_data` (`{final_positions, gap_centered, gap_shifted}`, the same raw
 /// vectors already inside `structural`/`central`, surfaced for a caller that
 /// wants to plot them directly).
@@ -971,9 +977,18 @@ fn bias_report(
     let d = PyDict::new(py);
     d.set_item("structural", structural_result_to_dict(py, &r.structural)?)?;
     d.set_item("central", central_result_to_dict(py, &r.central)?)?;
-    // T6 is deferred in sezgi-bias itself -- always None, see this
-    // section's own doc.
-    d.set_item("signature", py.None())?;
+    // T6 is deferred in sezgi-bias itself -- `r.signature` is always `None`
+    // TODAY (see this section's own doc), but this maps it through properly
+    // (rather than hardcoding `py.None()`) so a future T6 landing in the
+    // crate is reflected here automatically, with no silent misreport.
+    match &r.signature {
+        Some(verdict) => {
+            let sig = PyDict::new(py);
+            set_verdict(&sig, verdict)?;
+            d.set_item("signature", sig)?;
+        }
+        None => d.set_item("signature", py.None())?,
+    }
     d.set_item("latex_summary", r.latex_summary.clone())?;
 
     let plot = PyDict::new(py);

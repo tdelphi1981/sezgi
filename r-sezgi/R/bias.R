@@ -77,8 +77,10 @@ sz_bias_central <- function(spec_json, dim, budget, fids = NULL, instances_shift
 #' `sezgi-bias` crate itself -- the method could not be pinned from
 #' accessible sources (no reachable source fully specifies its statistical
 #' procedure). There is no `sz_bias_signature()`; the returned list's
-#' `signature` element is always `NULL`, and `latex_summary` renders an
-#' honest "not run" row for it instead of a fabricated result.
+#' `signature` element is mapped through properly (not hardcoded), so it is
+#' `NULL` today only because the crate's own result is always `NULL` today --
+#' see below -- and `latex_summary` renders an honest "not run" row for it
+#' instead of a fabricated result.
 #'
 #' @param spec_json Algorithm spec as JSON.
 #' @param dim Shared dimensionality for both scans (BBOB requires `dim >= 2`).
@@ -93,7 +95,9 @@ sz_bias_central <- function(spec_json, dim, budget, fids = NULL, instances_shift
 #' @param central_runs_per Optional; `NULL` (default) uses 20.
 #' @returns A named list with `structural` (same shape as
 #'   `sz_bias_structural()`'s return), `central` (same shape as
-#'   `sz_bias_central()`'s return), `signature` (always `NULL`, see above),
+#'   `sz_bias_central()`'s return), `signature` (`NULL` today, see above;
+#'   when non-`NULL`, a two-element list `list(verdict = ..., detail =
+#'   ...)`, same shape as `structural`'s/`central`'s own `verdict`/`detail`),
 #'   `latex_summary` (character scalar, never contains the literal
 #'   `"NaN"`), `plot_data` (named list: `final_positions`, `gap_centered`,
 #'   `gap_shifted` -- the same raw vectors already inside `structural`/

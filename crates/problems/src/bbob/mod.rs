@@ -603,14 +603,26 @@ mod tests {
     }
 
     // Proves `recentered` is a PURE relocation of the optimum for
-    // translation-invariant fids: evaluating `x_opt_orig + delta` on the
-    // original (shifted) instance must equal evaluating `center + delta`
-    // on its `.recentered()` counterpart, for the SAME instance (same fid,
-    // dim, instance number -- so identical rotation/Gallagher data), for
-    // every fid category this fix touches (plain shift: 1; f_pen fids: 4,
-    // 16, 23; Gallagher: 21).
+    // translation-invariant fids, AWAY FROM THE PENALTY REGION: evaluating
+    // `x_opt_orig + delta` on the original (shifted) instance must equal
+    // evaluating `center + delta` on its `.recentered()` counterpart, for
+    // the SAME instance (same fid, dim, instance number -- so identical
+    // rotation/Gallagher data), for every fid category this fix touches
+    // (plain shift: 1; f_pen fids: 4, 16, 23; Gallagher: 21).
+    //
+    // Scope note (does NOT overclaim landscape-wide equality): for the
+    // f_pen-bearing fids (4, 16, 23), `recentered` deliberately does NOT
+    // translate the boundary-penalty envelope `f_pen` -- that asymmetry is
+    // the whole point of the `recentered` fix (see this module's own doc,
+    // `is_translation_invariant`/`recentered`, and `central.rs`'s "why
+    // `central_bias_scan` no longer wraps evaluated points" section). This
+    // fixture's `delta` values are small enough that every probed point
+    // stays in the penalty-free interior (`f_pen = 0`) on BOTH sides, so the
+    // test only proves the CORE landscape (the part `f_pen` doesn't touch)
+    // is a pure translation -- it does not, and cannot, prove `f_pen` itself
+    // translates (it does not, by design).
     #[test]
-    fn recentered_is_a_pure_translation_of_the_same_landscape() {
+    fn recentered_is_a_pure_translation_of_the_core_landscape_away_from_the_penalty_region() {
         let dim = 5;
         let delta = [0.3, -0.2, 0.1, 0.0, -0.15];
         for fid in [1u32, 4, 16, 21, 23] {
@@ -629,8 +641,8 @@ mod tests {
             let f_centered = recentered.evaluate_batch(&[g(x_centered)])[0];
             assert!(
                 (f_shifted - f_centered).abs() < 1e-9,
-                "fid {fid}: recentered must be a pure translation of the same landscape, got \
-                 f_shifted={f_shifted} vs f_centered={f_centered}"
+                "fid {fid}: recentered must be a pure translation of the core landscape (away \
+                 from the penalty region), got f_shifted={f_shifted} vs f_centered={f_centered}"
             );
         }
     }

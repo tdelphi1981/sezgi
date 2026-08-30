@@ -194,8 +194,8 @@ and renders a NaN-free LaTeX summary table:
                                 central_instances=[1], central_runs_per=5)
     print(report["latex_summary"])
 
-Output (tiny budgets, for illustration — see "Method provenance and
-defaults" below for the numbers a real scan should use):
+Output (tiny budgets, for illustration — see `docs/DECISIONS.md`'s M3-1
+"Method-provenance table" for the numbers a real scan should use):
 
     \begin{tabular}{llll}
     \toprule
