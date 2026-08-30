@@ -77,7 +77,7 @@
 //! that variant coincides with the plain-mean `IGD` only at `p = 1`. The
 //! Ishibuchi et al. (2015) paper itself attributes the term "inverted
 //! generational distance" to Coello & Sierra (2004) and Sierra & Coello
-//! (2004/2005).
+//! (2004).
 //!
 //! # Determinism
 //!
@@ -313,6 +313,57 @@ mod tests {
 
         let hv = hypervolume_2d(&front, &ref_point).expect("valid fixture");
         assert_eq!(hv, 0.375);
+    }
+
+    // Ref-point boundary-equality convention guard: a front point with
+    // f1 == ref_point[0] exactly, and one with f2 == ref_point[1] exactly,
+    // do NOT strictly dominate ref_point (the code's filter is `<`, not
+    // `<=`), so both contribute zero area. Exact-representable values
+    // (0.5, 1.0) so this is checked by exact equality, not tolerance.
+    // Guards against a future "fix" of `<` to `<=` silently changing the
+    // pinned convention.
+    #[test]
+    fn hypervolume_2d_boundary_equality_contributes_nothing() {
+        let front = vec![
+            vec![0.25, 0.75],
+            vec![0.5, 0.5],
+            vec![0.75, 0.25],
+            vec![1.0, 0.5], // f1 == ref_point[0] exactly
+            vec![0.5, 1.0], // f2 == ref_point[1] exactly
+        ];
+        let ref_point = [1.0, 1.0];
+
+        let hv = hypervolume_2d(&front, &ref_point).expect("valid fixture");
+        assert_eq!(hv, 0.375);
+    }
+
+    // Same-f1 tie that is NOT an exact duplicate: front =
+    // [(1,3), (2,2), (2,1), (3,0.5)], ref_point = (4,4). (2,2) and (2,1)
+    // share f1 = 2 but (2,2) is weakly dominated by (2,1) (1 <= 2, 2 <= 2,
+    // not equal), so (2,2) must contribute nothing; the running-min sweep
+    // (sorted ascending by (f1, f2)) keeps (1,3), then (2,1) (f2=1 < 3,
+    // survives), then skips (2,2) (f2=2 is not < best_f2=1), then keeps
+    // (3,0.5) (f2=0.5 < 1).
+    //
+    // Kept, ascending f1: (1,3), (2,1), (3,0.5).
+    //
+    // i=1 (1,3):   width = 2 - 1 = 1,   height = 4 - 3   = 1   -> area = 1
+    // i=2 (2,1):   width = 3 - 2 = 1,   height = 4 - 1   = 3   -> area = 3
+    // i=3 (3,0.5): width = 4 - 3 = 1,   height = 4 - 0.5 = 3.5 -> area = 3.5
+    //
+    // total = 1 + 3 + 3.5 = 7.5
+    #[test]
+    fn hypervolume_2d_same_f1_tie_not_double_counted() {
+        let front = vec![
+            vec![1.0, 3.0],
+            vec![2.0, 2.0],
+            vec![2.0, 1.0],
+            vec![3.0, 0.5],
+        ];
+        let ref_point = [4.0, 4.0];
+
+        let hv = hypervolume_2d(&front, &ref_point).expect("valid fixture");
+        assert_eq!(hv, 7.5);
     }
 
     #[test]
