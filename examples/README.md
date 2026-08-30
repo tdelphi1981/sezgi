@@ -171,3 +171,46 @@ Live output (measured by running all four scripts from the repo root;
 The R `tsp_ga_perm.R` run prints the same tour length (`11771`) -- the TSP
 pair runs the same Rust core in both languages, so the numbers agree
 exactly (R's default printing drops the trailing `.0`).
+
+## OOP twins (M3-4)
+
+`examples/python/oop/` holds a fourth artifact per algorithm: the SAME 17
+algorithms as the catalog above (gwo, woa, hs, cs, goa, sca, jaya, mfo,
+ssa, fa, ba, fpa, tlbo, hho, alo, abc, gsa), each ported onto
+`sezgi.Algorithm` -- a subclass implementing `setup(ctx)`/`step(ctx)` over
+`AlgoContext`, driven by the same `sezgi.EvalSession` core the pure
+`python/<algo>.py` scripts already use, but expressed as an OOP template
+method instead of a bare script. See the main `README.md`'s "Write your
+own algorithm (Python) (M3-4)" section for the authoring guide these twins
+demonstrate.
+
+**Bit-exact parity, not merely statistical equivalence.** Each twin is a
+verbatim RNG-draw-order port of its pure script sibling -- same
+`random.Random` seed, same per-generation draw sequence, same
+`ctx.evaluate`/`BudgetExhausted` boundary reproducing the pure script's own
+`while used + N <= BUDGET` guard -- so at the shared scenario (BBOB f1,
+dim 5, budget 2000, seed 42) the twin's printed `evals_used`/`best_f`/`gap`
+fields are STRING-IDENTICAL to the pure script's, not just close. This is
+gated by `py-sezgi/tests/test_examples_oop_parity.py`: for each of the 17
+algorithms it runs both `examples/python/<algo>.py` and
+`examples/python/oop/<algo>.py` as subprocesses and asserts their printed
+`evals_used=... best_f=... gap=...` fields match exactly.
+
+**The pure scripts remain the pedagogical/provenance originals** --
+`examples/python/<algo>.py` files were not touched by this port (verified
+empty `git diff` against all 17 at every porting task's gate); they stay
+the primary teaching artifact this catalog's table above describes ("what
+the pure version teaches vs. the preset"). The OOP twins are a SEPARATE,
+additional artifact demonstrating the `sezgi.Algorithm` authoring surface
+on already-understood algorithms, not a replacement for the pure scripts.
+
+Run (any of the 17; using gwo here):
+
+    ./py-sezgi/.venv/bin/python examples/python/oop/gwo.py
+
+Live output (same scenario/seed as the pure script above it):
+
+    gwo (oop): evals_used=1980 best_f=-125.949 gap=0.000659831
+
+which matches `./py-sezgi/.venv/bin/python examples/python/gwo.py`'s own
+`gwo: evals_used=1980 best_f=-125.949 gap=0.000659831` field-for-field.

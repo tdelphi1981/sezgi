@@ -371,6 +371,137 @@ is the field's later, still Davis-attributed, synthesis — pinned to
 Cicirello's 2023 worked numeric example) and the TSPLIB `nint` rounding
 rule.
 
+## Write your own algorithm (Python) (M3-4)
+
+`sezgi.Algorithm` is a subclassable ABC for authoring a metaheuristic
+entirely in Python (no Rust component graph, no `ExperimentSpec`) while
+still getting evaluation counting, all-or-nothing budget enforcement, best
+tracking, and optional IOH logging for free from the SAME `EvalSession`
+core that backs the `examples/python/oop/` twins. A subclass implements two
+methods — `setup(ctx)` (run once) and `step(ctx)` (run repeatedly until the
+budget is exhausted) — over an `AlgoContext` (`ctx.dim`, `ctx.bounds`,
+`ctx.rng`, `ctx.random_point()`, `ctx.evaluate(points)`, `ctx.best()`,
+`ctx.remaining`). A random-search subclass, in full:
+
+    import sezgi
+
+
+    class RandomSearch(sezgi.Algorithm):
+        """Draw batches of random points; keep the best (EvalSession does that)."""
+
+        def setup(self, ctx):
+            self.batch = 10
+
+        def step(self, ctx):
+            points = [ctx.random_point() for _ in range(self.batch)]
+            ctx.evaluate(points)
+
+
+    result = RandomSearch().solve(
+        sezgi.bbob(fid=1, dim=5, instance=1), budget=2000, seed=42)
+    print(f"evals_used={result.evals_used} best_f={result.best_f:.6g} "
+          f"gap={result.gap:.6g}")
+
+Output (live run):
+
+    evals_used=2000 best_f=-124.971 gap=0.97896
+
+`ctx.evaluate(points)` raises `sezgi.algo.BudgetExhausted` when a batch
+would overrun the remaining budget — the driver catches it and ends the run
+cleanly, so `step()` can be written as if the budget were unlimited, the
+same `while used + N <= BUDGET` idiom the pure `examples/python/*.py`
+scripts already use, just expressed as a boundary condition instead of a
+loop guard. `solve()` returns a `SolveResult` (`algo`, `seed`, `budget`,
+`evals_used`, `best_x`, `best_f`, `f_opt`, `gap` — `f_opt`/`gap` are `None`
+for a problem with no known optimum, e.g. a raw `from_callable` handle).
+
+**Feeding a custom algorithm into the stats pipeline.** `sezgi.algo.bbob_records`
+sweeps a factory-constructed `Algorithm` across combinations of BBOB
+functions, dimensions, instances, and seeds, and records each run in the
+exact same dict shape `run_experiment` produces (`algo`, `fid`, `dim`,
+`instance`, `seed`, `budget`, `best_f`, `f_opt`, `gap`, `evals_used`,
+`wall_secs`) — the two sources mix freely in one call to
+`sezgi.results_matrix`/`sezgi.per_budget_packages`. Comparing a custom
+Python algorithm against a built-in preset (or against another custom
+algorithm) therefore goes through the SAME multi-seed, per-budget
+machinery as any other comparison in this project — never a single-seed
+run (see the single-seed-comparison ban stated in `examples/README.md` and
+the "Experiments & Statistics" section above), and never pooled across
+budgets (`per_budget_packages` builds one statistical package PER budget
+present in the records, per Piotrowski et al. 2025's finding that
+rankings can flip depending on which budget is examined):
+
+    import sezgi
+    from sezgi.algo import Algorithm, bbob_records
+
+    # RandomSearch as defined above; a second, genuinely different algorithm:
+    class HillClimber(Algorithm):
+        def setup(self, ctx):
+            ctx.evaluate([ctx.random_point()])
+
+        def step(self, ctx):
+            best_x, best_f = ctx.best()
+            spread = 0.1 * (ctx.bounds[1] - ctx.bounds[0])
+            p = [max(ctx.bounds[0], min(ctx.bounds[1],
+                     x + ctx.rng.gauss(0, spread))) for x in best_x]
+            ctx.evaluate([p])
+
+    records = (bbob_records(RandomSearch, fids=[1, 2], dims=[2], instances=[1],
+                             seeds=[0, 1, 2, 3, 4], budget=200)
+               + bbob_records(HillClimber, fids=[1, 2], dims=[2], instances=[1],
+                               seeds=[0, 1, 2, 3, 4], budget=200))
+    packages = sezgi.per_budget_packages(records)  # one package per budget present
+    budget, pkg = packages[0]
+    print(budget, sorted(pkg.keys()))
+
+Output (live run):
+
+    200 ['bayes', 'cliffs', 'friedman', 'latex_summary', 'latex_tests', 'nemenyi_cd', 'pairwise_wilcoxon_holm', 'plackett_luce']
+
+**Bias-scanning a custom algorithm.** `sezgi.bias.f0(dim, seed)` is a
+`Problem` handle over the BIAS-toolbox's own `[0,1]^d` random test function
+(no known optimum — `log_dir`/IOH logging is rejected for it, same as any
+`f_opt=None` problem, see the scope ruling below); `sezgi.bias.structural_positions(final_positions)`
+runs the SAME statistical KS/AD structural-bias scan described in the "Bias
+scanning (M3-1)" section above, but over a plain list of final-position
+vectors collected from ANY externally-driven algorithm, not just a
+spec-driven engine run:
+
+    import sezgi
+    from sezgi.algo import Algorithm
+
+    class RandomSearch(Algorithm):
+        def setup(self, ctx):
+            self.batch = 10
+
+        def step(self, ctx):
+            ctx.evaluate([ctx.random_point() for _ in range(self.batch)])
+
+    positions = []
+    for run in range(30):
+        r = RandomSearch().solve(sezgi.bias.f0(dim=3, seed=run), budget=60, seed=run)
+        positions.append(r.best_x)
+
+    verdict = sezgi.bias.structural_positions(positions)
+    print("verdict:", verdict["verdict"])
+
+Output (live run):
+
+    verdict: no_evidence
+
+**Scope rulings.** `Algorithm`/`AlgoContext` cover continuous (`Float`-block)
+problems only in v1 — a TSP/permutation problem raises `ValueError` from
+`EvalSession.for_problem` ("EvalSession supports continuous (float)
+problems only"), and authoring a custom permutation-space algorithm this
+way is out of scope, deferred onward (this project's `Algorithm` ABC is
+Python-only for v1 too — an equivalent R-side authoring surface is a
+separate, deferred item, see the v1.0 readiness checklist below). IOH
+logging from a custom `Algorithm` requires a problem with a known optimum
+(`f_opt` — the same `LogRequiresKnownOptimum` rule `EvalSession.with_log`
+enforces everywhere in this project): `sezgi.bbob(...)`/`sezgi.problems.cec2022(...)`
+work with `log_dir=`, but `sezgi.bias.f0(...)` or a raw `from_callable`
+handle with no known optimum do not.
+
 ## Examples
 
 `examples/` holds a catalog of all **17** labeled-metaphor algorithms (GWO,
@@ -407,6 +538,27 @@ script works around.
     R CMD INSTALL --preclean r-sezgi && Rscript -e 'testthat::test_dir("r-sezgi/tests/testthat", package = "sezgi")' # R tests
 
 ## Status
+
+M3-4 (Python algorithm authoring + OOP example twins) **complete** — the
+`sezgi.Algorithm` ABC (`py-sezgi/python/sezgi/algo.py`): a subclassable
+`setup(ctx)`/`step(ctx)` template over `AlgoContext`/`EvalSession`, chosen
+over pure ask/tell because mid-generation evaluation patterns (TLBO's
+teacher/learner passes, HHO's dives) cannot be expressed as a single ask;
+`bbob_records`, a multi-scenario sweep helper feeding custom-algorithm runs
+into `results_matrix`/`per_budget_packages` in the same record shape
+`run_experiment` produces; a generalized `EvalSession` (`SessionMeta`,
+`f_opt: Option<f64>`, `EvalSession.for_problem` accepting BBOB/CEC2022/
+callable problems) with the calling-convention (`vectorized`) carried on
+the `from_callable` handle, honored identically by `solve()` and
+`for_problem`; the `bias.f0`/`bias.structural_positions` bridge letting a
+structural-bias scan run over final positions collected from ANY
+externally-driven algorithm; and OOP twins of **all 17** example
+algorithms (`examples/python/oop/`) behind a 17-pair bit-exact parity gate
+(`py-sezgi/tests/test_examples_oop_parity.py`) against the pre-existing
+pure scripts, which remain untouched. Scope: continuous problems only in
+v1 (TSP/permutation authoring deferred); Python authoring only (R deferred
+to the v1.0 checklist below). See `docs/DECISIONS.md`'s "M3-4 completed"
+record for the full ruling list. Next: v1.0 prep (see the checklist).
 
 M3-3 (CEC 2022 benchmark suite + permutation problems/TSP) **complete** —
 all 12 CEC 2022 fids (`crates/problems/src/cec2022/`, ~868KB vendored
