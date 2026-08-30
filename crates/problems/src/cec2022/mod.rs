@@ -1,6 +1,7 @@
-//! The CEC 2022 Special Session and Competition benchmark suite (basic
-//! functions f1-f5; fid 6-12, the hybrid/composition functions, are
-//! DEFERRED to T6/T7 -- see `data.rs`'s "Extension points" doc).
+//! The CEC 2022 Special Session and Competition benchmark suite: all 12
+//! fids -- basic functions f1-f5 (T5), hybrid functions f6-f8 (T6), and
+//! composition functions f9-f12 (T7, this task's addendum, module doc
+//! section below) -- are implemented.
 //!
 //! Source (PROVENANCE, fetched and read directly, not from memory):
 //! Abhishek Kumar, Kenneth V. Price, Ali Wagdy Mohamed, Anas A. Hadi, P. N.
@@ -84,6 +85,18 @@
 //! dim == 2)` explicitly because of the missing SHUFFLE data (and, for fid
 //! 7 specifically, the missing M matrix too) -- not because every fid 6-8
 //! M matrix is missing at dim=2, which it is not.
+//!
+//! **T7 confirms the converse for fid 9-12**: the C's own guard (quoted
+//! above) excludes `nx==2` ONLY for `func_num` 6/7/8 -- fid 9-12 are NOT
+//! named, so dim=2 is fully supported there per the C's own logic, and this
+//! is NOT merely an absence-of-a-guard technicality: `M_9_D2.txt` through
+//! `M_12_D2.txt` (this task, VERIFIED directly, not assumed) each carry 16
+//! lines = 8 stacked 2x2 blocks (`>=` every composition function's own
+//! `cf_num`, max 6 for fid 12/`cf07`), and `shift_data_9.txt` through
+//! `shift_data_12.txt` each carry 10 lines of 100 values (`>=` 6 needed
+//! rows) -- so `Cec2022::new(9..=12, 2)` constructs successfully, with NO
+//! fid-9-12-specific dim=2 guard needed (module doc's T7 section, `new`'s
+//! own doc comment).
 //!
 //! ## 1.3. Definitions of the Basic Functions (quoted, section numbers as
 //! printed) -- the UNSHIFTED, UNROTATED core `f_i`, before section 1.4's
@@ -634,6 +647,231 @@
 //! BOTH the algebraic derivation above AND the compiled C reference AND
 //! this module's own tests, for every `(fid, dim)` in `{6,7,8} x {10,20}`.
 //!
+//! ## T7: Composition Functions (fid 9-12)
+//!
+//! Source (PROVENANCE, re-fetched directly for this task): the SAME
+//! `CEC2022.zip` -> `CEC2022/C-Code/cec22_test_func.cpp` T5/T6 fetched (this
+//! time `cf01`/`cf02`/`cf06`/`cf07`, `cf_cal`, and the composition-only
+//! basic functions `ellips_func`/`discus_func`/`griewank_func`/
+//! `escaffer6_func`/`rosenbrock_func`), re-verified byte-identical (content,
+//! not zip-container bytes -- diffed the vendored files directly). The
+//! reference C was again COMPILED (`g++`, stripping `WINDOWS.H`, `malloc.h`
+//! -> `cstdlib` for this platform) and RUN through the unmodified
+//! `cec22_test_func()` entry point for every `x=o_1` pin and hand fixture
+//! below (driver source and exact invocations in this task's report).
+//!
+//! ### Dispatch: which C function each fid actually calls (verified)
+//!
+//! `cec22_test_func`'s `switch`, quoted: `case 9: cf01(&x[i*nx],&f[i],nx,
+//! OShift,M,1); f[i]+=2300.0; break; case 10: cf02(...); f[i]+=2400.0;
+//! break; case 11: cf06(...); f[i]+=2600.0; break; case 12: cf07(...);
+//! f[i]+=2700.0; break;`. Confirms the brief's sketch `F*` values (2300,
+//! 2400, 2600, 2700) exactly, AND (same naming curiosity T6 already flagged
+//! for the hybrids) that the internal C function names don't track the
+//! report's "Composition Function 1/2/3/4" numbering: fid 11 ("Composition
+//! Function 3") calls `cf06`, fid 12 ("Composition Function 4") calls
+//! `cf07` -- cosmetic only, dispatch is by `func_num` not name.
+//!
+//! ### `cf_cal`: the general composition/weight formula (quoted in full)
+//!
+//! ```text
+//! void cf_cal(double *x, double *f, int nx, double *Os, double *delta,
+//!             double *bias, double *fit, int cf_num)
+//! {
+//!     int i,j; double *w; double w_max=0,w_sum=0;
+//!     w=(double *)malloc(cf_num * sizeof(double));
+//!     for (i=0; i<cf_num; i++) {
+//!         fit[i]+=bias[i];
+//!         w[i]=0;
+//!         for (j=0; j<nx; j++) { w[i]+=pow(x[j]-Os[i*nx+j],2.0); }
+//!         if (w[i]!=0)
+//!             w[i]=pow(1.0/w[i],0.5)*exp(-w[i]/2.0/nx/pow(delta[i],2.0));
+//!         else
+//!             w[i]=INF;
+//!         if (w[i]>w_max) w_max=w[i];
+//!     }
+//!     for (i=0; i<cf_num; i++) { w_sum=w_sum+w[i]; }
+//!     if(w_max==0) { for (i=0; i<cf_num; i++) w[i]=1; w_sum=cf_num; }
+//!     f[0] = 0.0;
+//!     for (i=0; i<cf_num; i++) { f[0]=f[0]+w[i]/w_sum*fit[i]; }
+//!     free(w);
+//! }
+//! ```
+//! `INF` is `#define INF 1.0e99` -- a FINITE sentinel, NOT IEEE infinity
+//! (`#define EPS 1.0e-14` sits right next to it, unused by `cf_cal` itself).
+//! In words: `w_i = ||x-o_i||^{-1} * exp(-||x-o_i||^2 / (2*D*sigma_i^2))`
+//! (`delta[i]` IS the report's `sigma_i`; `x` is the RAW, un-shifted
+//! decision vector -- `cf_cal` reads it directly, NOT any component's own
+//! shift-rotated `z`), `w_i=INF` if `x==o_i` exactly, normalized by
+//! `sum(w)`, falling back to a uniform `1/cf_num` only if EVERY `w_i`
+//! computed to exactly `0.0` (only reachable via `exp` underflow for a
+//! pathologically tiny `delta_i` relative to the distance -- this module's
+//! `composition_weights_falls_back_to_uniform_when_every_weight_underflows_to_zero`
+//! test exercises this branch directly). **DISCREPANCY vs. the brief's
+//! sketch, resolved by reading the C**: there is NO separate `lambda_i`
+//! multiplier array in `cf_cal` at all -- what the brief's sketch called
+//! "lambda_i * fit_i" is actually baked DIRECTLY into each composition
+//! function's OWN per-component rescale BEFORE `cf_cal` is ever called
+//! (next section, `fit[i]=10000*fit[i]/<constant>`) -- `cf_cal` itself only
+//! adds `bias[i]` and weights. [`Cec2022::composition_weights`] mirrors the
+//! quoted C exactly (same `1e99` sentinel, same `w_max==0` fallback);
+//! [`Cec2022::composition_fitness`] mirrors the outer per-component
+//! rescale+bias+weight-sum loop.
+//!
+//! ### `cf01`/`cf02`/`cf06`/`cf07`: component lists, `delta`/`bias` tables,
+//! per-component rescale, and rotation flags (quoted in full; ALL FOUR
+//! MATCH the report's own component-list tables -- no report-vs-code
+//! discrepancy found here, unlike fid 3/4/5/7 above)
+//!
+//! Unlike the hybrids (fid 6-8, which shift+rotate the WHOLE vector ONCE
+//! then only scale each component's already-rotated segment), EVERY
+//! composition component gets its OWN COMPLETE shift-AND-rotate: each call
+//! passes `s_flag=1` and a component-specific `&Os[i*nx]`/`&Mr[i*nx*nx]`
+//! slice -- `[Cec2022::comp_shift_scale_rotate]` mirrors this (called once
+//! per component, not once per whole vector, unlike
+//! `[Cec2022::shift_scale_rotate]`'s single hybrid/basic-function call).
+//!
+//! **fid 9, `cf01`** (report: "Composition Function 1", N=5), quoted:
+//! `cf_num=5; delta={10,20,30,40,50}; bias={0,200,300,100,400};
+//! i=0: rosenbrock_func(x,&fit[i],nx,&Os[i*nx],&Mr[i*nx*nx],1,r_flag);
+//!   fit[i]=10000*fit[i]/1e+4;
+//! i=1: ellips_func(...,1,r_flag); fit[i]=10000*fit[i]/1e+10;
+//! i=2: bent_cigar_func(...,1,r_flag); fit[i]=10000*fit[i]/1e+30;
+//! i=3: discus_func(...,1,r_flag); fit[i]=10000*fit[i]/1e+10;
+//! i=4: ellips_func(...,1,0); fit[i]=10000*fit[i]/1e+10;` -- component 4 (2nd
+//! Ellipsoidal) is the ONLY one in `cf01` HARDCODED `r_flag=0` regardless of
+//! the outer call's own `r_flag=1` (`cf01(&x[i*nx],&f[i],nx,OShift,M,1)`,
+//! dispatch above passes literal `1`).
+//!
+//! **fid 10, `cf02`** (report: "Composition Function 2", N=3), quoted:
+//! `cf_num=3; delta={20,10,10}; bias={0,200,100};
+//! i=0: schwefel_func(...,1,0); (no rescale)
+//! i=1: rastrigin_func(...,1,r_flag); (no rescale)
+//! i=2: hgbat_func(...,1,r_flag); (no rescale)` -- component 0 (Schwefel) is
+//! the ONLY one in `cf02` hardcoded `r_flag=0`; NONE of `cf02`'s three
+//! components get a `fit[i]=10000*fit[i]/...` rescale line at all (unlike
+//! every other composition function).
+//!
+//! **fid 11, `cf06`** (report: "Composition Function 3" -- NOTE the
+//! internal name `cf06` says "Composition Function 4" in its own C comment,
+//! a stale/duplicated label like T6's hybrid naming curiosity; harmless,
+//! dispatch is by `func_num`), N=5, quoted: `cf_num=5;
+//! delta={20,20,30,30,20}; bias={0,200,300,400,200};
+//! i=0: escaffer6_func(...,1,r_flag); fit[i]=10000*fit[i]/2e+7;
+//! i=1: schwefel_func(...,1,r_flag); (no rescale)
+//! i=2: griewank_func(...,1,r_flag); fit[i]=1000*fit[i]/100;
+//! i=3: rosenbrock_func(...,1,r_flag); (no rescale)
+//! i=4: rastrigin_func(...,1,r_flag); fit[i]=10000*fit[i]/1e+3;` -- ALL FIVE
+//! pass the outer `r_flag` through unchanged; no hardcoded exception.
+//!
+//! **fid 12, `cf07`** (report: "Composition Function 4"), N=6, quoted:
+//! `cf_num=6; delta={10,20,30,40,50,60}; bias={0,300,500,100,400,200};
+//! i=0: hgbat_func(...,1,r_flag); fit[i]=10000*fit[i]/1000;
+//! i=1: rastrigin_func(...,1,r_flag); fit[i]=10000*fit[i]/1e+3;
+//! i=2: schwefel_func(...,1,r_flag); fit[i]=10000*fit[i]/4e+3;
+//! i=3: bent_cigar_func(...,1,r_flag); fit[i]=10000*fit[i]/1e+30;
+//! i=4: ellips_func(...,1,r_flag); fit[i]=10000*fit[i]/1e+10;
+//! i=5: escaffer6_func(...,1,r_flag); fit[i]=10000*fit[i]/2e+7;` -- ALL SIX
+//! pass the outer `r_flag` through unchanged; no hardcoded exception.
+//!
+//! [`Cec2022::composition_spec`] transcribes all four tables verbatim,
+//! spot-re-asserted (independent of this doc) by
+//! `composition_spec_matches_the_c_sources_constant_tables`.
+//!
+//! ### New composition-only basic functions (bodies quoted where they
+//! clarify; `rastrigin_func`/`hgbat_func`/`bent_cigar_func`/`schwefel_func`
+//! are REUSED from `f4_base`/`hgbat_base`/`bent_cigar_base`/`schwefel_base`
+//! -- their `sr_func` `sh_rate` constants inside `cf01`/`02`/`06`/`07`
+//! (`5.12/100`, `5.0/100`, `1.0`, `1000.0/100`) are IDENTICAL to the T6
+//! hybrid components' own, confirmed by reading each standalone function's
+//! `sr_func` call directly, not assumed from the name matching)
+//!
+//! **Ellipsoidal** (`ellips_func`, `sh_rate=1.0`), quoted: `f[0] +=
+//! pow(10.0,6.0*i/(nx-1))*z[i]*z[i]` summed over `i=0..nx-1` -- `[
+//! Cec2022::ellips_base]`.
+//!
+//! **Discus** (`discus_func`, `sh_rate=1.0`), quoted: `f[0] =
+//! pow(10.0,6.0)*z[0]*z[0]; f[0] += sum_{i=1}^{nx-1} z[i]*z[i];` -- `[
+//! Cec2022::discus_base]`.
+//!
+//! **Rosenbrock's** (`rosenbrock_func`, `sh_rate=2.048/100.0`), quoted: `z[0]
+//! += 1.0; for(i=0;i<nx-1;i++) { z[i+1]+=1.0; tmp1=z[i]*z[i]-z[i+1];
+//! tmp2=z[i]-1.0; f[0]+=100.0*tmp1*tmp1+tmp2*tmp2; }` -- the incremental
+//! `+1.0` shift-to-origin, applied element-by-element as each index is
+//! first touched, is algebraically IDENTICAL to adding `1.0` to every
+//! element up front (verified by hand tracing the index order) -- reuses
+//! `[Cec2022::f2_base]` on a `+1.0`'d copy of `z`, same as fid 2's own
+//! pipeline.
+//!
+//! **Griewank's** (`griewank_func`, `sh_rate=600.0/100.0`, STANDALONE --
+//! NOT the `grie_rosen_func` cyclic-Rosenbrock composite T6 already
+//! implemented), quoted: `s+=z[i]*z[i]; p*=cos(z[i]/sqrt(1.0+i)); ... f[0] =
+//! 1.0 + s/4000.0 - p;` -- `[Cec2022::griewank_base]`.
+//!
+//! **Expanded Scaffer's F6** (`escaffer6_func`, `sh_rate=1.0`), quoted:
+//! `temp1=sin(sqrt(z[i]*z[i]+z[i+1]*z[i+1])); temp1=temp1*temp1;
+//! temp2=1.0+0.001*(z[i]*z[i]+z[i+1]*z[i+1]); f[0]+=0.5+(temp1-0.5)/
+//! (temp2*temp2);` cyclically over EVERY consecutive pair PLUS the
+//! `(nx-1,0)` wrap-around -- `[Cec2022::escaffer6_base]`. **This IS
+//! section 1.3's ORIGINAL "Expanded Schaffer's" formula (report eq (3)),
+//! with `sin` correctly SQUARED** -- corroborating, with fresh evidence
+//! from this task, the F3 discrepancy note above: `escaffer6_func` is used
+//! ONLY here (compositions), never for standalone fid 3 (which dispatches
+//! to the DIFFERENT, non-cyclic `schaffer_F7_func`/`f16_schaffer_f7_base`
+//! instead) -- confirmed again by grepping every call site of both
+//! functions in the full vendored source, this time including `cf01`
+//! through `cf07`.
+//!
+//! ### Data-shape finding: the loader's hardcoded `cf_num=12` vs. what's
+//! actually vendored and actually read (`data.rs`'s T7 addendum has the
+//! full byte-count-verified detail; summarized here since it explains why
+//! [`data::composition_shift_blocks`]/[`data::composition_rotation_blocks`]
+//! take an explicit `cf_num` rather than a fixed `12`)
+//!
+//! `cec22_test_func`'s loader hardcodes `int cf_num=12` (its very first
+//! local, shared by ALL FOUR composition dispatch cases) when allocating
+//! `OShift`/`M` for `func_num>=9` -- but no individual composition
+//! function's OWN `cf_num` (5/3/5/6) exceeds `6`, and the vendored
+//! `shift_data_9..12.txt`/`M_9..12_D<dim>.txt` files provide only 8-10
+//! rows/blocks (VERIFIED by direct byte/line count, this task's report) --
+//! never the full 12 the loader nominally wants. Harmless in the C (the
+//! excess reads past EOF are never accessed by any composition function's
+//! own small `cf_num`); this module's parsers take the CALLER's real
+//! `cf_num` and never attempt to read a 12th slot.
+//!
+//! ### `x = o_1` pin (Step 2) for fid 9-12: why `F_i(o_1) == F_i*` EXACTLY
+//! (VERIFIED EMPIRICALLY against the compiled C reference, `%.20f`-format,
+//! for every fid 9-12 x every dim in {2,10,20} -- this task's report has
+//! the driver transcript; NOT claimed as a from-scratch algebraic identity
+//! the way fid 1-8's zero-argument pins are, for the reason below)
+//!
+//! At `x = o_1` (component 1's own shift): component 1's raw squared
+//! distance `D_0 = ||x-o_1||^2 = 0` EXACTLY (same subtraction-of-identical-
+//! operands exactness fid 1-8's pins already rely on), so `cf_cal`'s
+//! `w_0 = INF = 1e99` (the finite sentinel) -- OVERWHELMINGLY larger than
+//! any other component's finite `w_j` (`1e99`'s ULP, `~2.2e83`, dwarfs any
+//! realistic distance-based weight), so `w_sum` computed by straight `f64`
+//! addition ROUNDS to EXACTLY `1e99` regardless of the other `w_j`
+//! (absorption), making `w_0/w_sum` round to EXACTLY `1.0`. Component 1's
+//! OWN `fit_0` is separately provable `0` at its own shift for every fid
+//! (each fid's component-1 base function, evaluated at the all-zero
+//! shift-rotated argument its own pipeline produces when `x=o_1` --
+//! Rosenbrock/Schwefel/Expanded-Scaffer's-F6/HGBat for fid 9/10/11/12
+//! respectively -- is `0`, via the SAME per-function algebra this module
+//! doc's T5/T6 sections already give for these exact functions), and
+//! `bias[0]==0` for ALL FOUR composition functions (the quoted tables
+//! above all start `{0, ...}`) -- so `cf_cal`'s raw contribution from
+//! component 1 is `0*1.0=0` exactly. The OTHER components' contributions
+//! (`w_j/w_sum * fit_j` for `j!=0`) are each a PICOSCOPIC but not
+//! necessarily bit-exact-zero double (empirically as small as `~1e-123` in
+//! this module's own `composition_weights_x_at_component_1s_own_shift_...`
+//! test) -- summed together they do NOT provably cancel to bit-exact `0.0`
+//! algebraically, but they are FAR below the `~1e-13` ULP of `F_i*` (order
+//! `1e3`), so the FINAL `+= F_i*` add absorbs them completely (the SAME
+//! "not obviously zero on its own, but empirically verified after the
+//! final add" argument this module doc's T6 section already uses for the
+//! Modified Schwefel hybrid component's `x=o` pin).
+//!
 //! ## Genotype mapping
 //!
 //! [`Cec2022::space`] is one [`Block::Float`] of `dim` variables, bounds
@@ -649,11 +887,6 @@ pub enum Cec2022Error {
     #[error("fid must be in 1..=12 (the CEC 2022 12-function table), got {0}")]
     UnknownFid(u32),
     #[error(
-        "fid {0} is not implemented yet (only the basic functions f1-f5 are implemented so \
-         far -- hybrid/composition functions fid 6-12 are deferred, see this module's doc)"
-    )]
-    NotImplemented(u32),
-    #[error(
         "dim must be one of {{2,10,20}} (the report's supported dimensions -- the vendored \
          input_data files ship only these), got {0}"
     )]
@@ -666,21 +899,32 @@ pub enum Cec2022Error {
     HybridDim2Unsupported(u32),
 }
 
-/// One instance of a CEC 2022 basic (fid 1-5) or hybrid (fid 6-8) function:
-/// embedded official shift vector `o` and rotation matrix `M` for the
-/// requested `(fid, dim)`, plus (fid 6-8 only) the shuffle permutation
-/// `shuffle` (0-based, empty for fid 1-5), plus the pinned `F_i*` bias
-/// (module doc, section 1.2's table). See the module doc for each fid's
-/// exact shift/scale/rotate(/shuffle/segment, fid 6-8) pipeline, including
-/// the verified discrepancies (fid 3, 4, 5, and fid 7's dead hybrid
-/// segment) between the report's printed equations and the vendored
-/// reference C code this module actually follows.
+/// One instance of a CEC 2022 basic (fid 1-5), hybrid (fid 6-8), or
+/// composition (fid 9-12) function: embedded official shift vector `o` and
+/// rotation matrix `M` for the requested `(fid, dim)` (fid 1-8 only -- fid
+/// 9-12 use `comp_shift`/`comp_rotation` instead, module doc's T7 section,
+/// `o` set to `comp_shift[0]`/`comp_o1` for API-uniformity with the `x = o`
+/// pin tests, `m` left empty), plus (fid 6-8 only) the shuffle permutation
+/// `shuffle` (0-based, empty otherwise), plus the pinned `F_i*` bias (module
+/// doc, section 1.2's table). See the module doc for each fid's exact
+/// shift/scale/rotate(/shuffle/segment, fid 6-8; per-component
+/// shift/rotate, fid 9-12) pipeline, including the verified discrepancies
+/// (fid 3, 4, 5, and fid 7's dead hybrid segment) between the report's
+/// printed equations and the vendored reference C code this module actually
+/// follows.
 pub struct Cec2022 {
     fid: u32,
     dim: usize,
     o: Vec<f64>,
     m: Vec<Vec<f64>>,
     shuffle: Vec<usize>,
+    /// fid 9-12 only (module doc's T7 section): `cf_num` component shift
+    /// rows, `comp_shift[i]` is component `i`'s own `o_i`. Empty for fid
+    /// 1-8.
+    comp_shift: Vec<Vec<f64>>,
+    /// fid 9-12 only: `cf_num` component `dim`x`dim` rotation matrices,
+    /// `comp_rotation[i]` is component `i`'s own `M_i`. Empty for fid 1-8.
+    comp_rotation: Vec<Vec<Vec<f64>>>,
     space: SearchSpace,
 }
 
@@ -745,19 +989,89 @@ impl HybridComponent {
     }
 }
 
+/// One composition function's (fid 9-12, [`Cec2022::composition_spec`])
+/// `(delta, bias, components)` triple -- `components[i]` is
+/// `(base function, this component's own r_flag, its post-eval rescale)`.
+/// Named to keep [`Cec2022::composition_spec`]'s signature readable
+/// (clippy's `type_complexity`).
+type CompositionSpec = (&'static [f64], &'static [f64], &'static [(CompFn, bool, f64)]);
+
+/// One composition function's (fid 9-12) sub-component (module doc's T7
+/// section): pairs the base function with the `sh_rate` constant its C
+/// counterpart's OWN `sr_func` call uses. UNLIKE [`HybridComponent`], every
+/// composition component gets its OWN FULL shift-AND-rotate pipeline
+/// (module doc's T7 section: `cf01`/`cf02`/`cf06`/`cf07` call each base
+/// function with `s_flag=1` and its own `Os`/`Mr` slice, not a single
+/// shared shift+rotate the way `hf02`/`hf06`/`hf10` do) -- so
+/// [`Cec2022::comp_shift_scale_rotate`] is called once per component, not
+/// once per whole vector.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CompFn {
+    Rosenbrock,
+    Ellipsoidal,
+    BentCigar,
+    Discus,
+    Schwefel,
+    Rastrigin,
+    HGBat,
+    EScaffer6,
+    Griewank,
+}
+
+impl CompFn {
+    /// This component's own inner scale constant (module doc's T7 section:
+    /// the SAME constant its standalone C function uses in its own
+    /// `sr_func` call).
+    fn sh_rate(self) -> f64 {
+        match self {
+            Self::Rosenbrock => 2.048 / 100.0,
+            Self::Ellipsoidal => 1.0,
+            Self::BentCigar => 1.0,
+            Self::Discus => 1.0,
+            Self::Schwefel => 1000.0 / 100.0,
+            Self::Rastrigin => 5.12 / 100.0,
+            Self::HGBat => 5.0 / 100.0,
+            Self::EScaffer6 => 1.0,
+            Self::Griewank => 600.0 / 100.0,
+        }
+    }
+
+    /// Evaluate this component's base function on an ALREADY
+    /// shift-scale-rotated `z` (module doc's T7 section: unlike
+    /// [`HybridComponent::eval`]'s pre-scaled SEGMENT, this is the
+    /// component's own FULL, independently shift-rotated vector).
+    fn eval(self, z: &[f64]) -> f64 {
+        match self {
+            Self::Rosenbrock => {
+                // `rosenbrock_func`'s own "+1, shift to origin" convention
+                // (module doc's T5 F2 note) -- reuses `f2_base`, which
+                // expects the array already `+1`'d.
+                let shifted: Vec<f64> = z.iter().map(|&zi| zi + 1.0).collect();
+                Cec2022::f2_base(&shifted)
+            }
+            Self::Ellipsoidal => Cec2022::ellips_base(z),
+            Self::BentCigar => Cec2022::bent_cigar_base(z),
+            Self::Discus => Cec2022::discus_base(z),
+            Self::Schwefel => Cec2022::schwefel_base(z),
+            Self::Rastrigin => Cec2022::f4_base(z),
+            Self::HGBat => Cec2022::hgbat_base(z),
+            Self::EScaffer6 => Cec2022::escaffer6_base(z),
+            Self::Griewank => Cec2022::griewank_base(z),
+        }
+    }
+}
+
 impl Cec2022 {
-    /// `fid` in `1..=8` (module doc: fid 9-12, the composition functions,
-    /// are [`Cec2022Error::NotImplemented`], deferred to T7; fid outside
-    /// `1..=12` entirely is [`Cec2022Error::UnknownFid`]), `dim` in
-    /// `{2,10,20}` for fid 1-5, `{10,20}` for fid 6-8 (module doc's T6
-    /// addendum: `dim=2` is [`Cec2022Error::HybridDim2Unsupported`] for fid
-    /// 6-8, mirroring the C reference's own guard).
+    /// `fid` in `1..=12` (module doc: fid outside that range is
+    /// [`Cec2022Error::UnknownFid`]), `dim` in `{2,10,20}` for fid 1-5 and
+    /// 9-12 (module doc's T7 section: the C's own dim guard does NOT
+    /// exclude fid 9-12 at dim=2, VERIFIED against the vendored data, unlike
+    /// fid 6-8), `{10,20}` for fid 6-8 (module doc's T6 addendum: `dim=2` is
+    /// [`Cec2022Error::HybridDim2Unsupported`] for fid 6-8, mirroring the C
+    /// reference's own guard).
     pub fn new(fid: u32, dim: usize) -> Result<Cec2022, Cec2022Error> {
         if !(1..=12).contains(&fid) {
             return Err(Cec2022Error::UnknownFid(fid));
-        }
-        if !(1..=8).contains(&fid) {
-            return Err(Cec2022Error::NotImplemented(fid));
         }
         if !matches!(dim, 2 | 10 | 20) {
             return Err(Cec2022Error::BadDim(dim));
@@ -765,13 +1079,25 @@ impl Cec2022 {
         if (6..=8).contains(&fid) && dim == 2 {
             return Err(Cec2022Error::HybridDim2Unsupported(fid));
         }
-        let o = data::shift_vector(fid, dim);
-        let m = data::rotation_matrix(fid, dim);
-        let shuffle =
-            if (6..=8).contains(&fid) { data::shuffle_indices(fid, dim) } else { Vec::new() };
+        let (o, m, shuffle, comp_shift, comp_rotation) = if (9..=12).contains(&fid) {
+            let (_, _, comps) = Self::composition_spec(fid);
+            let cf_num = comps.len();
+            let comp_shift = data::composition_shift_blocks(fid, dim, cf_num);
+            let comp_rotation = data::composition_rotation_blocks(fid, dim, cf_num);
+            // `o` mirrors component 1's own shift `o_1` (module doc's struct
+            // doc) so the `x = o` pin tests can stay uniform across fid 1-12.
+            let o = comp_shift[0].clone();
+            (o, Vec::new(), Vec::new(), comp_shift, comp_rotation)
+        } else {
+            let o = data::shift_vector(fid, dim);
+            let m = data::rotation_matrix(fid, dim);
+            let shuffle =
+                if (6..=8).contains(&fid) { data::shuffle_indices(fid, dim) } else { Vec::new() };
+            (o, m, shuffle, Vec::new(), Vec::new())
+        };
         let space = SearchSpace::new(vec![Block::Float { lo: -100.0, hi: 100.0, n: dim }])
             .expect("CEC 2022 bounds (-100 < 100) are always valid");
-        Ok(Self { fid, dim, o, m, shuffle, space })
+        Ok(Self { fid, dim, o, m, shuffle, comp_shift, comp_rotation, space })
     }
 
     pub fn fid(&self) -> u32 { self.fid }
@@ -788,7 +1114,11 @@ impl Cec2022 {
             6 => 1800.0,
             7 => 2000.0,
             8 => 2200.0,
-            other => unreachable!("Cec2022::new rejects fid outside 1..=8, got {other}"),
+            9 => 2300.0,
+            10 => 2400.0,
+            11 => 2600.0,
+            12 => 2700.0,
+            other => unreachable!("Cec2022::new rejects fid outside 1..=12, got {other}"),
         }
     }
 
@@ -950,6 +1280,58 @@ impl Cec2022 {
         f + temp * temp / 4000.0 - temp.cos() + 1.0
     }
 
+    // ---- T7: composition-only new basic functions (module doc's T7
+    // section quotes each C body) ----
+
+    /// `ellips_func` (Ellipsoidal, T7 module doc): `f(z) = sum_{i=0}^{D-1}
+    /// 10^(6i/(D-1)) z_i^2` (0-based `i`).
+    fn ellips_base(z: &[f64]) -> f64 {
+        let n = z.len();
+        z.iter()
+            .enumerate()
+            .map(|(i, &zi)| 10f64.powf(6.0 * i as f64 / (n - 1) as f64) * zi * zi)
+            .sum()
+    }
+
+    /// `discus_func` (Discus, T7 module doc): `f(z) = 10^6 z_0^2 +
+    /// sum_{i=1}^{D-1} z_i^2`.
+    fn discus_base(z: &[f64]) -> f64 {
+        1.0e6 * z[0] * z[0] + z[1..].iter().map(|&zi| zi * zi).sum::<f64>()
+    }
+
+    /// `griewank_func` (Griewank's, T7 module doc): `f(z) = 1 +
+    /// sum(z_i^2)/4000 - prod(cos(z_i/sqrt(1+i)))` (0-based `i`, standalone
+    /// -- NOT the `grie_rosen_base` cyclic Rosenbrock composite above).
+    fn griewank_base(z: &[f64]) -> f64 {
+        let s: f64 = z.iter().map(|&zi| zi * zi).sum();
+        let p: f64 =
+            z.iter().enumerate().map(|(i, &zi)| (zi / (1.0 + i as f64).sqrt()).cos()).product();
+        1.0 + s / 4000.0 - p
+    }
+
+    /// `escaffer6_func` (Expanded Scaffer's F6, T7 module doc): the CYCLIC
+    /// `g(x,y) = 0.5 + (sin^2(sqrt(x^2+y^2)) - 0.5)/(1+0.001(x^2+y^2))^2`
+    /// summed over every consecutive pair PLUS the wrap-around `(D-1,0)`
+    /// pair -- section 1.3's ORIGINAL "Expanded Schaffer's" formula, used
+    /// (per module doc's F3 discrepancy note) ONLY inside compositions, not
+    /// standalone fid 3 (which dispatches to the DIFFERENT
+    /// `f16_schaffer_f7_base` instead -- corroborating that discrepancy note
+    /// with fresh evidence from this task, not a new one).
+    fn escaffer6_base(z: &[f64]) -> f64 {
+        let n = z.len();
+        let g = |a: f64, b: f64| {
+            let s = a * a + b * b;
+            let t1 = s.sqrt().sin().powi(2);
+            let t2 = 1.0 + 0.001 * s;
+            0.5 + (t1 - 0.5) / (t2 * t2)
+        };
+        let mut f = 0.0;
+        for i in 0..n - 1 {
+            f += g(z[i], z[i + 1]);
+        }
+        f + g(z[n - 1], z[0])
+    }
+
     /// `fid`'s (`6..=8`) proportions `p` and component list, in call order
     /// (module doc's hybrid composition tables, cross-checked against the
     /// C's `Gp`/component-call arrays -- fid 7 follows the CODE's six-value
@@ -1024,6 +1406,133 @@ impl Cec2022 {
             .sum()
     }
 
+    // ---- T7: composition functions (fid 9-12) ----
+
+    /// `fid`'s (`9..=12`) `delta` (`sigma`) table, `bias` table, and
+    /// component list in call order -- module doc's T7 section, transcribed
+    /// directly from `cf01`/`cf02`/`cf06`/`cf07`'s local arrays (quoted in
+    /// full there). The `bool` is the component's own `r_flag` (module doc:
+    /// every component gets `s_flag=1`; ALL get `r_flag=1` EXCEPT `cf01`'s
+    /// 5th component and `cf02`'s 1st, both hardcoded `r_flag=0` in the C
+    /// regardless of the outer call's own `r_flag=1`); the trailing `f64` is
+    /// the post-evaluation rescale the C applies before `cf_cal` sees `fit`
+    /// (`fit[i]=10000*fit[i]/<constant>`, `1.0` where the C applies none).
+    fn composition_spec(fid: u32) -> CompositionSpec {
+        use CompFn::*;
+        match fid {
+            9 => (
+                &[10.0, 20.0, 30.0, 40.0, 50.0],
+                &[0.0, 200.0, 300.0, 100.0, 400.0],
+                &[
+                    // C: `fit[i]=10000*fit[i]/1e+4` -- algebraically `1.0`
+                    // (`10000.0/1e4`; clippy's `eq_op` lint forbids writing
+                    // that division out literally, so the module doc's T7
+                    // section carries the verbatim C line instead).
+                    (Rosenbrock, true, 1.0),
+                    (Ellipsoidal, true, 10000.0 / 1e10),
+                    (BentCigar, true, 10000.0 / 1e30),
+                    (Discus, true, 10000.0 / 1e10),
+                    (Ellipsoidal, false, 10000.0 / 1e10),
+                ],
+            ),
+            10 => (
+                &[20.0, 10.0, 10.0],
+                &[0.0, 200.0, 100.0],
+                &[(Schwefel, false, 1.0), (Rastrigin, true, 1.0), (HGBat, true, 1.0)],
+            ),
+            11 => (
+                &[20.0, 20.0, 30.0, 30.0, 20.0],
+                &[0.0, 200.0, 300.0, 400.0, 200.0],
+                &[
+                    (EScaffer6, true, 10000.0 / 2e7),
+                    (Schwefel, true, 1.0),
+                    (Griewank, true, 1000.0 / 100.0),
+                    (Rosenbrock, true, 1.0),
+                    (Rastrigin, true, 10000.0 / 1e3),
+                ],
+            ),
+            12 => (
+                &[10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+                &[0.0, 300.0, 500.0, 100.0, 400.0, 200.0],
+                &[
+                    (HGBat, true, 10000.0 / 1000.0),
+                    (Rastrigin, true, 10000.0 / 1e3),
+                    (Schwefel, true, 10000.0 / 4e3),
+                    (BentCigar, true, 10000.0 / 1e30),
+                    (Ellipsoidal, true, 10000.0 / 1e10),
+                    (EScaffer6, true, 10000.0 / 2e7),
+                ],
+            ),
+            other => unreachable!("composition_spec called with unsupported fid {other}"),
+        }
+    }
+
+    /// Component `idx`'s own full `(x - o_idx) * sh_rate`, optionally
+    /// rotated by `self.comp_rotation[idx]` (module doc's T7 section: EVERY
+    /// component gets its OWN shift-and-rotate, unlike the hybrids' single
+    /// shared one).
+    fn comp_shift_scale_rotate(&self, xs: &[f64], idx: usize, sh_rate: f64, rotate: bool) -> Vec<f64> {
+        let scaled: Vec<f64> =
+            xs.iter().zip(&self.comp_shift[idx]).map(|(&x, &o)| (x - o) * sh_rate).collect();
+        if rotate {
+            crate::bbob::transform::apply(&self.comp_rotation[idx], &scaled)
+        } else {
+            scaled
+        }
+    }
+
+    /// `cf_cal`'s weight formula (module doc's T7 section, quoted in full):
+    /// `w_i = (1/D_i)^0.5 * exp(-D_i / (2 * dim * delta_i^2))` where `D_i =
+    /// ||x - o_i||^2` (the RAW, UNSHIFTED distance -- `cf_cal` reads `x`
+    /// directly, not any component's shift-rotated `z`), `w_i = INF
+    /// (1e99, the C's own finite sentinel, NOT IEEE infinity) if D_i==0`
+    /// exactly, then normalized by `sum(w)` -- EXCEPT if every `w_i` is `0`
+    /// (`w_max==0`, only possible if `dim==0`, unreachable here), in which
+    /// case the C falls back to a uniform `1/cf_num` each. A pure function
+    /// of `(xs, shifts, delta)` -- no `&self` -- so Step 2's weight-formula
+    /// test can call it directly on a hand-built 2-component miniature,
+    /// independent of the embedded data.
+    fn composition_weights(xs: &[f64], shifts: &[Vec<f64>], delta: &[f64]) -> Vec<f64> {
+        let cf_num = shifts.len();
+        let dim = xs.len() as f64;
+        let mut w = vec![0.0f64; cf_num];
+        let mut w_max = 0.0f64;
+        for i in 0..cf_num {
+            let d2: f64 = xs.iter().zip(&shifts[i]).map(|(&x, &o)| (x - o) * (x - o)).sum();
+            w[i] = if d2 != 0.0 {
+                (1.0 / d2).sqrt() * (-d2 / 2.0 / dim / (delta[i] * delta[i])).exp()
+            } else {
+                1.0e99 // `cf_cal`'s `INF` -- a finite sentinel, not IEEE inf.
+            };
+            if w[i] > w_max {
+                w_max = w[i];
+            }
+        }
+        if w_max == 0.0 {
+            return vec![1.0 / cf_num as f64; cf_num];
+        }
+        let w_sum: f64 = w.iter().sum();
+        w.iter().map(|&wi| wi / w_sum).collect()
+    }
+
+    /// One composition function's total (BEFORE `F_i*`): each component's
+    /// own full shift-rotate pipeline + base function + its post-eval
+    /// rescale + its `bias`, weighted by [`Self::composition_weights`] and
+    /// summed (`cf_cal`'s own final loop, module doc's T7 section).
+    fn composition_fitness(&self, xs: &[f64]) -> f64 {
+        let (delta, bias, comps) = Self::composition_spec(self.fid);
+        let fit: Vec<f64> = comps
+            .iter()
+            .enumerate()
+            .map(|(idx, &(compfn, rotate, postscale))| {
+                let z = self.comp_shift_scale_rotate(xs, idx, compfn.sh_rate(), rotate);
+                compfn.eval(&z) * postscale + bias[idx]
+            })
+            .collect();
+        let w = Self::composition_weights(xs, &self.comp_shift, delta);
+        fit.iter().zip(&w).map(|(&f, &wi)| f * wi).sum()
+    }
+
     /// The full pipeline (shift/scale/rotate + base function + `F_i*` bias)
     /// for one already-flattened decision vector, per this module's doc
     /// (each fid's exact `sr`/rotate choice, including the verified fid
@@ -1057,7 +1566,13 @@ impl Cec2022 {
                 let y: Vec<f64> = (0..self.dim).map(|i| z[self.shuffle[i]]).collect();
                 Self::hybrid_fitness(self.fid, self.dim, &y) + self.f_star()
             }
-            other => unreachable!("Cec2022::new rejects fid outside 1..=8, got {other}"),
+            9..=12 => {
+                // Every component gets its OWN full shift+rotate (module
+                // doc's T7 section) -- `composition_fitness` handles that
+                // per-component, unlike the hybrids' single shared one.
+                self.composition_fitness(xs) + self.f_star()
+            }
+            other => unreachable!("Cec2022::new rejects fid outside 1..=12, got {other}"),
         }
     }
 }
@@ -1093,21 +1608,20 @@ mod tests {
     }
 
     #[test]
-    fn fid_9_to_12_are_not_implemented_yet() {
-        // T6 implements fid 6-8 (the hybrid functions); fid 9-12 (the
-        // composition functions) remain deferred to T7 -- this boundary
-        // moved from 6..=12 (T5) to 9..=12 (this task).
-        for fid in 9u32..=12 {
-            assert!(
-                matches!(Cec2022::new(fid, 10), Err(Cec2022Error::NotImplemented(f)) if f == fid),
-                "fid={fid}"
-            );
+    fn fid_1_to_12_all_construct() {
+        // T7 completes the 12-function table (fid 9-12, the composition
+        // functions) -- the boundary moved from 9..=12 being
+        // `NotImplemented` (T6) to every fid in 1..=12 constructing
+        // successfully; `Cec2022Error::NotImplemented` no longer exists.
+        for fid in 1u32..=12 {
+            let dim = if (6..=8).contains(&fid) { 10 } else { 2 };
+            assert!(Cec2022::new(fid, dim).is_ok(), "fid={fid}");
         }
     }
 
     #[test]
-    fn dim_5_is_bad_dim_for_every_implemented_fid() {
-        for fid in 1u32..=8 {
+    fn dim_5_is_bad_dim_for_every_fid() {
+        for fid in 1u32..=12 {
             assert!(matches!(Cec2022::new(fid, 5), Err(Cec2022Error::BadDim(5))), "fid={fid}");
         }
     }
@@ -1142,12 +1656,29 @@ mod tests {
                 assert_eq!(p.space().dim(), dim);
             }
         }
+        for fid in 9u32..=12 {
+            let p = Cec2022::new(fid, 10).unwrap();
+            assert_eq!(p.space().blocks(), &[Block::Float { lo: -100.0, hi: 100.0, n: 10 }], "fid={fid}");
+            assert_eq!(p.space().dim(), 10);
+        }
     }
 
     #[test]
     fn f_star_matches_report_table() {
-        let expect =
-            [(1u32, 300.0), (2, 400.0), (3, 600.0), (4, 800.0), (5, 900.0), (6, 1800.0), (7, 2000.0), (8, 2200.0)];
+        let expect = [
+            (1u32, 300.0),
+            (2, 400.0),
+            (3, 600.0),
+            (4, 800.0),
+            (5, 900.0),
+            (6, 1800.0),
+            (7, 2000.0),
+            (8, 2200.0),
+            (9, 2300.0),
+            (10, 2400.0),
+            (11, 2600.0),
+            (12, 2700.0),
+        ];
         for (fid, fstar) in expect {
             assert_eq!(Cec2022::new(fid, 10).unwrap().f_star(), fstar, "fid={fid}");
         }
@@ -1163,6 +1694,34 @@ mod tests {
                 assert_eq!(p.fid(), fid);
                 assert_eq!(p.dim(), dim);
                 assert_eq!(p.shuffle.len(), dim, "fid={fid} dim={dim}");
+            }
+        }
+    }
+
+    // ---- T7: construction sweep, fid 9-12 x {2,10,20} -- module doc's T7
+    // section: the C's own dim guard does NOT exclude fid 9-12 at dim=2
+    // (unlike fid 6-8), VERIFIED against the vendored M_9..12_D2.txt /
+    // shift_data_9..12.txt files actually having enough component
+    // rows/blocks (this task's report has the exact counts). ----
+
+    #[test]
+    fn construction_sweep_fid_9_to_12_dims_2_10_20() {
+        for fid in 9u32..=12 {
+            let (_, _, comps) = Cec2022::composition_spec(fid);
+            let cf_num = comps.len();
+            for &dim in &[2usize, 10, 20] {
+                let p = Cec2022::new(fid, dim).unwrap();
+                assert_eq!(p.fid(), fid);
+                assert_eq!(p.dim(), dim);
+                assert_eq!(p.comp_shift.len(), cf_num, "fid={fid} dim={dim}");
+                assert_eq!(p.comp_rotation.len(), cf_num, "fid={fid} dim={dim}");
+                assert!(p.comp_shift.iter().all(|row| row.len() == dim), "fid={fid} dim={dim}");
+                assert!(
+                    p.comp_rotation.iter().all(|m| m.len() == dim && m.iter().all(|row| row.len() == dim)),
+                    "fid={fid} dim={dim}"
+                );
+                // `o` mirrors component 1's own shift (struct doc).
+                assert_eq!(p.o, p.comp_shift[0], "fid={fid} dim={dim}");
             }
         }
     }
@@ -1189,6 +1748,43 @@ mod tests {
                 let p = Cec2022::new(fid, dim).unwrap();
                 let out = p.evaluate_batch(&[g(p.o.clone())]);
                 assert_eq!(out, vec![p.f_star()], "fid={fid} dim={dim}: F(o) must equal F* EXACTLY");
+            }
+        }
+    }
+
+    // ---- x = o_1 pin for fid 9-12 (module doc's T7 section): at
+    // `x = comp_shift[0]` (component 1's OWN shift), component 1's own raw
+    // distance `D_0` is EXACTLY `0`, so `cf_cal`'s weight `w_0` becomes the
+    // `1e99` sentinel -- overwhelmingly larger than every other component's
+    // finite `w_i`, so `w_0/w_sum` rounds to EXACTLY `1.0` in `f64`
+    // arithmetic (the sentinel's magnitude swallows the other components'
+    // additive contribution to `w_sum` completely: `1e99 + <anything
+    // representable-sized>` rounds back to `1e99` exactly, since `1e99`'s
+    // ULP, `~2.2e83`, dwarfs any realistic `w_j`). Component 1's own `fit`
+    // is separately provable `0` at its own shift for every fid (each
+    // fid's component-1 base function evaluated at an all-zero shifted
+    // argument -- Rosenbrock/Schwefel/EScaffer6/HGBat -- is `0`, the SAME
+    // per-function derivations this module doc's T5/T6 sections already
+    // give), and `bias[0]==0` for all four composition functions (module
+    // doc's T7 quoted `bias` arrays: `cf01`/`cf02`/`cf06`/`cf07` all start
+    // `{0, ...}`), so `cf_cal`'s raw output is `0*1.0 + (tiny residual from
+    // the other components' near-zero-but-not-exactly-zero weight share)`
+    // -- NOT necessarily bit-exact `0.0` on its own, but VERIFIED EMPIRICALLY
+    // (this task's report, compiled C reference, `%.20f`-formatted) that the
+    // residual is small enough to be absorbed by the FINAL `+= F_i*` add
+    // (`F_i*` is order `1e3`, ULP `~1e-13`, vastly larger than the
+    // picoscopic residual) -- `F_i(o_1) == F_i*` EXACTLY, for every fid
+    // 9-12 and every dim in {2,10,20} (same absorption argument this
+    // module's T6 Modified-Schwefel pin note already uses for a
+    // not-obviously-zero component). ----
+
+    #[test]
+    fn x_equals_o1_pins_f_star_exactly_composition_dims_2_10_20() {
+        for fid in 9u32..=12 {
+            for &dim in &[2usize, 10, 20] {
+                let p = Cec2022::new(fid, dim).unwrap();
+                let out = p.evaluate_batch(&[g(p.o.clone())]);
+                assert_eq!(out, vec![p.f_star()], "fid={fid} dim={dim}: F(o_1) must equal F* EXACTLY");
             }
         }
     }
@@ -1265,6 +1861,71 @@ mod tests {
         assert!((out - 900.824_878_531_269_7).abs() < 1e-9, "{out}");
     }
 
+    // ---- T7: composition hand fixtures at dim=2, x = o_1 + [1, -1]
+    // (component 1's shift perturbed, same convention as fid 1-8's hand
+    // fixtures above) -- ground truth from the COMPILED official C
+    // reference (`cec22_test_func`, unmodified, `%.20f`-formatted), this
+    // task's report has the driver source and exact invocation. ----
+
+    #[test]
+    fn f9_composition1_hand_fixture_dim2() {
+        let p = Cec2022::new(9, 2).unwrap();
+        let x = vec![p.o[0] + 1.0, p.o[1] - 1.0];
+        let out = p.evaluate_batch(&[g(x)])[0];
+        assert!((out - 2_325.094_192_052_233_7).abs() < 1e-6, "{out}");
+    }
+
+    #[test]
+    fn f10_composition2_hand_fixture_dim2() {
+        let p = Cec2022::new(10, 2).unwrap();
+        let x = vec![p.o[0] + 1.0, p.o[1] - 1.0];
+        let out = p.evaluate_batch(&[g(x)])[0];
+        assert!((out - 2_425.111_050_624_189_4).abs() < 1e-6, "{out}");
+    }
+
+    #[test]
+    fn f11_composition3_hand_fixture_dim2() {
+        let p = Cec2022::new(11, 2).unwrap();
+        let x = vec![p.o[0] + 1.0, p.o[1] - 1.0];
+        let out = p.evaluate_batch(&[g(x)])[0];
+        assert!((out - 2_621.287_087_099_801).abs() < 1e-6, "{out}");
+    }
+
+    #[test]
+    fn f12_composition4_hand_fixture_dim2() {
+        let p = Cec2022::new(12, 2).unwrap();
+        let x = vec![p.o[0] + 1.0, p.o[1] - 1.0];
+        let out = p.evaluate_batch(&[g(x)])[0];
+        assert!((out - 2_722.749_129_005_838).abs() < 1e-6, "{out}");
+    }
+
+    #[test]
+    fn f9_composition1_hand_fixture_dim10() {
+        // x = o_1 + delta, delta = [0.5,0.3,0.2,0.1,0.4,0.2,0.1,0.4,0.3,0.5]
+        // (same delta vector as the fid 6 hybrid hand fixture below, for
+        // cross-module consistency). Ground truth from the compiled C
+        // reference: 2307.87573361641079827677.
+        let p = Cec2022::new(9, 10).unwrap();
+        let delta = [0.5, 0.3, 0.2, 0.1, 0.4, 0.2, 0.1, 0.4, 0.3, 0.5];
+        let x: Vec<f64> = p.o.iter().zip(delta).map(|(&oi, d)| oi + d).collect();
+        let out = p.evaluate_batch(&[g(x)])[0];
+        assert!((out - 2_307.875_733_616_411).abs() < 1e-6, "{out}");
+    }
+
+    #[test]
+    fn f12_composition4_hand_fixture_dim20() {
+        // x = o_1 + delta, delta = the dim=10 delta vector repeated twice.
+        // Ground truth from the compiled C reference:
+        // 2735.74769197030309442198.
+        let p = Cec2022::new(12, 20).unwrap();
+        let delta = [
+            0.5, 0.3, 0.2, 0.1, 0.4, 0.2, 0.1, 0.4, 0.3, 0.5, 0.5, 0.3, 0.2, 0.1, 0.4, 0.2, 0.1, 0.4, 0.3, 0.5,
+        ];
+        let x: Vec<f64> = p.o.iter().zip(delta).map(|(&oi, d)| oi + d).collect();
+        let out = p.evaluate_batch(&[g(x)])[0];
+        assert!((out - 2_735.747_691_970_303).abs() < 1e-6, "{out}");
+    }
+
     // ---- Evaluator integration + budget counting ----
 
     #[test]
@@ -1332,6 +1993,22 @@ mod tests {
         }
     }
 
+    // ---- T7: full sweep, fid 9..=12 x dims {2,10,20} (module doc's T7
+    // section: dim=2 IS supported for these fids, unlike fid 6-8), one
+    // evaluation, no panic ----
+
+    #[test]
+    fn full_sweep_fid_9_to_12_dims_2_10_20_evaluates_without_panic() {
+        for fid in 9u32..=12 {
+            for &dim in &[2usize, 10, 20] {
+                let p = Cec2022::new(fid, dim).unwrap();
+                let x = vec![1.5; dim];
+                let out = p.evaluate_batch(&[g(x)])[0];
+                assert!(out.is_finite(), "fid={fid} dim={dim}: {out}");
+            }
+        }
+    }
+
     #[test]
     fn away_from_optimum_is_worse_for_every_fid() {
         for fid in 1u32..=5 {
@@ -1355,6 +2032,16 @@ mod tests {
     #[test]
     fn away_from_optimum_is_worse_for_every_hybrid_fid() {
         for fid in 6u32..=8 {
+            let p = Cec2022::new(fid, 10).unwrap();
+            let x: Vec<f64> = p.o.iter().map(|&oi| oi + 10.0).collect();
+            let out = p.evaluate_batch(&[g(x)])[0];
+            assert!(out > p.f_star(), "fid={fid}: {out} not > {}", p.f_star());
+        }
+    }
+
+    #[test]
+    fn away_from_optimum_is_worse_for_every_composition_fid() {
+        for fid in 9u32..=12 {
             let p = Cec2022::new(fid, 10).unwrap();
             let x: Vec<f64> = p.o.iter().map(|&oi| oi + 10.0).collect();
             let out = p.evaluate_batch(&[g(x)])[0];
@@ -1554,5 +2241,120 @@ mod tests {
         let x: Vec<f64> = p.o.iter().zip(delta).map(|(&oi, d)| oi + d).collect();
         let out = p.evaluate_batch(&[g(x)])[0];
         assert!((out - 134_409.599_944_268_47).abs() < 1e-6, "{out}");
+    }
+
+    // ---- T7: composition functions (fid 9-12) ----
+
+    // ---- constant-table spot check (brief, Step 2): `composition_spec`'s
+    // `delta`/`bias` arrays and component lists, transcribed directly from
+    // `cf01`/`cf02`/`cf06`/`cf07`'s own C source (module doc's T7 section
+    // quotes each in full) -- re-asserted here, independent of the module
+    // doc prose, so a future accidental edit to the match arms is caught. ----
+
+    #[test]
+    fn composition_spec_matches_the_c_sources_constant_tables() {
+        use CompFn::*;
+
+        let (delta9, bias9, comps9) = Cec2022::composition_spec(9);
+        assert_eq!(delta9, &[10.0, 20.0, 30.0, 40.0, 50.0]);
+        assert_eq!(bias9, &[0.0, 200.0, 300.0, 100.0, 400.0]);
+        assert_eq!(comps9.len(), 5);
+        assert_eq!(comps9.iter().map(|&(f, _, _)| f).collect::<Vec<_>>(), vec![
+            Rosenbrock, Ellipsoidal, BentCigar, Discus, Ellipsoidal
+        ]);
+        // `cf01`'s 5th component (2nd Ellipsoidal) is the ONLY one hardcoded
+        // `r_flag=0` for fid 9 (module doc's T7 section).
+        assert_eq!(comps9.iter().map(|&(_, r, _)| r).collect::<Vec<_>>(), vec![
+            true, true, true, true, false
+        ]);
+
+        let (delta10, bias10, comps10) = Cec2022::composition_spec(10);
+        assert_eq!(delta10, &[20.0, 10.0, 10.0]);
+        assert_eq!(bias10, &[0.0, 200.0, 100.0]);
+        assert_eq!(comps10.iter().map(|&(f, _, _)| f).collect::<Vec<_>>(), vec![
+            Schwefel, Rastrigin, HGBat
+        ]);
+        // `cf02`'s 1st component (Schwefel) is the ONLY one hardcoded
+        // `r_flag=0` for fid 10.
+        assert_eq!(comps10.iter().map(|&(_, r, _)| r).collect::<Vec<_>>(), vec![false, true, true]);
+
+        let (delta11, bias11, comps11) = Cec2022::composition_spec(11);
+        assert_eq!(delta11, &[20.0, 20.0, 30.0, 30.0, 20.0]);
+        assert_eq!(bias11, &[0.0, 200.0, 300.0, 400.0, 200.0]);
+        assert_eq!(comps11.iter().map(|&(f, _, _)| f).collect::<Vec<_>>(), vec![
+            EScaffer6, Schwefel, Griewank, Rosenbrock, Rastrigin
+        ]);
+        assert!(comps11.iter().all(|&(_, r, _)| r), "fid 11: no hardcoded r_flag=0 exceptions");
+
+        let (delta12, bias12, comps12) = Cec2022::composition_spec(12);
+        assert_eq!(delta12, &[10.0, 20.0, 30.0, 40.0, 50.0, 60.0]);
+        assert_eq!(bias12, &[0.0, 300.0, 500.0, 100.0, 400.0, 200.0]);
+        assert_eq!(comps12.iter().map(|&(f, _, _)| f).collect::<Vec<_>>(), vec![
+            HGBat, Rastrigin, Schwefel, BentCigar, Ellipsoidal, EScaffer6
+        ]);
+        assert!(comps12.iter().all(|&(_, r, _)| r), "fid 12: no hardcoded r_flag=0 exceptions");
+
+        // Every fid's bias[0] == 0 -- the x = o_1 pin's derivation
+        // (module doc's T7 section) depends on this.
+        for fid in 9u32..=12 {
+            let (_, bias, _) = Cec2022::composition_spec(fid);
+            assert_eq!(bias[0], 0.0, "fid={fid}");
+        }
+    }
+
+    // ---- weight-formula unit test (brief, Step 2): hand-computed omega
+    // values on a hand-built 2-component miniature, dim=1, testing
+    // `composition_weights` directly (not through `Cec2022::new` / the
+    // embedded data at all). Hand arithmetic (Python `math.exp`,
+    // scratch-verified, this task's report has the script) transcribed into
+    // the assertions below. ----
+
+    #[test]
+    fn composition_weights_matches_hand_computed_omega_2_component_miniature() {
+        // o_1=[0.0], o_2=[3.0], delta=[1.0,1.0], x=[1.0]:
+        //   D_1 = (1-0)^2 = 1.0, D_2 = (1-3)^2 = 4.0
+        //   w_1 = (1/1)^0.5 * exp(-1/(2*1*1^2)) = exp(-0.5) = 0.6065306597126334
+        //   w_2 = (1/4)^0.5 * exp(-4/(2*1*1^2)) = 0.5*exp(-2) = 0.06766764161830635
+        //   w_sum = 0.6741983013309398
+        //   norm_1 = w_1/w_sum = 0.8996324353165482
+        //   norm_2 = w_2/w_sum = 0.10036756468345168
+        let shifts = vec![vec![0.0], vec![3.0]];
+        let delta = [1.0, 1.0];
+        let w = Cec2022::composition_weights(&[1.0], &shifts, &delta);
+        assert_eq!(w.len(), 2);
+        assert!((w[0] - 0.899_632_435_316_548_2).abs() < 1e-12, "{w:?}");
+        assert!((w[1] - 0.100_367_564_683_451_68).abs() < 1e-12, "{w:?}");
+        assert!((w[0] + w[1] - 1.0).abs() < 1e-12, "weights must sum to 1: {w:?}");
+    }
+
+    #[test]
+    fn composition_weights_x_at_component_1s_own_shift_gives_weight_1_for_that_component() {
+        // x == o_1 exactly -> D_1 == 0 -> w_1 = cf_cal's 1e99 sentinel,
+        // overwhelmingly larger than any finite w_2 -- normalized w_1 rounds
+        // to EXACTLY 1.0 in f64 arithmetic (module doc's T7 x=o_1 pin note).
+        let shifts = vec![vec![5.0, -5.0], vec![100.0, 100.0]];
+        let delta = [10.0, 10.0];
+        let w = Cec2022::composition_weights(&[5.0, -5.0], &shifts, &delta);
+        // w[0] rounds to EXACTLY 1.0 (the 1e99 sentinel swallows w_sum);
+        // w[1] is a picoscopic but not bit-exact-zero double (empirically
+        // 1.2e-123 here) -- consistent with the x=o_1 pin note's
+        // "absorbed at the FINAL +F* add, not necessarily exactly 0 on its
+        // own" argument.
+        assert_eq!(w[0], 1.0, "{w:?}");
+        assert!(w[1] < 1e-100, "{w:?}");
+    }
+
+    #[test]
+    fn composition_weights_falls_back_to_uniform_when_every_weight_underflows_to_zero() {
+        // A tiny delta makes the exponent's magnitude enormous (module
+        // doc's T7 section: `cf_cal`'s `w_max==0` fallback branch) --
+        // BOTH components' `exp(...)` term underflows to exactly `0.0` in
+        // f64 (neither x coincides with either shift, so this is the
+        // underflow path, not the `D_i==0` sentinel path) -- `cf_cal`
+        // falls back to a uniform `1/cf_num` for every component.
+        let shifts = vec![vec![0.0], vec![5.0]];
+        let delta = [0.001, 0.001];
+        let w = Cec2022::composition_weights(&[3.0], &shifts, &delta);
+        assert_eq!(w, vec![0.5, 0.5]);
     }
 }

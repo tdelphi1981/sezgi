@@ -54,18 +54,53 @@
 //!   (matches the C's own `y[i]=z[S[i]-1]`, `cec22_test_func.cpp`'s `hf02`/
 //!   `hf06`/`hf10`, quoted in `cec2022/mod.rs`'s doc).
 //!
-//! ## Extension points for T7 (composition functions, fid 9-12) -- do NOT
-//! extend the functions above for these; the file grammar itself changes
+//! ## T7 addendum: composition data (fid 9-12) -- a DIFFERENT layout from
+//! fid 1-8's, needing its own parsers ([`composition_shift_blocks`] /
+//! [`composition_rotation_blocks`], not a generalization of
+//! [`shift_vector`]/[`rotation_matrix`], which assume exactly one shift row
+//! / one M block per fid)
 //!
-//! - **Composition data (fid 9-12)**: `shift_data_9..12.txt` and
-//!   `M_9..12_D<dim>.txt` use a DIFFERENT layout -- `cf_num=12` STACKED
-//!   shift rows (`cf_num*nx` values total, `nx` per sub-function) and
-//!   `cf_num*nx*nx` M values (one `nx`x`nx` block per sub-function) -- per
-//!   `cec22_test_func.cpp`'s `else` branch (`func_num>=9`) of the same
-//!   initializer this module's doc quotes above. This needs its OWN parser
-//!   (e.g. `composition_shift_blocks`/`composition_rotation_blocks`), not a
-//!   generalization of [`shift_vector`]/[`rotation_matrix`], which assume
-//!   exactly one shift row / one M block per fid.
+//! `cec22_test_func.cpp`'s loader (`func_num>=9` branch, this module's T5
+//! sibling doc quotes the surrounding `else`) allocates and attempts to fill
+//! a HARDCODED `cf_num=12`-sized buffer for BOTH `OShift`
+//! (`nx*cf_num` doubles, one row of up to 100 raw tokens per slot, module
+//! doc's fid-1-8 "up to 100 values, only the first `dim` matter" grammar
+//! extended per-row) and `M` (`cf_num*nx*nx` doubles) -- `12` being a
+//! single hardcoded local (`int cf_num=12,i,j;`, the function's very first
+//! line) shared by ALL FOUR composition dispatch cases, NOT any individual
+//! composition function's own `cf_num` (5 for `cf01`/fid9, 3 for
+//! `cf02`/fid10, 5 for `cf06`/fid11, 6 for `cf07`/fid12 -- each hardcoded
+//! locally INSIDE that function, this module doc's T7 section, and
+//! genuinely different from the loader's `12`).
+//!
+//! **Verified directly against the vendored files (not assumed from the
+//! loader's `12`)**: every `shift_data_9..12.txt` carries exactly 10 lines
+//! of 100 tokens each (`wc`/`awk` counted, this task's report), and every
+//! `M_9..12_D<dim>.txt` carries exactly 10 stacked `dim`x`dim` blocks
+//! (`M_9_D10.txt`: 100 lines of 10 values = 1000 = 10*10*10; `M_9_D2.txt`:
+//! 16 lines of 2 values = 32 = 8*2*2, i.e. 8 blocks at dim=2, still >= the
+//! max `cf_num` any fid 9-12 function needs) -- NEITHER file provides the
+//! full 12 slots/blocks the loader's hardcoded `12` would read. This is
+//! harmless in practice: the C loader's 11th/12th-slot reads run past EOF
+//! (`fscanf` silently fails, leaving unread `malloc` memory untouched) but
+//! that garbage is NEVER accessed -- `cf01`/`cf02`/`cf06`/`cf07` each index
+//! only `Os[0..cf_num_actual*nx]` / `Mr[0..cf_num_actual*nx*nx]` with their
+//! OWN small `cf_num` (max 6, for `cf07`/fid12), always well inside the 8-10
+//! blocks the files actually provide. [`composition_shift_blocks`] /
+//! [`composition_rotation_blocks`] below therefore take the CALLER's actual
+//! `cf_num` (module doc's `Cec2022::composition_spec` table, T7) and parse
+//! only that many rows/blocks -- not a fixed 12 -- matching what the C
+//! genuinely reads (as opposed to what it over-allocates for).
+//!
+//! Grammar per block, once the block boundary is known: shift rows follow
+//! fid-1-8's exact per-row grammar (`dim` of up to 100 whitespace-separated
+//! values per LINE, one line per component -- [`composition_shift_blocks`]
+//! therefore parses line-by-line, unlike [`shift_vector`]'s single
+//! whitespace-flattened stream, so row boundaries are preserved); `M` blocks
+//! are `dim`x`dim` row-major, stacked with NO padding between blocks (no
+//! per-row skip needed, unlike the shift file's 100-column dead-weight
+//! columns) -- [`composition_rotation_blocks`] slices the flat parsed stream
+//! directly into `cf_num` contiguous `dim*dim`-sized chunks.
 
 const SHIFT_1: &str = include_str!("../../data/cec2022/shift_data_1.txt");
 const SHIFT_2: &str = include_str!("../../data/cec2022/shift_data_2.txt");
@@ -97,6 +132,24 @@ const M_7_D10: &str = include_str!("../../data/cec2022/M_7_D10.txt");
 const M_7_D20: &str = include_str!("../../data/cec2022/M_7_D20.txt");
 const M_8_D10: &str = include_str!("../../data/cec2022/M_8_D10.txt");
 const M_8_D20: &str = include_str!("../../data/cec2022/M_8_D20.txt");
+
+const SHIFT_9: &str = include_str!("../../data/cec2022/shift_data_9.txt");
+const SHIFT_10: &str = include_str!("../../data/cec2022/shift_data_10.txt");
+const SHIFT_11: &str = include_str!("../../data/cec2022/shift_data_11.txt");
+const SHIFT_12: &str = include_str!("../../data/cec2022/shift_data_12.txt");
+
+const M_9_D2: &str = include_str!("../../data/cec2022/M_9_D2.txt");
+const M_9_D10: &str = include_str!("../../data/cec2022/M_9_D10.txt");
+const M_9_D20: &str = include_str!("../../data/cec2022/M_9_D20.txt");
+const M_10_D2: &str = include_str!("../../data/cec2022/M_10_D2.txt");
+const M_10_D10: &str = include_str!("../../data/cec2022/M_10_D10.txt");
+const M_10_D20: &str = include_str!("../../data/cec2022/M_10_D20.txt");
+const M_11_D2: &str = include_str!("../../data/cec2022/M_11_D2.txt");
+const M_11_D10: &str = include_str!("../../data/cec2022/M_11_D10.txt");
+const M_11_D20: &str = include_str!("../../data/cec2022/M_11_D20.txt");
+const M_12_D2: &str = include_str!("../../data/cec2022/M_12_D2.txt");
+const M_12_D10: &str = include_str!("../../data/cec2022/M_12_D10.txt");
+const M_12_D20: &str = include_str!("../../data/cec2022/M_12_D20.txt");
 
 const SHUFFLE_6_D10: &str = include_str!("../../data/cec2022/shuffle_data_6_D10.txt");
 const SHUFFLE_6_D20: &str = include_str!("../../data/cec2022/shuffle_data_6_D20.txt");
@@ -231,6 +284,79 @@ pub(crate) fn shuffle_indices(fid: u32, dim: usize) -> Vec<usize> {
                 "cec2022 embedded data {name}: shuffle index {one_based} out of range 1..={dim}"
             );
             (one_based - 1) as usize
+        })
+        .collect()
+}
+
+/// `fid`'s (`9..=12`) first `cf_num` component shift rows, each truncated to
+/// the first `dim` values (module doc's T7 addendum: the vendored file has
+/// 10 stacked 100-wide rows -- `cf_num` (caller's, 3/5/5/6 -- always `<=6`)
+/// is the number this composition function itself actually uses). `fid`
+/// must be `9..=12` (caller's responsibility -- `Cec2022::new` validates).
+pub(crate) fn composition_shift_blocks(fid: u32, dim: usize, cf_num: usize) -> Vec<Vec<f64>> {
+    let (text, name) = match fid {
+        9 => (SHIFT_9, "shift_data_9.txt"),
+        10 => (SHIFT_10, "shift_data_10.txt"),
+        11 => (SHIFT_11, "shift_data_11.txt"),
+        12 => (SHIFT_12, "shift_data_12.txt"),
+        other => unreachable!("composition_shift_blocks called with unsupported fid {other}"),
+    };
+    let rows: Vec<&str> = text.lines().filter(|line| !line.trim().is_empty()).collect();
+    assert!(
+        rows.len() >= cf_num,
+        "cec2022 embedded data {name}: only {} shift rows, need at least {cf_num}",
+        rows.len()
+    );
+    rows[..cf_num]
+        .iter()
+        .map(|line| {
+            let vals = parse_floats(line, name);
+            assert!(
+                vals.len() >= dim,
+                "cec2022 embedded data {name}: shift row has only {} values, need at least {dim}",
+                vals.len()
+            );
+            vals[..dim].to_vec()
+        })
+        .collect()
+}
+
+/// `fid`'s (`9..=12`) first `cf_num` component `dim`x`dim` rotation
+/// matrices, row-major each block (module doc's T7 addendum: the vendored
+/// file stacks 10 `dim`x`dim` blocks with no padding between them --
+/// `cf_num` (caller's, always `<=6`) is the number this composition
+/// function itself actually uses). `fid` must be `9..=12`, `dim` one of
+/// `{2,10,20}` (caller's responsibility -- `Cec2022::new` validates).
+pub(crate) fn composition_rotation_blocks(fid: u32, dim: usize, cf_num: usize) -> Vec<Vec<Vec<f64>>> {
+    let (text, name) = match (fid, dim) {
+        (9, 2) => (M_9_D2, "M_9_D2.txt"),
+        (9, 10) => (M_9_D10, "M_9_D10.txt"),
+        (9, 20) => (M_9_D20, "M_9_D20.txt"),
+        (10, 2) => (M_10_D2, "M_10_D2.txt"),
+        (10, 10) => (M_10_D10, "M_10_D10.txt"),
+        (10, 20) => (M_10_D20, "M_10_D20.txt"),
+        (11, 2) => (M_11_D2, "M_11_D2.txt"),
+        (11, 10) => (M_11_D10, "M_11_D10.txt"),
+        (11, 20) => (M_11_D20, "M_11_D20.txt"),
+        (12, 2) => (M_12_D2, "M_12_D2.txt"),
+        (12, 10) => (M_12_D10, "M_12_D10.txt"),
+        (12, 20) => (M_12_D20, "M_12_D20.txt"),
+        (other_fid, other_dim) => unreachable!(
+            "composition_rotation_blocks called with unsupported (fid={other_fid}, dim={other_dim})"
+        ),
+    };
+    let flat = parse_floats(text, name);
+    let block_len = dim * dim;
+    assert!(
+        flat.len() >= cf_num * block_len,
+        "cec2022 embedded data {name}: only {} values, need at least {} ({cf_num} blocks of {dim}x{dim})",
+        flat.len(),
+        cf_num * block_len
+    );
+    (0..cf_num)
+        .map(|b| {
+            let block = &flat[b * block_len..(b + 1) * block_len];
+            (0..dim).map(|i| block[i * dim..(i + 1) * dim].to_vec()).collect()
         })
         .collect()
 }
@@ -417,6 +543,70 @@ mod tests {
                 assert!(m.iter().all(|row| row.len() == dim), "fid={fid} dim={dim}");
                 let s = shuffle_indices(fid, dim);
                 assert_eq!(s.len(), dim, "fid={fid} dim={dim}");
+            }
+        }
+    }
+
+    // ---- T7 addendum: fid 9-12 (composition) embedded data ----
+
+    #[test]
+    fn composition_shift_blocks_9_dim2_rows_0_and_1_match_vendored_file() {
+        // data/cec2022/shift_data_9.txt, first two tokens of line 1 and
+        // line 2:
+        //   line1: "5.2898156995371991e+01  -2.5374962177767859e+00 ..."
+        //   line2: "6.7324621217010829e+01   5.7101767141885020e+01 ..."
+        let blocks = composition_shift_blocks(9, 2, 5);
+        assert_eq!(blocks.len(), 5);
+        assert_eq!(blocks[0], vec![5.2898156995371991e+01, -2.5374962177767859e+00]);
+        assert_eq!(blocks[1], vec![6.7324621217010829e+01, 5.7101767141885020e+01]);
+    }
+
+    #[test]
+    fn composition_shift_blocks_10_11_12_dim2_row0_matches_vendored_file() {
+        // First token of line 1 of shift_data_10/11/12.txt.
+        assert_eq!(composition_shift_blocks(10, 2, 3)[0][0], 6.1770164235388009e+01);
+        assert_eq!(composition_shift_blocks(11, 2, 5)[0][0], 4.9178999700201210e+01);
+        assert_eq!(composition_shift_blocks(12, 2, 6)[0][0], -6.2391809693720106e+01);
+    }
+
+    #[test]
+    fn composition_rotation_blocks_9_dim2_block_boundaries_match_vendored_file() {
+        // data/cec2022/M_9_D2.txt, first two 2x2 blocks (4 lines):
+        //   block0 row0: "-1.2107125975322155e+000  -5.1761149145075969e-001"
+        //   block0 row1: " 2.5080932042014417e+000  -1.4056037240749819e+000"
+        //   block1 row0: "-9.8943637273985763e-001   1.4496780435460016e-001"
+        //   block1 row1: "-1.4496780435460044e-001  -9.8943637273985763e-001"
+        // Confirms blocks are read CONTIGUOUSLY (no padding between them,
+        // unlike the shift file's 100-column dead weight) -- block 1 starts
+        // exactly at flat index 4, not e.g. 100 (a wrong "each block is
+        // still 100-wide" reading would misindex here).
+        let blocks = composition_rotation_blocks(9, 2, 5);
+        assert_eq!(blocks.len(), 5);
+        assert_eq!(blocks[0], vec![
+            vec![-1.2107125975322155e+000, -5.1761149145075969e-001],
+            vec![2.5080932042014417e+000, -1.4056037240749819e+000],
+        ]);
+        assert_eq!(blocks[1], vec![
+            vec![-9.8943637273985763e-001, 1.4496780435460016e-001],
+            vec![-1.4496780435460044e-001, -9.8943637273985763e-001],
+        ]);
+    }
+
+    #[test]
+    fn all_fid_9_to_12_dims_2_10_20_parse_without_panic() {
+        // cf_num per fid (module doc's T7 `composition_spec` table): fid 9
+        // -> 5, fid 10 -> 3, fid 11 -> 5, fid 12 -> 6.
+        for &(fid, cf_num) in &[(9u32, 5usize), (10, 3), (11, 5), (12, 6)] {
+            for &dim in &[2usize, 10, 20] {
+                let shifts = composition_shift_blocks(fid, dim, cf_num);
+                assert_eq!(shifts.len(), cf_num, "fid={fid} dim={dim}");
+                assert!(shifts.iter().all(|row| row.len() == dim), "fid={fid} dim={dim}");
+                let rots = composition_rotation_blocks(fid, dim, cf_num);
+                assert_eq!(rots.len(), cf_num, "fid={fid} dim={dim}");
+                assert!(
+                    rots.iter().all(|m| m.len() == dim && m.iter().all(|row| row.len() == dim)),
+                    "fid={fid} dim={dim}"
+                );
             }
         }
     }
