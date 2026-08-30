@@ -107,7 +107,9 @@
 //! and last after sorting) still get `f64::INFINITY` unconditionally, per
 //! the algorithm above, regardless of whether the range is zero.
 //!
-//! A front of size <= 2 needs no special case: with `l <= 2` the interior
+//! A front of size <= 2 needs no separate RESULT rule (the implementation
+//! does take an explicit early-return branch for it, with an identical
+//! outcome to the general path): with `l <= 2` the interior
 //! loop `2..=(l-1)` never runs, and the boundary assignment
 //! `I[1]_distance = I[l]_distance = infinity` covers every member (for
 //! `l == 1`, position 1 and position `l` are the same element; for
