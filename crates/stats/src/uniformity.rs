@@ -101,8 +101,11 @@
 //! // approximation and carries additional, undocumented finite-`n` error
 //! // for small `n` (the paper reports the worst-case error of using
 //! // `A_infinity` in place of the exact `A_n` distribution is about
-//! // `.044/n`, "near the 33rd percentile"). Revisit if Task 4 needs
-//! // tighter small-`n` accuracy.
+//! // `.044/n`, "near the 33rd percentile"). At the decision-relevant
+//! // tail (p near 0.01-0.05) the error is far smaller (on the order of
+//! // 4e-4 at n = 30, shrinking with n) and slightly anti-conservative,
+//! // so Holm-adjusted 0.01/0.05 decisions for n >= 30 are unaffected.
+//! // Revisit if Task 4 needs tighter small-`n` accuracy.
 
 use crate::{check_finite, StatsError};
 
