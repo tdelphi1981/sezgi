@@ -99,6 +99,27 @@ depends on is deferred to v2 (see the main `README.md`'s "Multi-objective
 optimization (M3-2)" section and `docs/DECISIONS.md`'s M3-2 record for the
 full spec-tension ruling).
 
+## CEC 2022 and TSPLIB/permutation quickstarts (M3-3)
+
+Two more matched Python/R PAIRS (not triplets -- no `specs/*.toml` for
+either, see each script's own header for why), both going through
+`sezgi.solve()` / r-sezgi's established `sz_solve_*`/`sz_preset_*` path:
+
+| Pair | Files | What it demonstrates |
+|---|---|---|
+| SHADE on CEC 2022 f3 | `python/cec2022_shade.py`, `r/cec2022_shade.R` | `sezgi.presets.shade` (Tanabe & Fukunaga 2013) solved against `sezgi.problems.cec2022(fid, dim)` via `sezgi.solve()`, printing `best_f` and the gap to the report's pinned `F*`. **The R script does NOT run SHADE**: r-sezgi has no `solve()`-integrated CEC 2022 binding (T10 bound direct evaluation only, `sz_cec2022_evaluate`/`sz_cec2022_f_star`) -- it instead runs a small classic DE/rand/1/bin loop written directly in base R against `sz_cec2022_evaluate`, disclosed in the script's own header as a real capability gap, not a stylistic choice (see `docs/DECISIONS.md`'s M3-3 record and the v1.0 readiness checklist). |
+| ga-perm on TSPLIB berlin52 | `python/tsp_ga_perm.py`, `r/tsp_ga_perm.R` | `sezgi.presets.ga_perm` / `sz_preset_ga_perm` (a fused OX1-crossover + swap-mutation permutation GA) solved against the vendored `berlin52` TSPLIB instance (`sezgi.problems.tsp` / `sz_solve_tsp`), printing the best tour length against berlin52's published TSPLIB optimum (7542.0). The Python script uses 0-based tour indices; the R script uses 1-based (r-sezgi's own established indexing convention, matching TSPLIB's own node numbering -- see `docs/DECISIONS.md`'s M3-3 record). |
+
+Both pairs are single-seed, single-problem SMOKE demonstrations of the
+binding surface, reported as a gap against a known optimum -- never a
+cross-algorithm or cross-language quality claim (the CEC pair in
+particular runs two DIFFERENT algorithms in the two languages, per the
+capability gap above, so its Python/R numbers are not even expected to
+agree, unlike the TSP pair or the M3-2 NSGA-II pair, which do run the same
+algorithm through the same Rust core in both languages). See each script's
+own header comment for full provenance and the exact numbers from a real
+run.
+
 Run:
 
     ./py-sezgi/.venv/bin/python examples/python/nsga2_zdt1.py

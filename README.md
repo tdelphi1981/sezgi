@@ -278,6 +278,99 @@ to v2 (see `docs/DECISIONS.md`'s M3-2 record for the full ruling).
 tightening of the naive "even, >= 4" rule that NSGA-II's own reference C
 code (`nsga2r.c`) enforces for its double-permutation tournament pairing.
 
+## CEC 2022 benchmark suite (M3-3)
+
+`sezgi.problems.cec2022(fid, dim)` / direct evaluation
+(`sezgi.problems.cec2022_evaluate`, `sz_cec2022_evaluate`) implement all
+**12 fids** of the CEC 2022 Special Session and Competition suite (Kumar,
+Price, Mohamed, Hadi & Suganthan 2021) — basic functions f1-f5, hybrids
+f6-f8, and compositions f9-f12 — at dims `{2,10,20}` (fid 6-8 reject
+dim=2: the official data has no dim-2 shuffle data for hybrids). The
+vendored shift/rotation/shuffle data (`crates/problems/data/cec2022/`,
+~868KB) comes from the competition's own official repository
+(`P-N-Suganthan/2022-SO-BO`), which carries **no LICENSE file anywhere in
+the repo or the data archive** (checked directly, not assumed) — vendored
+here with prominent attribution rather than withheld, per this project's
+scope ruling; see `docs/DECISIONS.md`'s M3-3 record for the full finding.
+
+Run a reference-tier preset (SHADE, Tanabe & Fukunaga 2013) against a CEC
+2022 function through the same `sezgi.solve()` path every other preset
+uses:
+
+    import sezgi
+
+    problem = sezgi.problems.cec2022(fid=3, dim=10)
+    spec = sezgi.presets.shade(pop_size=20, budget=5000)
+    result = sezgi.solve(spec, problem, master_seed=20260830, run_id=0)
+    print(result["best_f"] - sezgi.problems.cec2022_f_star(3))
+
+Output (live-run, same scenario as `examples/python/cec2022_shade.py`):
+
+    600.0040181437115 - 600.0 -> gap 0.004018143711505218  (evals_used=5000)
+
+**Where the printed CEC 2022 report and the official C code disagree,
+sezgi follows the C code** — the code is what scored the competition and
+produced its published results, not the report's (imperfect) prose. This
+affects f3 (the report's "Expanded Schaffer's f6" name and its printed
+scale/rotation do not match what the code actually computes — plain
+Schaffer's F7, no scale, and, due to a verified buffer-reuse bug, no
+effective rotation either), f4 (the report's "Non-Continuous Rastrigin"
+step-quantization is dead code in the reference C — the shipped behavior
+is plain Rastrigin), f5 (the printed `5.12/100` scale is a copy-paste
+duplicate of f4's own scale — the code applies no scale), and f7 (the
+report's printed 7-value weight array has one duplicate entry too many for
+its own `N=6`, and the SchafferF7 hybrid component's assigned segment is
+provably inert — a global-buffer indexing bug in the reference C).
+Independent cross-validation against a freshly compiled copy of the
+official C reference (primary) and `opfunu==1.0.4` (secondary; several new
+opfunu-side bugs were root-caused and documented along the way) confirms
+sezgi matches the C reference to machine precision at every probed point.
+See `docs/DECISIONS.md`'s M3-3 record for the full method-provenance
+table, every discrepancy quoted verbatim from the C source, and the
+opfunu cross-check's complete findings.
+
+R mirrors the direct-evaluation half 1:1 (`sz_cec2022_evaluate`,
+`sz_cec2022_f_star`) but does **not** yet have a `solve()`-integrated CEC
+2022 binding (no built-in preset can be pointed at a CEC2022 problem from
+R today) — see `examples/r/cec2022_shade.R`'s header and the v1.0
+readiness checklist below for this disclosed gap.
+
+## Permutation problems and TSP (M3-3)
+
+Permutation-typed search spaces (`init/perm-random`, `gen/ox` order
+crossover, `gen/perm-swap` swap mutation, and the fused `gen/ga-perm`
+preset — a permutation genetic algorithm mirroring `presets::ga_real`'s
+composition) plus a TSPLIB95 (Reinelt) `EUC_2D` loader with three vendored
+instances and their published-optimal tour lengths as goldens: `berlin52`
+(7542.0), `eil51` (426.0), `st70` (675.0).
+
+    import sezgi
+
+    problem = sezgi.problems.tsp("berlin52")
+    spec = sezgi.presets.ga_perm(pop_size=32, budget=5000)
+    result = sezgi.solve(spec, problem, master_seed=20260830, run_id=0)
+    print(result["best_f"], sezgi.problems.tsp_load("berlin52")["known_optimum"])
+
+Output (live-run, same scenario as `examples/python/tsp_ga_perm.py`):
+
+    11771.0 7542.0   (gap 4229.0, ratio 1.5607, evals_used=4992)
+
+`ga-perm` is a baseline permutation GA with no local search (no 2-opt), so
+a gap of this size against the optimum is expected, not a defect — this
+single-seed run is a SMOKE demonstration of the binding, not a quality
+claim (see the single-seed-ban wording in `examples/README.md`). R mirrors
+this through `sz_preset_ga_perm`/`sz_solve_tsp`, using **1-based** tour
+indices throughout (matching TSPLIB's own node numbering and
+`sz_bayesian_plackett_luce`'s existing 1-based item-id precedent) — unlike
+Python's 0-based convention. Both bindings agree exactly on this scenario
+(same master_seed, same Rust core underneath): `examples/r/tsp_ga_perm.R`
+reproduces `11771.0` too. See `docs/DECISIONS.md`'s M3-3 record for OX1's
+own provenance finding (Davis's actual 1985 paper describes a different,
+single-cut-point operator; the two-cut-point cyclic "OX" implemented here
+is the field's later, still Davis-attributed, synthesis — pinned to
+Cicirello's 2023 worked numeric example) and the TSPLIB `nint` rounding
+rule.
+
 ## Examples
 
 `examples/` holds a catalog of all **17** labeled-metaphor algorithms (GWO,
@@ -299,6 +392,14 @@ both languages (bit-identical output, not merely statistically
 comparable). No `specs/nsga2_zdt1.toml` exists — see "Multi-objective
 optimization (M3-2)" above for why.
 
+`examples/python/cec2022_shade.py`/`examples/r/cec2022_shade.R` and
+`examples/python/tsp_ga_perm.py`/`examples/r/tsp_ga_perm.R` are two more
+matched PAIRs (M3-3): SHADE on CEC 2022 f3, and ga-perm on TSPLIB
+berlin52, both through `sezgi.solve()`/`sz_solve_*`. See "CEC 2022
+benchmark suite (M3-3)" and "Permutation problems and TSP (M3-3)" above —
+including the disclosed R/CEC2022 solve()-binding gap the first pair's R
+script works around.
+
 ## Development
 
     cargo test --workspace --release        # Rust tests
@@ -306,6 +407,24 @@ optimization (M3-2)" above for why.
     R CMD INSTALL --preclean r-sezgi && Rscript -e 'testthat::test_dir("r-sezgi/tests/testthat", package = "sezgi")' # R tests
 
 ## Status
+
+M3-3 (CEC 2022 benchmark suite + permutation problems/TSP) **complete** —
+all 12 CEC 2022 fids (`crates/problems/src/cec2022/`, ~868KB vendored
+data, no upstream LICENSE file, attributed) with five adjudicated
+report-vs-official-C discrepancies (F3, F4, F5, the fid-7 weight-array
+misprint, and the fid-7 SchafferF7 dead-segment bug) resolved in the C
+code's favor per the standing code-over-report ruling; independent
+cross-validation against a freshly compiled official C reference (primary)
+and `opfunu==1.0.4` (secondary, six new opfunu bug classes root-caused);
+permutation operators (`init/perm-random`, `gen/ox`, `gen/perm-swap`) and
+the fused `gen/ga-perm` preset; a TSPLIB95 `EUC_2D` loader with three
+vendored instances (berlin52/eil51/st70) and their published-optimal-tour
+goldens; Python (`sezgi.problems.*`) and R (`sz_cec2022_*`/`sz_tsp_*`)
+bindings, with R disclosed as lacking a `solve()`-integrated CEC2022
+binding (direct evaluation only); four live example scripts (two matched
+Python/R pairs). See `docs/DECISIONS.md`'s "M3-3 completed" record for the
+full method-provenance table, every discrepancy quoted verbatim, and the
+v1.0 readiness checklist. Next: v1.0 prep (see the checklist).
 
 M3-2 (multi-objective optimization) **complete** — NSGA-II (Deb, Pratap,
 Agarwal & Meyarivan 2002) as a self-contained, seeded reference runner
