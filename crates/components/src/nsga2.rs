@@ -457,6 +457,7 @@ pub fn sbx_pair(
         // ONE draw, reused verbatim for BOTH children's betaq computation
         // (verified against realcross: `rand` is drawn once, read twice).
         let rand = rng.next_f64();
+        // sezgi simplification: 1/(eta+1) hoisted out of the per-branch pow calls (the C recomputes it inline each time); numerically inert.
         let inv_eta1 = 1.0 / (eta_c + 1.0);
 
         // Child "1" side: distance from the smaller parent y1 to the
