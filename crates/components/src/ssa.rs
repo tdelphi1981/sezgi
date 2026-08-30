@@ -141,11 +141,10 @@ use sezgi_core::space::{Block, BlockValues, Genotype};
 ///   first pinned in Task 1/SCA's review) -- SSA does not get its own
 ///   blackboard exception the way MFO's N-sized flame archive did, because a
 ///   single persisted scalar-attractor is exactly the case the parked
-///   convention already covers, not a new mechanism. `// sezgi
-///   simplification:` this module uses the current population's fitness
-///   argmin as `food`, not a persisted best-ever -- a genuine, deliberately
-///   NOT-implemented delta from the verified source, recorded here rather
-///   than reproduced.
+///   convention already covers, not a new mechanism. `// sezgi simplification:`
+///   this module uses the current population's fitness argmin as `food`,
+///   not a persisted best-ever -- a genuine, deliberately NOT-implemented
+///   delta from the verified source, recorded here rather than reproduced.
 /// - **Replacement:** `SSA.m` applies the position update UNCONDITIONALLY
 ///   to `SalpPositions` every iteration (no per-agent greedy fitness
 ///   comparison -- only the separate `FoodPosition`/`FoodFitness` scalar is

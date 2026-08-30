@@ -346,21 +346,80 @@ use sezgi_core::space::{Block, BlockValues, Genotype};
 /// mechanism exists, and per the analysis above, none is needed: the
 /// "double" eval IS what the source does).
 ///
-/// **`global_best`/IOH visibility (DECISIONS "ENGINE global_best fix"):**
-/// unlike `cs.rs`'s `AbandonWorstFraction` adapter (which writes evaluated
-/// individuals DIRECTLY into `pop`, bypassing the stage's own offspring-
-/// evaluate call -- the actual gap that fix closed), `gen/hho`'s internal
-/// evaluations never write into `pop` at all; they only inform which
-/// position `generate()` RETURNS as part of `offspring`, and that offspring
-/// is unconditionally re-evaluated by the engine's own normal post-generate
-/// `eval.evaluate(&offspring)` call, which already feeds
-/// `update_global_best` for every preset in this crate -- so `gen/hho`
-/// needs (and required) NO engine change for `global_best` correctness. The
-/// internal trial evaluations DO still pass through `Evaluator`'s own
-/// `on_eval` observer hook (the IOH `.dat` stream sees every call
-/// regardless of caller, per `cs.rs`'s module doc and the M2d-3 engine-fix
-/// note) and DO count against the budget -- both correctly, by construction
-/// of `Evaluator::evaluate`.
+/// **`global_best`/IOH visibility -- KNOWN, DOCUMENTED DIVERGENCE (final
+/// M2d-4 review wave; NOT the DECISIONS "ENGINE global_best fix" gap, and
+/// NOT fixed by an engine change -- see the DECISIONS M2d-4 caveat for the
+/// controller's minimum-fix-now, doc-honesty ruling):** unlike `cs.rs`'s
+/// `AbandonWorstFraction` adapter (which writes evaluated individuals
+/// DIRECTLY into `pop`, bypassing the stage's own offspring-evaluate call --
+/// the actual gap the DECISIONS "ENGINE global_best fix" closed),
+/// `gen/hho`'s internal dive-trial evaluations never write into `pop`; they
+/// only decide which RAW `Y`/`Z` position `generate()` returns as part of
+/// `offspring`. But `Engine::run`'s stage loop applies
+/// `self.boundary.repair(g, ..)` to every element of `offspring` IN PLACE
+/// (`engine.rs`'s `'outer` loop, immediately BEFORE its own
+/// `eval.evaluate(&offspring)` call) -- so the fitness that ultimately
+/// feeds `update_global_best`/`RunResult::best_f` is the REPAIRED (possibly
+/// boundary-clamped) position's fitness, NOT the raw `Y`/`Z` value
+/// `gen/hho`'s own internal dive-trial actually evaluated and accepted on.
+/// When a dive-accepted point lands outside the search space, this is a
+/// genuine, measured gap, not a hypothetical one: the internal trial's
+/// raw-point evaluation IS charged against budget and DOES pass through the
+/// IOH `.dat` observer (both correctly, by construction of
+/// `Evaluator::evaluate`), so IOH's own best-so-far stream can see a value
+/// `RunResult::best_f`/the journal's `best_f` never does -- a charged,
+/// IOH-logged raw out-of-bounds value can NEVER reach `best_f`, because
+/// `best_f` only ever observes the post-repair position. The review that
+/// surfaced this measured a BBOB f3/seed-19 probe where `best_f` was
+/// understated (worse than) the Evaluator-observed minimum by 5.4; the
+/// magnitude is fixture-dependent (population size, budget, and dimension
+/// all change how often a dive lands out of bounds and by how much the
+/// repair moves it), so no single number is pinned here -- see
+/// [`hho_captured_best_f_can_diverge_from_evaluator_observed_minimum`]
+/// below for an independently-found, smaller-magnitude reproduction on a
+/// different fixture from the same BBOB f3/seed-19 family, kept as this
+/// crate's permanent regression coverage of the qualitative gap.
+///
+/// A second, independent mechanism widens the same gap at the budget tail:
+/// if this generation's last hawks' internal dive-trial evaluations succeed
+/// (consuming the remaining budget) but the ENGINE's own post-repair
+/// `eval.evaluate(&offspring)` call then fails because that budget is now
+/// exhausted (`engine.rs`'s `Err(_) => break 'outer`), the WHOLE
+/// generation's offspring -- repaired positions and all -- is discarded
+/// before `update_global_best` ever runs for it, so that generation's dive
+/// evaluations (already spent, already IOH-logged) never get a chance to
+/// update `best_f` either.
+///
+/// Empirically, HHO is the ONLY preset in this crate where `best_f` is not
+/// exactly the minimum over every charged evaluation (8/10 measured runs
+/// diverge, vs. 10/10 agreement for all 16 other presets) -- both gaps
+/// share the SAME root cause (`gen/hho` evaluates raw dive candidates
+/// in-generator, ahead of the engine's own repair-then-capture sequence),
+/// not two unrelated bugs. This does NOT put reference fidelity in
+/// question: `HHO.m`'s own `Rabbit_Location` ratchet (finding 7) likewise
+/// only ever sees re-evaluated, already-clamped positions, never a dive
+/// branch's raw, potentially out-of-bounds `X1`/`X2` trial value -- so this
+/// is sezgi's engine architecture reproducing that SAME two-tier structure
+/// with the repair step now living on the engine's side of the boundary,
+/// not a sezgi-introduced accounting artifact. Determinism and
+/// cross-language (Rust/Python/R) trajectory identity are unaffected by
+/// any of this -- it is a semantic gap in WHAT `best_f` measures, not a
+/// reproducibility defect.
+///
+/// **Warning for IOH archive consumers:** `.dat`-derived best-so-far/
+/// target-hit analyses (IOHanalyzer/IOHinspector) and `RunResult::best_f`/
+/// the journal's `best_f` field CAN legitimately disagree for HHO runs --
+/// do not mix the two when analyzing HHO archives. See `docs/DECISIONS.md`'s
+/// M2d-4 record for the caveat and the tracked follow-up: unifying
+/// `RunResult::best_f` with the Evaluator-observed best (checking the
+/// setup-eval exclusion in `engine.rs` and the restart paths) is pre-M3
+/// engine work, deliberately NOT done in this task per the controller's
+/// ruling (minimum-fix-now, doc-honesty route, no engine change).
+///
+/// `hho_captured_best_f_can_diverge_from_evaluator_observed_minimum` (in
+/// this module's test suite) asserts the STRICTLY-WORSE direction directly
+/// against a real `Engine::run`, rather than asserting the two match --
+/// intentionally documenting the gap instead of asserting it away.
 ///
 /// **Budget-exhaustion semantics (pinned):** if an internal
 /// `ctx.eval.evaluate(..)` call returns `BudgetExhausted` -- whether on the
@@ -1300,5 +1359,67 @@ mod tests {
         assert_eq!(r.evals_used, budget,
             "evals_used must equal the exact hand-computed count (init + one generation's engine-own stage-evaluate + measured internal dive evals), no overshoot beyond budget");
         assert_eq!(r.iterations, 1, "exactly one generation should have completed with this exact budget");
+    }
+
+    // ---- Known, documented `best_f`/Evaluator-observed-minimum divergence
+    // (final M2d-4 review wave; see the module doc's "global_best/IOH
+    // visibility -- KNOWN, DOCUMENTED DIVERGENCE" section above for the
+    // full mechanism). ----
+
+    /// **This test DOCUMENTS a known gap, it does not assert-it-away.**
+    /// `gen/hho`'s internal dive-trial evaluations run on the RAW,
+    /// un-clamped `Y`/`Z` candidate; `Engine::run`'s stage loop then
+    /// boundary-repairs the accepted offspring BEFORE its own capturing
+    /// `eval.evaluate(&offspring)` call, so `RunResult::best_f` only ever
+    /// observes the REPAIRED position -- while an `EvalObserver` attached to
+    /// the SAME `Evaluator` (the mechanism backing the IOH `.dat`
+    /// best-so-far stream) sees every charged evaluation, raw dive trials
+    /// included. On this fixture (BBOB f3/dim5/instance1, seed 19,
+    /// pop_size=20, budget=5000 -- found via a real-run divergence search
+    /// during the final review wave, not hand-crafted), `best_f` is
+    /// strictly WORSE than the Evaluator-observed minimum, reproducing the
+    /// review's BBOB-f3-seed19 finding exactly (same fixture family). This
+    /// is the documented HHO exception: HHO is the ONLY preset in this
+    /// crate where `best_f` is not exactly `min` over every charged
+    /// evaluation. Per the controller's ruling (DECISIONS M2d-4:
+    /// minimum-fix-now, doc-honesty route, no engine change), this is
+    /// intentionally left unfixed here -- a future engine-level fix
+    /// unifying `RunResult::best_f` with the Evaluator-observed best (the
+    /// tracked follow-up in `docs/DECISIONS.md`) is expected to flip this
+    /// test's assertion direction (to `==`) intentionally; until then this
+    /// test's job is to fail loudly if the gap silently disappears OR
+    /// silently widens/narrows in a way nobody noticed, not to enforce it
+    /// as correct behavior.
+    #[test]
+    fn hho_captured_best_f_can_diverge_from_evaluator_observed_minimum() {
+        use sezgi_problems::BbobProblem;
+
+        struct MinObserver(std::sync::Arc<std::sync::Mutex<f64>>);
+        impl sezgi_core::problem::EvalObserver for MinObserver {
+            fn on_eval(&mut self, _eval_index: u64, _f: f64, best_so_far: f64) {
+                let mut m = self.0.lock().unwrap();
+                if best_so_far < *m { *m = best_so_far; }
+            }
+        }
+
+        let reg = { let mut r = Registry::new(); crate::register_builtins(&mut r); r };
+        let p = BbobProblem::new(3, 5, 1).unwrap(); // BBOB f3 (Rastrigin), dim 5, instance 1
+        let spec = crate::presets::hho(20, 5000);
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+
+        let observed_min = std::sync::Arc::new(std::sync::Mutex::new(f64::INFINITY));
+        let obs = MinObserver(observed_min.clone());
+        let r = e.run(&p, RunConfig { master_seed: 19, run_id: 0 }, Some(Box::new(obs))).unwrap();
+        let observed_min = *observed_min.lock().unwrap();
+
+        assert!(r.best_f > observed_min + 1e-9,
+            "documented HHO exception: RunResult::best_f ({}) must be STRICTLY WORSE than the \
+             Evaluator-observed minimum ({}) on this fixture -- a charged, IOH-observable raw \
+             dive-trial value never reaches best_f because the engine boundary-repairs the \
+             accepted offspring before its own capturing evaluate call (see the module doc and \
+             docs/DECISIONS.md's M2d-4 record). If this assertion starts failing because the gap \
+             closed, that's GOOD NEWS: it means the tracked engine-level follow-up landed and \
+             this test should be flipped to assert_eq!, not silently loosened.",
+            r.best_f, observed_min);
     }
 }

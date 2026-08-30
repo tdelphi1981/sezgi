@@ -128,11 +128,11 @@ use sezgi_core::space::{BlockValues, Genotype};
 ///    unconditionally and potentially MID-generation (after every flower,
 ///    before the next one is processed) -- structurally identical to
 ///    `bat_algorithm.m`'s `best`/`fmin` bookkeeping (see `ba.rs`'s delta
-///    7). Per the wave's already-parked convention, this module uses the
-///    CURRENT population's fitness argmin instead ([`Population::
-///    best_index`], computed ONCE per `generate()` call, before any RNG
-///    draws) -- a documented, wave-wide simplification, not an
-///    FPA-specific one.
+///    7). Per the wave's already-parked convention, `// sezgi simplification:`
+///    this module uses the CURRENT population's fitness argmin instead
+///    ([`Population::best_index`], computed ONCE per `generate()` call,
+///    before any RNG draws) -- a documented, wave-wide simplification, not
+///    an FPA-specific one.
 ///
 /// ## min_pop -- ADJUSTED from the plan's sketched `3` to `2`
 ///
