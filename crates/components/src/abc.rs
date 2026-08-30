@@ -227,7 +227,13 @@ use sezgi_core::state::StateReq;
 ///    explicitly takes MATLAB `find`'s LAST match, not the first -- the
 ///    OPPOSITE tie convention from [`Population::best_index`]'s
 ///    first-seen-wins used throughout the rest of this crate -- see
-///    [`abc_scout_target`].
+///    [`abc_scout_target`]. **A SECOND, undisclosed cross-artifact
+///    divergence, same resolution as finding 9 below (MATLAB governs):**
+///    `Python_ABC`'s own scout target is `_self.trial.argmax(axis=0)` --
+///    NumPy's `argmax` returns the FIRST occurrence of the maximum, the
+///    OPPOSITE tie-break from `ABCorig.m`'s `ind(end)`. Neither port
+///    documents this difference from the other; `ABCorig.m`'s own
+///    last-index convention is what [`abc_scout_target`] pins.
 /// 9. **A genuine cross-artifact delta -- MATLAB (primary) GOVERNS over the
 ///    Python port:** `ABCorig.m`'s scout condition is STRICT `trial(ind)>
 ///    limit`; `Python_ABC`'s `ABC.py` instead uses `np.amax(_self.trial) >=
@@ -272,20 +278,34 @@ use sezgi_core::state::StateReq;
 ///   acceptance-coupled-replacer shape `ba.rs`'s `BaLoudnessGreedy`
 ///   established (T7-M2d-3-style precedent: a new replacer is justified
 ///   only because trial-counter bookkeeping needs `ctx.bb` access no
-///   existing replacer has). **This is a genuine, tagged simplification**
-///   vs. `ABCorig.m`'s literal in-place chaining (a later source `k<i`
-///   already updated earlier in this SAME employed pass would, in the
-///   reference, be read in its POST-update state; sezgi's `gen/abc-
-///   employed` instead proposes all `SN` candidates against the FROZEN
-///   pop snapshot the stage started with) -- documented here as `//
-///   sezgi simplification:` in [`AbcEmployedGenerator::generate`], matching
-///   this crate's dominant convention (every non-in-place preset in this
-///   crate already works this way; only `ssa.rs`'s followers and `fa.rs`'s
-///   double loop are in-place, and ONLY because their formulas need no
-///   fresh evaluation mid-phase to decide anything -- ABC's accept/reject
-///   inherently DOES need a fresh evaluation of each candidate, which this
-///   phase gets "for free" and HONESTLY (no double-eval) specifically
-///   BECAUSE it is decomposed this way).
+///   existing replacer has). **This is a genuine, tagged simplification,
+///   NOT a necessity -- an Adapter-based, literally in-place employed
+///   phase WAS available** (the onlooker phase below, `AbcOnlookerScout`,
+///   is direct proof the shape works, with equally honest `SN`-eval
+///   accounting: a self-contained `Adapter` could just as well have
+///   evaluated each employed visit's candidate sequentially, in place,
+///   the same way the onlooker adapter already does). The frozen-batch
+///   design was chosen instead as a DELIBERATE structural trade: it lets
+///   the employed phase reuse the crate's dominant `Generator`+`Replacer`
+///   decomposition convention (every non-in-place preset in this crate --
+///   SCA/JAYA/GWO/WOA/DE/TLBO/etc. -- already works this way; only
+///   `ssa.rs`'s followers and `fa.rs`'s double loop are genuinely
+///   in-place, and only because neither needs a fresh evaluation
+///   mid-phase to decide anything), keeping the acceptance-coupled-
+///   replacer idiom (`ba.rs`'s precedent) applicable here too, at the cost
+///   of one documented positional-fidelity departure from `ABCorig.m`
+///   (a later source `k<i` already updated earlier in this SAME employed
+///   pass would, in the reference, be read in its POST-update state;
+///   sezgi's `gen/abc-employed` instead proposes all `SN` candidates
+///   against the FROZEN pop snapshot the stage started with) -- documented
+///   here as `// sezgi simplification:` in [`AbcEmployedGenerator::
+///   generate`]. The onlooker phase is NOT given the same treatment
+///   (see below) specifically because its OWN structural constraint (the
+///   scan's variable-length, possibly-repeated visits) makes the
+///   `Generator`+`Replacer` shape genuinely inapplicable there, not merely
+///   less convenient -- the two phases' designs answer two different
+///   questions ("which shape is convenient and honest" for employed;
+///   "which shape is even expressible" for onlooker).
 /// - **The onlooker phase does NOT fit that idiom, for a structural reason,
 ///   not a stylistic one:** finding 7's scan can visit the SAME source index
 ///   multiple times (with the SECOND visit's move needing to see the FIRST
@@ -311,16 +331,24 @@ use sezgi_core::state::StateReq;
 ///   itself for each visit's candidate (and, at most once, the scout's
 ///   reinitialized position) -- EXACTLY `SN + {0,1}` evaluations, no more,
 ///   no engine change required (per-stage adapters are never
-///   auto-re-evaluated by `Engine::run`, confirmed by the existing `CS`/
-///   `HHO` precedents), and `global_best`/IOH visibility for free (the
+///   auto-re-evaluated by `Engine::run`, confirmed by the existing `CS`
+///   precedent -- the ONLY same-shape precedent: `hho.rs` does NOT use an
+///   `Adapter` for its in-generator evaluation at all, its trial evals
+///   live inside `gen/hho` itself and ARE genuinely double-evaluated by
+///   design, per that module's own "In-generator evaluation" doc section --
+///   citing it here would be a different, unrelated shape), and
+///   `global_best`/IOH visibility for free (the
 ///   engine's existing post-adapter `pop` scan, added for exactly this
 ///   class of adapter in M2d-3 Task 8). Because this adapter evaluates each
 ///   visit's candidate SEQUENTIALLY and mutates its own working copy in
 ///   place as it goes, it gets `ABCorig.m`'s literal in-place chaining
 ///   semantics FOR FREE, with NO simplification needed on this side --
 ///   the asymmetry (employed = frozen/simplified, onlooker = literal/exact)
-///   is a direct, documented consequence of which phase's structure is
-///   expressible in the engine's standard pipeline and which is not.
+///   reflects that the onlooker phase has NO OTHER expressible option
+///   (the `Generator`+`Replacer` shape genuinely cannot represent its
+///   variable-length, possibly-repeated scan), whereas the employed
+///   phase's simplification was a CHOSEN trade among two available shapes
+///   (see above), not a forced one.
 /// - **Net result: ONE `StageSpec`, not two** (unlike TLBO's two symmetric
 ///   stages) -- `gen/abc-employed` + `replace/abc-trial-greedy` +
 ///   `adapter/abc-onlooker-scout`, all in the same stage, so one engine
@@ -467,9 +495,16 @@ fn bounds(space: &SearchSpace, dim: usize) -> (Vec<f64>, Vec<f64>) {
 /// SCA/JAYA/GWO/WOA/DE/TLBO/etc. -- already works this way; only `ssa.rs`'s
 /// followers and `fa.rs`'s double loop are genuinely in-place, and only
 /// because neither needs a fresh evaluation mid-phase to decide anything).
-/// The onlooker phase (`AbcOnlookerScout`, below) is NOT simplified this
-/// way -- it reproduces the reference's in-place chaining exactly, since
-/// its own design already requires sequential per-visit evaluation.
+/// This trade was CHOSEN, not forced: an `Adapter`-based, literally
+/// in-place employed phase was available too -- `AbcOnlookerScout` below
+/// is direct proof the shape works with equally honest `SN`-eval
+/// accounting -- but reusing the crate's dominant `Generator`+`Replacer`
+/// decomposition (and `ba.rs`'s acceptance-coupled-replacer idiom) was
+/// preferred here. The onlooker phase (`AbcOnlookerScout`, below) is NOT
+/// simplified this way -- it reproduces the reference's in-place chaining
+/// exactly, since its own structural constraint (the scan's variable-
+/// length, possibly-repeated visits) makes the `Generator`+`Replacer`
+/// shape genuinely inexpressible there, not merely less convenient.
 pub struct AbcEmployedGenerator;
 
 impl AbcEmployedGenerator {
@@ -566,6 +601,7 @@ impl AbcOnlookerScout {
 impl Adapter for AbcOnlookerScout {
     fn adapt(&self, pop: &mut Population, ctx: &mut Ctx) {
         let sn = pop.len();
+        assert!(sn >= 2, "adapter/abc-onlooker-scout requires at least 2 food sources (pop_size={sn})");
         let dim = floats(&pop.individuals[0]).len();
         let (lo, hi) = bounds(ctx.space, dim);
 
@@ -954,6 +990,26 @@ mod tests {
         assert!(result.is_err(), "gen/abc-employed must reject pop_size < 2 at runtime as a backstop");
     }
 
+    #[test]
+    fn onlooker_scout_min_pop_below_2_panics() {
+        // Two-layer idiom consistency (fix round 1, minor): the same
+        // runtime assert() backstop gen/abc-employed has, on
+        // adapter/abc-onlooker-scout too.
+        let n = 1; let dim = 2;
+        let p = SphereShifted::new(vec![0.0; dim], -5.0, 5.0);
+        let space = p.space();
+        let mut pop = pop_nd(n, dim);
+        let mut evaluator = Evaluator::new(&p, 100);
+        let mut rng = RngStream::from_master(1, &[]);
+        let mut bb = Blackboard::new();
+        bb.insert("abc/trials", vec![0.0]);
+        let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            AbcOnlookerScout::from_params(&serde_json::json!({})).unwrap().adapt(&mut pop, &mut ctx)
+        }));
+        assert!(result.is_err(), "adapter/abc-onlooker-scout must reject pop_size < 2 at runtime as a backstop");
+    }
+
     // ---- AbcTrialGreedy ----
 
     #[test]
@@ -1089,34 +1145,68 @@ mod tests {
     fn onlooker_scout_does_not_fire_at_exactly_limit() {
         // Strict > (finding 9: MATLAB primary governs over the Python
         // port's >=): trial == limit exactly must NOT trigger the scout.
-        let n = 2; let dim = 1;
-        let p = SphereShifted::new(vec![0.0; dim], -5.0, 5.0);
+        //
+        // Tightened (fix round 1, reviewer-requested): a loose
+        // `trials[0] >= limit` bound cannot actually distinguish "the
+        // scout correctly did not fire" from various other explanations
+        // (e.g. an ordinary onlooker ACCEPT on index 0 also resets its
+        // trial to 0.0, which such a bound wouldn't even have caught, or a
+        // coincidental value that happens to still satisfy `>=`). Instead:
+        // (a) full-state equality against the SAME independent reference
+        // model (`onlooker_scout_reference_model`) the draw-order test
+        // above uses, and (b) a DIRECT, unambiguous check that trials[0]
+        // is exactly `limit` (not 0.0 -- the scout's only possible output
+        // for a scouted slot -- and not left at some other elevated value)
+        // AND that its position is bit-identical to its pre-call value
+        // (proving index 0 was never even visited by the onlooker scan in
+        // this fixture, let alone reinitialized by the scout).
+        //
+        // Reuses the draw-order test's exact fixture (seed 17, sn=2,
+        // dim=1, positions [[10.0],[-1.0]], fitness [100.0,1.0]) but with
+        // trials seeded at EXACTLY [limit, 0.0] (not limit+1.0) -- the
+        // hand-traced scan (see the draw-order test's comment) never
+        // visits-and-accepts index 0 at all in this fixture (both its
+        // scan-check passes, at r=0.866751 and r=0.779688, reject against
+        // prob[0]~=0.1178), so trials[0] ends the scan still at exactly
+        // `limit`, and the scout check `limit > limit` is false.
+        let sn = 2; let dim = 1;
+        let lo = -1000.0; let hi = 1000.0;
+        let p = SphereShifted::new(vec![0.0; dim], lo, hi);
         let space = p.space();
-        let limit = abc_limit(n, dim); // 2
+        let init_positions = vec![vec![10.0], vec![-1.0]];
+        let init_fitness = vec![100.0, 1.0];
+        let limit = abc_limit(sn, dim); // 2
+        let init_trials = vec![limit as f64, 0.0];
         let mut pop = Population {
-            individuals: vec![g(vec![1.0]), g(vec![2.0])],
-            fitness: vec![10.0, 1.0],
+            individuals: init_positions.iter().cloned().map(g).collect(),
+            fitness: init_fitness.clone(),
         };
-        let mut evaluator = engine_evaluator(&p, 10_000);
-        let mut rng = RngStream::from_master(2, &[]);
-        let mut bb = Blackboard::new();
-        bb.insert("abc/trials", vec![limit as f64, 0.0]);
-        let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
-        let before = pop.individuals[0].clone();
-        AbcOnlookerScout::from_params(&serde_json::json!({})).unwrap().adapt(&mut pop, &mut ctx);
 
-        // Index 0 was never visited by the onlooker scan in this crafted
-        // fixture (its own prob is low relative to index 1's, and even if
-        // visited and rejected its trial only grows, never shrinks) -- so
-        // if the scout did NOT fire, index 0's position is either unchanged
-        // (no onlooker visit) or has only had ITS OWN move applied (an
-        // onlooker visit that was rejected leaves position unchanged too).
-        // Either way, a scout firing would have replaced it with a FRESH
-        // uniform sample and reset its trial to exactly 0 -- assert that
-        // did NOT happen by checking the trial count only grew (never reset).
-        let trials = ctx.bb.get::<Vec<f64>>("abc/trials").unwrap();
-        assert!(trials[0] >= limit as f64, "trial==limit must not trigger the scout reset: {}", trials[0]);
-        let _ = before;
+        let mut evaluator = engine_evaluator(&p, 10_000);
+        let mut rng = RngStream::from_master(17, &[]);
+        let rng_before = rng.clone();
+        let mut bb = Blackboard::new();
+        bb.insert("abc/trials", init_trials.clone());
+
+        let (actual_positions, actual_fitness, actual_trials) = {
+            let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
+            AbcOnlookerScout::from_params(&serde_json::json!({})).unwrap().adapt(&mut pop, &mut ctx);
+            let xs: Vec<Vec<f64>> = pop.individuals.iter().map(|ind| floats(ind).clone()).collect();
+            (xs, pop.fitness.clone(), ctx.bb.get::<Vec<f64>>("abc/trials").unwrap().clone())
+        };
+
+        let mut twin = rng_before;
+        let (twin_positions, twin_fitness, twin_trials) =
+            onlooker_scout_reference_model(&mut twin, init_positions, init_fitness, init_trials, lo, hi);
+
+        assert_eq!(actual_positions, twin_positions, "final positions must match the independently-replayed twin");
+        assert_eq!(actual_fitness, twin_fitness, "final fitness must match the independently-replayed twin");
+        assert_eq!(actual_trials, twin_trials, "final trial counters must match the independently-replayed twin");
+
+        assert_eq!(actual_trials[0], limit as f64,
+            "trial==limit exactly must leave the source untouched by the scout (would be reset to exactly 0.0 if it had fired)");
+        assert_eq!(actual_positions[0], vec![10.0],
+            "index 0's position must be bit-identical to its pre-call value -- never visited by the onlooker scan, never scout-reinitialized");
     }
 
     #[test]
@@ -1146,6 +1236,137 @@ mod tests {
         // scout reset (to 0.0 on the argmax slot) is all that's permitted.
         let trials = ctx.bb.get::<Vec<f64>>("abc/trials").unwrap();
         assert_eq!(trials[0], 0.0, "index 0 (the argmax) must be the one scouted");
+    }
+
+    /// Independent "reference model" of `AbcOnlookerScout::adapt`, used by
+    /// the twin-stream draw-order test and the tightened at-exactly-limit
+    /// boundary test below: replays the SAME control-flow shape using ONLY
+    /// the pure helpers the real adapter calls
+    /// (`abc_probabilities`/`abc_draw_move`/`abc_candidate`/
+    /// `abc_scout_target`/`abc_limit`) plus a hand-written objective
+    /// matching `SphereShifted(shift=[0.0], ..)` exactly (`sum(x^2)`, no
+    /// hidden randomness), so it runs entirely off a cloned `RngStream`
+    /// with no `Ctx`/`Evaluator` at all -- if the real adapter's draw order
+    /// or a branch condition ever drifts from the pinned structure, this
+    /// model's independently-recomputed final state (and RNG-stream
+    /// position) will disagree with the real adapter's.
+    fn onlooker_scout_reference_model(
+        rng: &mut RngStream,
+        mut positions: Vec<Vec<f64>>,
+        mut fitness: Vec<f64>,
+        mut trials: Vec<f64>,
+        lo: f64, hi: f64,
+    ) -> (Vec<Vec<f64>>, Vec<f64>, Vec<f64>) {
+        let sn = positions.len();
+        let dim = positions[0].len();
+        let objective = |x: &[f64]| -> f64 { x.iter().map(|v| v * v).sum() };
+
+        let transformed: Vec<f64> = fitness.iter().map(|&f| abc_fitness_transform(f)).collect();
+        let prob = abc_probabilities(&transformed);
+
+        let mut i = 0usize;
+        let mut t = 0usize;
+        while t < sn {
+            let r = rng.next_f64(); // unconditional scan-check draw, every pass
+            if r < prob[i] {
+                t += 1;
+                let (j, k, phi) = abc_draw_move(sn, dim, i, rng);
+                let mut candidate = abc_candidate(&positions[i], &positions[k], j, phi);
+                candidate[j] = candidate[j].clamp(lo, hi);
+                let f = objective(&candidate);
+                if f < fitness[i] {
+                    positions[i] = candidate;
+                    fitness[i] = f;
+                    trials[i] = 0.0;
+                } else {
+                    trials[i] += 1.0;
+                }
+            }
+            i = (i + 1) % sn;
+        }
+
+        let scout_idx = abc_scout_target(&trials);
+        let limit = abc_limit(sn, dim);
+        if trials[scout_idx] > limit as f64 {
+            let new_pos: Vec<f64> = (0..dim).map(|_| lo + (hi - lo) * rng.next_f64()).collect();
+            let f = objective(&new_pos);
+            positions[scout_idx] = new_pos;
+            fitness[scout_idx] = f;
+            trials[scout_idx] = 0.0;
+        }
+        (positions, fitness, trials)
+    }
+
+    #[test]
+    fn onlooker_scout_draw_order_matches_pinned_structure_via_raw_replay() {
+        // Twin-stream raw-replay covering the FULL variable-length onlooker
+        // scan (finding 7) plus the scout branch (findings 8-10) -- the
+        // Task-6-M2d-3 technique, generalized for a DATA-DEPENDENT
+        // structure via `onlooker_scout_reference_model` (see its doc).
+        //
+        // Fixture: sn=2, dim=1, bounds=[-1000,1000], positions
+        // [[10.0],[-1.0]], fitness [100.0,1.0] -> transformed=[1/101,0.5],
+        // max=0.5 -> prob=[0.9*(1/101)/0.5+0.1, 1.0]=[~0.11782, 1.0] --
+        // source 1's prob is EXACTLY the max (1.0), so every scan-check
+        // pass over index 1 unconditionally accepts; source 0's prob
+        // (~0.1178) makes its scan-check draw accept only sometimes.
+        // trials seeded at [limit+1.0, 0.0] (limit=SN*dim=2) so the scout
+        // fires on index 0 after the scan.
+        //
+        // Hand-traced FULL per-pass sequence at seed 17 (captured by
+        // running this exact fixture with instrumentation; the sequence
+        // itself is DATA-derived from the seed+fixture, not hand-guessed --
+        // reproduced here purely as documentation of what the twin below
+        // independently re-derives from first principles, not as a
+        // separate oracle):
+        //   pass 1 (i=0): r=0.866751 >= prob[0] -> REJECT-SCAN (no draws, t stays 0)
+        //   pass 2 (i=1): r=0.876100 <  prob[1] -> ACCEPT-SCAN (t=1);
+        //     j=0, k=0, phi=-0.062620 -> candidate=[-0.311183], f=0.096835
+        //     < fitness[1]=1.0 -> ACCEPT-MOVE (position/fitness updated, trial[1]=0)
+        //   pass 3 (i=0): r=0.779688 >= prob[0] -> REJECT-SCAN (t stays 1)
+        //   pass 4 (i=1): r=0.433437 <  prob[1] -> ACCEPT-SCAN (t=2, scan ends);
+        //     j=0, k=0, phi=0.588841 -> candidate=[-6.382829], f=40.740506
+        //     >= fitness[1]=0.096835 -> REJECT-MOVE (trial[1] += 1 -> 1.0)
+        //   scout: argmax(trials)=[3.0,1.0] -> index 0; trials[0]=3.0 > limit=2
+        //     -> SCOUT FIRES: 1 draw r=0.511349 -> new_pos=[22.697171],
+        //     f=515.161557 (trial[0] reset to 0.0)
+        //   final: positions=[[22.697171],[-0.311183]],
+        //     fitness=[515.161557, 0.096835], trials=[0.0, 1.0]
+        let sn = 2; let dim = 1;
+        let lo = -1000.0; let hi = 1000.0;
+        let p = SphereShifted::new(vec![0.0; dim], lo, hi);
+        let space = p.space();
+        let init_positions = vec![vec![10.0], vec![-1.0]];
+        let init_fitness = vec![100.0, 1.0];
+        let limit = abc_limit(sn, dim); // 2
+        let init_trials = vec![limit as f64 + 1.0, 0.0];
+        let mut pop = Population {
+            individuals: init_positions.iter().cloned().map(g).collect(),
+            fitness: init_fitness.clone(),
+        };
+
+        let mut evaluator = engine_evaluator(&p, 10_000);
+        let mut rng = RngStream::from_master(17, &[]);
+        let rng_before = rng.clone();
+        let mut bb = Blackboard::new();
+        bb.insert("abc/trials", init_trials.clone());
+
+        let (actual_positions, actual_fitness, actual_trials) = {
+            let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
+            AbcOnlookerScout::from_params(&serde_json::json!({})).unwrap().adapt(&mut pop, &mut ctx);
+            let xs: Vec<Vec<f64>> = pop.individuals.iter().map(|ind| floats(ind).clone()).collect();
+            (xs, pop.fitness.clone(), ctx.bb.get::<Vec<f64>>("abc/trials").unwrap().clone())
+        };
+
+        let mut twin = rng_before;
+        let (twin_positions, twin_fitness, twin_trials) =
+            onlooker_scout_reference_model(&mut twin, init_positions, init_fitness, init_trials, lo, hi);
+
+        assert_eq!(actual_positions, twin_positions, "final positions must match the independently-replayed twin");
+        assert_eq!(actual_fitness, twin_fitness, "final fitness must match the independently-replayed twin");
+        assert_eq!(actual_trials, twin_trials, "final trial counters must match the independently-replayed twin");
+        assert_eq!(rng.next_f64(), twin.next_f64(),
+            "after the full scan+scout, both streams must be at the identical position (draw order/count matches the pinned structure exactly)");
     }
 
     #[test]
