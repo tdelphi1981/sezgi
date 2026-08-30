@@ -12,6 +12,7 @@
 //!   Rank 1 is assigned to the best (lowest) value in a row.
 
 pub mod bayesian;
+pub mod moo_indicators;
 pub mod pairwise;
 pub mod ranks;
 pub mod report;
@@ -22,6 +23,7 @@ pub use bayesian::{
     bayesian_plackett_luce, bayesian_signed_rank, plackett_luce, BayesPlackettLuceResult,
     BayesSignedRankResult, PlackettLuceResult,
 };
+pub use moo_indicators::{hypervolume_2d, igd};
 pub use pairwise::{
     cliffs_delta, cliffs_magnitude, wilcoxon_signed_rank, WilcoxonMethod, WilcoxonResult,
 };
