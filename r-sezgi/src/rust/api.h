@@ -47,6 +47,7 @@ SEXP savvy_sz_read_ioh_records__ffi(SEXP c_arg__log_root, SEXP c_arg__budgets);
 SEXP savvy_sz_results_matrix_raw__ffi(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__suite, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__budget, SEXP c_arg__aggregate);
 SEXP savvy_sz_run_experiment_raw__ffi(SEXP c_arg__spec_toml, SEXP c_arg__parallel, SEXP c_arg__journal, SEXP c_arg__threads, SEXP c_arg__log_dir);
 SEXP savvy_sz_solve_bbob__ffi(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__master_seed, SEXP c_arg__run_id);
+SEXP savvy_sz_solve_cec2022__ffi(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__master_seed, SEXP c_arg__run_id);
 SEXP savvy_sz_solve_tsp__ffi(SEXP c_arg__spec_json, SEXP c_arg__name, SEXP c_arg__master_seed, SEXP c_arg__run_id);
 SEXP savvy_sz_stats_bayesian_signed_rank_raw__ffi(SEXP c_arg__a, SEXP c_arg__b, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__seed);
 SEXP savvy_sz_stats_cliffs_delta__ffi(SEXP c_arg__a, SEXP c_arg__b);

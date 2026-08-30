@@ -284,6 +284,11 @@ SEXP savvy_sz_solve_bbob__impl(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_ar
     return handle_result(res);
 }
 
+SEXP savvy_sz_solve_cec2022__impl(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
+    SEXP res = savvy_sz_solve_cec2022__ffi(c_arg__spec_json, c_arg__fid, c_arg__dim, c_arg__master_seed, c_arg__run_id);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_solve_tsp__impl(SEXP c_arg__spec_json, SEXP c_arg__name, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
     SEXP res = savvy_sz_solve_tsp__ffi(c_arg__spec_json, c_arg__name, c_arg__master_seed, c_arg__run_id);
     return handle_result(res);
@@ -420,6 +425,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_results_matrix_raw__impl", (DL_FUNC) &savvy_sz_results_matrix_raw__impl, 12},
     {"savvy_sz_run_experiment_raw__impl", (DL_FUNC) &savvy_sz_run_experiment_raw__impl, 5},
     {"savvy_sz_solve_bbob__impl", (DL_FUNC) &savvy_sz_solve_bbob__impl, 6},
+    {"savvy_sz_solve_cec2022__impl", (DL_FUNC) &savvy_sz_solve_cec2022__impl, 5},
     {"savvy_sz_solve_tsp__impl", (DL_FUNC) &savvy_sz_solve_tsp__impl, 4},
     {"savvy_sz_stats_bayesian_signed_rank_raw__impl", (DL_FUNC) &savvy_sz_stats_bayesian_signed_rank_raw__impl, 5},
     {"savvy_sz_stats_cliffs_delta__impl", (DL_FUNC) &savvy_sz_stats_cliffs_delta__impl, 2},

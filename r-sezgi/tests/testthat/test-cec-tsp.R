@@ -171,6 +171,44 @@ test_that("sz_solve_tsp is bit-identical run-twice for the same seed", {
   expect_identical(r1, r2)
 })
 
+# ---- sz_solve_cec2022 (M3-5 Task 4: closes the M3-3 ruling (g) gap --------
+# r-sezgi previously had no `solve()`-integrated CEC 2022 path; this mirrors
+# `sz_solve_tsp` exactly (Engine::from_spec + engine.run against
+# `Cec2022::new(fid, dim)`), returning the SAME `best_f`/`evals`/`best_x`
+# shape as `sz_solve_bbob`/`sz_solve_tsp`.
+
+test_that("sz_solve_cec2022 solves fid 3 dim 10 and returns a finite best_f >= 600.0", {
+  spec <- sz_preset_shade(20, 300)
+  r <- sz_solve_cec2022(spec, fid = 3, dim = 10, master_seed = 1, run_id = 0)
+  expect_named(r, c("best_f", "evals", "best_x"))
+  expect_true(is.finite(r$best_f))
+  expect_gte(r$best_f, 600.0) # F* (fid 3's pinned optimum) is a lower bound
+  expect_identical(r$evals, 300)
+  expect_length(r$best_x, 10)
+})
+
+test_that("sz_solve_cec2022 rejects an invalid fid", {
+  spec <- sz_preset_shade(20, 300)
+  expect_error(sz_solve_cec2022(spec, fid = 13, dim = 10, master_seed = 1, run_id = 0), "1..=12")
+})
+
+test_that("sz_solve_cec2022 rejects an invalid dim", {
+  spec <- sz_preset_shade(20, 300)
+  expect_error(sz_solve_cec2022(spec, fid = 1, dim = 5, master_seed = 1, run_id = 0), "\\{2,10,20\\}")
+})
+
+test_that("sz_solve_cec2022 rejects dim=2 for a hybrid function (fid 6-8)", {
+  spec <- sz_preset_shade(4, 40)
+  expect_error(sz_solve_cec2022(spec, fid = 6, dim = 2, master_seed = 1, run_id = 0), "hybrid")
+})
+
+test_that("sz_solve_cec2022 is bit-identical run-twice for the same seed", {
+  spec <- sz_preset_shade(20, 300)
+  r1 <- sz_solve_cec2022(spec, fid = 3, dim = 10, master_seed = 7, run_id = 0)
+  r2 <- sz_solve_cec2022(spec, fid = 3, dim = 10, master_seed = 7, run_id = 0)
+  expect_identical(r1, r2)
+})
+
 # ---- Cross-language bit-equality anchor ------------------------------------
 #
 # Hex constants computed from a live run against the SAME venv T9 built
@@ -217,6 +255,27 @@ test_that("sz_solve_tsp is bit-identical run-twice for the same seed", {
 #                                #  44, 42, 10, 32, 50, 11, 27, 8, 40, 30, 35, 18, 0, 43, 31, 38, 34, 37,
 #                                #  4, 2, 6, 1, 7, 9, 47, 5, 3, 24, 39, 23, 26, 13, 12, 51]  (0-based)
 #   "
+#
+# M3-5 Task 4 addition (`sz_solve_cec2022` anchor): spec-equivalence method --
+# R's `sz_preset_shade(20, 1000)` output was written to a file
+# (`Rscript -e 'library(sezgi); cat(sz_preset_shade(20, 1000))' > /tmp/r_spec_1000.json`)
+# and that EXACT R-generated JSON string (not a re-derived Python spec) was
+# read and passed verbatim into `sezgi.solve()` below -- so both sides
+# consume byte-identical spec content, not merely "equivalent JSON" (a
+# separate check confirmed `sezgi.presets.shade(pop_size=20, budget=1000)`
+# parses to the same normalized JSON as the R output, differing only in
+# whitespace -- R pretty-prints, Python's `json.dumps` is compact -- so the
+# file-based approach here is belt-and-suspenders, not strictly required):
+#
+#   ./py-sezgi/.venv/bin/python -c "
+#   import struct, sezgi
+#   def hexof(v): return struct.pack('>d', v).hex()
+#   spec_json = open('/tmp/r_spec_1000.json').read()  # verbatim sz_preset_shade(20, 1000) output
+#   problem = sezgi.problems.cec2022(3, 10)
+#   r = sezgi.solve(spec_json, problem, master_seed=99, run_id=0)
+#   print(hexof(r['best_f']))   # 408328023c0d6028 (613.001091103074)
+#   print(r['evals_used'])      # 1000
+#   "
 
 test_that("R sz_cec2022_evaluate is bit-identical to the Python anchor (fid=1, dim=10, x=1..10)", {
   v <- sz_cec2022_evaluate(fid = 1, dim = 10, x = as.double(1:10))
@@ -253,4 +312,12 @@ test_that("R sz_solve_tsp (ga-perm) is bit-identical to the Python/Rust golden (
     4, 2, 6, 1, 7, 9, 47, 5, 3, 24, 39, 23, 26, 13, 12, 51
   )
   expect_identical(r$best_x, python_best_x_0based + 1)
+})
+
+test_that("R sz_solve_cec2022 (SHADE) is bit-identical to the Python/Rust golden (fid=3, dim=10, seed=99)", {
+  spec <- sz_preset_shade(20, 1000)
+  r <- sz_solve_cec2022(spec, fid = 3, dim = 10, master_seed = 99, run_id = 0)
+
+  expect_identical(f64_bits_hex(r$best_f), "408328023c0d6028")
+  expect_identical(r$evals, 1000)
 })

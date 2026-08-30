@@ -330,10 +330,16 @@ table, every discrepancy quoted verbatim from the C source, and the
 opfunu cross-check's complete findings.
 
 R mirrors the direct-evaluation half 1:1 (`sz_cec2022_evaluate`,
-`sz_cec2022_f_star`) but does **not** yet have a `solve()`-integrated CEC
-2022 binding (no built-in preset can be pointed at a CEC2022 problem from
-R today) — see `examples/r/cec2022_shade.R`'s header and the v1.0
-readiness checklist below for this disclosed gap.
+`sz_cec2022_f_star`) and, since **M3-5**, also has a `solve()`-integrated
+CEC 2022 binding: `sz_solve_cec2022(spec_json, fid, dim, master_seed,
+run_id)` (mirrors `sz_solve_bbob`/`sz_solve_tsp` exactly) runs any built-in
+preset — including `sz_preset_shade` — against a CEC2022 problem, closing
+the gap M3-3 disclosed (`docs/DECISIONS.md`'s M3-3 record, ruling (g)).
+`examples/r/cec2022_shade.R` now runs the SAME SHADE preset through the
+SAME Rust core as `examples/python/cec2022_shade.py`; their `best_f`
+outputs are bit-identical (verified via `writeBin`/`struct.pack`, not a
+decimal-literal comparison — see that test in
+`r-sezgi/tests/testthat/test-cec-tsp.R`).
 
 ## Permutation problems and TSP (M3-3)
 
@@ -542,11 +548,11 @@ optimization (M3-2)" above for why.
 
 `examples/python/cec2022_shade.py`/`examples/r/cec2022_shade.R` and
 `examples/python/tsp_ga_perm.py`/`examples/r/tsp_ga_perm.R` are two more
-matched PAIRs (M3-3): SHADE on CEC 2022 f3, and ga-perm on TSPLIB
-berlin52, both through `sezgi.solve()`/`sz_solve_*`. See "CEC 2022
-benchmark suite (M3-3)" and "Permutation problems and TSP (M3-3)" above —
-including the disclosed R/CEC2022 solve()-binding gap the first pair's R
-script works around.
+matched PAIRs (M3-3; the CEC pair's R-side gap closed in M3-5): SHADE on
+CEC 2022 f3, and ga-perm on TSPLIB berlin52, both through
+`sezgi.solve()`/`sz_solve_*`, both bit-identical between languages. See
+"CEC 2022 benchmark suite (M3-3)" and "Permutation problems and TSP
+(M3-3)" above.
 
 ## Development
 
