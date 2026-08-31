@@ -69,6 +69,26 @@ SEXP savvy_sz_bias_structural_raw__impl(SEXP c_arg__spec_json, SEXP c_arg__dim, 
     return handle_result(res);
 }
 
+SEXP savvy_sz_cec2014_evaluate__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__x) {
+    SEXP res = savvy_sz_cec2014_evaluate__ffi(c_arg__fid, c_arg__dim, c_arg__x);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_cec2014_f_star__impl(SEXP c_arg__fid) {
+    SEXP res = savvy_sz_cec2014_f_star__ffi(c_arg__fid);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_cec2017_evaluate__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__x) {
+    SEXP res = savvy_sz_cec2017_evaluate__ffi(c_arg__fid, c_arg__dim, c_arg__x);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_cec2017_f_star__impl(SEXP c_arg__fid) {
+    SEXP res = savvy_sz_cec2017_f_star__ffi(c_arg__fid);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_cec2022_evaluate__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__x) {
     SEXP res = savvy_sz_cec2022_evaluate__ffi(c_arg__fid, c_arg__dim, c_arg__x);
     return handle_result(res);
@@ -289,6 +309,16 @@ SEXP savvy_sz_solve_bbob__impl(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_ar
     return handle_result(res);
 }
 
+SEXP savvy_sz_solve_cec2014__impl(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
+    SEXP res = savvy_sz_solve_cec2014__ffi(c_arg__spec_json, c_arg__fid, c_arg__dim, c_arg__master_seed, c_arg__run_id);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_solve_cec2017__impl(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
+    SEXP res = savvy_sz_solve_cec2017__ffi(c_arg__spec_json, c_arg__fid, c_arg__dim, c_arg__master_seed, c_arg__run_id);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_solve_cec2022__impl(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
     SEXP res = savvy_sz_solve_cec2022__ffi(c_arg__spec_json, c_arg__fid, c_arg__dim, c_arg__master_seed, c_arg__run_id);
     return handle_result(res);
@@ -389,6 +419,16 @@ SEXP savvy_EvalSession_new__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__i
     return handle_result(res);
 }
 
+SEXP savvy_EvalSession_new_cec2014__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__algo_name, SEXP c_arg__seed, SEXP c_arg__log_dir) {
+    SEXP res = savvy_EvalSession_new_cec2014__ffi(c_arg__fid, c_arg__dim, c_arg__budget, c_arg__algo_name, c_arg__seed, c_arg__log_dir);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_new_cec2017__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__algo_name, SEXP c_arg__seed, SEXP c_arg__log_dir) {
+    SEXP res = savvy_EvalSession_new_cec2017__ffi(c_arg__fid, c_arg__dim, c_arg__budget, c_arg__algo_name, c_arg__seed, c_arg__log_dir);
+    return handle_result(res);
+}
+
 SEXP savvy_EvalSession_new_cec2022__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__algo_name, SEXP c_arg__seed, SEXP c_arg__log_dir) {
     SEXP res = savvy_EvalSession_new_cec2022__ffi(c_arg__fid, c_arg__dim, c_arg__budget, c_arg__algo_name, c_arg__seed, c_arg__log_dir);
     return handle_result(res);
@@ -407,6 +447,10 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_bias_report_raw__impl", (DL_FUNC) &savvy_sz_bias_report_raw__impl, 8},
     {"savvy_sz_bias_structural_positions_raw__impl", (DL_FUNC) &savvy_sz_bias_structural_positions_raw__impl, 1},
     {"savvy_sz_bias_structural_raw__impl", (DL_FUNC) &savvy_sz_bias_structural_raw__impl, 5},
+    {"savvy_sz_cec2014_evaluate__impl", (DL_FUNC) &savvy_sz_cec2014_evaluate__impl, 3},
+    {"savvy_sz_cec2014_f_star__impl", (DL_FUNC) &savvy_sz_cec2014_f_star__impl, 1},
+    {"savvy_sz_cec2017_evaluate__impl", (DL_FUNC) &savvy_sz_cec2017_evaluate__impl, 3},
+    {"savvy_sz_cec2017_f_star__impl", (DL_FUNC) &savvy_sz_cec2017_f_star__impl, 1},
     {"savvy_sz_cec2022_evaluate__impl", (DL_FUNC) &savvy_sz_cec2022_evaluate__impl, 3},
     {"savvy_sz_cec2022_f_star__impl", (DL_FUNC) &savvy_sz_cec2022_f_star__impl, 1},
     {"savvy_sz_coco_export__impl", (DL_FUNC) &savvy_sz_coco_export__impl, 2},
@@ -451,6 +495,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_results_matrix_raw__impl", (DL_FUNC) &savvy_sz_results_matrix_raw__impl, 12},
     {"savvy_sz_run_experiment_raw__impl", (DL_FUNC) &savvy_sz_run_experiment_raw__impl, 5},
     {"savvy_sz_solve_bbob__impl", (DL_FUNC) &savvy_sz_solve_bbob__impl, 6},
+    {"savvy_sz_solve_cec2014__impl", (DL_FUNC) &savvy_sz_solve_cec2014__impl, 5},
+    {"savvy_sz_solve_cec2017__impl", (DL_FUNC) &savvy_sz_solve_cec2017__impl, 5},
     {"savvy_sz_solve_cec2022__impl", (DL_FUNC) &savvy_sz_solve_cec2022__impl, 5},
     {"savvy_sz_solve_tsp__impl", (DL_FUNC) &savvy_sz_solve_tsp__impl, 4},
     {"savvy_sz_stats_bayesian_signed_rank_raw__impl", (DL_FUNC) &savvy_sz_stats_bayesian_signed_rank_raw__impl, 5},
@@ -471,6 +517,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_EvalSession_f_opt__impl", (DL_FUNC) &savvy_EvalSession_f_opt__impl, 1},
     {"savvy_EvalSession_finish__impl", (DL_FUNC) &savvy_EvalSession_finish__impl, 1},
     {"savvy_EvalSession_new__impl", (DL_FUNC) &savvy_EvalSession_new__impl, 7},
+    {"savvy_EvalSession_new_cec2014__impl", (DL_FUNC) &savvy_EvalSession_new_cec2014__impl, 6},
+    {"savvy_EvalSession_new_cec2017__impl", (DL_FUNC) &savvy_EvalSession_new_cec2017__impl, 6},
     {"savvy_EvalSession_new_cec2022__impl", (DL_FUNC) &savvy_EvalSession_new_cec2022__impl, 6},
     {"savvy_EvalSession_new_f0__impl", (DL_FUNC) &savvy_EvalSession_new_f0__impl, 3},
     {NULL, NULL, 0}

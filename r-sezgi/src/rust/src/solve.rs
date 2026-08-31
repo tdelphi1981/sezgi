@@ -6,7 +6,7 @@ use sezgi_core::engine::{Engine, RunConfig};
 use sezgi_core::problem::Problem;
 use sezgi_core::space::BlockValues;
 use sezgi_core::spec::AlgorithmSpec;
-use sezgi_problems::{BbobProblem, Cec2022, Tsp};
+use sezgi_problems::{BbobProblem, Cec2014, Cec2017, Cec2022, Tsp};
 
 /// Casts a non-negative-checked, WHOLE-NUMBER-checked `f64` (as passed
 /// from R, which has no native unsigned integer type) to `u64`, rejecting
@@ -704,6 +704,135 @@ fn sz_solve_cec2022(
     let reg = registry();
 
     let problem = Cec2022::new(f64_to_u64("fid", fid)? as u32, f64_to_usize("dim", dim)?)
+        .map_err(|e| savvy_err!("{e}"))?;
+
+    let engine = Engine::from_spec(&spec, &reg, problem.space()).map_err(|e| savvy_err!("{e}"))?;
+    let result = engine
+        .run(
+            &problem,
+            RunConfig {
+                master_seed: f64_to_u64("master_seed", master_seed)?,
+                run_id: f64_to_u64("run_id", run_id)?,
+            },
+            None,
+        )
+        .map_err(|e| savvy_err!("{e}"))?;
+
+    let BlockValues::Float(xs) = &result.best_x.blocks[0] else {
+        return Err(savvy_err!("unexpected genotype"));
+    };
+
+    let mut out = OwnedListSexp::new(3, true)?;
+    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name_and_value(
+        1,
+        "evals",
+        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
+    )?;
+    out.set_name_and_value(2, "best_x", OwnedRealSexp::try_from_slice(xs.as_slice())?)?;
+
+    Ok(out.into())
+}
+
+/// Runs an algorithm spec on a CEC 2014 (Liang, Qu & Suganthan 2013)
+/// function via [`Cec2014::new`] and returns the result -- M3-6 Task 10,
+/// mirroring `sz_solve_cec2022` exactly (`Engine::from_spec` + `engine.run`
+/// + result conversion): same `best_f`/`evals`/`best_x` shape. See
+/// [`Cec2014::new`]'s own doc for the exact `fid`/`dim` domain.
+///
+/// @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_shade()`).
+/// @param fid CEC 2014 function id, `1..=30` (double, cast to `u32`).
+/// @param dim Problem dimension, one of `10`, `30` (double, cast to
+///   `usize`).
+/// @param master_seed Master RNG seed.
+/// @param run_id Run id (mixed into the seed for independent replicate streams).
+/// @returns A named list with `best_f` (double), `evals` (double), and
+///   `best_x` (double vector) -- the best EVALUATED point (paired with
+///   `best_f`). Same caveat as `sz_solve_bbob()`: not every algorithm's
+///   reported best is guaranteed to lie within the declared domain.
+///
+/// # Errors
+/// A savvy error for `fid` outside `1..=30`, `dim` outside `{10,30}`, any
+/// [`sezgi_core::spec`] parse error, or any [`sezgi_core::engine`] run error.
+/// @export
+#[savvy]
+fn sz_solve_cec2014(
+    spec_json: &str,
+    fid: f64,
+    dim: f64,
+    master_seed: f64,
+    run_id: f64,
+) -> savvy::Result<Sexp> {
+    let spec = AlgorithmSpec::from_json(spec_json).map_err(|e| savvy_err!("{e}"))?;
+    let reg = registry();
+
+    let problem = Cec2014::new(f64_to_u64("fid", fid)? as u32, f64_to_usize("dim", dim)?)
+        .map_err(|e| savvy_err!("{e}"))?;
+
+    let engine = Engine::from_spec(&spec, &reg, problem.space()).map_err(|e| savvy_err!("{e}"))?;
+    let result = engine
+        .run(
+            &problem,
+            RunConfig {
+                master_seed: f64_to_u64("master_seed", master_seed)?,
+                run_id: f64_to_u64("run_id", run_id)?,
+            },
+            None,
+        )
+        .map_err(|e| savvy_err!("{e}"))?;
+
+    let BlockValues::Float(xs) = &result.best_x.blocks[0] else {
+        return Err(savvy_err!("unexpected genotype"));
+    };
+
+    let mut out = OwnedListSexp::new(3, true)?;
+    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name_and_value(
+        1,
+        "evals",
+        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
+    )?;
+    out.set_name_and_value(2, "best_x", OwnedRealSexp::try_from_slice(xs.as_slice())?)?;
+
+    Ok(out.into())
+}
+
+/// Runs an algorithm spec on a CEC 2017 (Awad, Ali, Liang, Qu & Suganthan
+/// 2016) function via [`Cec2017::new`] and returns the result -- M3-6 Task
+/// 10, mirroring `sz_solve_cec2014` exactly. See [`Cec2017::new`]'s own doc
+/// for the exact `fid`/`dim` domain.
+///
+/// @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_shade()`).
+/// @param fid CEC 2017 function id, `1` or `3..=30` (double, cast to `u32`);
+///   `fid = 2` was officially withdrawn from the suite.
+/// @param dim Problem dimension, one of `10`, `30` (double, cast to
+///   `usize`).
+/// @param master_seed Master RNG seed.
+/// @param run_id Run id (mixed into the seed for independent replicate streams).
+/// @returns A named list with `best_f` (double), `evals` (double), and
+///   `best_x` (double vector) -- the best EVALUATED point (paired with
+///   `best_f`). Same caveat as `sz_solve_bbob()`: not every algorithm's
+///   reported best is guaranteed to lie within the declared domain.
+///
+/// # Errors
+/// A savvy error for `fid` outside `{1} union {3..=30}`, `dim` outside
+/// `{10,30}`, any [`sezgi_core::spec`] parse error, or any
+/// [`sezgi_core::engine`] run error. `fid = 2` raises a dedicated error --
+/// the Rust [`sezgi_problems::Cec2017Error::Withdrawn`] message is surfaced
+/// VERBATIM.
+/// @export
+#[savvy]
+fn sz_solve_cec2017(
+    spec_json: &str,
+    fid: f64,
+    dim: f64,
+    master_seed: f64,
+    run_id: f64,
+) -> savvy::Result<Sexp> {
+    let spec = AlgorithmSpec::from_json(spec_json).map_err(|e| savvy_err!("{e}"))?;
+    let reg = registry();
+
+    let problem = Cec2017::new(f64_to_u64("fid", fid)? as u32, f64_to_usize("dim", dim)?)
         .map_err(|e| savvy_err!("{e}"))?;
 
     let engine = Engine::from_spec(&spec, &reg, problem.space()).map_err(|e| savvy_err!("{e}"))?;

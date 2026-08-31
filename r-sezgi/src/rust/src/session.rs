@@ -38,32 +38,34 @@
 //! on `Sexp::is_list()`), so both are implemented and both are exercised in
 //! `tests/testthat/test-session.R`, rather than picking only one.
 //!
-//! ## Generic sessions (M3-5 Task 5)
+//! ## Generic sessions (M3-5 Task 5; CEC 2014/CEC 2017 added M3-6 Task 10)
 //!
-//! [`EvalSession::new`] remains BBOB-only, unchanged. Two more associated
+//! [`EvalSession::new`] remains BBOB-only, unchanged. Four more associated
 //! functions build a session over any other continuous problem this crate
-//! exposes: [`EvalSession::new_cec2022`] (CEC 2022, logging allowed --
+//! exposes: [`EvalSession::new_cec2022`] / [`EvalSession::new_cec2014`] /
+//! [`EvalSession::new_cec2017`] (logging allowed for all three -- each
 //! `SessionMeta` matches py-sezgi's `PyEvalSession::for_problem`
-//! `Inner::Cec2022` arm exactly, so R- and Python-produced IOH records
-//! reconstruct identically) and [`EvalSession::new_f0`] (the BIAS-toolbox
-//! null problem, `sezgi_bias::F0Random` -- NO log parameters at all, since
-//! f0 has no known optimum and `with_log` requires one). savvy generates
-//! each additional associated function as `EvalSession$new_cec2022(...)` /
-//! `EvalSession$new_f0(...)` (any associated-function name other than
-//! `new` is namespaced under the type -- see
-//! `savvy-bindgen-0.10.2/src/codegen/r.rs::SavvyFn::name_r`'s "Special
+//! `Inner::Cec2022`/`Inner::Cec2014`/`Inner::Cec2017` arm exactly, so R- and
+//! Python-produced IOH records reconstruct identically) and
+//! [`EvalSession::new_f0`] (the BIAS-toolbox null problem, `sezgi_bias::
+//! F0Random` -- NO log parameters at all, since f0 has no known optimum and
+//! `with_log` requires one). savvy generates each additional associated
+//! function as `EvalSession$new_cec2022(...)` / `EvalSession$new_cec2014(...)`
+//! / `EvalSession$new_cec2017(...)` / `EvalSession$new_f0(...)` (any
+//! associated-function name other than `new` is namespaced under the type --
+//! see `savvy-bindgen-0.10.2/src/codegen/r.rs::SavvyFn::name_r`'s "Special
 //! convention" comment), each with its own hand-written R wrapper
-//! (`sz_eval_session_cec2022()` / `sz_eval_session_f0()` in
-//! `R/session.R`) giving it R-native default arguments, same raw/wrapper
-//! pattern as `sz_eval_session()` above. `$dim()`/`$bounds()` (see below)
-//! are available on every session regardless of which constructor built
-//! it.
+//! (`sz_eval_session_cec2022()` / `sz_eval_session_cec2014()` /
+//! `sz_eval_session_cec2017()` / `sz_eval_session_f0()` in `R/session.R`)
+//! giving it R-native default arguments, same raw/wrapper pattern as
+//! `sz_eval_session()` above. `$dim()`/`$bounds()` (see below) are available
+//! on every session regardless of which constructor built it.
 
 use savvy::{savvy, savvy_err, ListSexp, NullSexp, NumericSexp, OwnedListSexp, OwnedRealSexp, Sexp};
 use sezgi_bench::{EvalSession as CoreSession, SessionMeta};
 use sezgi_bias::F0Random;
 use sezgi_core::problem::Problem;
-use sezgi_problems::Cec2022;
+use sezgi_problems::{Cec2014, Cec2017, Cec2022};
 use std::path::Path;
 
 /// Casts a non-negative-checked, WHOLE-NUMBER-checked `f64` (as passed from
@@ -293,6 +295,129 @@ impl EvalSession {
             suite: "sezgi-cec2022".to_string(),
             fid: fid_u,
             name: format!("cec2022-f{fid_u}"),
+            instance: 1,
+            f_opt: problem.optimum(),
+        };
+        let mut session = CoreSession::new_owned(Box::new(problem), meta, budget_u)
+            .map_err(|e| savvy_err!("{e}"))?;
+        if let Some(dir) = log_dir {
+            session = session
+                .with_log(Path::new(dir), algo_name, seed_u)
+                .map_err(|e| savvy_err!("{e}"))?;
+        }
+        Ok(Self { inner: Some(session) })
+    }
+
+    /// Builds a new ask/tell evaluation session over a CEC 2014 problem
+    /// (M3-6 Task 10 -- the generic-session counterpart to [`Self::new`]'s
+    /// BBOB-only constructor and [`Self::new_cec2022`]'s CEC 2022
+    /// counterpart, mirrored exactly). Generated as
+    /// `EvalSession$new_cec2014(...)`; the public R entry point is the
+    /// hand-written wrapper `sz_eval_session_cec2014()` in `R/session.R`.
+    ///
+    /// `SessionMeta` is built to match py-sezgi's `PyEvalSession::for_problem`
+    /// `Inner::Cec2014` arm EXACTLY: `suite = "sezgi-cec2014"`, `name =
+    /// "cec2014-f{fid}"`, `instance = 1`, `f_opt = Cec2014::f_star()` -- so an
+    /// IOH record produced by an R session and one produced by an equivalent
+    /// Python session reconstruct to the identical `(suite, fid, name,
+    /// instance)` key and `f_opt`.
+    ///
+    /// `log_dir` is wired up here, before any `evaluate()` call is
+    /// possible -- same constructor-only placement as [`Self::new_cec2022`].
+    ///
+    /// @param fid CEC 2014 function id (`1..=30`).
+    /// @param dim Problem dimension, one of `10`, `30`.
+    /// @param budget Evaluation budget (non-negative).
+    /// @param algo_name Algorithm label recorded in the IOH archive (only
+    ///   meaningful when `log_dir` is given).
+    /// @param seed Caller-declared reproducibility label recorded in the
+    ///   IOH archive meta only.
+    /// @param log_dir Optional directory: when given, every evaluation is
+    ///   logged in IOH-profiler format.
+    #[allow(clippy::too_many_arguments)]
+    fn new_cec2014(
+        fid: i32,
+        dim: i32,
+        budget: f64,
+        algo_name: &str,
+        seed: f64,
+        log_dir: Option<&str>,
+    ) -> savvy::Result<Self> {
+        if fid < 1 {
+            return Err(savvy_err!("fid must be >= 1"));
+        }
+        if dim < 1 {
+            return Err(savvy_err!("dim must be >= 1"));
+        }
+        let budget_u = f64_to_u64("budget", budget)?;
+        let seed_u = f64_to_u64("seed", seed)?;
+
+        let fid_u = fid as u32;
+        let problem = Cec2014::new(fid_u, dim as usize).map_err(|e| savvy_err!("{e}"))?;
+        let meta = SessionMeta {
+            suite: "sezgi-cec2014".to_string(),
+            fid: fid_u,
+            name: format!("cec2014-f{fid_u}"),
+            instance: 1,
+            f_opt: problem.optimum(),
+        };
+        let mut session = CoreSession::new_owned(Box::new(problem), meta, budget_u)
+            .map_err(|e| savvy_err!("{e}"))?;
+        if let Some(dir) = log_dir {
+            session = session
+                .with_log(Path::new(dir), algo_name, seed_u)
+                .map_err(|e| savvy_err!("{e}"))?;
+        }
+        Ok(Self { inner: Some(session) })
+    }
+
+    /// Builds a new ask/tell evaluation session over a CEC 2017 problem
+    /// (M3-6 Task 10 -- mirrors [`Self::new_cec2014`] exactly). Generated as
+    /// `EvalSession$new_cec2017(...)`; the public R entry point is the
+    /// hand-written wrapper `sz_eval_session_cec2017()` in `R/session.R`.
+    ///
+    /// `SessionMeta` matches py-sezgi's `PyEvalSession::for_problem`
+    /// `Inner::Cec2017` arm EXACTLY: `suite = "sezgi-cec2017"`, `name =
+    /// "cec2017-f{fid}"`, `instance = 1`, `f_opt = Cec2017::f_star()`.
+    ///
+    /// `fid = 2` ("Sum of Different Powers") is officially withdrawn from the
+    /// CEC 2017 suite -- [`Cec2017::new`] rejects it with
+    /// [`sezgi_problems::Cec2017Error::Withdrawn`] before a problem handle
+    /// can ever exist, surfaced VERBATIM here.
+    ///
+    /// @param fid CEC 2017 function id (`1` or `3..=30`).
+    /// @param dim Problem dimension, one of `10`, `30`.
+    /// @param budget Evaluation budget (non-negative).
+    /// @param algo_name Algorithm label recorded in the IOH archive (only
+    ///   meaningful when `log_dir` is given).
+    /// @param seed Caller-declared reproducibility label recorded in the
+    ///   IOH archive meta only.
+    /// @param log_dir Optional directory: when given, every evaluation is
+    ///   logged in IOH-profiler format.
+    #[allow(clippy::too_many_arguments)]
+    fn new_cec2017(
+        fid: i32,
+        dim: i32,
+        budget: f64,
+        algo_name: &str,
+        seed: f64,
+        log_dir: Option<&str>,
+    ) -> savvy::Result<Self> {
+        if fid < 1 {
+            return Err(savvy_err!("fid must be >= 1"));
+        }
+        if dim < 1 {
+            return Err(savvy_err!("dim must be >= 1"));
+        }
+        let budget_u = f64_to_u64("budget", budget)?;
+        let seed_u = f64_to_u64("seed", seed)?;
+
+        let fid_u = fid as u32;
+        let problem = Cec2017::new(fid_u, dim as usize).map_err(|e| savvy_err!("{e}"))?;
+        let meta = SessionMeta {
+            suite: "sezgi-cec2017".to_string(),
+            fid: fid_u,
+            name: format!("cec2017-f{fid_u}"),
             instance: 1,
             f_opt: problem.optimum(),
         };

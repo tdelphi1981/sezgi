@@ -208,6 +208,84 @@ NULL
   .Call(savvy_sz_bias_structural_raw__impl, `spec_json`, `dim`, `budget`, `runs`, `seed`)
 }
 
+#' Direct, one-shot evaluation of a CEC 2014 (Liang, Qu & Suganthan 2013)
+#' function at `x`, bypassing `sz_solve_bbob`-style budget/engine machinery
+#' entirely -- binds [`Cec2014::new`] + [`Cec2014::evaluate_batch`] exactly.
+#' Mirrors `sz_cec2022_evaluate` (M3-6 Task 10 -- see py-sezgi's
+#' `sezgi.problems.cec2014_evaluate` for the identical binding on the Python
+#' side). See [`Cec2014::new`]'s own doc for the exact `fid`/`dim` domain.
+#'
+#' @param fid CEC 2014 function id, `1..=30` (double, cast to `u32`).
+#' @param dim Problem dimension, one of `10`, `30` (double, cast to
+#'   `usize`).
+#' @param x A numeric vector of exactly `dim` coordinates.
+#' @returns A numeric scalar.
+#'
+#' # Errors
+#' A savvy error for `fid` outside `1..=30`, `dim` outside `{10,30}`, or
+#' `length(x) != dim`.
+#' @export
+`sz_cec2014_evaluate` <- function(`fid`, `dim`, `x`) {
+  .Call(savvy_sz_cec2014_evaluate__impl, `fid`, `dim`, `x`)
+}
+
+#' The report's pinned `F_i*` bias for a CEC 2014 function -- binds
+#' [`Cec2014::f_star`] (`F_i* = 100*fid`). Does not depend on `dim`, so an
+#' internal probe `dim = 10` is used purely to validate `fid`.
+#'
+#' @param fid CEC 2014 function id, `1..=30` (double, cast to `u32`).
+#' @returns A numeric scalar.
+#'
+#' # Errors
+#' A savvy error if `fid` is outside `1..=30`.
+#' @export
+`sz_cec2014_f_star` <- function(`fid`) {
+  .Call(savvy_sz_cec2014_f_star__impl, `fid`)
+}
+
+#' Direct, one-shot evaluation of a CEC 2017 (Awad, Ali, Liang, Qu &
+#' Suganthan 2016) function at `x`, bypassing `sz_solve_bbob`-style
+#' budget/engine machinery entirely -- binds [`Cec2017::new`] +
+#' [`Cec2017::evaluate_batch`] exactly. Mirrors `sz_cec2014_evaluate` (M3-6
+#' Task 10 -- see py-sezgi's `sezgi.problems.cec2017_evaluate` for the
+#' identical binding on the Python side). See [`Cec2017::new`]'s own doc for
+#' the exact `fid`/`dim` domain.
+#'
+#' @param fid CEC 2017 function id, `1` or `3..=30` (double, cast to `u32`);
+#'   `fid = 2` ("Sum of Different Powers") was officially withdrawn from the
+#'   suite.
+#' @param dim Problem dimension, one of `10`, `30` (double, cast to
+#'   `usize`).
+#' @param x A numeric vector of exactly `dim` coordinates.
+#' @returns A numeric scalar.
+#'
+#' # Errors
+#' A savvy error for `fid` outside `{1} union {3..=30}`, `dim` outside
+#' `{10,30}`, or `length(x) != dim`. `fid = 2` raises a dedicated error --
+#' the Rust [`sezgi_problems::Cec2017Error::Withdrawn`] message is surfaced
+#' VERBATIM, distinct from an ordinary out-of-range `fid`.
+#' @export
+`sz_cec2017_evaluate` <- function(`fid`, `dim`, `x`) {
+  .Call(savvy_sz_cec2017_evaluate__impl, `fid`, `dim`, `x`)
+}
+
+#' The report's pinned `F_i*` bias for a CEC 2017 function -- binds
+#' [`Cec2017::f_star`] (`F_i* = 100*fid`, the fid-gapped C dispatch bias, not
+#' the report's contiguous renumbering -- see `Cec2017::new`'s own module
+#' doc). Does not depend on `dim`, so an internal probe `dim = 10` is used
+#' purely to validate `fid`.
+#'
+#' @param fid CEC 2017 function id, `1` or `3..=30` (double, cast to `u32`).
+#' @returns A numeric scalar.
+#'
+#' # Errors
+#' A savvy error if `fid` is outside `{1} union {3..=30}` (`fid = 2`
+#' included, via the [`sezgi_problems::Cec2017Error::Withdrawn`] message).
+#' @export
+`sz_cec2017_f_star` <- function(`fid`) {
+  .Call(savvy_sz_cec2017_f_star__impl, `fid`)
+}
+
 #' Direct, one-shot evaluation of a CEC 2022 function at `x`, bypassing
 #' `sz_solve_bbob`-style budget/engine machinery entirely -- binds
 #' [`Cec2022::new`] + [`Cec2022::evaluate_batch`] exactly. See
@@ -983,6 +1061,59 @@ NULL
   .Call(savvy_sz_solve_bbob__impl, `spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`)
 }
 
+#' Runs an algorithm spec on a CEC 2014 (Liang, Qu & Suganthan 2013)
+#' function via [`Cec2014::new`] and returns the result -- M3-6 Task 10,
+#' mirroring `sz_solve_cec2022` exactly (`Engine::from_spec` + `engine.run`
+#' + result conversion): same `best_f`/`evals`/`best_x` shape. See
+#' [`Cec2014::new`]'s own doc for the exact `fid`/`dim` domain.
+#'
+#' @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_shade()`).
+#' @param fid CEC 2014 function id, `1..=30` (double, cast to `u32`).
+#' @param dim Problem dimension, one of `10`, `30` (double, cast to
+#'   `usize`).
+#' @param master_seed Master RNG seed.
+#' @param run_id Run id (mixed into the seed for independent replicate streams).
+#' @returns A named list with `best_f` (double), `evals` (double), and
+#'   `best_x` (double vector) -- the best EVALUATED point (paired with
+#'   `best_f`). Same caveat as `sz_solve_bbob()`: not every algorithm's
+#'   reported best is guaranteed to lie within the declared domain.
+#'
+#' # Errors
+#' A savvy error for `fid` outside `1..=30`, `dim` outside `{10,30}`, any
+#' [`sezgi_core::spec`] parse error, or any [`sezgi_core::engine`] run error.
+#' @export
+`sz_solve_cec2014` <- function(`spec_json`, `fid`, `dim`, `master_seed`, `run_id`) {
+  .Call(savvy_sz_solve_cec2014__impl, `spec_json`, `fid`, `dim`, `master_seed`, `run_id`)
+}
+
+#' Runs an algorithm spec on a CEC 2017 (Awad, Ali, Liang, Qu & Suganthan
+#' 2016) function via [`Cec2017::new`] and returns the result -- M3-6 Task
+#' 10, mirroring `sz_solve_cec2014` exactly. See [`Cec2017::new`]'s own doc
+#' for the exact `fid`/`dim` domain.
+#'
+#' @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_shade()`).
+#' @param fid CEC 2017 function id, `1` or `3..=30` (double, cast to `u32`);
+#'   `fid = 2` was officially withdrawn from the suite.
+#' @param dim Problem dimension, one of `10`, `30` (double, cast to
+#'   `usize`).
+#' @param master_seed Master RNG seed.
+#' @param run_id Run id (mixed into the seed for independent replicate streams).
+#' @returns A named list with `best_f` (double), `evals` (double), and
+#'   `best_x` (double vector) -- the best EVALUATED point (paired with
+#'   `best_f`). Same caveat as `sz_solve_bbob()`: not every algorithm's
+#'   reported best is guaranteed to lie within the declared domain.
+#'
+#' # Errors
+#' A savvy error for `fid` outside `{1} union {3..=30}`, `dim` outside
+#' `{10,30}`, any [`sezgi_core::spec`] parse error, or any
+#' [`sezgi_core::engine`] run error. `fid = 2` raises a dedicated error --
+#' the Rust [`sezgi_problems::Cec2017Error::Withdrawn`] message is surfaced
+#' VERBATIM.
+#' @export
+`sz_solve_cec2017` <- function(`spec_json`, `fid`, `dim`, `master_seed`, `run_id`) {
+  .Call(savvy_sz_solve_cec2017__impl, `spec_json`, `fid`, `dim`, `master_seed`, `run_id`)
+}
+
 #' Runs an algorithm spec on a CEC 2022 (Kumar, Price, Mohamed, Hadi &
 #' Suganthan 2021) function via [`Cec2022::new`] and returns the result --
 #' M3-5 Task 4, closing the M3-3 gap (`docs/DECISIONS.md`'s M3-3 record,
@@ -1293,6 +1424,14 @@ NULL
 
 `EvalSession`$`new` <- function(`fid`, `dim`, `instance`, `budget`, `algo_name`, `seed`, `log_dir` = NULL) {
   .savvy_wrap_EvalSession(.Call(savvy_EvalSession_new__impl, `fid`, `dim`, `instance`, `budget`, `algo_name`, `seed`, `log_dir`))
+}
+
+`EvalSession`$`new_cec2014` <- function(`fid`, `dim`, `budget`, `algo_name`, `seed`, `log_dir` = NULL) {
+  .savvy_wrap_EvalSession(.Call(savvy_EvalSession_new_cec2014__impl, `fid`, `dim`, `budget`, `algo_name`, `seed`, `log_dir`))
+}
+
+`EvalSession`$`new_cec2017` <- function(`fid`, `dim`, `budget`, `algo_name`, `seed`, `log_dir` = NULL) {
+  .savvy_wrap_EvalSession(.Call(savvy_EvalSession_new_cec2017__impl, `fid`, `dim`, `budget`, `algo_name`, `seed`, `log_dir`))
 }
 
 `EvalSession`$`new_cec2022` <- function(`fid`, `dim`, `budget`, `algo_name`, `seed`, `log_dir` = NULL) {
