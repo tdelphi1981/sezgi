@@ -59,6 +59,11 @@ SEXP savvy_sz_bias_report_raw__impl(SEXP c_arg__spec_json, SEXP c_arg__dim, SEXP
     return handle_result(res);
 }
 
+SEXP savvy_sz_bias_structural_positions_raw__impl(SEXP c_arg__final_positions) {
+    SEXP res = savvy_sz_bias_structural_positions_raw__ffi(c_arg__final_positions);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_bias_structural_raw__impl(SEXP c_arg__spec_json, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__runs, SEXP c_arg__seed) {
     SEXP res = savvy_sz_bias_structural_raw__ffi(c_arg__spec_json, c_arg__dim, c_arg__budget, c_arg__runs, c_arg__seed);
     return handle_result(res);
@@ -400,6 +405,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_bayesian_plackett_luce_raw__impl", (DL_FUNC) &savvy_sz_bayesian_plackett_luce_raw__impl, 4},
     {"savvy_sz_bias_central_raw__impl", (DL_FUNC) &savvy_sz_bias_central_raw__impl, 7},
     {"savvy_sz_bias_report_raw__impl", (DL_FUNC) &savvy_sz_bias_report_raw__impl, 8},
+    {"savvy_sz_bias_structural_positions_raw__impl", (DL_FUNC) &savvy_sz_bias_structural_positions_raw__impl, 1},
     {"savvy_sz_bias_structural_raw__impl", (DL_FUNC) &savvy_sz_bias_structural_raw__impl, 5},
     {"savvy_sz_cec2022_evaluate__impl", (DL_FUNC) &savvy_sz_cec2022_evaluate__impl, 3},
     {"savvy_sz_cec2022_f_star__impl", (DL_FUNC) &savvy_sz_cec2022_f_star__impl, 1},

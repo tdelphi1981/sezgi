@@ -110,3 +110,29 @@ sz_bias_report <- function(spec_json, dim, budget, seed = 0, structural_runs = N
   sz_bias_report_raw(spec_json, dim, budget, seed, structural_runs, central_runs_per,
                       central_fids, central_instances)
 }
+
+#' Statistics-only structural-bias scan over externally-collected final
+#' positions -- the bias bridge for algorithms authored OUTSIDE this
+#' package's own spec/engine (M3-5 Task 6), e.g. a pure-R
+#' \code{\link{sz_algorithm}} driven by \code{\link{sz_algo_solve}} over
+#' \code{\link{sz_eval_session_f0}}, one run at a time. Runs the SAME KS/AD/
+#' Holm battery as \code{\link{sz_bias_structural}} over caller-supplied
+#' `final_positions` instead of driving an algorithm spec through the
+#' engine itself -- see \code{crates/bias/src/structural.rs}'s
+#' `scan_from_positions` for the full method provenance. Mirrors py-sezgi's
+#' `sezgi.bias.structural_positions()` 1:1.
+#'
+#' @param final_positions A numeric matrix (rows = independent runs' final
+#'   positions, columns = dimension) or a \code{list} of numeric vectors,
+#'   one per run -- the same two shapes \code{EvalSession$evaluate()}
+#'   itself accepts. Must have at least 5 rows/elements (the BIAS toolbox's
+#'   own verified minimum run count), all the same length (dimension); a
+#'   shorter/longer row (ragged input) is rejected.
+#' @returns Same named-list shape as \code{\link{sz_bias_structural}}'s
+#'   return: `per_dim_ks`, `per_dim_ad`, `holm_rejections_ks`,
+#'   `holm_rejections_ad`, `verdict` (`"no_evidence"` or `"evidence"`),
+#'   `detail` (`NULL` iff `verdict == "no_evidence"`), `final_positions`.
+#' @export
+sz_bias_structural_positions <- function(final_positions) {
+  sz_bias_structural_positions_raw(final_positions)
+}

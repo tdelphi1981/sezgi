@@ -2,6 +2,7 @@ SEXP savvy_sezgi_version__ffi(void);
 SEXP savvy_sz_bayesian_plackett_luce_raw__ffi(SEXP c_arg__rankings, SEXP c_arg__samples, SEXP c_arg__burn_in, SEXP c_arg__seed);
 SEXP savvy_sz_bias_central_raw__ffi(SEXP c_arg__spec_json, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__runs_per, SEXP c_arg__seed, SEXP c_arg__fids, SEXP c_arg__instances_shifted);
 SEXP savvy_sz_bias_report_raw__ffi(SEXP c_arg__spec_json, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__seed, SEXP c_arg__structural_runs, SEXP c_arg__central_runs_per, SEXP c_arg__central_fids, SEXP c_arg__central_instances);
+SEXP savvy_sz_bias_structural_positions_raw__ffi(SEXP c_arg__final_positions);
 SEXP savvy_sz_bias_structural_raw__ffi(SEXP c_arg__spec_json, SEXP c_arg__dim, SEXP c_arg__budget, SEXP c_arg__runs, SEXP c_arg__seed);
 SEXP savvy_sz_cec2022_evaluate__ffi(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__x);
 SEXP savvy_sz_cec2022_f_star__ffi(SEXP c_arg__fid);

@@ -146,6 +146,42 @@ NULL
   .Call(savvy_sz_bias_report_raw__impl, `spec_json`, `dim`, `budget`, `seed`, `structural_runs`, `central_runs_per`, `central_fids`, `central_instances`)
 }
 
+#' Statistics-only structural-bias scan over EXTERNALLY-collected final
+#' positions -- see [`scan_from_positions`]. Unlike [`sz_bias_structural_raw`]
+#' (which drives an `AlgorithmSpec` through this crate's own engine, `runs`
+#' times), this entry point runs NOTHING itself: it tests final positions
+#' collected from ANY externally-authored algorithm -- e.g. a pure-R
+#' `sz_algorithm`/`sz_algo_solve()` run, one run at a time, over
+#' `sz_eval_session_f0()` (see `R/algo.R`) -- for departure from
+#' uniformity. `dim` is inferred from the first row's length; every row
+#' must have the SAME length. Mirrors py-sezgi's
+#' `sezgi.bias.structural_positions()` 1:1, including sharing the same
+#' dict/list-building helper ([`structural_result_list`] here,
+#' `structural_result_to_dict` there) with the engine-driven scan, so the
+#' two are interchangeable to any downstream consumer.
+#'
+#' This is the raw savvy-generated binding; the public R entry point is the
+#' hand-written wrapper `sz_bias_structural_positions()` in `R/bias.R` --
+#' there is only one required argument, so the wrapper adds no R-native
+#' default, but keeps this file's raw/wrapper naming convention and gives
+#' this raw (`@noRd`) binding a proper `@export` roxygen block.
+#'
+#' @param final_positions A numeric matrix (rows = independent runs' final
+#'   positions, columns = dimension) or a `list` of numeric vectors, one
+#'   per run. Must have at least 5 rows/elements (`scan_from_positions`'s
+#'   own verified minimum run count), all the same length.
+#' @returns Same named-list shape as `sz_bias_structural_raw()`'s return:
+#'   `per_dim_ks`, `per_dim_ad`, `holm_rejections_ks`, `holm_rejections_ad`,
+#'   `verdict`, `detail`, `final_positions`.
+#'
+#' # Errors
+#' A savvy error if `final_positions` has fewer than 5 rows/elements, is
+#' ragged (rows of differing length), or any row is empty (`dim == 0`).
+#' @noRd
+`sz_bias_structural_positions_raw` <- function(`final_positions`) {
+  .Call(savvy_sz_bias_structural_positions_raw__impl, `final_positions`)
+}
+
 #' Structural-bias scan: run `spec_json` repeatedly on the f0
 #' random-function null problem and test its final positions for departure
 #' from uniformity -- see [`sezgi_bias::structural::structural_bias_scan`].
