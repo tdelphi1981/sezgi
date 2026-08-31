@@ -373,6 +373,11 @@
 //! | 19 | `hf09` | `{0.2,0.2,0.2,0.2,0.2}` | `bent_cigar_func, rastrigin_func, grie_rosen_func, weierstrass_func, escaffer6_func` |
 //! | 20 | `hf10` | `{0.1,0.1,0.2,0.2,0.2,0.2}` | `hgbat_func, katsuura_func, ackley_func, rastrigin_func, schwefel_func, schaffer_F7_func` |
 //!
+//! Report-vs-code divergence in this table (found in review, code-over-report
+//! ruling applies): the definitions PDF lists fid 20's FIRST component as
+//! "Happycat Function (f17)", but the shipped C's `hf10` calls `hgbat_func`
+//! (f18, quoted above) -- sezgi follows the C, as everywhere else.
+//!
 //! ### New component enum ([`HybridComponent`]) -- every base function
 //! ALREADY exists in `crate::cec_basics` (T6/T2/T1's own extractions;
 //! `zakharov`=[`crate::cec_basics::f1_base`], `rosenbrock`=[`crate::cec_basics::f2_base`]
