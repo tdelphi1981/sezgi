@@ -1,4 +1,5 @@
 pub mod bbob;
+pub(crate) mod cec_basics;
 pub mod cec2022;
 pub mod dtlz;
 pub mod tsp;
