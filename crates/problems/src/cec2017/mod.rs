@@ -414,6 +414,10 @@ impl Cec2017 {
             // 5, just with fid 8's OWN vendored shift/rotation data.
             8 => cb::f4_base(&self.shift_scale_rotate(xs, 5.12 / 100.0, true)),
             9 => {
+                // sezgi decision: reuse `cb::f5_base` with a `-1.0`
+                // pre-shift instead of adding a second Levy base --
+                // exactly equivalent algebraically (see below), keeps
+                // one Levy formula in the codebase.
                 // `cb::f5_base` (extracted from CEC 2022's OWN Levy) uses
                 // `w=1+zi/4.0` -- CEC 2017's `levy_func` uses `w=1+(zi-
                 // 1.0)/4.0` (module doc's fid-9 row: DIFFERENT constant
@@ -437,7 +441,10 @@ impl Cec2017 {
 }
 
 /// Lunacek bi-Rastrigin Function (CEC 2017 fid 7, `bi_rastrigin_func`).
-/// Module-local (not `cec_basics`) -- see this module's doc, "Reused
+/// sezgi decision: kept module-local (not promoted to `cec_basics`)
+/// because its formula re-reads the raw shift vector for a sign flip,
+/// breaking the shift-then-evaluate contract every `cec_basics` base
+/// follows. See this module's doc, "Reused
 /// bases" table, fid-7 row, for why. `bi_rastrigin_func`'s FULL body,
 /// quoted VERBATIM (`s_flag==1,r_flag==1`, the only combination this
 /// suite's own dispatch ever calls it with -- the `s_flag==0` `else`
