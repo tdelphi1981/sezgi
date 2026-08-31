@@ -1832,7 +1832,11 @@ fn mo_nsga2(
     p_m: Option<f64>,
 ) -> PyResult<Py<PyDict>> {
     let prob = mo_problem_from_str(problem, dim, m)?;
-    let cfg = Nsga2Config { pop_size, budget, seed, eta_c, eta_m, p_c, p_m };
+    // p_c_bin/p_m_bin (M3-7 Task 3): not yet exposed as Python kwargs
+    // (every problem this binding constructs, via `mo_problem_from_str`,
+    // is a real-coded ZDT/DTLZ space) -- fixed inert placeholders, unused
+    // on the all-Float path these bindings drive.
+    let cfg = Nsga2Config { pop_size, budget, seed, eta_c, eta_m, p_c, p_m, p_c_bin: 0.9, p_m_bin: None };
 
     let result = run_with_bridge(py, || {
         nsga2_run(prob.as_ref(), &cfg).map_err(|e| PyValueError::new_err(e.to_string()))

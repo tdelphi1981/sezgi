@@ -1466,6 +1466,10 @@ mod tests {
             eta_m: 20.0,
             p_c: 0.9,
             p_m: None,
+            // p_c_bin/p_m_bin (M3-7 Task 3): unused on this all-Float DTLZ8
+            // space, present only because Nsga2Config now requires them.
+            p_c_bin: 0.9,
+            p_m_bin: None,
         };
         let result = nsga2_run(&p, &cfg).unwrap();
         let violations =
@@ -1493,6 +1497,10 @@ mod tests {
             eta_m: 20.0,
             p_c: 0.9,
             p_m: None,
+            // p_c_bin/p_m_bin (M3-7 Task 3): unused on this all-Float DTLZ9
+            // space, present only because Nsga2Config now requires them.
+            p_c_bin: 0.9,
+            p_m_bin: None,
         };
         let result = nsga2_run(&p, &cfg).unwrap();
         let violations =

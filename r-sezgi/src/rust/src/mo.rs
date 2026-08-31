@@ -261,6 +261,12 @@ fn sz_nsga2_raw(
         eta_m,
         p_c,
         p_m,
+        // p_c_bin/p_m_bin (M3-7 Task 3): not yet exposed as R args (every
+        // problem this binding constructs is a real-coded ZDT/DTLZ space)
+        // -- fixed inert placeholders, unused on the all-Float path these
+        // bindings drive.
+        p_c_bin: 0.9,
+        p_m_bin: None,
     };
 
     let result = nsga2_run(prob.as_ref(), &cfg).map_err(|e| savvy_err!("{e}"))?;
