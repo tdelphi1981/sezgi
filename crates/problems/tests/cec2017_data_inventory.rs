@@ -2,7 +2,7 @@
 //! FULL usable-suite vendoring (M3-6 T6's "vendor now so T7/T8 do not
 //! re-vendor" scope, `cec2017/mod.rs`'s module doc "Vendoring scope"
 //! section) is actually present on disk with the exact measured file count
-//! and byte total this task's report records -- 111 files, 3,285,318
+//! and byte total this task's report records -- 111 files, 3,280,439
 //! bytes: every `shift_data_<fid>.txt` for `fid` in `{1,3..=30}`
 //! (dimension-independent, fid 2 excluded -- permanently withdrawn, module
 //! doc's F2 ruling), every `M_<fid>_D{10,30}.txt` for `fid` in
@@ -75,7 +75,7 @@ fn vendored_set_totals_the_exact_measured_byte_count() {
         total += meta.len();
     }
     assert_eq!(expected.len(), 111, "expected file count changed -- update this test's derivation");
-    assert_eq!(total, 3_285_318, "vendored byte total changed -- update this task's report too");
+    assert_eq!(total, 3_280_439, "vendored byte total changed -- update this task's report too");
 }
 
 #[test]

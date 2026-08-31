@@ -351,8 +351,9 @@ f23-f30) and the **CEC 2017 suite** (Awad, Ali, Liang, Qu & Suganthan
 2016 — fid `{1} ∪ {3..=30}`, 29 usable fids), both at dims `{10,30}`
 (the two dims this project vendors data for). The vendored shift/
 rotation/shuffle data (`crates/problems/data/cec2014/`, 106 files,
-2,816,016 bytes; `crates/problems/data/cec2017/`, 111 files, 3,285,318
-bytes) comes from each suite's own official repository, neither of which
+2,811,834 bytes; `crates/problems/data/cec2017/`, 111 files, 3,280,439
+bytes, both as stored in git after LF normalization of the upstream CRLF
+endings) comes from each suite's own official repository, neither of which
 carries a LICENSE file anywhere in the repo or its data archive (checked
 directly, not assumed) — vendored here with prominent attribution rather
 than withheld, the same scope ruling CEC 2022's data follows; see
@@ -753,9 +754,9 @@ M3-6 (CEC 2014 + CEC 2017 benchmark suites) **complete** — the full CEC
 2014 suite (30 fids: unimodal, simple multimodal, hybrid F17-F22,
 composition F23-F30) and the CEC 2017 suite (fid `{1} ∪ {3..=30}`, fid 2
 officially withdrawn and rejected with a dedicated error), both at dims
-`{10,30}` (vendored data: CEC 2014 106 files/2,816,016 bytes, CEC 2017
-111 files/3,285,318 bytes — both superseding the plan's pre-research byte
-estimates), reusing the CEC 2022-derived shared basic-function library
+`{10,30}` (vendored data: CEC 2014 106 files/2,811,834 bytes, CEC 2017
+111 files/3,280,439 bytes as stored in git — both superseding the plan's
+pre-research byte estimates), reusing the CEC 2022-derived shared basic-function library
 (`crates/problems/src/cec_basics.rs`) byte-for-byte; every
 report-vs-official-C divergence found and resolved per the standing
 code-over-report ruling, including two VERIFIED reference-C bugs

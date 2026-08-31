@@ -58,7 +58,12 @@
 //! **Measured total (this task, `find crates/problems/data/cec2014 -type f
 //! -exec stat -f%z {} \; | awk '{s+=$1} END {print s}'`, cross-checked with
 //! an independent Python `os.path.getsize` sum during the copy step): 106
-//! files, 2,816,016 bytes.** This is the exact figure to use going forward;
+//! files, 2,816,016 bytes with the upstream CRLF line endings; git's
+//! `core.autocrlf=input` normalization stores them LF-only, so the
+//! repository-canonical total a fresh checkout measures is 2,811,834
+//! bytes (4,182 CR bytes removed; content otherwise byte-identical, and
+//! the loader accepts both endings).** The canonical LF figure is the
+//! exact one to use going forward;
 //! it does NOT match the brief's own "expected 2,568,564 bytes" figure
 //! (carried over from an earlier scratchpad research pass) -- traced
 //! directly to source: that earlier estimate was `D10-file-bytes +
@@ -66,7 +71,7 @@
 //! deliberately excluded the dimension-independent `shift_data_<fid>.txt`
 //! files ("outside the per-dim table"), AND it summed `shuffle_data_*_D{10,30}.txt`
 //! for ALL 30 fids rather than only the 8 the C loader actually reads. Both
-//! omissions/inclusions are corrected here: this module's 2,816,016 B is
+//! omissions/inclusions are corrected here: this module's total is
 //! `shift_data` (30 files, dimension-independent) + `M_*_D{10,30}` (60
 //! files) + `shuffle_data_*_D{10,30}` for the 8 hybrid/8-of-composition fids
 //! that use it (16 files) = 106 files -- the set the reference C's loader

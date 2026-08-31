@@ -162,7 +162,11 @@
 //! **Measured total** (`find crates/problems/data/cec2017 -type f -exec
 //! stat -f%z {} \; | awk '{s+=$1} END {print s}'`, cross-checked with an
 //! independent Python `os.path.getsize` sum during the copy step): **111
-//! files, 3,285,318 bytes.** T2 precedent: estimate superseded by
+//! files, 3,285,318 bytes with the upstream CRLF line endings; git's
+//! `core.autocrlf=input` normalization stores them LF-only, so the
+//! repository-canonical total a fresh checkout measures is 3,280,439
+//! bytes (4,879 CR bytes removed; content otherwise byte-identical, and
+//! the loader accepts both endings).** T2 precedent: estimate superseded by
 //! measurement -- an earlier scratchpad research pass's own estimate
 //! ("D10+D30 for CEC2017: 3,021,840 bytes", carried into this milestone's
 //! brief) undercounted because it summed the upstream repo's raw

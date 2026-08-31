@@ -2,7 +2,7 @@
 //! FULL 30-function vendoring (M3-6 T2's "vendor now so T3/T4 do not
 //! re-vendor" scope, `cec2014/mod.rs`'s module doc "Vendoring scope"
 //! section) is actually present on disk with the exact measured file count
-//! and byte total this task's report records -- 106 files, 2,816,016
+//! and byte total this task's report records -- 106 files, 2,811,834
 //! bytes: every `shift_data_<fid>.txt` for `fid` 1-30 (dimension-
 //! independent), every `M_<fid>_D{10,30}.txt` for `fid` 1-30, and
 //! `shuffle_data_<fid>_D{10,30}.txt` for the 8 fids the reference C's own
@@ -56,7 +56,7 @@ fn vendored_set_totals_the_exact_measured_byte_count() {
         total += meta.len();
     }
     assert_eq!(expected.len(), 106, "expected file count changed -- update this test's derivation");
-    assert_eq!(total, 2_816_016, "vendored byte total changed -- update this task's report too");
+    assert_eq!(total, 2_811_834, "vendored byte total changed -- update this task's report too");
 }
 
 #[test]
