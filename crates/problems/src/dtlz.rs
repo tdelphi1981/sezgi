@@ -18,10 +18,13 @@
 //! function, unconstrained, domain `[0,1]^n`) -- DTLZ8 and DTLZ9 instead use
 //! the "constraint surface" approach (section 6.5: a hyper-box objective
 //! space cut down by explicit inequality constraints `g_j(f) >= 0`, Eq.
-//! 6.26-6.27) and so do not fit this module's `MoProblem` surface (no
-//! constraint channel) without inventing one. DTLZ1-DTLZ7 is the set THIS
-//! MODULE implements (`which: 1..=7`); DTLZ8/DTLZ9 are a documented
-//! deferral, exactly mirroring [`crate::zdt`]'s ZDT5 exclusion.
+//! 6.26-6.27). M3-7 Task 1 (`sezgi_core::mo::MoProblem::evaluate_constraints_batch`,
+//! `docs/DECISIONS.md`'s M3-7 record) added the constraint channel this
+//! surface needs; M3-7 Task 2 (this module's current form) wires DTLZ8 and
+//! DTLZ9 into it, so this module now implements the FULL DTLZ1-DTLZ9 suite
+//! (`which: 1..=9`) -- no DTLZ deferral remains (unlike [`crate::zdt`]'s
+//! still-standing ZDT5 exclusion, a different suite with a different
+//! reason).
 //!
 //! ## Shared construction (quoted, section 6.7)
 //!
@@ -140,6 +143,92 @@
 //!   Note `g`'s minimum is `g* = 1` (at `xM = 0`), NOT `0` as in every other
 //!   DTLZ problem here.
 //!
+//! - **DTLZ8** (Eq. 6.26, "the constraint surface approach"; quoted
+//!   verbatim, PDF p.136):
+//!   ```text
+//!   Minimize  fj(x) = (1/floor(n/M)) sum_{i=floor((j-1)n/M)}^{floor(jn/M)} xi,
+//!             j = 1, 2, ..., M,
+//!   Subject to gj(x) = fM(x) + 4fj(x) - 1 >= 0, for j = 1, 2, ..., (M-1),
+//!             gM(x) = 2fM(x) + min_{i,j=1,...,(M-1); i!=j} [fi(x)+fj(x)] - 1 >= 0,
+//!             0 <= xi <= 1, for i = 1, 2, ..., n.
+//!   ```
+//!   "Here, the number of variables is considered to be larger than the
+//!   number of objectives or n > M. We suggest n = 10M. In this problem,
+//!   there are a total of M constraints. The Pareto-optimal front is a
+//!   combination of a straight line and a hyper-plane. The straight line is
+//!   the intersection of the first (M-1) constraints (with f1 = f2 = ... =
+//!   f_{M-1}) and the hyper-plane is represented by the constraint gM."
+//!
+//!   **Block-partition convention** (`fj`'s sum bounds, verified against a
+//!   second source): `x` (length `n`) splits into `M` contiguous blocks at
+//!   the HALF-OPEN boundaries `[floor((j-1)n/M), floor(jn/M))` (0-indexed),
+//!   block `j` (`j=1,...,M`) -- the printed
+//!   `sum_{i=floor((j-1)n/M)}^{floor(jn/M)}` reads as inclusive of both ends
+//!   only typographically; the half-open reading is the one that makes
+//!   `floor(n/M)` (printed as a SINGLE constant, not re-derived per block)
+//!   an actual, constant per-block count (exact whenever `M` divides `n`,
+//!   which the chapter's own `n=10M` suggestion always satisfies -- an
+//!   inclusive-both-ends reading would instead double-count every block
+//!   boundary and could never match a constant `floor(n/M)` divisor except
+//!   by coincidence). This is independently confirmed by ParMOO 0.5.1's own
+//!   DTLZ8/DTLZ9 simulation code (`parmoo/simulations/dtlz.py`,
+//!   `dtlz8_sim.__call__`/`dtlz9_sim.__call__`: `start = i * self.n //
+//!   self.o; stop = (i + 1) * self.n // self.o`, i.e. the SAME half-open
+//!   floor-division block boundaries, Python's `//` being floor division)
+//!   -- see the task-2 report for the full cross-check (ParMOO does NOT
+//!   ship the chapter's own normalization [`1/floor(n/M)`] or ANY
+//!   constraint formulas for DTLZ8/DTLZ9 in this installed version -- its
+//!   `dtlz8_sim`/`dtlz9_sim` compute a different, offset-parameterized
+//!   quantity (`sum(|x-offset|)` / `sum(|x-offset|^0.1)`, no division) and
+//!   its docstring-referenced `parmoo.constraints.dtlz` module does not
+//!   exist in 0.5.1; only the block-BOUNDARY convention is corroborated,
+//!   not the objective/constraint VALUES). The LAST block (`j=M`) absorbs
+//!   any remainder (`floor(Mn/M) = n` exactly), so it may contain more than
+//!   `floor(n/M)` variables when `M` does not divide `n` -- still divided
+//!   by the SAME constant `floor(n/M)`, per the equation's single
+//!   `1/floor(n/M)` factor printed OUTSIDE the sum.
+//!
+//!   `// sezgi decision:` **the `M=2` `gM` corner.** `gM`'s `min` ranges
+//!   over PAIRS `i != j` drawn from `{1,...,(M-1)}` (quoted above) -- for
+//!   `M=2` that index set is the SINGLETON `{1}`, which contains no `i !=
+//!   j` pair, so the chapter's own formula is undefined at `M=2` (never
+//!   discussed in the text; every worked example in the chapter uses
+//!   `M=3`). This module follows the standard "min of an empty set is
+//!   `+infinity`" convention: at `M=2`, `gM`'s min term is
+//!   `f64::INFINITY`, so `gM = 2fM(x) + infinity - 1` is unconditionally
+//!   `>= 0` (vacuously satisfied) -- `evaluate_constraints_batch` still
+//!   returns exactly `M` columns (the dimension-count contract every
+//!   constrained consumer relies on), `gM` simply never constrains
+//!   anything when `M=2`. This could not be cross-checked against ParMOO
+//!   (no constraint code ships for DTLZ8/DTLZ9 in the installed 0.5.1); it
+//!   is this module's own reasoned extension of the chapter's stated
+//!   formula to a case the chapter itself does not address.
+//!
+//! - **DTLZ9** (Eq. 6.27, "also created using the constraint surface
+//!   approach"; quoted verbatim, PDF p.137):
+//!   ```text
+//!   Minimize  fj(x) = sum_{i=floor((j-1)n/M)}^{floor(jn/M)} xi^0.1,
+//!             j = 1, 2, ..., M,
+//!   Subject to gj(x) = fM(x)^2 + fj(x)^2 - 1 >= 0, for j = 1, 2, ..., (M-1),
+//!             0 <= xi <= 1, for i = 1, 2, ..., n.
+//!   ```
+//!   "Here too, the number of variables is considered to be larger than the
+//!   number of objectives. For this problem, we also suggest n = 10M. The
+//!   Pareto-optimal front is a curve with f1 = f2 = ... = f_{M-1}, similar
+//!   to that in DTLZ5. However, the density of solutions gets thinner
+//!   towards the Pareto-optimal region. The Pareto-optimal curve lies on
+//!   the intersection of all (M-1) constraints... A two-dimensional plot of
+//!   the Pareto-optimal front with fM and any other objective function
+//!   should represent a circular arc of radius one. A plot with any two
+//!   objective functions except fM should show a 45 degree straight line."
+//!
+//!   Same block-partition convention as DTLZ8 above -- but `fj` here has NO
+//!   `1/floor(n/M)` normalizing factor at all (printed as a bare sum of
+//!   `xi^0.1`, unlike DTLZ8's averaged `fj`; quoted exactly as printed).
+//!   `(M-1)` constraints total (no `gM` analogue -- DTLZ9's own constraint
+//!   list stops at `j=(M-1)`, per the equation above; no `M=2` corner
+//!   exists for DTLZ9 since it never defines a `gM`).
+//!
 //! ## DTLZ5/DTLZ6 front for `m > 3`: `pareto_front` returns `None`, documented
 //!
 //! The chapter's own degenerate-curve claim (quoted above) is contradicted
@@ -187,6 +276,34 @@
 //! ceil(n^{1/(M-1)})` points are drawn per axis (largest-remainder
 //! allocation across segments, mirroring `Zdt::sample_zdt3`), so the
 //! returned front again has "approximately `n`" points (exact for `m=2`).
+//!
+//! For DTLZ9 (`m <= 3` only -- `// sezgi decision:` extending the SAME
+//! caution as DTLZ5/DTLZ6's own documented `m > 3` caveat above, by
+//! structural analogy: the chapter's own DTLZ9 text says its front is
+//! "similar to that in DTLZ5", and this module already documents that
+//! DTLZ5's degenerate-curve claim is contradicted for `m > 3`; no
+//! DTLZ9-specific `m > 3` source was found either way, so this is a
+//! conservative, unverified-for-DTLZ9-itself extension of an established
+//! caution, not a chapter- or literature-confirmed claim about DTLZ9), the
+//! front is the one-parameter curve `f1 = f2 = ... = f_{M-1} = c`, `fM =
+//! sqrt(1 - c^2)` (from every `gj = fM^2 + fj^2 - 1 = 0` simultaneously:
+//! `M-1` equal-radius-one circle equations force every `fj` for `j < M`
+//! equal), `c` ranging over `n` evenly spaced points in `[0,1]` (mirrors
+//! DTLZ5/DTLZ6's own single-free-parameter sampling immediately above) --
+//! `m > 3` returns `None`.
+//!
+//! DTLZ8's front is a genuine union of two differently-shaped pieces (a
+//! line AND a hyper-plane region, quoted above) -- the hyper-plane piece's
+//! closed form is NOT a simple flat-plane equation in the unordered
+//! objective coordinates (the `min` over unordered pairs makes it
+//! piecewise: one flat piece per choice of "the two smallest of
+//! `f1,...,f_{M-1}`", `(M-1) choose 2` such pieces glued into the
+//! "triangular plane" the chapter describes) and the chapter gives no
+//! closed form for enumerating or sampling that union. Per this task's
+//! brief ("implement sampling ONLY where the chapter gives you a
+//! defensible closed form; otherwise return `None`... do not force it"),
+//! DTLZ8's `pareto_front` returns `None` unconditionally, with this note
+//! standing in for a sampling scheme.
 
 use std::f64::consts::PI;
 
@@ -196,18 +313,24 @@ use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 #[derive(Debug, thiserror::Error)]
 pub enum DtlzError {
     #[error(
-        "which must be one of 1..=7 (DTLZ1-DTLZ7; DTLZ8/DTLZ9 use the constraint-surface \
-         construction and are out of scope for this suite -- see this module's doc), got {0}"
+        "which must be one of 1..=9 (DTLZ1-DTLZ9; DTLZ8/DTLZ9 use the constraint-surface \
+         construction, see this module's doc), got {0}"
     )]
     UnknownWhich(u32),
     #[error("m (number of objectives) must be >= 2, got {0}")]
     BadM(usize),
     #[error("dim must be >= m so that k = dim - m + 1 >= 1 (dim={dim}, m={m})")]
     BadDim { dim: usize, m: usize },
+    #[error(
+        "dim must be > m for DTLZ8/DTLZ9 (the constraint-surface construction requires n > M \
+         per the chapter's own Eq. 6.26/6.27; dim={dim}, m={m})"
+    )]
+    BadDimConstraintSurface { dim: usize, m: usize },
 }
 
 /// One instance of the DTLZ scalable multi-objective suite (`which` selects
-/// DTLZ1,...,DTLZ7 -- DTLZ8/DTLZ9 are excluded, see the module doc).
+/// DTLZ1,...,DTLZ9; DTLZ8/DTLZ9 use the constraint-surface construction, see
+/// the module doc).
 pub struct Dtlz {
     which: u32,
     m: usize,
@@ -216,10 +339,14 @@ pub struct Dtlz {
 }
 
 impl Dtlz {
-    /// `which` in `1..=7`, `m >= 2` (number of objectives), `dim >= m`
-    /// (so the distance-group size `k = dim - m + 1 >= 1`).
+    /// `which` in `1..=9`, `m >= 2` (number of objectives), `dim >= m` (so
+    /// the distance-group size `k = dim - m + 1 >= 1`) -- except DTLZ8/DTLZ9
+    /// (`which` 8 or 9), which require the STRICTER `dim > m` (chapter's
+    /// own "n > M", Eq. 6.26/6.27; `dim == m` is rejected via
+    /// [`DtlzError::BadDimConstraintSurface`], a check on top of, not
+    /// instead of, the shared `dim >= m` check below).
     pub fn new(which: u32, m: usize, dim: usize) -> Result<Self, DtlzError> {
-        if !matches!(which, 1..=7) {
+        if !matches!(which, 1..=9) {
             return Err(DtlzError::UnknownWhich(which));
         }
         if m < 2 {
@@ -227,6 +354,9 @@ impl Dtlz {
         }
         if dim < m {
             return Err(DtlzError::BadDim { dim, m });
+        }
+        if matches!(which, 8 | 9) && dim <= m {
+            return Err(DtlzError::BadDimConstraintSurface { dim, m });
         }
         let space = SearchSpace::new(vec![Block::Float { lo: 0.0, hi: 1.0, n: dim }])
             .expect("DTLZ bounds (0<1) are always valid");
@@ -252,7 +382,10 @@ impl Dtlz {
             2 | 4 | 5 => x_tail.iter().map(|&xi| (xi - 0.5).powi(2)).sum(),
             6 => x_tail.iter().map(|&xi| xi.powf(0.1)).sum(),
             7 => 1.0 + 9.0 / k * x_tail.iter().sum::<f64>(),
-            _ => unreachable!("Dtlz::new rejects which outside 1..=7"),
+            _ => unreachable!(
+                "g_value is only called from eval_one's which-in-1..=7 branch \
+                 (DTLZ8/DTLZ9 use dtlz89_blocks instead, no shared g)"
+            ),
         }
     }
 
@@ -328,20 +461,81 @@ impl Dtlz {
         f
     }
 
-    fn eval_one(&self, xs: &[f64]) -> Vec<f64> {
-        let x_pos = &xs[..self.m - 1];
-        let x_tail = &xs[self.m - 1..];
-        let g = Self::g_value(self.which, x_tail);
-        match self.which {
-            1 => Self::dtlz1_f(x_pos, g),
-            2 | 3 => Self::cosine_cascade(x_pos, g),
-            4 => {
-                let alpha: Vec<f64> = x_pos.iter().map(|&x| x.powf(100.0)).collect();
-                Self::cosine_cascade(&alpha, g)
+    // ---- DTLZ8/DTLZ9 constraint-surface functions (Eq. 6.26/6.27) ----
+
+    /// Shared block-partition construction for DTLZ8 (`normalize = true`,
+    /// dividing by the constant `floor(n/M)`, Eq. 6.26) and DTLZ9
+    /// (`normalize = false`, a bare sum, Eq. 6.27) -- see the module doc's
+    /// "Block-partition convention". `xs` (length `n`) splits into `m`
+    /// contiguous HALF-OPEN blocks `[j*n/m, (j+1)*n/m)` (integer division,
+    /// 0-indexed `j`), the convention independently confirmed against
+    /// ParMOO 0.5.1's `dtlz8_sim`/`dtlz9_sim` (module doc). `transform` is
+    /// the identity for DTLZ8's raw `xi` or `xi.powf(0.1)` for DTLZ9.
+    fn dtlz89_blocks(xs: &[f64], m: usize, normalize: bool, transform: impl Fn(f64) -> f64) -> Vec<f64> {
+        let n = xs.len();
+        let divisor = if normalize { (n / m) as f64 } else { 1.0 };
+        (0..m)
+            .map(|j| {
+                let lo = j * n / m;
+                let hi = (j + 1) * n / m;
+                xs[lo..hi].iter().map(|&x| transform(x)).sum::<f64>() / divisor
+            })
+            .collect()
+    }
+
+    /// DTLZ8's `M` constraints (Eq. 6.26), given this instance's own
+    /// objective row `f` (length `M`): `g_j = fM + 4*fj - 1` for
+    /// `j=1,...,(M-1)` (0-indexed `0..m-1`), then `gM = 2*fM +
+    /// min_{i!=j;i,j<(M-1)}(fi+fj) - 1`. At `M=2` the inner double loop
+    /// below never finds an `i != j` pair (the 0-indexed range `0..m-1` is
+    /// the single-element `{0}`), so `min_pair` stays `f64::INFINITY` --
+    /// this IS the module doc's `// sezgi decision:` "empty min = +infinity"
+    /// ruling for the `M=2` `gM` corner, expressed as the natural fallout
+    /// of the loop rather than a separate special case.
+    fn dtlz8_constraints(f: &[f64]) -> Vec<f64> {
+        let m = f.len();
+        let f_m = f[m - 1];
+        let mut g: Vec<f64> = (0..m - 1).map(|j| f_m + 4.0 * f[j] - 1.0).collect();
+        let mut min_pair = f64::INFINITY;
+        for i in 0..m - 1 {
+            for j in 0..m - 1 {
+                if i != j {
+                    min_pair = min_pair.min(f[i] + f[j]);
+                }
             }
-            5 | 6 => Self::cosine_cascade(&Self::theta_vals(x_pos, g), g),
-            7 => Self::dtlz7_f(x_pos, g),
-            _ => unreachable!("Dtlz::new rejects which outside 1..=7"),
+        }
+        g.push(2.0 * f_m + min_pair - 1.0);
+        g
+    }
+
+    /// DTLZ9's `(M-1)` constraints (Eq. 6.27): `g_j = fM^2 + fj^2 - 1` for
+    /// `j=1,...,(M-1)` (0-indexed `0..m-1`). No `gM` analogue (module doc).
+    fn dtlz9_constraints(f: &[f64]) -> Vec<f64> {
+        let m = f.len();
+        let f_m = f[m - 1];
+        (0..m - 1).map(|j| f_m.powi(2) + f[j].powi(2) - 1.0).collect()
+    }
+
+    fn eval_one(&self, xs: &[f64]) -> Vec<f64> {
+        match self.which {
+            8 => Self::dtlz89_blocks(xs, self.m, true, |x| x),
+            9 => Self::dtlz89_blocks(xs, self.m, false, |x| x.powf(0.1)),
+            _ => {
+                let x_pos = &xs[..self.m - 1];
+                let x_tail = &xs[self.m - 1..];
+                let g = Self::g_value(self.which, x_tail);
+                match self.which {
+                    1 => Self::dtlz1_f(x_pos, g),
+                    2 | 3 => Self::cosine_cascade(x_pos, g),
+                    4 => {
+                        let alpha: Vec<f64> = x_pos.iter().map(|&x| x.powf(100.0)).collect();
+                        Self::cosine_cascade(&alpha, g)
+                    }
+                    5 | 6 => Self::cosine_cascade(&Self::theta_vals(x_pos, g), g),
+                    7 => Self::dtlz7_f(x_pos, g),
+                    _ => unreachable!("Dtlz::new rejects which outside 1..=9"),
+                }
+            }
         }
     }
 
@@ -465,6 +659,32 @@ impl MoProblem for Dtlz {
             .collect()
     }
 
+    /// `Some` only for DTLZ8/DTLZ9 (`which` 8 or 9) -- every other `which`
+    /// inherits the trait default `None` (module doc, "no DTLZ deferral
+    /// remains" -- but DTLZ1-7 remain UNCONSTRAINED problems, exactly as
+    /// before this task; only DTLZ8/DTLZ9 use the constraint channel).
+    fn evaluate_constraints_batch(&self, pop: &[Genotype]) -> Option<Vec<Vec<f64>>> {
+        if !matches!(self.which, 8 | 9) {
+            return None;
+        }
+        let n_con = if self.which == 8 { self.m } else { self.m - 1 };
+        Some(
+            pop.iter()
+                .map(|g| match g.blocks.first() {
+                    Some(BlockValues::Float(xs)) => {
+                        let f = self.eval_one(xs);
+                        if self.which == 8 {
+                            Self::dtlz8_constraints(&f)
+                        } else {
+                            Self::dtlz9_constraints(&f)
+                        }
+                    }
+                    _ => vec![f64::NEG_INFINITY; n_con],
+                })
+                .collect(),
+        )
+    }
+
     fn pareto_front(&self, n: usize) -> Option<Vec<Vec<f64>>> {
         if n == 0 {
             return Some(Vec::new());
@@ -505,7 +725,28 @@ impl MoProblem for Dtlz {
                 let combos = Self::cartesian_product(&axis, dim_free);
                 Some(combos.iter().map(|c| Self::dtlz7_f(c, 1.0)).collect())
             }
-            _ => unreachable!("Dtlz::new rejects which outside 1..=7"),
+            // DTLZ8: no defensible closed form for the line+hyperplane
+            // union (module doc's sampling-scheme section; brief: "do not
+            // force it").
+            8 => None,
+            9 => {
+                // Same m<=3 caution as DTLZ5/DTLZ6, by documented analogy
+                // (module doc's sampling-scheme section).
+                if self.m > 3 {
+                    return None;
+                }
+                let axis = Self::axis_grid(n);
+                Some(
+                    axis.iter()
+                        .map(|&c| {
+                            let mut row = vec![c; dim_free];
+                            row.push((1.0 - c * c).max(0.0).sqrt());
+                            row
+                        })
+                        .collect(),
+                )
+            }
+            _ => unreachable!("Dtlz::new rejects which outside 1..=9"),
         }
     }
 }
@@ -520,12 +761,31 @@ mod tests {
 
     #[test]
     fn unknown_which_is_error() {
-        for which in [0u32, 8, 9, 100] {
+        // which=8,9 are now valid (this task, M3-7 Task 2) -- replaced by
+        // 10/11 in this mechanical update (module doc: DTLZ8/DTLZ9 no
+        // longer "out of scope for this suite").
+        for which in [0u32, 10, 11, 100] {
             assert!(
                 matches!(Dtlz::new(which, 3, 10), Err(DtlzError::UnknownWhich(w)) if w == which),
                 "which={which}"
             );
         }
+    }
+
+    #[test]
+    fn unknown_which_error_text_mentions_1_to_9_not_out_of_scope() {
+        // Mechanical error-text update (module doc, error enum doc): old
+        // text "which must be one of 1..=7 (DTLZ1-DTLZ7; DTLZ8/DTLZ9 use
+        // the constraint-surface construction and are out of scope for
+        // this suite -- see this module's doc), got {0}" -> new text
+        // "which must be one of 1..=9 (DTLZ1-DTLZ9; DTLZ8/DTLZ9 use the
+        // constraint-surface construction, see this module's doc), got
+        // {0}" (task-2 report quotes both verbatim).
+        let msg = format!("{}", DtlzError::UnknownWhich(42));
+        assert!(msg.contains("1..=9"), "{msg}");
+        assert!(msg.contains("constraint-surface"), "{msg}");
+        assert!(!msg.contains("out of scope"), "{msg}");
+        assert!(msg.contains("42"), "{msg}");
     }
 
     #[test]
@@ -551,6 +811,52 @@ mod tests {
         // k = dim - m + 1 = 1: minimal but valid.
         for which in 1u32..=7 {
             assert!(Dtlz::new(which, 4, 4).is_ok(), "which={which}");
+        }
+    }
+
+    // ---- DTLZ8/DTLZ9-specific construction: dim > m required (n > M) ----
+
+    #[test]
+    fn dtlz8_9_dim_below_m_is_bad_dim_not_constraint_surface() {
+        // dim < m still hits the SHARED BadDim check first (module doc's
+        // `new` ordering note) -- BadDimConstraintSurface is a check ON TOP
+        // of, not instead of, the shared dim >= m check.
+        for which in [8u32, 9] {
+            assert!(
+                matches!(Dtlz::new(which, 5, 4), Err(DtlzError::BadDim { dim: 4, m: 5 })),
+                "which={which}"
+            );
+        }
+    }
+
+    #[test]
+    fn dtlz8_9_dim_equal_m_is_constraint_surface_error() {
+        // dim == m passes the shared dim >= m check but fails DTLZ8/9's
+        // OWN stricter dim > m (chapter's "n > M", Eq. 6.26/6.27).
+        for which in [8u32, 9] {
+            assert!(
+                matches!(
+                    Dtlz::new(which, 4, 4),
+                    Err(DtlzError::BadDimConstraintSurface { dim: 4, m: 4 })
+                ),
+                "which={which}"
+            );
+        }
+    }
+
+    #[test]
+    fn dtlz8_9_dim_above_m_is_ok() {
+        for which in [8u32, 9] {
+            assert!(Dtlz::new(which, 3, 4).is_ok(), "which={which}");
+            assert!(Dtlz::new(which, 3, 30).is_ok(), "which={which} (chapter n=10M)");
+        }
+    }
+
+    #[test]
+    fn dtlz8_9_m_below_2_is_bad_m() {
+        for which in [8u32, 9] {
+            assert!(matches!(Dtlz::new(which, 1, 10), Err(DtlzError::BadM(1))), "which={which}");
+            assert!(matches!(Dtlz::new(which, 0, 10), Err(DtlzError::BadM(0))), "which={which}");
         }
     }
 
@@ -872,6 +1178,333 @@ mod tests {
         for which in 1u32..=7 {
             let p = Dtlz::new(which, 3, 12).unwrap();
             assert_eq!(p.pareto_front(0), Some(Vec::new()), "which={which}");
+        }
+    }
+
+    // ==================================================================
+    // DTLZ8/DTLZ9 (M3-7 Task 2: constraint-surface construction)
+    // ==================================================================
+
+    #[test]
+    fn dtlz1_7_evaluate_constraints_batch_stays_none() {
+        // Frozen-gate sanity: DTLZ1-7 are UNCONSTRAINED, unaffected by this
+        // task's constraint-channel wiring for DTLZ8/DTLZ9.
+        for which in 1u32..=7 {
+            let p = Dtlz::new(which, 3, 12).unwrap();
+            assert_eq!(p.evaluate_constraints_batch(&[g1(&[0.3; 12])]), None, "which={which}");
+        }
+    }
+
+    #[test]
+    fn dtlz8_9_evaluate_batch_shape_and_finite() {
+        for which in [8u32, 9] {
+            for m in [2usize, 3] {
+                let dim = 10 * m; // chapter-suggested n=10M
+                let p = Dtlz::new(which, m, dim).unwrap();
+                let xs = vec![0.4; dim];
+                let out = p.evaluate_batch(&[g1(&xs)]);
+                assert_eq!(out[0].len(), m, "which={which} m={m}");
+                assert!(out[0].iter().all(|v| v.is_finite()), "which={which} m={m}: {out:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn dtlz8_9_evaluate_constraints_batch_row_lengths() {
+        for m in [2usize, 3] {
+            let p8 = Dtlz::new(8, m, 10 * m).unwrap();
+            let g8 = p8.evaluate_constraints_batch(&[g1(&vec![0.3; 10 * m])]).unwrap();
+            assert_eq!(g8[0].len(), m, "m={m}"); // DTLZ8: M constraints
+
+            let p9 = Dtlz::new(9, m, 10 * m).unwrap();
+            let g9 = p9.evaluate_constraints_batch(&[g1(&vec![0.3; 10 * m])]).unwrap();
+            assert_eq!(g9[0].len(), m - 1, "m={m}"); // DTLZ9: M-1 constraints
+        }
+    }
+
+    // ---- DTLZ8 hand-computed objective+constraint fixtures ----
+    // Block boundaries [j*n/m, (j+1)*n/m), divisor floor(n/m) (module doc).
+
+    #[test]
+    fn dtlz8_fixtures_m2_dim4() {
+        let p = Dtlz::new(8, 2, 4).unwrap(); // n=4, blocks of 2, divisor=2
+        // xs=[0,0,0,0]: f=[0,0]. g0=fM+4f0-1=-1 (infeasible).
+        // g1(=gM, M=2 corner)=+inf (vacuous, module doc decision).
+        let f = p.evaluate_batch(&[g1(&[0.0, 0.0, 0.0, 0.0])]);
+        assert_eq!(f[0], vec![0.0, 0.0]);
+        let g = p.evaluate_constraints_batch(&[g1(&[0.0, 0.0, 0.0, 0.0])]).unwrap();
+        assert_eq!(g[0], vec![-1.0, f64::INFINITY]);
+
+        // xs=[1,1,1,1]: f=[1,1]. g0=1+4-1=4.
+        let f = p.evaluate_batch(&[g1(&[1.0, 1.0, 1.0, 1.0])]);
+        assert_eq!(f[0], vec![1.0, 1.0]);
+        let g = p.evaluate_constraints_batch(&[g1(&[1.0, 1.0, 1.0, 1.0])]).unwrap();
+        assert!((g[0][0] - 4.0).abs() < 1e-12, "{g:?}");
+        assert_eq!(g[0][1], f64::INFINITY);
+
+        // xs=[1,0,0,0]: block0=(1+0)/2=0.5, block1=(0+0)/2=0. g0=0+2-1=1.
+        let f = p.evaluate_batch(&[g1(&[1.0, 0.0, 0.0, 0.0])]);
+        assert_eq!(f[0], vec![0.5, 0.0]);
+        let g = p.evaluate_constraints_batch(&[g1(&[1.0, 0.0, 0.0, 0.0])]).unwrap();
+        assert!((g[0][0] - 1.0).abs() < 1e-12, "{g:?}");
+    }
+
+    #[test]
+    fn dtlz8_fixtures_m3_dim6() {
+        let p = Dtlz::new(8, 3, 6).unwrap(); // n=6, blocks of 2, divisor=2
+        // xs all zero: f=[0,0,0]. g0=-1,g1=-1,g2=2*0+min(f0+f1=0)-1=-1.
+        let g = p.evaluate_constraints_batch(&[g1(&[0.0; 6])]).unwrap();
+        assert_eq!(g[0], vec![-1.0, -1.0, -1.0]);
+
+        // xs all one: f=[1,1,1]. g0=4,g1=4,g2=2+2-1=3.
+        let g = p.evaluate_constraints_batch(&[g1(&[1.0; 6])]).unwrap();
+        assert!((g[0][0] - 4.0).abs() < 1e-12, "{g:?}");
+        assert!((g[0][1] - 4.0).abs() < 1e-12, "{g:?}");
+        assert!((g[0][2] - 3.0).abs() < 1e-12, "{g:?}");
+
+        // mixed: xs=[1,0,0.5,0.5,0.2,0.2]. blocks: {1,0}->0.5, {.5,.5}->0.5,
+        // {.2,.2}->0.2.
+        let f = p.evaluate_batch(&[g1(&[1.0, 0.0, 0.5, 0.5, 0.2, 0.2])]);
+        assert!((f[0][0] - 0.5).abs() < 1e-12, "{f:?}");
+        assert!((f[0][1] - 0.5).abs() < 1e-12, "{f:?}");
+        assert!((f[0][2] - 0.2).abs() < 1e-12, "{f:?}");
+        let g = p.evaluate_constraints_batch(&[g1(&[1.0, 0.0, 0.5, 0.5, 0.2, 0.2])]).unwrap();
+        assert!((g[0][0] - 1.2).abs() < 1e-9, "{g:?}");
+        assert!((g[0][1] - 1.2).abs() < 1e-9, "{g:?}");
+        assert!((g[0][2] - 0.4).abs() < 1e-9, "{g:?}");
+    }
+
+    // ---- DTLZ9 hand-computed objective+constraint fixtures ----
+    // Same block boundaries as DTLZ8, but NO normalizing divisor (module
+    // doc: "fj here has NO 1/floor(n/M) normalizing factor at all").
+
+    #[test]
+    fn dtlz9_fixtures_m2_dim4() {
+        let p = Dtlz::new(9, 2, 4).unwrap(); // n=4, blocks of 2, no normalize
+        // xs=[1,1,1,1]: f0=1^0.1+1^0.1=2, f1=2. g0=f1^2+f0^2-1=4+4-1=7.
+        let f = p.evaluate_batch(&[g1(&[1.0, 1.0, 1.0, 1.0])]);
+        assert_eq!(f[0], vec![2.0, 2.0]);
+        let g = p.evaluate_constraints_batch(&[g1(&[1.0, 1.0, 1.0, 1.0])]).unwrap();
+        assert_eq!(g[0].len(), 1); // M-1 = 1 constraint
+        assert!((g[0][0] - 7.0).abs() < 1e-12, "{g:?}");
+
+        // xs=[0,0,0,0]: f=[0,0]. g0=-1.
+        let g = p.evaluate_constraints_batch(&[g1(&[0.0, 0.0, 0.0, 0.0])]).unwrap();
+        assert!((g[0][0] - (-1.0)).abs() < 1e-12, "{g:?}");
+
+        // xs=[1,0,1,0]: block sums = 1^0.1+0^0.1 = 1 each. f=[1,1]. g0=1.
+        let f = p.evaluate_batch(&[g1(&[1.0, 0.0, 1.0, 0.0])]);
+        assert_eq!(f[0], vec![1.0, 1.0]);
+        let g = p.evaluate_constraints_batch(&[g1(&[1.0, 0.0, 1.0, 0.0])]).unwrap();
+        assert!((g[0][0] - 1.0).abs() < 1e-12, "{g:?}");
+    }
+
+    #[test]
+    fn dtlz9_fixtures_m3_dim6() {
+        let p = Dtlz::new(9, 3, 6).unwrap(); // n=6, blocks of 2, no normalize
+        // xs all one: f=[2,2,2]. g0=f2^2+f0^2-1=4+4-1=7. g1 same=7.
+        let g = p.evaluate_constraints_batch(&[g1(&[1.0; 6])]).unwrap();
+        assert_eq!(g[0].len(), 2); // M-1 = 2 constraints
+        assert!((g[0][0] - 7.0).abs() < 1e-12, "{g:?}");
+        assert!((g[0][1] - 7.0).abs() < 1e-12, "{g:?}");
+
+        // mixed: xs=[1,1,0,0,1,0]: block0={1,1}sum=2, block1={0,0}sum=0,
+        // block2={1,0}sum=1. f=[2,0,1]. g0=f2^2+f0^2-1=1+4-1=4.
+        // g1=f2^2+f1^2-1=1+0-1=0 (exact boundary).
+        let f = p.evaluate_batch(&[g1(&[1.0, 1.0, 0.0, 0.0, 1.0, 0.0])]);
+        assert_eq!(f[0], vec![2.0, 0.0, 1.0]);
+        let g = p.evaluate_constraints_batch(&[g1(&[1.0, 1.0, 0.0, 0.0, 1.0, 0.0])]).unwrap();
+        assert!((g[0][0] - 4.0).abs() < 1e-12, "{g:?}");
+        assert!(g[0][1].abs() < 1e-12, "{g:?}");
+    }
+
+    // ---- block-partition edge case: n not a multiple of m ----
+
+    #[test]
+    fn dtlz8_9_block_partition_edge_case_non_divisible_n() {
+        // n=7, m=3: floor(n/m)=2, blocks [0,2),[2,4),[4,7) -- sizes 2,2,3
+        // (the LAST block absorbs the remainder). DTLZ8 still divides
+        // EVERY block (including the size-3 last one) by the SAME constant
+        // divisor 2, per the module doc's block-partition convention.
+        let p8 = Dtlz::new(8, 3, 7).unwrap();
+        let f8 = p8.evaluate_batch(&[g1(&[1.0; 7])]);
+        // block0 mean=(1+1)/2=1, block1 mean=1, block2=(1+1+1)/2=1.5 (NOT
+        // 1 -- divided by the constant 2, not by its own size 3).
+        assert!((f8[0][0] - 1.0).abs() < 1e-12, "{f8:?}");
+        assert!((f8[0][1] - 1.0).abs() < 1e-12, "{f8:?}");
+        assert!((f8[0][2] - 1.5).abs() < 1e-12, "{f8:?}");
+
+        // DTLZ9 has no normalizing divisor at all, so its last block's sum
+        // simply has one extra term (3 ones summed vs 2 for the other
+        // blocks).
+        let p9 = Dtlz::new(9, 3, 7).unwrap();
+        let f9 = p9.evaluate_batch(&[g1(&[1.0; 7])]);
+        assert!((f9[0][0] - 2.0).abs() < 1e-12, "{f9:?}");
+        assert!((f9[0][1] - 2.0).abs() < 1e-12, "{f9:?}");
+        assert!((f9[0][2] - 3.0).abs() < 1e-12, "{f9:?}");
+    }
+
+    // ---- DTLZ8's M=2 gM corner and its line-component feasibility ----
+
+    #[test]
+    fn dtlz8_m2_gm_is_vacuously_feasible_infinite() {
+        // module doc's `// sezgi decision:` -- M=2's gM has an empty i!=j
+        // pair set, so its min term is +infinity, making gM unconditionally
+        // satisfied regardless of f0/fM.
+        for f in [[0.0, 0.0], [1.0, 1.0], [0.5, -3.0], [-100.0, 100.0]] {
+            let g = Dtlz::dtlz8_constraints(&f);
+            assert_eq!(g.len(), 2, "f={f:?}");
+            assert_eq!(g[1], f64::INFINITY, "f={f:?} g={g:?}");
+        }
+    }
+
+    #[test]
+    fn dtlz8_line_component_first_m_minus_1_constraints_are_boundary() {
+        // Chapter: "the straight line is the intersection of the first
+        // (M-1) constraints (with f1=f2=...=f_{M-1})" -- construct a point
+        // on that line directly (f_j=t for j<M, fM=1-4t, from
+        // g_j=fM+4fj-1=0 solved for fM) and check g_0..g_{M-2} are exactly
+        // the boundary (0), and gM is feasible (>=0), for m=2 and m=3.
+        for m in [2usize, 3] {
+            let t = 0.1;
+            let f_m = 1.0 - 4.0 * t;
+            let mut f = vec![t; m - 1];
+            f.push(f_m);
+            let g = Dtlz::dtlz8_constraints(&f);
+            assert_eq!(g.len(), m, "m={m}");
+            for &gj in &g[..m - 1] {
+                assert!(gj.abs() < 1e-12, "m={m} g={g:?}");
+            }
+            assert!(g[m - 1] >= 0.0, "m={m} g={g:?} (gM must be feasible on the line piece)");
+        }
+    }
+
+    // ---- DTLZ9 feasibility of the chapter-described front (Eq. 6.27's
+    // "circular arc of radius one") ----
+
+    #[test]
+    fn dtlz9_front_boundary_point_is_exactly_feasible() {
+        // f1=f2=0.6, fM=0.8: 0.8^2+0.6^2=1 exactly (a Pythagorean triple).
+        let g = Dtlz::dtlz9_constraints(&[0.6, 0.6, 0.8]);
+        assert_eq!(g.len(), 2);
+        assert!(g[0].abs() < 1e-12, "{g:?}");
+        assert!(g[1].abs() < 1e-12, "{g:?}");
+    }
+
+    #[test]
+    fn dtlz9_front_points_are_exactly_feasible_boundary() {
+        for m in [2usize, 3] {
+            let p = Dtlz::new(9, m, m + 5).unwrap();
+            let front = p.pareto_front(20).unwrap();
+            for row in &front {
+                let g = Dtlz::dtlz9_constraints(row);
+                for &gj in &g {
+                    assert!(gj.abs() < 1e-9, "m={m} row={row:?} g={g:?}");
+                }
+            }
+        }
+    }
+
+    // ---- pareto_front: DTLZ8 always None, DTLZ9 arc for m<=3 ----
+
+    #[test]
+    fn dtlz8_pareto_front_is_none_for_positive_n() {
+        for m in [2usize, 3, 4] {
+            let p = Dtlz::new(8, m, 10 * m).unwrap();
+            assert!(p.pareto_front(50).is_none(), "m={m}");
+            // n=0 short-circuits BEFORE the which-dispatch (same as every
+            // which, existing behavior) -- an empty front makes no shape
+            // claim, so it is Some(empty) even for DTLZ8.
+            assert_eq!(p.pareto_front(0), Some(Vec::new()), "m={m}");
+        }
+    }
+
+    #[test]
+    fn dtlz9_pareto_front_arc_for_m_le_3_none_for_m_gt_3() {
+        for m in [2usize, 3] {
+            let p = Dtlz::new(9, m, 10 * m).unwrap();
+            let front = p.pareto_front(20).unwrap();
+            assert_eq!(front.len(), 20, "m={m}");
+            for row in &front {
+                assert_eq!(row.len(), m, "m={m}");
+                // f1=...=f_{M-1}, and fM^2+f1^2=1 (unit-radius arc, the
+                // chapter's own description).
+                let (f_pos, f_m) = row.split_at(m - 1);
+                for &fj in f_pos {
+                    assert!((fj - f_pos[0]).abs() < 1e-12, "m={m}: {row:?}");
+                }
+                let s = f_m[0] * f_m[0] + f_pos[0] * f_pos[0];
+                assert!((s - 1.0).abs() < 1e-9, "m={m}: {row:?}");
+            }
+        }
+        let p4 = Dtlz::new(9, 4, 40).unwrap();
+        assert!(p4.pareto_front(20).is_none());
+    }
+
+    #[test]
+    fn dtlz9_pareto_front_deterministic_and_zero_n_empty() {
+        for m in [2usize, 3] {
+            let p = Dtlz::new(9, m, 10 * m).unwrap();
+            let a = p.pareto_front(30).unwrap();
+            let b = p.pareto_front(30).unwrap();
+            assert_eq!(a, b, "m={m}");
+            assert_eq!(p.pareto_front(0), Some(Vec::new()), "m={m}");
+        }
+    }
+
+    // ---- nsga2_run integration: constrained fronts must be feasible ----
+
+    #[test]
+    fn nsga2_run_dtlz8_front0_is_fully_feasible() {
+        use sezgi_components::nsga2::{Nsga2Config, nsga2_run};
+        let p = Dtlz::new(8, 2, 20).unwrap(); // m=2, n=10M
+        let cfg = Nsga2Config {
+            pop_size: 40,
+            budget: 4000,
+            seed: 7,
+            eta_c: 20.0,
+            eta_m: 20.0,
+            p_c: 0.9,
+            p_m: None,
+        };
+        let result = nsga2_run(&p, &cfg).unwrap();
+        let violations =
+            result.violations.as_ref().expect("DTLZ8 is constrained: Some(violations) expected");
+        assert_eq!(violations.len(), result.objectives.len());
+        assert!(!result.front0.is_empty());
+        for &i in &result.front0 {
+            assert_eq!(
+                violations[i], 0.0,
+                "front0 member {i} has violation {} (expected fully feasible)",
+                violations[i]
+            );
+        }
+    }
+
+    #[test]
+    fn nsga2_run_dtlz9_front0_is_fully_feasible() {
+        use sezgi_components::nsga2::{Nsga2Config, nsga2_run};
+        let p = Dtlz::new(9, 2, 20).unwrap(); // m=2, n=10M
+        let cfg = Nsga2Config {
+            pop_size: 40,
+            budget: 4000,
+            seed: 7,
+            eta_c: 20.0,
+            eta_m: 20.0,
+            p_c: 0.9,
+            p_m: None,
+        };
+        let result = nsga2_run(&p, &cfg).unwrap();
+        let violations =
+            result.violations.as_ref().expect("DTLZ9 is constrained: Some(violations) expected");
+        assert_eq!(violations.len(), result.objectives.len());
+        assert!(!result.front0.is_empty());
+        for &i in &result.front0 {
+            assert_eq!(
+                violations[i], 0.0,
+                "front0 member {i} has violation {} (expected fully feasible)",
+                violations[i]
+            );
         }
     }
 }
