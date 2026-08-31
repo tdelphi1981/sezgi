@@ -341,6 +341,93 @@ outputs are bit-identical (verified via `writeBin`/`struct.pack`, not a
 decimal-literal comparison — see that test in
 `r-sezgi/tests/testthat/test-cec-tsp.R`).
 
+## CEC 2014 / CEC 2017 benchmark suites (M3-6)
+
+`sezgi.problems.cec2014(fid, dim)` / `sezgi.problems.cec2017(fid, dim)` and
+their direct-evaluation counterparts (`*_evaluate`, `*_f_star`) implement
+the **full CEC 2014 suite** (Liang, Qu & Suganthan 2013 — 30 fids:
+unimodal f1-f3, simple multimodal f4-f16, hybrid f17-f22, composition
+f23-f30) and the **CEC 2017 suite** (Awad, Ali, Liang, Qu & Suganthan
+2016 — fid `{1} ∪ {3..=30}`, 29 usable fids), both at dims `{10,30}`
+(the two dims this project vendors data for). The vendored shift/
+rotation/shuffle data (`crates/problems/data/cec2014/`, 106 files,
+2,816,016 bytes; `crates/problems/data/cec2017/`, 111 files, 3,285,318
+bytes) comes from each suite's own official repository, neither of which
+carries a LICENSE file anywhere in the repo or its data archive (checked
+directly, not assumed) — vendored here with prominent attribution rather
+than withheld, the same scope ruling CEC 2022's data follows; see
+`docs/DECISIONS.md`'s M3-6 record for the full finding.
+
+**CEC 2017 fid 2 was officially withdrawn from the competition after
+publication** ("Sum of Different Powers"); the official C reference's
+`case 2` prints `"Error: This function (F2) has been deleted"` and leaves
+its result unset. sezgi follows the C: `cec2017(2, dim)` raises a
+dedicated withdrawn error (Python `ValueError`, R error) quoting the C's
+own message, distinct from an ordinary out-of-range fid — the valid fid
+set stays gapped at `{1} ∪ {3..=30}`, never renumbered/compacted.
+
+Run a reference-tier preset (L-SHADE, Tanabe & Fukunaga 2014 — the CEC
+2014 competition's own 1st-place algorithm) against a CEC 2014 function
+through the same `sezgi.solve()` path every other preset uses:
+
+    import sezgi
+
+    problem = sezgi.problems.cec2014(fid=1, dim=10)
+    spec = sezgi.presets.lshade(dim=10, budget=9000)
+    result = sezgi.solve(spec, problem, master_seed=20260830, run_id=0)
+    print(result["best_f"] - sezgi.problems.cec2014_f_star(1))
+
+Output (live-run, same scenario as `examples/python/cec2014_lshade.py`):
+
+    180.23000508877507 - 100.0 -> gap 80.23000508877507  (evals_used=9000)
+
+**Where the printed report and the official C code disagree, sezgi
+follows the C code**, per the same standing ruling CEC 2022 established.
+For CEC 2014: F16 (the report's printed eq. adds a spurious `+1`
+shift-to-origin the compiled `escaffer6_func` never applies) and CF1
+(the report prints its `g2`/`g5` components under the identical name, but
+the C hardcodes `g5`'s rotation flag off while `g2` rotates). For CEC
+2017: fid 6 (the report's name, "Expanded Schaffer's F6," does not match
+the C's actual dispatch to plain Schaffer's F7, with the loaded rotation
+matrix silently discarded), fid 8 (the report's non-continuous
+pre-transform is dead code in the reference C, same bug class as CEC
+2022's own F4), fid 9/Levy (a genuine cross-generation constant
+divergence from CEC 2022's own Levy core, `w=1+z/4` vs. `w=1+(z-1)/4`,
+proven exact both algebraically and numerically), fid 20 (the report
+names its first hybrid component "Happycat" where the C calls
+`hgbat_func`), two VERIFIED reference-C bugs replicated deliberately
+(`schaffer_F7_func`'s prefix-read bug in hf04/hf10, and `bi_rastrigin`'s
+unshuffled-prefix-read bug in hf03 — both confirmed by instrumented-C
+differential probes, not merely inferred), cf06's printed `lambda` array
+(which matches no permutation of the C's own rescale factors), and items
+28/29's swapped printed titles (a documentation-only finding, no code
+impact). Independent cross-validation against a freshly compiled copy of
+each suite's own official C reference (primary) and `opfunu==1.0.4`
+(secondary) confirms sezgi matches the C reference to machine precision
+at every probed point; opfunu itself agrees with sezgi on CEC 2014 fid
+1-16+28 and on CEC 2017 fid 1 only, with four source-evidenced
+opfunu-side divergence classes documented per suite. See
+`docs/DECISIONS.md`'s M3-6 record for the full method-provenance table,
+every discrepancy quoted verbatim, and the complete opfunu findings.
+
+R mirrors both the direct-evaluation and `solve()`-integrated halves:
+`sz_cec2014_evaluate`/`sz_cec2014_f_star`/`sz_solve_cec2014` and
+`sz_cec2017_evaluate`/`sz_cec2017_f_star`/`sz_solve_cec2017` (the latter
+pair mirroring `sz_solve_bbob`/`sz_solve_cec2022` exactly), plus generic
+ask/tell sessions (`sz_eval_session_cec2014`, `sz_eval_session_cec2017`).
+`examples/r/cec2014_lshade.R` runs the SAME L-SHADE preset through the
+SAME Rust core as `examples/python/cec2014_lshade.py`; their `best_f`
+outputs are bit-identical (verified via `writeBin`/`struct.pack`, not a
+decimal-literal comparison — see that test in
+`r-sezgi/tests/testthat/test-cec1417.R`).
+
+Both suites' IOH logging uses the same suite-discriminator machinery
+M3-5 built for CEC 2022 (`RunKey.suite`, `"sezgi-cec2014"`/
+`"sezgi-cec2017"`), with `cec2014-f{fid}d{dim}i{instance}`/
+`cec2017-f{fid}d{dim}i{instance}` labels — no changes were needed to the
+IOH logger or the labeling helper itself, only the two frontends'
+`solve()`/`for_problem` match arms.
+
 ## Permutation problems and TSP (M3-3)
 
 Permutation-typed search spaces (`init/perm-random`, `gen/ox` order
@@ -648,6 +735,12 @@ CEC 2022 f3, and ga-perm on TSPLIB berlin52, both through
 "CEC 2022 benchmark suite (M3-3)" and "Permutation problems and TSP
 (M3-3)" above.
 
+`examples/python/cec2014_lshade.py`/`examples/r/cec2014_lshade.R` (M3-6)
+are a matched PAIR for the CEC 2014 suite: L-SHADE (the CEC 2014
+competition's own 1st-place algorithm) on CEC 2014 f1, through
+`sezgi.solve()`/`sz_solve_cec2014`, bit-identical between languages. See
+"CEC 2014 / CEC 2017 benchmark suites (M3-6)" above.
+
 ## Development
 
     cargo test --workspace --release        # Rust tests
@@ -655,6 +748,38 @@ CEC 2022 f3, and ga-perm on TSPLIB berlin52, both through
     R CMD INSTALL --preclean r-sezgi && Rscript -e 'testthat::test_dir("r-sezgi/tests/testthat", package = "sezgi")' # R tests
 
 ## Status
+
+M3-6 (CEC 2014 + CEC 2017 benchmark suites) **complete** — the full CEC
+2014 suite (30 fids: unimodal, simple multimodal, hybrid F17-F22,
+composition F23-F30) and the CEC 2017 suite (fid `{1} ∪ {3..=30}`, fid 2
+officially withdrawn and rejected with a dedicated error), both at dims
+`{10,30}` (vendored data: CEC 2014 106 files/2,816,016 bytes, CEC 2017
+111 files/3,285,318 bytes — both superseding the plan's pre-research byte
+estimates), reusing the CEC 2022-derived shared basic-function library
+(`crates/problems/src/cec_basics.rs`) byte-for-byte; every
+report-vs-official-C divergence found and resolved per the standing
+code-over-report ruling, including two VERIFIED reference-C bugs
+replicated deliberately; Python (`sezgi.problems.Cec2014`/`Cec2017`) and
+R (`sz_solve_cec2014`/`sz_solve_cec2017`, `sz_eval_session_cec2014`/
+`sz_eval_session_cec2017`) bindings with suite-aware IOH logging
+(`"sezgi-cec2014"`/`"sezgi-cec2017"`, riding M3-5's `RunKey.suite`
+machinery unchanged, no logger changes needed); a matched Python/R
+example pair (L-SHADE, the CEC 2014 competition's own winner, on CEC
+2014 f1, bit-identical between languages). Independent cross-validation
+against a freshly compiled official C reference (primary) and
+`opfunu==1.0.4` (secondary) confirms sezgi matches the C reference to
+machine precision; opfunu itself agrees with sezgi only on CEC 2014 fid
+1-16+28 and CEC 2017 fid 1 — four source-evidenced opfunu-side
+divergence classes per suite, none a sezgi defect. A `R CMD build
+r-sezgi` tarball measurement found the current build far under CRAN's
+~5MB guideline only because it does not yet vendor its path-dependency
+crates or any CEC/TSPLIB data at all (the M2d-3 structural blocker,
+still open); the actual vendored-data total across all CEC suites plus
+TSPLIB now measures 7.2MB, over the guideline, with a dim-10-only trim
+recorded as a fallback decision for the user at v1.0, not applied here.
+See `docs/DECISIONS.md`'s "M3-6 completed" record for the full
+method-provenance table, every divergence quoted, and the CRAN
+measurement's full detail. Next: v1.0 prep (see the checklist).
 
 M3-5 (frontend parity and logging gaps) **complete** — closed every deferred
 parity/logging gap from M3-3/M3-4: a `suite` discriminator on `RunKey`/

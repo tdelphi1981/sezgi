@@ -371,3 +371,19 @@ test_that("R sz_solve_cec2017 (SHADE) is bit-identical to the Python/Rust golden
   expect_identical(f64_bits_hex(r$best_f), "409a08b80eb77c91")
   expect_identical(r$evals, 1000)
 })
+
+# ---- examples/{python,r}/cec2014_lshade.R parity anchor ---------------------
+#
+# The example pair's OWN live scenario (fid=1, dim=10, L-SHADE, budget=9000,
+# seed=20260830 -- examples/python/cec2014_lshade.py and
+# examples/r/cec2014_lshade.R), not the fid=3/seed=99 anchor above. Golden
+# hex from `./py-sezgi/.venv/bin/python examples/python/cec2014_lshade.py`
+# (best_f = 180.23000508877507, evals_used = 9000), byte-compared, not a
+# decimal-literal eyeball match.
+
+test_that("R sz_solve_cec2014 (L-SHADE) is bit-identical to the Python/Rust golden (fid=1, dim=10, seed=20260830 -- the example pair's own scenario)", {
+  spec <- sz_preset_lshade(10, 9000)
+  r <- sz_solve_cec2014(spec, fid = 1, dim = 10, master_seed = 20260830, run_id = 0)
+  expect_identical(f64_bits_hex(r$best_f), "4066875c33a1c67b")
+  expect_identical(r$evals, 9000)
+})
