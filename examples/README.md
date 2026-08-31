@@ -289,3 +289,53 @@ both from the repo root):
 field-for-field identical (R's own RNG stream differs from Python's — the
 R pair's `best_f`/`gap` are not expected to match the Python pair's; only
 each language's pure/twin pair is compared).
+
+## CEC 2014: L-SHADE quickstart (M3-6)
+
+`python/cec2014_lshade.py` / `r/cec2014_lshade.R` — one more matched
+Python/R PAIR (no `specs/cec2014_lshade.toml`, same reasoning as the CEC
+2022/TSP pairs above), going through `sezgi.solve()` / `sz_solve_cec2014`:
+L-SHADE (Tanabe & Fukunaga 2014, the CEC 2014 competition's own 1st-place
+algorithm — `presets.lshade` / `sz_preset_lshade`, parameterized by `dim`
+rather than `pop_size`) against `sezgi.problems.cec2014(fid, dim)` /
+`sz_solve_cec2014`, on f1 ("Rotated High Conditioning Elliptic Function",
+dim=10). Single seed, single problem, small budget — a SMOKE demonstration
+of the CEC 2014 binding, not a claim about L-SHADE's quality or
+convergence rate; f1's ill-conditioned scale keeps `best_f` visibly above
+`F*` at this budget by design, not by defect. See `README.md`'s "CEC
+2014/CEC 2017 benchmark suites (M3-6)" section for the suite's full
+provenance and every report-vs-official-C divergence found.
+
+**Bit-identical between languages**, verified via the same
+`writeBin`/`struct.pack` byte comparison the CEC 2022 pair above uses, not
+a decimal-literal eyeball match
+(`r-sezgi/tests/testthat/test-cec1417.R`'s "R sz_solve_cec2014 (L-SHADE)
+is bit-identical to the Python/Rust golden" test, anchored on this pair's
+own live scenario).
+
+Run:
+
+    ./py-sezgi/.venv/bin/python examples/python/cec2014_lshade.py
+    Rscript examples/r/cec2014_lshade.R
+
+Live output (measured by running both scripts from the repo root;
+`fid=1`, `dim=10`, `budget=9000`, `seed=20260830`):
+
+    CEC 2014 f1 (dim=10), L-SHADE, budget=9000 seed=20260830 -- SMOKE DEMO, single seed
+    F* (report's pinned optimum): 100.0
+    best_f: 180.23000508877507
+    gap (best_f - F*): 80.23000508877507
+    evals_used: 9000  iterations: 192
+
+    CEC 2014 f1 (dim=10), L-SHADE, budget=9000 seed=20260830 -- SMOKE DEMO, single seed
+    F* (report's pinned optimum): 100
+    best_f: 180.230005088775
+    gap (best_f - F*): 80.2300050887751
+    evals: 9000
+
+The R run prints `best_f: 180.230005088775` against Python's
+`180.23000508877507` — the SAME IEEE-754 double, just printed with
+different default precision (R's `cat`/`sprintf("%s", .)` shows ~15
+significant digits, Python's `repr` shows the shortest round-tripping
+representation); a `writeBin`/`struct.pack` byte comparison confirms
+bit-identical bytes (`4066875c33a1c67b` on both sides).

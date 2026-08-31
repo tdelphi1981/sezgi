@@ -1,16 +1,28 @@
-//! CEC 2022 + TSP direct-evaluation bindings (`sz_cec2022_evaluate` /
-//! `sz_cec2022_f_star` / `sz_tsp_load` / `sz_tsp_tour_length`) -- M3-3 Task 10.
+//! CEC 2022 + CEC 2014 + CEC 2017 + TSP direct-evaluation bindings
+//! (`sz_cec2022_evaluate` / `sz_cec2022_f_star` / `sz_cec2014_evaluate` /
+//! `sz_cec2014_f_star` / `sz_cec2017_evaluate` / `sz_cec2017_f_star` /
+//! `sz_tsp_load` / `sz_tsp_tour_length`) -- M3-3 Task 10 (CEC 2022 + TSP),
+//! extended by M3-6 Task 10 (CEC 2014 + CEC 2017).
 //!
-//! Mirrors py-sezgi's `sezgi.problems` module (M3-3 Task 9,
-//! `py-sezgi/src/lib.rs`) key-for-key for these four direct-evaluation entry
-//! points -- see `.superpowers/sdd/2026-08-31-sezgi-m3-3/task-9-report.md`
-//! for the full provenance. `sz_preset_ga_perm` / `sz_solve_tsp` (the
-//! solve()-eligible half of py-sezgi's `sezgi.problems`/`sezgi.presets`) live
-//! in `solve.rs` instead, alongside every other `sz_preset_*` / `sz_solve_*`
-//! binding -- py-sezgi keeps direct-eval and solve-integration in one Python
-//! namespace, but r-sezgi's `sz_solve_bbob` precedent already puts every
-//! solve-machinery binding in `solve.rs`, so this file only takes the
-//! direct-eval half.
+//! Mirrors py-sezgi's `sezgi.problems` module (M3-3 Task 9 for CEC 2022 +
+//! TSP, M3-6 Task 9 for CEC 2014 + CEC 2017; `py-sezgi/src/lib.rs`)
+//! key-for-key for these direct-evaluation entry points -- see
+//! `.superpowers/sdd/2026-08-31-sezgi-m3-3/task-9-report.md` and
+//! `.superpowers/sdd/2026-08-31-sezgi-m3-6/task-9-report.md` for the full
+//! provenance. `sz_preset_ga_perm` / `sz_solve_tsp` / `sz_solve_cec2022` /
+//! `sz_solve_cec2014` / `sz_solve_cec2017` (the solve()-eligible half of
+//! py-sezgi's `sezgi.problems`/`sezgi.presets`) live in `solve.rs` instead,
+//! alongside every other `sz_preset_*` / `sz_solve_*` binding -- py-sezgi
+//! keeps direct-eval and solve-integration in one Python namespace, but
+//! r-sezgi's `sz_solve_bbob` precedent already puts every solve-machinery
+//! binding in `solve.rs`, so this file only takes the direct-eval half.
+//!
+//! CEC 2014's `fid` domain is `1..=30`; CEC 2017's is `1` union `3..=30`
+//! (`fid = 2`, "Sum of Different Powers", was officially withdrawn -- see
+//! `sz_cec2017_evaluate`/`sz_cec2017_f_star`'s own docs, and
+//! `sezgi_problems::Cec2017Error::Withdrawn`'s doc for the full ruling).
+//! Both suites vendor only `dim` in `{10,30}` -- UNLIKE CEC 2022's `{2,10,20}`
+//! -- so no hybrid/`dim=2` special case applies to either new suite.
 //!
 //! ## Index-convention decision (tour arguments/outputs; NOT x/coordinate
 //! values, which are unchanged)
@@ -36,7 +48,7 @@ use savvy::{
 };
 use sezgi_core::problem::Problem;
 use sezgi_core::space::{BlockValues, Genotype};
-use sezgi_problems::{Cec2022, Tsp, TspError};
+use sezgi_problems::{Cec2014, Cec2017, Cec2022, Tsp, TspError};
 
 /// Casts a non-negative-checked, WHOLE-NUMBER-checked `f64` (as passed
 /// from R, which has no native unsigned integer type) to `u64`, rejecting
@@ -140,6 +152,122 @@ fn sz_cec2022_evaluate(fid: f64, dim: f64, x: RealSexp) -> savvy::Result<Sexp> {
 fn sz_cec2022_f_star(fid: f64) -> savvy::Result<Sexp> {
     let fid_u = f64_to_u32("fid", fid)?;
     let p = Cec2022::new(fid_u, 10).map_err(|e| savvy_err!("{e}"))?;
+    p.f_star().try_into()
+}
+
+/// Direct, one-shot evaluation of a CEC 2014 (Liang, Qu & Suganthan 2013)
+/// function at `x`, bypassing `sz_solve_bbob`-style budget/engine machinery
+/// entirely -- binds [`Cec2014::new`] + [`Cec2014::evaluate_batch`] exactly.
+/// Mirrors `sz_cec2022_evaluate` (M3-6 Task 10 -- see py-sezgi's
+/// `sezgi.problems.cec2014_evaluate` for the identical binding on the Python
+/// side). See [`Cec2014::new`]'s own doc for the exact `fid`/`dim` domain.
+///
+/// @param fid CEC 2014 function id, `1..=30` (double, cast to `u32`).
+/// @param dim Problem dimension, one of `10`, `30` (double, cast to
+///   `usize`).
+/// @param x A numeric vector of exactly `dim` coordinates.
+/// @returns A numeric scalar.
+///
+/// # Errors
+/// A savvy error for `fid` outside `1..=30`, `dim` outside `{10,30}`, or
+/// `length(x) != dim`.
+/// @export
+#[savvy]
+fn sz_cec2014_evaluate(fid: f64, dim: f64, x: RealSexp) -> savvy::Result<Sexp> {
+    let fid_u = f64_to_u32("fid", fid)?;
+    let dim_u = f64_to_usize("dim", dim)?;
+    let p = Cec2014::new(fid_u, dim_u).map_err(|e| savvy_err!("{e}"))?;
+
+    let xs = x.as_slice();
+    if xs.len() != dim_u {
+        return Err(savvy_err!(
+            "x must have exactly {} coordinates (dim={}), got {}",
+            dim_u,
+            dim_u,
+            xs.len()
+        ));
+    }
+    let g = Genotype { blocks: vec![BlockValues::Float(xs.to_vec())] };
+    let v = p.evaluate_batch(&[g])[0];
+    v.try_into()
+}
+
+/// The report's pinned `F_i*` bias for a CEC 2014 function -- binds
+/// [`Cec2014::f_star`] (`F_i* = 100*fid`). Does not depend on `dim`, so an
+/// internal probe `dim = 10` is used purely to validate `fid`.
+///
+/// @param fid CEC 2014 function id, `1..=30` (double, cast to `u32`).
+/// @returns A numeric scalar.
+///
+/// # Errors
+/// A savvy error if `fid` is outside `1..=30`.
+/// @export
+#[savvy]
+fn sz_cec2014_f_star(fid: f64) -> savvy::Result<Sexp> {
+    let fid_u = f64_to_u32("fid", fid)?;
+    let p = Cec2014::new(fid_u, 10).map_err(|e| savvy_err!("{e}"))?;
+    p.f_star().try_into()
+}
+
+/// Direct, one-shot evaluation of a CEC 2017 (Awad, Ali, Liang, Qu &
+/// Suganthan 2016) function at `x`, bypassing `sz_solve_bbob`-style
+/// budget/engine machinery entirely -- binds [`Cec2017::new`] +
+/// [`Cec2017::evaluate_batch`] exactly. Mirrors `sz_cec2014_evaluate` (M3-6
+/// Task 10 -- see py-sezgi's `sezgi.problems.cec2017_evaluate` for the
+/// identical binding on the Python side). See [`Cec2017::new`]'s own doc for
+/// the exact `fid`/`dim` domain.
+///
+/// @param fid CEC 2017 function id, `1` or `3..=30` (double, cast to `u32`);
+///   `fid = 2` ("Sum of Different Powers") was officially withdrawn from the
+///   suite.
+/// @param dim Problem dimension, one of `10`, `30` (double, cast to
+///   `usize`).
+/// @param x A numeric vector of exactly `dim` coordinates.
+/// @returns A numeric scalar.
+///
+/// # Errors
+/// A savvy error for `fid` outside `{1} union {3..=30}`, `dim` outside
+/// `{10,30}`, or `length(x) != dim`. `fid = 2` raises a dedicated error --
+/// the Rust [`sezgi_problems::Cec2017Error::Withdrawn`] message is surfaced
+/// VERBATIM, distinct from an ordinary out-of-range `fid`.
+/// @export
+#[savvy]
+fn sz_cec2017_evaluate(fid: f64, dim: f64, x: RealSexp) -> savvy::Result<Sexp> {
+    let fid_u = f64_to_u32("fid", fid)?;
+    let dim_u = f64_to_usize("dim", dim)?;
+    let p = Cec2017::new(fid_u, dim_u).map_err(|e| savvy_err!("{e}"))?;
+
+    let xs = x.as_slice();
+    if xs.len() != dim_u {
+        return Err(savvy_err!(
+            "x must have exactly {} coordinates (dim={}), got {}",
+            dim_u,
+            dim_u,
+            xs.len()
+        ));
+    }
+    let g = Genotype { blocks: vec![BlockValues::Float(xs.to_vec())] };
+    let v = p.evaluate_batch(&[g])[0];
+    v.try_into()
+}
+
+/// The report's pinned `F_i*` bias for a CEC 2017 function -- binds
+/// [`Cec2017::f_star`] (`F_i* = 100*fid`, the fid-gapped C dispatch bias, not
+/// the report's contiguous renumbering -- see `Cec2017::new`'s own module
+/// doc). Does not depend on `dim`, so an internal probe `dim = 10` is used
+/// purely to validate `fid`.
+///
+/// @param fid CEC 2017 function id, `1` or `3..=30` (double, cast to `u32`).
+/// @returns A numeric scalar.
+///
+/// # Errors
+/// A savvy error if `fid` is outside `{1} union {3..=30}` (`fid = 2`
+/// included, via the [`sezgi_problems::Cec2017Error::Withdrawn`] message).
+/// @export
+#[savvy]
+fn sz_cec2017_f_star(fid: f64) -> savvy::Result<Sexp> {
+    let fid_u = f64_to_u32("fid", fid)?;
+    let p = Cec2017::new(fid_u, 10).map_err(|e| savvy_err!("{e}"))?;
     p.f_star().try_into()
 }
 

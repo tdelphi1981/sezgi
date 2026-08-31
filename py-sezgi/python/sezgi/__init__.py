@@ -14,15 +14,18 @@ from sezgi import _sezgi
 #
 # EvalSession.for_problem(problem, budget, log_dir=None, algo_name="custom",
 #   seed=0) -- staticmethod building a session over any continuous (float)
-#   Problem handle: bbob(...), problems.cec2022(...), from_callable(...), or
-#   bias.f0(...). Raises ValueError for problems.tsp(...) (a permutation
-#   space, not continuous) and for log_dir on a from_callable(...)/bias.f0(...)
-#   problem: IOH logging is supported for BBOB and CEC 2022 problems only
-#   (M3-5 widened this from BBOB-only, now that the on-disk IOH record key
-#   carries a "suite" discriminator -- see read_ioh_records/results_matrix --
-#   so a CEC 2022 run no longer silently merges with a BBOB run at the same
-#   (fid, dim, instance, seed, budget)). Callable/F0 have no fid identity or
-#   known optimum to log against, so they still raise.
+#   Problem handle: bbob(...), problems.cec2022(...), problems.cec2014(...),
+#   problems.cec2017(...), from_callable(...), or bias.f0(...). Raises
+#   ValueError for problems.tsp(...) (a permutation space, not continuous)
+#   and for log_dir on a from_callable(...)/bias.f0(...) problem: IOH logging
+#   is supported for BBOB, CEC 2022, CEC 2014, and CEC 2017 problems only
+#   (M3-5 widened this from BBOB-only to include CEC 2022, now that the
+#   on-disk IOH record key carries a "suite" discriminator -- see
+#   read_ioh_records/results_matrix -- so a non-BBOB run no longer silently
+#   merges with a BBOB run at the same (fid, dim, instance, seed, budget);
+#   M3-6 widened it again to CEC 2014/CEC 2017, riding the same suite-aware
+#   machinery). Callable/F0 have no fid identity or known optimum to log
+#   against, so they still raise.
 #
 # f_opt() now returns float | None (was always float, since only BBOB
 #   existed): None for a problem with no analytically known optimum (e.g.
@@ -407,7 +410,8 @@ mo = SimpleNamespace(
 # `bias`/`mo`'s own SimpleNamespace-of-bound-functions convention. Every f64
 # here is passed through EXACTLY as the Rust core computed it -- no
 # rounding/formatting anywhere in this section (T10's R bindings assert
-# bit-equality against these same values).
+# bit-equality against these same values). M3-6 Task 9 adds CEC 2014 and
+# CEC 2017, same trio-per-suite shape as CEC 2022.
 #
 # problems.cec2022(fid, dim) -> Problem: a solve()-eligible handle for a CEC
 #   2022 function (crates/problems/src/cec2022/mod.rs Cec2022::new), usable
@@ -423,6 +427,32 @@ mo = SimpleNamespace(
 # problems.cec2022_f_star(fid) -> float: the report's pinned F_i* bias
 #   (Cec2022::f_star). Does not depend on dim. ValueError if fid is outside
 #   1..=12.
+#
+# problems.cec2014(fid, dim) -> Problem: a solve()-eligible handle for a CEC
+#   2014 function (crates/problems/src/cec2014/mod.rs Cec2014::new). fid in
+#   1..=30 (the full suite); dim in {10, 30} (the two dims this crate
+#   vendors). ValueError for any out-of-domain (fid, dim).
+#
+# problems.cec2014_evaluate(fid, dim, x) -> float: direct, one-shot
+#   evaluation at x, same shape as cec2022_evaluate(...).
+#
+# problems.cec2014_f_star(fid) -> float: the pinned F_i* = 100*fid bias
+#   (Cec2014::f_star). ValueError if fid is outside 1..=30.
+#
+# problems.cec2017(fid, dim) -> Problem: a solve()-eligible handle for a CEC
+#   2017 function (crates/problems/src/cec2017/mod.rs Cec2017::new). fid in
+#   {1} union {3..=30} (fid 2, "Sum of Different Powers", was officially
+#   withdrawn from the suite -- ValueError with the Rust
+#   Cec2017Error::Withdrawn message surfaced verbatim, distinct from an
+#   ordinary out-of-range fid); dim in {10, 30}. ValueError for any other
+#   out-of-domain (fid, dim).
+#
+# problems.cec2017_evaluate(fid, dim, x) -> float: direct, one-shot
+#   evaluation at x, same shape as cec2022_evaluate(...) (withdrawn fid == 2
+#   included).
+#
+# problems.cec2017_f_star(fid) -> float: the pinned F_i* = 100*fid bias
+#   (Cec2017::f_star). ValueError if fid is outside {1} union {3..=30}.
 #
 # problems.tsp(name) -> Problem: a solve()-eligible handle for a VENDORED
 #   TSPLIB instance (Tsp::vendored: "berlin52", "eil51", or "st70"), usable
@@ -452,6 +482,12 @@ problems = SimpleNamespace(
     cec2022=_sezgi.cec2022,
     cec2022_evaluate=_sezgi.cec2022_evaluate,
     cec2022_f_star=_sezgi.cec2022_f_star,
+    cec2014=_sezgi.cec2014,
+    cec2014_evaluate=_sezgi.cec2014_evaluate,
+    cec2014_f_star=_sezgi.cec2014_f_star,
+    cec2017=_sezgi.cec2017,
+    cec2017_evaluate=_sezgi.cec2017_evaluate,
+    cec2017_f_star=_sezgi.cec2017_f_star,
     tsp=_sezgi.tsp,
     tsp_load=_sezgi.tsp_load,
     tsp_tour_length=_sezgi.tsp_tour_length,

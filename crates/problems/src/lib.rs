@@ -1,9 +1,14 @@
 pub mod bbob;
+pub(crate) mod cec_basics;
+pub mod cec2014;
+pub mod cec2017;
 pub mod cec2022;
 pub mod dtlz;
 pub mod tsp;
 pub mod zdt;
 pub use bbob::{BbobError, BbobProblem};
+pub use cec2014::{Cec2014, Cec2014Error};
+pub use cec2017::{Cec2017, Cec2017Error};
 pub use cec2022::{Cec2022, Cec2022Error};
 pub use dtlz::{Dtlz, DtlzError};
 pub use tsp::{Tsp, TspError};

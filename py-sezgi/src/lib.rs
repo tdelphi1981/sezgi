@@ -24,7 +24,7 @@ use sezgi_core::mo::MoProblem;
 use sezgi_core::problem::Problem;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 use sezgi_core::spec::AlgorithmSpec;
-use sezgi_problems::{BbobProblem, Cec2022, Dtlz, Tsp, TspError, Zdt};
+use sezgi_problems::{BbobProblem, Cec2014, Cec2017, Cec2022, Dtlz, Tsp, TspError, Zdt};
 use sezgi_stats::{
     bayesian_plackett_luce, bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman,
     hypervolume_2d as stats_hypervolume_2d, igd as stats_igd, paper_package, plackett_luce,
@@ -37,6 +37,16 @@ use std::path::Path;
 enum Inner {
     Bbob(BbobProblem),
     Cec2022(Cec2022),
+    /// M3-6 Task 9: CEC 2014 (`sezgi_problems::cec2014::Cec2014`, fid
+    /// `1..=30`) -- same handle shape as `Inner::Cec2022`, one Rust struct
+    /// stored directly (bit-exact `Clone`-free reuse, no rebuild needed for
+    /// `dim()`/`bounds()`/`optimum()`).
+    Cec2014(Cec2014),
+    /// M3-6 Task 9: CEC 2017 (`sezgi_problems::cec2017::Cec2017`, fid `{1}
+    /// union {3..=30}`; fid 2 is officially withdrawn -- `Cec2017::new`
+    /// itself rejects it before a handle can ever exist, see `cec2017(...)`'s
+    /// own doc). Same handle shape as `Inner::Cec2022`/`Inner::Cec2014`.
+    Cec2017(Cec2017),
     Tsp(Tsp),
     Callable { f: Py<PyAny>, space: SearchSpace, vectorized: bool },
     /// `sezgi.bias.f0(dim, seed)` -- the BIAS-toolbox null problem
@@ -184,6 +194,8 @@ impl PyProblem {
         match &self.inner {
             Inner::Bbob(p) => p.space().dim(),
             Inner::Cec2022(p) => p.space().dim(),
+            Inner::Cec2014(p) => p.space().dim(),
+            Inner::Cec2017(p) => p.space().dim(),
             Inner::Tsp(p) => p.space().dim(),
             Inner::Callable { space, .. } => space.dim(),
             Inner::F0 { space, .. } => space.dim(),
@@ -199,6 +211,8 @@ impl PyProblem {
         let space = match &self.inner {
             Inner::Bbob(p) => p.space(),
             Inner::Cec2022(p) => p.space(),
+            Inner::Cec2014(p) => p.space(),
+            Inner::Cec2017(p) => p.space(),
             Inner::Tsp(p) => p.space(),
             Inner::Callable { space, .. } => space,
             Inner::F0 { space, .. } => space,
@@ -215,6 +229,8 @@ impl PyProblem {
         match &self.inner {
             Inner::Bbob(p) => p.optimum(),
             Inner::Cec2022(p) => p.optimum(),
+            Inner::Cec2014(p) => p.optimum(),
+            Inner::Cec2017(p) => p.optimum(),
             Inner::Tsp(p) => p.optimum(),
             Inner::Callable { .. } => None,
             Inner::F0 { .. } => None,
@@ -342,6 +358,101 @@ fn cec2022_evaluate(fid: u32, dim: usize, x: Vec<f64>) -> PyResult<f64> {
 #[pyfunction]
 fn cec2022_f_star(fid: u32) -> PyResult<f64> {
     let p = Cec2022::new(fid, 10).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(p.f_star())
+}
+
+/// `sezgi.problems.cec2014(fid, dim)` -- a [`Problem`] handle for a CEC 2014
+/// function (`sezgi_problems::Cec2014::new`), usable with `solve()` and
+/// `EvalSession.for_problem` exactly like `sezgi.problems.cec2022(...)`. See
+/// [`Cec2014::new`]'s own doc for the exact `fid`/`dim` domain.
+///
+/// # Errors
+/// `ValueError` for [`sezgi_problems::Cec2014Error`]: `fid` outside `1..=30`,
+/// or `dim` outside `{10, 30}`.
+#[pyfunction]
+fn cec2014(fid: u32, dim: usize) -> PyResult<PyProblem> {
+    Ok(PyProblem { inner: Inner::Cec2014(
+        Cec2014::new(fid, dim).map_err(|e| PyValueError::new_err(e.to_string()))?) })
+}
+
+/// `sezgi.problems.cec2014_evaluate(fid, dim, x)` -- direct, one-shot
+/// evaluation of a CEC 2014 function at `x` (a length-`dim` list of floats),
+/// bypassing `solve()`'s budget/engine machinery entirely. Same shape as
+/// `cec2022_evaluate(...)`.
+///
+/// # Errors
+/// `ValueError` for the same [`sezgi_problems::Cec2014Error`] cases as
+/// `cec2014(...)`, plus a `ValueError` if `len(x) != dim`.
+#[pyfunction]
+fn cec2014_evaluate(fid: u32, dim: usize, x: Vec<f64>) -> PyResult<f64> {
+    let p = Cec2014::new(fid, dim).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    if x.len() != dim {
+        return Err(PyValueError::new_err(format!(
+            "x must have exactly {dim} coordinates (dim={dim}), got {}", x.len())));
+    }
+    let g = Genotype { blocks: vec![BlockValues::Float(x)] };
+    Ok(p.evaluate_batch(&[g])[0])
+}
+
+/// `sezgi.problems.cec2014_f_star(fid)` -- the pinned `F_i* = 100*fid` bias
+/// ([`Cec2014::f_star`]). Does not depend on `dim`; an internal probe
+/// `dim=10` validates `fid` only.
+///
+/// # Errors
+/// `ValueError` if `fid` is outside `1..=30`.
+#[pyfunction]
+fn cec2014_f_star(fid: u32) -> PyResult<f64> {
+    let p = Cec2014::new(fid, 10).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(p.f_star())
+}
+
+/// `sezgi.problems.cec2017(fid, dim)` -- a [`Problem`] handle for a CEC 2017
+/// function (`sezgi_problems::Cec2017::new`), usable with `solve()` and
+/// `EvalSession.for_problem` exactly like `sezgi.problems.cec2022(...)`. See
+/// [`Cec2017::new`]'s own doc for the exact `fid`/`dim` domain.
+///
+/// # Errors
+/// `ValueError` for [`sezgi_problems::Cec2017Error`]: `fid` outside `{1}
+/// union {3..=30}`, `fid == 2` (officially withdrawn -- the Rust
+/// [`sezgi_problems::Cec2017Error::Withdrawn`] message is surfaced VERBATIM
+/// so a caller sees the honest reason, distinct from an ordinary
+/// out-of-range `fid`), or `dim` outside `{10, 30}`.
+#[pyfunction]
+fn cec2017(fid: u32, dim: usize) -> PyResult<PyProblem> {
+    Ok(PyProblem { inner: Inner::Cec2017(
+        Cec2017::new(fid, dim).map_err(|e| PyValueError::new_err(e.to_string()))?) })
+}
+
+/// `sezgi.problems.cec2017_evaluate(fid, dim, x)` -- direct, one-shot
+/// evaluation of a CEC 2017 function at `x` (a length-`dim` list of floats),
+/// bypassing `solve()`'s budget/engine machinery entirely. Same shape as
+/// `cec2022_evaluate(...)`.
+///
+/// # Errors
+/// `ValueError` for the same [`sezgi_problems::Cec2017Error`] cases as
+/// `cec2017(...)` (withdrawn `fid == 2` included), plus a `ValueError` if
+/// `len(x) != dim`.
+#[pyfunction]
+fn cec2017_evaluate(fid: u32, dim: usize, x: Vec<f64>) -> PyResult<f64> {
+    let p = Cec2017::new(fid, dim).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    if x.len() != dim {
+        return Err(PyValueError::new_err(format!(
+            "x must have exactly {dim} coordinates (dim={dim}), got {}", x.len())));
+    }
+    let g = Genotype { blocks: vec![BlockValues::Float(x)] };
+    Ok(p.evaluate_batch(&[g])[0])
+}
+
+/// `sezgi.problems.cec2017_f_star(fid)` -- the pinned `F_i* = 100*fid` bias
+/// ([`Cec2017::f_star`]). Does not depend on `dim`; an internal probe
+/// `dim=10` validates `fid` only.
+///
+/// # Errors
+/// `ValueError` if `fid` is outside `{1} union {3..=30}` (`fid == 2`
+/// included, via the [`sezgi_problems::Cec2017Error::Withdrawn`] message).
+#[pyfunction]
+fn cec2017_f_star(fid: u32) -> PyResult<f64> {
+    let p = Cec2017::new(fid, 10).map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(p.f_star())
 }
 
@@ -507,14 +618,14 @@ impl PyEvalSession {
     /// # Errors
     /// - `ValueError` for `sezgi.problems.tsp(...)`: its permutation space
     ///   is not a continuous problem `EvalSession` can evaluate.
-    /// - `ValueError` if `log_dir` is given for any non-BBOB problem
-    ///   (`sezgi.problems.cec2022(...)`, `sezgi.from_callable(...)`, or
-    ///   `sezgi.bias.f0(...)`): IOH logging is restricted to BBOB sessions
-    ///   only, matching `solve()`'s existing policy. A known optimum
-    ///   (which CEC 2022 also has) is necessary but not sufficient — the
-    ///   on-disk IOH record key carries no suite discriminator, so a
+    /// - `ValueError` if `log_dir` is given for `sezgi.from_callable(...)` or
+    ///   `sezgi.bias.f0(...)`: IOH logging is restricted to problems with a
+    ///   real fid identity and a known optimum (BBOB, CEC 2022, CEC 2014, and
+    ///   CEC 2017), matching `solve()`'s existing policy. A known optimum
+    ///   is necessary but not sufficient — the on-disk IOH record key needs
+    ///   a suite discriminator too (`RunKey::suite`, M3-5 Task 1), so a
     ///   non-BBOB run sharing `(fid, dim, instance, seed, budget)` with a
-    ///   BBOB run would silently merge into one `results_matrix` cell.
+    ///   BBOB run does not silently merge into one `results_matrix` cell.
     #[staticmethod]
     #[pyo3(signature = (problem, budget, log_dir=None, algo_name="custom", seed=0))]
     fn for_problem(
@@ -554,6 +665,40 @@ impl PyEvalSession {
                 };
                 (Box::new(fresh), meta)
             }
+            // M3-6 Task 9: same shape as Inner::Cec2022 -- a fresh instance
+            // rebuilt from (fid, dim) (Cec2014/Cec2017 hold no RNG state, so
+            // this is bit-identical to `p`, same as Cec2022's own rebuild).
+            // Suite/name follow the M3-5 label helper's convention
+            // (`problem_segment` in crates/bench/src/experiment.rs): suite
+            // `"sezgi-cec2014"`/`"sezgi-cec2017"` strips its `sezgi-` prefix
+            // to `cec2014`/`cec2017`, so `name` = `"cec2014-f{fid}"` /
+            // `"cec2017-f{fid}"` combines with `d{dim}i{instance}` (appended
+            // by that shared helper) into the exact `cec2014-f1d10i1` /
+            // `cec2017-f1d10i1` label shape.
+            Inner::Cec2014(p) => {
+                let fresh = Cec2014::new(p.fid(), p.dim())
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                let meta = SessionMeta {
+                    suite: "sezgi-cec2014".into(),
+                    fid: p.fid(),
+                    name: format!("cec2014-f{}", p.fid()),
+                    instance: 1,
+                    f_opt: p.optimum(),
+                };
+                (Box::new(fresh), meta)
+            }
+            Inner::Cec2017(p) => {
+                let fresh = Cec2017::new(p.fid(), p.dim())
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                let meta = SessionMeta {
+                    suite: "sezgi-cec2017".into(),
+                    fid: p.fid(),
+                    name: format!("cec2017-f{}", p.fid()),
+                    instance: 1,
+                    f_opt: p.optimum(),
+                };
+                (Box::new(fresh), meta)
+            }
             Inner::Callable { f, space, vectorized } => {
                 let owned = OwnedCallableProblem {
                     f: f.clone_ref(py), space: space.clone(), vectorized: *vectorized,
@@ -586,24 +731,30 @@ impl PyEvalSession {
                 "EvalSession supports continuous (float) problems only")),
         };
 
-        // sezgi decision (M3-5 scope ruling 2, widening M3-4's final-review
-        // narrowing): IOH logging via for_problem is restricted to BBOB and
-        // CEC 2022 sessions -- the two arms whose SessionMeta carries a real
-        // fid identity and a known optimum -- not to "any problem with a
-        // known optimum" (Callable/F0 have neither). M3-4's final review
+        // sezgi decision (M3-5 scope ruling 2, widened again by M3-6 Task 9):
+        // IOH logging via for_problem is restricted to sessions whose
+        // SessionMeta carries a real fid identity and a known optimum --
+        // BBOB, CEC 2022, CEC 2014, and CEC 2017 -- not to "any problem with
+        // a known optimum" (Callable/F0 have neither). M3-4's final review
         // blocked CEC 2022 logging because the on-disk IOH record key
         // (algo, fid, dim, instance, seed, budget) carried no suite
         // discriminator, so a CEC 2022 run and a BBOB run sharing that key
         // would silently merge into one results_matrix cell. M3-5 Task 1
         // added a "suite" discriminator to that record key (RunKey::suite,
         // threaded through read_ioh_records/results_matrix), closing that
-        // gap, so CEC 2022 is admitted here too. Callable and F0 arms keep
-        // the rejection: their SessionMeta has no fid identity or f_opt, so
-        // there is nothing to build an IOH archive against (with_log itself
-        // also rejects a None f_opt) -- see docs/DECISIONS.md's M3-5 record.
-        if log_dir.is_some() && !matches!(&problem.inner, Inner::Bbob(_) | Inner::Cec2022(_)) {
+        // gap, so CEC 2022 was admitted; CEC 2014/CEC 2017 ride the same
+        // suite-aware machinery (RunKey::suite/problem_segment derive their
+        // folder/label from the suite string automatically -- no ioh.rs
+        // change needed), so they are admitted the same way. Callable and F0
+        // arms keep the rejection: their SessionMeta has no fid identity or
+        // f_opt, so there is nothing to build an IOH archive against
+        // (with_log itself also rejects a None f_opt) -- see
+        // docs/DECISIONS.md's M3-5 record.
+        if log_dir.is_some() && !matches!(&problem.inner,
+            Inner::Bbob(_) | Inner::Cec2022(_) | Inner::Cec2014(_) | Inner::Cec2017(_)) {
             return Err(PyValueError::new_err(
-                "IOH logging is currently supported for BBOB and CEC 2022 problems only"));
+                "IOH logging is currently supported for BBOB, CEC 2022, CEC 2014, \
+                 and CEC 2017 problems only"));
         }
 
         let mut session = EvalSession::new_owned(boxed, meta, budget)
@@ -728,6 +879,40 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
                 (r, Some(fin.skipped_empty_runs as u64))
             } else { (run_with_bridge(py, || run(p, None))?, None) }
         }
+        // M3-6 Task 9: CEC 2014/CEC 2017 are solve()-eligible additively,
+        // same shape as Inner::Cec2022 (IOH logging included) -- widened
+        // alongside for_problem's own CEC 2014/CEC 2017 log_dir widening
+        // above, keeping the two entry points symmetric (M3-5 T2 asymmetry
+        // ruling: both or neither). Suite/fid/name/instance mirror
+        // for_problem's own SessionMeta exactly ("sezgi-cec2014"/
+        // "sezgi-cec2017", p.fid(), "cec2014-f{fid}"/"cec2017-f{fid}",
+        // instance 1).
+        Inner::Cec2014(p) => {
+            if let Some(dir) = log_dir {
+                let name = algo_name.unwrap_or(&spec.name).to_string();
+                let scenario_name = format!("cec2014-f{}", p.fid());
+                let mut lg = IohLogger::new(std::path::Path::new(dir), &name,
+                    "sezgi-cec2014", p.fid(), &scenario_name,
+                    p.space().dim());
+                let obs = lg.start_run_with(1, master_seed, p.f_star(), spec.termination.budget);
+                let r = run_with_bridge(py, || run(p, Some(Box::new(obs))))?;
+                let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                (r, Some(fin.skipped_empty_runs as u64))
+            } else { (run_with_bridge(py, || run(p, None))?, None) }
+        }
+        Inner::Cec2017(p) => {
+            if let Some(dir) = log_dir {
+                let name = algo_name.unwrap_or(&spec.name).to_string();
+                let scenario_name = format!("cec2017-f{}", p.fid());
+                let mut lg = IohLogger::new(std::path::Path::new(dir), &name,
+                    "sezgi-cec2017", p.fid(), &scenario_name,
+                    p.space().dim());
+                let obs = lg.start_run_with(1, master_seed, p.f_star(), spec.termination.budget);
+                let r = run_with_bridge(py, || run(p, Some(Box::new(obs))))?;
+                let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                (r, Some(fin.skipped_empty_runs as u64))
+            } else { (run_with_bridge(py, || run(p, None))?, None) }
+        }
         Inner::Tsp(p) => {
             if log_dir.is_some() {
                 return Err(PyValueError::new_err(
@@ -748,9 +933,9 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
     let d = PyDict::new(py);
     d.set_item("best_f", result.best_f)?;
     // best_x's block shape follows the problem's own space: Float for
-    // Bbob/Cec2022/Callable, Perm for Tsp (a permutation genotype, per
-    // tsp.rs's module doc) -- both are surfaced as a plain list of Python
-    // numbers (float or int respectively).
+    // Bbob/Cec2022/Cec2014/Cec2017/Callable, Perm for Tsp (a permutation
+    // genotype, per tsp.rs's module doc) -- both are surfaced as a plain
+    // list of Python numbers (float or int respectively).
     match &result.best_x.blocks[0] {
         BlockValues::Float(xs) => d.set_item("best_x", PyList::new(py, xs)?)?,
         BlockValues::Perm(xs) => d.set_item("best_x", PyList::new(py, xs)?)?,
@@ -1871,6 +2056,12 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cec2022, m)?)?;
     m.add_function(wrap_pyfunction!(cec2022_evaluate, m)?)?;
     m.add_function(wrap_pyfunction!(cec2022_f_star, m)?)?;
+    m.add_function(wrap_pyfunction!(cec2014, m)?)?;
+    m.add_function(wrap_pyfunction!(cec2014_evaluate, m)?)?;
+    m.add_function(wrap_pyfunction!(cec2014_f_star, m)?)?;
+    m.add_function(wrap_pyfunction!(cec2017, m)?)?;
+    m.add_function(wrap_pyfunction!(cec2017_evaluate, m)?)?;
+    m.add_function(wrap_pyfunction!(cec2017_f_star, m)?)?;
     m.add_function(wrap_pyfunction!(tsp, m)?)?;
     m.add_function(wrap_pyfunction!(tsp_load, m)?)?;
     m.add_function(wrap_pyfunction!(tsp_tour_length, m)?)?;

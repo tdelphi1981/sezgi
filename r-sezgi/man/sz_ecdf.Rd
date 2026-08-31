@@ -16,7 +16,10 @@ sz_ecdf(log_root, targets = NULL, per_algo = TRUE)
 \item{per_algo}{`TRUE` (default) returns a named list, one
 `list(evals=, proportion=)` entry per distinct algo in the archive,
 named by algo (first-appearance order); `FALSE` returns a single
-pooled `list(evals=, proportion=)` over every scenario.}
+pooled `list(evals=, proportion=)` over every scenario. Grouping (in
+both modes) is by algo only, not `(algo, suite)`: a mixed-suite tree
+pools both suites' runs into one algo's curve -- read a per-suite
+tree or filter by suite first for a suite-specific curve.}
 }
 \value{
 A named list (see `per_algo`).

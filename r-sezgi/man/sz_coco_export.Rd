@@ -18,7 +18,9 @@ sz_coco_export(log_root, out_dir)
 A character vector of written file paths, sorted.
 }
 \description{
-Exports the IOH archive at `log_root` as a COCO/BBOB "old format"
-archive rooted at `out_dir` -- see `sezgi_bench::coco_export`. Returns
-the list of written file paths (as strings), sorted for determinism.
+BBOB-only: COCO's "old format" IS the BBOB archive format and has no
+CEC counterpart, so this errors (naming the offending suite) if
+`log_root` holds any non-BBOB scenario, rather than silently merging it
+into a `bbob`-labeled archive. A mixed BBOB+CEC tree must be filtered
+to its BBOB records before exporting.
 }

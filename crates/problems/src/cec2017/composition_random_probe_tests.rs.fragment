@@ -1,0 +1,97 @@
+    // ---- T8: random-point probes vs compiled C reference for fid 21-30
+    // (composition functions). Same convention as the fid-11-20 hybrid
+    // fragment: 3 seeded random points per dim, ALL 10 composition fids
+    // evaluated at each point, compiled-C `%.20f` output transcribed as Rust
+    // f64 literals. Seed `20170721` (distinct from T7's `20170717`, this
+    // task's own choice).
+
+    #[test]
+    fn composition_random_probe_dim10_trial0_matches_compiled_c() {
+        let x: [f64; 10] = [-53.591945, -72.664741, -95.282728, -53.63611, 52.587714, -7.409575, 61.784933, 34.622462, 0.378036, -59.382623];
+        assert_close(Cec2017::new(21, 10).unwrap().eval_one(&x), 2890.661772637393, "fid=21 dim=10 trial=0");
+        assert_close(Cec2017::new(22, 10).unwrap().eval_one(&x), 5883.236833939416, "fid=22 dim=10 trial=0");
+        assert_close(Cec2017::new(23, 10).unwrap().eval_one(&x), 3186.018959477454, "fid=23 dim=10 trial=0");
+        assert_close(Cec2017::new(24, 10).unwrap().eval_one(&x), 3817.0687680313335, "fid=24 dim=10 trial=0");
+        assert_close(Cec2017::new(25, 10).unwrap().eval_one(&x), 8527.740897173166, "fid=25 dim=10 trial=0");
+        assert_close(Cec2017::new(26, 10).unwrap().eval_one(&x), 14394.096396143288, "fid=26 dim=10 trial=0");
+        assert_close(Cec2017::new(27, 10).unwrap().eval_one(&x), 3441.9422163752697, "fid=27 dim=10 trial=0");
+        assert_close(Cec2017::new(28, 10).unwrap().eval_one(&x), 7914.540562163723, "fid=28 dim=10 trial=0");
+        assert_close(Cec2017::new(29, 10).unwrap().eval_one(&x), 3626820.2991623958, "fid=29 dim=10 trial=0");
+        assert_close(Cec2017::new(30, 10).unwrap().eval_one(&x), 4898681011.755351, "fid=30 dim=10 trial=0");
+    }
+
+    #[test]
+    fn composition_random_probe_dim10_trial1_matches_compiled_c() {
+        let x: [f64; 10] = [68.211269, 87.738105, -18.371672, 40.389357, -20.960061, 9.383597, -9.416595, 27.635644, 65.832568, -56.776816];
+        assert_close(Cec2017::new(21, 10).unwrap().eval_one(&x), 2633.5786814810726, "fid=21 dim=10 trial=1");
+        assert_close(Cec2017::new(22, 10).unwrap().eval_one(&x), 6606.598002202646, "fid=22 dim=10 trial=1");
+        assert_close(Cec2017::new(23, 10).unwrap().eval_one(&x), 5142.264145369443, "fid=23 dim=10 trial=1");
+        assert_close(Cec2017::new(24, 10).unwrap().eval_one(&x), 3637.783763891123, "fid=24 dim=10 trial=1");
+        assert_close(Cec2017::new(25, 10).unwrap().eval_one(&x), 8739.198744948113, "fid=25 dim=10 trial=1");
+        assert_close(Cec2017::new(26, 10).unwrap().eval_one(&x), 5652.168937877013, "fid=26 dim=10 trial=1");
+        assert_close(Cec2017::new(27, 10).unwrap().eval_one(&x), 8116.79384501324, "fid=27 dim=10 trial=1");
+        assert_close(Cec2017::new(28, 10).unwrap().eval_one(&x), 5163.8403009675785, "fid=28 dim=10 trial=1");
+        assert_close(Cec2017::new(29, 10).unwrap().eval_one(&x), 4339.891166621924, "fid=29 dim=10 trial=1");
+        assert_close(Cec2017::new(30, 10).unwrap().eval_one(&x), 4618216566.891445, "fid=30 dim=10 trial=1");
+    }
+
+    #[test]
+    fn composition_random_probe_dim10_trial2_matches_compiled_c() {
+        let x: [f64; 10] = [38.076471, 1.290394, -49.744051, -15.525865, 20.919164, -73.290354, -89.62029, -9.909596, 11.29307, 5.088009];
+        assert_close(Cec2017::new(21, 10).unwrap().eval_one(&x), 2563.9067305696317, "fid=21 dim=10 trial=2");
+        assert_close(Cec2017::new(22, 10).unwrap().eval_one(&x), 4870.036147123888, "fid=22 dim=10 trial=2");
+        assert_close(Cec2017::new(23, 10).unwrap().eval_one(&x), 5575.966969146725, "fid=23 dim=10 trial=2");
+        assert_close(Cec2017::new(24, 10).unwrap().eval_one(&x), 3729.2336301270284, "fid=24 dim=10 trial=2");
+        assert_close(Cec2017::new(25, 10).unwrap().eval_one(&x), 10862.876347066429, "fid=25 dim=10 trial=2");
+        assert_close(Cec2017::new(26, 10).unwrap().eval_one(&x), 6167.587392771373, "fid=26 dim=10 trial=2");
+        assert_close(Cec2017::new(27, 10).unwrap().eval_one(&x), 6712.493961324551, "fid=27 dim=10 trial=2");
+        assert_close(Cec2017::new(28, 10).unwrap().eval_one(&x), 5174.581206734936, "fid=28 dim=10 trial=2");
+        assert_close(Cec2017::new(29, 10).unwrap().eval_one(&x), 12642.80200604042, "fid=29 dim=10 trial=2");
+        assert_close(Cec2017::new(30, 10).unwrap().eval_one(&x), 10178056871.27871, "fid=30 dim=10 trial=2");
+    }
+
+    #[test]
+    fn composition_random_probe_dim30_trial0_matches_compiled_c() {
+        let x: [f64; 30] = [-99.725081, -5.239229, -62.181636, -38.443937, -74.873107, 86.75989, -10.739103, -82.749473, -10.795391, 36.31736, -76.865639, 78.642441, 81.380506, -38.628871, 99.836318, 2.395687, 97.728562, 2.763514, -86.025593, 5.38057, -92.460129, -83.291449, 28.677456, -65.492253, 64.690741, -17.814699, 93.706695, -24.520139, 41.895257, -88.16532];
+        assert_close(Cec2017::new(21, 30).unwrap().eval_one(&x), 3979.9134776295214, "fid=21 dim=30 trial=0");
+        assert_close(Cec2017::new(22, 30).unwrap().eval_one(&x), 15365.806198589064, "fid=22 dim=30 trial=0");
+        assert_close(Cec2017::new(23, 30).unwrap().eval_one(&x), 3663.538051633418, "fid=23 dim=30 trial=0");
+        assert_close(Cec2017::new(24, 30).unwrap().eval_one(&x), 8950.11445070446, "fid=24 dim=30 trial=0");
+        assert_close(Cec2017::new(25, 30).unwrap().eval_one(&x), 87960.79528693271, "fid=25 dim=30 trial=0");
+        assert_close(Cec2017::new(26, 30).unwrap().eval_one(&x), 36110.82641225184, "fid=26 dim=30 trial=0");
+        assert_close(Cec2017::new(27, 30).unwrap().eval_one(&x), 10553.277672179946, "fid=27 dim=30 trial=0");
+        assert_close(Cec2017::new(28, 30).unwrap().eval_one(&x), 39232.10979212046, "fid=28 dim=30 trial=0");
+        assert_close(Cec2017::new(29, 30).unwrap().eval_one(&x), 195092086.6992614, "fid=29 dim=30 trial=0");
+        assert_close(Cec2017::new(30, 30).unwrap().eval_one(&x), 27289296649.17728, "fid=30 dim=30 trial=0");
+    }
+
+    #[test]
+    fn composition_random_probe_dim30_trial1_matches_compiled_c() {
+        let x: [f64; 30] = [-32.539347, 8.058687, -34.62259, 49.093481, -69.22542, -18.459806, -68.803397, 93.221921, -54.240118, 47.429704, -48.380913, -67.848829, 62.637044, 9.547892, 88.534543, -6.276018, -72.439143, 85.824261, 49.585542, 12.157433, -50.087452, 64.932027, 42.023419, 45.668564, 66.508384, 89.125782, -24.387243, 92.054471, 26.3279, 42.312628];
+        assert_close(Cec2017::new(21, 30).unwrap().eval_one(&x), 3282.8108774339203, "fid=21 dim=30 trial=1");
+        assert_close(Cec2017::new(22, 30).unwrap().eval_one(&x), 13439.959560771988, "fid=22 dim=30 trial=1");
+        assert_close(Cec2017::new(23, 30).unwrap().eval_one(&x), 5457.933867971644, "fid=23 dim=30 trial=1");
+        assert_close(Cec2017::new(24, 30).unwrap().eval_one(&x), 6944.509790449464, "fid=24 dim=30 trial=1");
+        assert_close(Cec2017::new(25, 30).unwrap().eval_one(&x), 72299.04248535159, "fid=25 dim=30 trial=1");
+        assert_close(Cec2017::new(26, 30).unwrap().eval_one(&x), 33937.37460083289, "fid=26 dim=30 trial=1");
+        assert_close(Cec2017::new(27, 30).unwrap().eval_one(&x), 7332.297063837122, "fid=27 dim=30 trial=1");
+        assert_close(Cec2017::new(28, 30).unwrap().eval_one(&x), 22998.99296028184, "fid=28 dim=30 trial=1");
+        assert_close(Cec2017::new(29, 30).unwrap().eval_one(&x), 115612965.57951659, "fid=29 dim=30 trial=1");
+        assert_close(Cec2017::new(30, 30).unwrap().eval_one(&x), 41606223736.29401, "fid=30 dim=30 trial=1");
+    }
+
+    #[test]
+    fn composition_random_probe_dim30_trial2_matches_compiled_c() {
+        let x: [f64; 30] = [83.258533, -72.772963, -39.601135, 44.102354, -18.492236, -64.871712, 57.235343, 19.248445, 80.498803, 3.961801, 54.550832, 42.224367, -3.943244, 45.656081, 45.945171, -13.593626, -65.583399, 81.067844, -12.18239, 63.359773, 10.799403, -24.056873, 17.628374, 82.192585, -66.654081, 97.876041, -2.834202, -93.768756, 67.15363, 26.934496];
+        assert_close(Cec2017::new(21, 30).unwrap().eval_one(&x), 3071.1462867398627, "fid=21 dim=30 trial=2");
+        assert_close(Cec2017::new(22, 30).unwrap().eval_one(&x), 15338.961011121284, "fid=22 dim=30 trial=2");
+        assert_close(Cec2017::new(23, 30).unwrap().eval_one(&x), 7914.208049880445, "fid=23 dim=30 trial=2");
+        assert_close(Cec2017::new(24, 30).unwrap().eval_one(&x), 8082.090095728751, "fid=24 dim=30 trial=2");
+        assert_close(Cec2017::new(25, 30).unwrap().eval_one(&x), 41031.19696678006, "fid=25 dim=30 trial=2");
+        assert_close(Cec2017::new(26, 30).unwrap().eval_one(&x), 24500.245647913547, "fid=26 dim=30 trial=2");
+        assert_close(Cec2017::new(27, 30).unwrap().eval_one(&x), 10250.80138063668, "fid=27 dim=30 trial=2");
+        assert_close(Cec2017::new(28, 30).unwrap().eval_one(&x), 49496.756672731804, "fid=28 dim=30 trial=2");
+        assert_close(Cec2017::new(29, 30).unwrap().eval_one(&x), 431382.26764074026, "fid=29 dim=30 trial=2");
+        assert_close(Cec2017::new(30, 30).unwrap().eval_one(&x), 10882158536.501413, "fid=30 dim=30 trial=2");
+    }
+

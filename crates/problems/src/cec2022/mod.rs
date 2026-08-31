@@ -551,7 +551,7 @@
 //! bug exactly (PROVENANCE-FIRST, the milestone's code-over-report ruling
 //! -- the C code is the actual competition scorer) --
 //! [`Cec2022::eval_one`]'s `HybridComponent::SchafferF7Buggy` arm evaluates
-//! [`Cec2022::f16_schaffer_f7_base`] on `y[0..G_nx[5]]` (a PREFIX of the
+//! [`crate::cec_basics::f16_schaffer_f7_base`] on `y[0..G_nx[5]]` (a PREFIX of the
 //! WHOLE shuffled `y`, not `y[G[5]..G[5]+G_nx[5]]`), and the true last
 //! segment `y[G[5]..]` is simply never read by fid 7's evaluator, matching
 //! the reference exactly. Flagged here explicitly, in the same severity
@@ -883,6 +883,25 @@
 //!
 //! [`Cec2022::space`] is one [`Block::Float`] of `dim` variables, bounds
 //! `[-100.0, 100.0]` (module doc, "Search range" quote above).
+//!
+//! ## M3-6 T1 addendum: basic-function evaluators live in `crate::cec_basics`
+//!
+//! Everywhere above that names a basic function's Rust implementation as
+//! `Self::<name>_base` or `Cec2022::<name>_base` (`f1_base`, `f2_base`,
+//! `f16_schaffer_f7_base`, `f4_base`, `f5_base`, `bent_cigar_base`,
+//! `hgbat_base`, `katsuura_base`, `ackley_base`, `schwefel_base`,
+//! `happycat_base`, `grie_rosen_base`, `ellips_base`, `discus_base`,
+//! `griewank_base`, `escaffer6_base`) is describing HISTORY (how this
+//! module was originally written and verified, T5-T7) -- as of M3-6 T1
+//! those functions no longer live on `Cec2022` at all; they were extracted
+//! verbatim to `crate::cec_basics` (a `pub(crate)` module shared with the
+//! CEC 2014/2017 suites this milestone adds), same names, same bodies, same
+//! per-function provenance doc comments, zero behavior change. This
+//! module's own dispatch (`eval_one`, [`HybridComponent::eval`],
+//! [`CompFn::eval`], `hybrid_fitness`) now calls
+//! `crate::cec_basics::<name>_base` in their place. See
+//! `crate::cec_basics`'s own module doc for the exact moved-function list
+//! and, in its `// sezgi decision:` tag, what stayed behind here and why.
 
 mod data;
 
@@ -981,14 +1000,14 @@ impl HybridComponent {
     /// scaled segment.
     fn eval(self, seg: &[f64]) -> f64 {
         match self {
-            Self::BentCigar => Cec2022::bent_cigar_base(seg),
-            Self::HGBat => Cec2022::hgbat_base(seg),
-            Self::Rastrigin => Cec2022::f4_base(seg),
-            Self::Katsuura => Cec2022::katsuura_base(seg),
-            Self::Ackley => Cec2022::ackley_base(seg),
-            Self::Schwefel => Cec2022::schwefel_base(seg),
-            Self::HappyCat => Cec2022::happycat_base(seg),
-            Self::GrieRosen => Cec2022::grie_rosen_base(seg),
+            Self::BentCigar => crate::cec_basics::bent_cigar_base(seg),
+            Self::HGBat => crate::cec_basics::hgbat_base(seg),
+            Self::Rastrigin => crate::cec_basics::f4_base(seg),
+            Self::Katsuura => crate::cec_basics::katsuura_base(seg),
+            Self::Ackley => crate::cec_basics::ackley_base(seg),
+            Self::Schwefel => crate::cec_basics::schwefel_base(seg),
+            Self::HappyCat => crate::cec_basics::happycat_base(seg),
+            Self::GrieRosen => crate::cec_basics::grie_rosen_base(seg),
             Self::SchafferF7Buggy => {
                 unreachable!("SchafferF7Buggy is handled directly in hybrid_fitness")
             }
@@ -1054,16 +1073,16 @@ impl CompFn {
                 // (module doc's T5 F2 note) -- reuses `f2_base`, which
                 // expects the array already `+1`'d.
                 let shifted: Vec<f64> = z.iter().map(|&zi| zi + 1.0).collect();
-                Cec2022::f2_base(&shifted)
+                crate::cec_basics::f2_base(&shifted)
             }
-            Self::Ellipsoidal => Cec2022::ellips_base(z),
-            Self::BentCigar => Cec2022::bent_cigar_base(z),
-            Self::Discus => Cec2022::discus_base(z),
-            Self::Schwefel => Cec2022::schwefel_base(z),
-            Self::Rastrigin => Cec2022::f4_base(z),
-            Self::HGBat => Cec2022::hgbat_base(z),
-            Self::EScaffer6 => Cec2022::escaffer6_base(z),
-            Self::Griewank => Cec2022::griewank_base(z),
+            Self::Ellipsoidal => crate::cec_basics::ellips_base(z),
+            Self::BentCigar => crate::cec_basics::bent_cigar_base(z),
+            Self::Discus => crate::cec_basics::discus_base(z),
+            Self::Schwefel => crate::cec_basics::schwefel_base(z),
+            Self::Rastrigin => crate::cec_basics::f4_base(z),
+            Self::HGBat => crate::cec_basics::hgbat_base(z),
+            Self::EScaffer6 => crate::cec_basics::escaffer6_base(z),
+            Self::Griewank => crate::cec_basics::griewank_base(z),
         }
     }
 }
@@ -1131,213 +1150,28 @@ impl Cec2022 {
 
     /// `(x - o) * sr`, optionally rotated by `self.m` (module doc's `sr_func`
     /// quote: shift, then shrink-scale, then rotate -- in that order).
+    // sezgi decision (M3-6 T1): the actual shift/scale/rotate arithmetic
+    // moved to `crate::cec_basics::shift_scale_rotate` (a free function
+    // parameterized on `o`/`m` instead of `&self`), since it is byte-for-
+    // byte the same logic `comp_shift_scale_rotate` below duplicated for
+    // the composition-function per-component pipeline -- both now delegate
+    // to the one shared helper. This method itself stays as a thin `&self`
+    // wrapper (unchanged signature) so every existing call site is
+    // untouched.
     fn shift_scale_rotate(&self, xs: &[f64], sr: f64, rotate: bool) -> Vec<f64> {
-        let scaled: Vec<f64> = xs.iter().zip(&self.o).map(|(x, o)| (x - o) * sr).collect();
-        if rotate {
-            crate::bbob::transform::apply(&self.m, &scaled)
-        } else {
-            scaled
-        }
+        crate::cec_basics::shift_scale_rotate(xs, &self.o, &self.m, sr, rotate)
     }
 
-    /// Basic function 1 (module doc, section 1.3): Zakharov.
-    fn f1_base(z: &[f64]) -> f64 {
-        let sum1: f64 = z.iter().map(|&zi| zi * zi).sum();
-        let sum2: f64 = z.iter().enumerate().map(|(i, &zi)| 0.5 * (i + 1) as f64 * zi).sum();
-        sum1 + sum2.powi(2) + sum2.powi(4)
-    }
-
-    /// Basic function 2 (module doc, section 1.3): Rosenbrock's.
-    fn f2_base(z: &[f64]) -> f64 {
-        (0..z.len() - 1)
-            .map(|i| 100.0 * (z[i] * z[i] - z[i + 1]).powi(2) + (z[i] - 1.0).powi(2))
-            .sum()
-    }
-
-    /// Basic function 16 (module doc, section 1.3): Schaffer's F7 -- the
-    /// formula the reference code actually dispatches problem 3 to (module
-    /// doc's F3 discrepancy note).
-    fn f16_schaffer_f7_base(y: &[f64]) -> f64 {
-        let sum: f64 = (0..y.len() - 1)
-            .map(|i| {
-                let si = (y[i] * y[i] + y[i + 1] * y[i + 1]).sqrt();
-                si.sqrt() + si.sqrt() * (50.0 * si.powf(0.2)).sin().powi(2)
-            })
-            .sum();
-        sum * sum / (y.len() - 1).pow(2) as f64
-    }
-
-    /// Basic function 4 (module doc, section 1.3): Rastrigin's -- PLAIN,
-    /// per the module doc's F4 discrepancy note (the reference code's
-    /// non-continuous transform is dead code).
-    fn f4_base(z: &[f64]) -> f64 {
-        z.iter().map(|&zi| zi * zi - 10.0 * (2.0 * std::f64::consts::PI * zi).cos() + 10.0).sum()
-    }
-
-    /// Basic function 5 (module doc, section 1.3): Levy.
-    fn f5_base(z: &[f64]) -> f64 {
-        let pi = std::f64::consts::PI;
-        let w: Vec<f64> = z.iter().map(|&zi| 1.0 + zi / 4.0).collect();
-        let term1 = (pi * w[0]).sin().powi(2);
-        let mid: f64 = (0..w.len() - 1)
-            .map(|i| (w[i] - 1.0).powi(2) * (1.0 + 10.0 * (pi * w[i] + 1.0).sin().powi(2)))
-            .sum();
-        let last = w.len() - 1;
-        let term3 = (w[last] - 1.0).powi(2) * (1.0 + (2.0 * pi * w[last]).sin().powi(2));
-        term1 + mid + term3
-    }
-
-    /// Basic function 6 (module doc, "New component basic functions"):
-    /// Bent Cigar.
-    fn bent_cigar_base(z: &[f64]) -> f64 {
-        z[0] * z[0] + z[1..].iter().map(|&zi| 1.0e6 * zi * zi).sum::<f64>()
-    }
-
-    /// Basic function 7 (module doc): HGBat.
-    fn hgbat_base(z: &[f64]) -> f64 {
-        const ALPHA: f64 = 1.0 / 4.0;
-        let n = z.len() as f64;
-        let zs: Vec<f64> = z.iter().map(|&zi| zi - 1.0).collect();
-        let r2: f64 = zs.iter().map(|&zi| zi * zi).sum();
-        let sum_z: f64 = zs.iter().sum();
-        (r2.powf(2.0) - sum_z.powf(2.0)).abs().powf(2.0 * ALPHA) + (0.5 * r2 + sum_z) / n + 0.5
-    }
-
-    /// Basic function 9 (module doc): Katsuura.
-    fn katsuura_base(z: &[f64]) -> f64 {
-        let n = z.len() as f64;
-        let tmp3 = n.powf(1.2);
-        let mut f = 1.0;
-        for (i, &zi) in z.iter().enumerate() {
-            let mut temp = 0.0;
-            for j in 1..=32 {
-                let tmp1 = 2f64.powi(j);
-                let tmp2 = tmp1 * zi;
-                temp += (tmp2 - (tmp2 + 0.5).floor()).abs() / tmp1;
-            }
-            f *= (1.0 + (i + 1) as f64 * temp).powf(10.0 / tmp3);
-        }
-        let tmp1 = 10.0 / (n * n);
-        f * tmp1 - tmp1
-    }
-
-    /// Basic function 13 (module doc): Ackley's.
-    fn ackley_base(z: &[f64]) -> f64 {
-        let n = z.len() as f64;
-        let sum1: f64 = z.iter().map(|&zi| zi * zi).sum();
-        let sum2: f64 = z.iter().map(|&zi| (2.0 * std::f64::consts::PI * zi).cos()).sum();
-        let sum1 = -0.2 * (sum1 / n).sqrt();
-        let sum2 = sum2 / n;
-        std::f64::consts::E - 20.0 * sum1.exp() - sum2.exp() + 20.0
-    }
-
-    /// Basic function 12 (module doc): Modified Schwefel's -- written to
-    /// mirror `schwefel_func`'s three branches literally (module doc's
-    /// quote), not algebraically simplified, so it stays diffable against
-    /// the quoted C.
-    fn schwefel_base(z: &[f64]) -> f64 {
-        let n = z.len() as f64;
-        let mut f = 0.0;
-        for &z0 in z {
-            let zi = z0 + 4.209687462275036e+02;
-            if zi > 500.0 {
-                let r = 500.0 - (zi % 500.0);
-                f -= r * r.sqrt().sin();
-                let tmp = (zi - 500.0) / 100.0;
-                f += tmp * tmp / n;
-            } else if zi < -500.0 {
-                let faz = zi.abs() % 500.0;
-                let mult = -500.0 + faz;
-                let arg = (500.0 - faz).sqrt();
-                f -= mult * arg.sin();
-                let tmp = (zi + 500.0) / 100.0;
-                f += tmp * tmp / n;
-            } else {
-                f -= zi * zi.abs().sqrt().sin();
-            }
-        }
-        f + 4.189828872724338e+02 * n
-    }
-
-    /// Basic function 10 (module doc): HappyCat.
-    fn happycat_base(z: &[f64]) -> f64 {
-        const ALPHA: f64 = 1.0 / 8.0;
-        let n = z.len() as f64;
-        let zs: Vec<f64> = z.iter().map(|&zi| zi - 1.0).collect();
-        let r2: f64 = zs.iter().map(|&zi| zi * zi).sum();
-        let sum_z: f64 = zs.iter().sum();
-        (r2 - n).abs().powf(2.0 * ALPHA) + (0.5 * r2 + sum_z) / n + 0.5
-    }
-
-    /// Basic function 11 (module doc): Expanded Griewank's plus
-    /// Rosenbrock's (CYCLIC).
-    fn grie_rosen_base(z: &[f64]) -> f64 {
-        let n = z.len();
-        let z1: Vec<f64> = z.iter().map(|&zi| zi + 1.0).collect();
-        let mut f = 0.0;
-        for i in 0..n - 1 {
-            let tmp1 = z1[i] * z1[i] - z1[i + 1];
-            let tmp2 = z1[i] - 1.0;
-            let temp = 100.0 * tmp1 * tmp1 + tmp2 * tmp2;
-            f += temp * temp / 4000.0 - temp.cos() + 1.0;
-        }
-        let tmp1 = z1[n - 1] * z1[n - 1] - z1[0];
-        let tmp2 = z1[n - 1] - 1.0;
-        let temp = 100.0 * tmp1 * tmp1 + tmp2 * tmp2;
-        f + temp * temp / 4000.0 - temp.cos() + 1.0
-    }
-
-    // ---- T7: composition-only new basic functions (module doc's T7
-    // section quotes each C body) ----
-
-    /// `ellips_func` (Ellipsoidal, T7 module doc): `f(z) = sum_{i=0}^{D-1}
-    /// 10^(6i/(D-1)) z_i^2` (0-based `i`).
-    fn ellips_base(z: &[f64]) -> f64 {
-        let n = z.len();
-        z.iter()
-            .enumerate()
-            .map(|(i, &zi)| 10f64.powf(6.0 * i as f64 / (n - 1) as f64) * zi * zi)
-            .sum()
-    }
-
-    /// `discus_func` (Discus, T7 module doc): `f(z) = 10^6 z_0^2 +
-    /// sum_{i=1}^{D-1} z_i^2`.
-    fn discus_base(z: &[f64]) -> f64 {
-        1.0e6 * z[0] * z[0] + z[1..].iter().map(|&zi| zi * zi).sum::<f64>()
-    }
-
-    /// `griewank_func` (Griewank's, T7 module doc): `f(z) = 1 +
-    /// sum(z_i^2)/4000 - prod(cos(z_i/sqrt(1+i)))` (0-based `i`, standalone
-    /// -- NOT the `grie_rosen_base` cyclic Rosenbrock composite above).
-    fn griewank_base(z: &[f64]) -> f64 {
-        let s: f64 = z.iter().map(|&zi| zi * zi).sum();
-        let p: f64 =
-            z.iter().enumerate().map(|(i, &zi)| (zi / (1.0 + i as f64).sqrt()).cos()).product();
-        1.0 + s / 4000.0 - p
-    }
-
-    /// `escaffer6_func` (Expanded Scaffer's F6, T7 module doc): the CYCLIC
-    /// `g(x,y) = 0.5 + (sin^2(sqrt(x^2+y^2)) - 0.5)/(1+0.001(x^2+y^2))^2`
-    /// summed over every consecutive pair PLUS the wrap-around `(D-1,0)`
-    /// pair -- section 1.3's ORIGINAL "Expanded Schaffer's" formula, used
-    /// (per module doc's F3 discrepancy note) ONLY inside compositions, not
-    /// standalone fid 3 (which dispatches to the DIFFERENT
-    /// `f16_schaffer_f7_base` instead -- corroborating that discrepancy note
-    /// with fresh evidence from this task, not a new one).
-    fn escaffer6_base(z: &[f64]) -> f64 {
-        let n = z.len();
-        let g = |a: f64, b: f64| {
-            let s = a * a + b * b;
-            let t1 = s.sqrt().sin().powi(2);
-            let t2 = 1.0 + 0.001 * s;
-            0.5 + (t1 - 0.5) / (t2 * t2)
-        };
-        let mut f = 0.0;
-        for i in 0..n - 1 {
-            f += g(z[i], z[i + 1]);
-        }
-        f + g(z[n - 1], z[0])
-    }
+    // sezgi decision (M3-6 T1): every basic-function evaluator formerly
+    // here (`f1_base` Zakharov, `f2_base` Rosenbrock, `f16_schaffer_f7_base`
+    // Schaffer's F7, `f4_base` Rastrigin, `f5_base` Levy, `bent_cigar_base`,
+    // `hgbat_base`, `katsuura_base`, `ackley_base`, `schwefel_base`,
+    // `happycat_base`, `grie_rosen_base`, `ellips_base`, `discus_base`,
+    // `griewank_base`, `escaffer6_base`) moved verbatim to
+    // `crate::cec_basics` (each function's own provenance doc comment moved
+    // with it, unmodified) -- see that module's doc for what stayed behind
+    // and why. Every call site below now reads `crate::cec_basics::<name>`
+    // in place of `Self::<name>`; no other call-site change.
 
     /// `fid`'s (`6..=8`) proportions `p` and component list, in call order
     /// (module doc's hybrid composition tables, cross-checked against the
@@ -1360,26 +1194,22 @@ impl Cec2022 {
     /// `G_nx` (module doc's Eq (21)/`hf02` quote): `ceil(p_i*dim)` for every
     /// proportion but the last, which absorbs the remainder
     /// (`dim - sum(the rest)`) so the segments always sum to exactly `dim`.
+    // sezgi decision (M3-6 T1): body moved to `crate::cec_basics::segment_sizes`
+    // (already `&self`-free, generalizes cleanly to any CEC hybrid-function
+    // suite reusing eq (21)'s `G_nx` arithmetic); kept as a thin delegating
+    // wrapper here, unchanged signature, since this module's own tests call
+    // `Cec2022::segment_sizes` directly.
     fn segment_sizes(gp: &[f64], dim: usize) -> Vec<usize> {
-        let n = gp.len();
-        let mut sizes = vec![0usize; n];
-        let mut total = 0usize;
-        for (i, size) in sizes.iter_mut().enumerate().take(n - 1) {
-            *size = (gp[i] * dim as f64).ceil() as usize;
-            total += *size;
-        }
-        sizes[n - 1] = dim - total;
-        sizes
+        crate::cec_basics::segment_sizes(gp, dim)
     }
 
     /// `G` (module doc's Eq (21)/`hf02` quote): cumulative segment start
     /// offsets from `sizes`.
+    // sezgi decision (M3-6 T1): same as `segment_sizes` above -- body moved
+    // to `crate::cec_basics::segment_starts`, thin wrapper kept here for the
+    // existing `Cec2022::segment_starts` test call sites.
     fn segment_starts(sizes: &[usize]) -> Vec<usize> {
-        let mut starts = vec![0usize; sizes.len()];
-        for i in 1..sizes.len() {
-            starts[i] = starts[i - 1] + sizes[i - 1];
-        }
-        starts
+        crate::cec_basics::segment_starts(sizes)
     }
 
     /// One hybrid function's component-sum (BEFORE `F_i*`), given the
@@ -1403,7 +1233,7 @@ impl Cec2022 {
                     // the WHOLE shuffled `y` (`y[0..len]`), NOT this
                     // component's own assigned segment `y[start..start+len]`
                     // -- replicates the reference C bug exactly.
-                    Self::f16_schaffer_f7_base(&y[0..len])
+                    crate::cec_basics::f16_schaffer_f7_base(&y[0..len])
                 } else {
                     let seg: Vec<f64> =
                         y[start..start + len].iter().map(|&yi| yi * comp.sh_rate()).collect();
@@ -1478,14 +1308,21 @@ impl Cec2022 {
     /// rotated by `self.comp_rotation[idx]` (module doc's T7 section: EVERY
     /// component gets its OWN shift-and-rotate, unlike the hybrids' single
     /// shared one).
+    // sezgi decision (M3-6 T1): body moved to
+    // `crate::cec_basics::shift_scale_rotate` -- byte-for-byte the same
+    // shift/scale/[rotate] arithmetic as `shift_scale_rotate` above,
+    // differing only in which of `Cec2022`'s two shift/rotation-matrix
+    // stores it reads (`self.comp_shift[idx]`/`self.comp_rotation[idx]`
+    // here vs. `self.o`/`self.m` there); both delegate to the one shared
+    // helper now. Thin wrapper kept here, unchanged signature.
     fn comp_shift_scale_rotate(&self, xs: &[f64], idx: usize, sh_rate: f64, rotate: bool) -> Vec<f64> {
-        let scaled: Vec<f64> =
-            xs.iter().zip(&self.comp_shift[idx]).map(|(&x, &o)| (x - o) * sh_rate).collect();
-        if rotate {
-            crate::bbob::transform::apply(&self.comp_rotation[idx], &scaled)
-        } else {
-            scaled
-        }
+        crate::cec_basics::shift_scale_rotate(
+            xs,
+            &self.comp_shift[idx],
+            &self.comp_rotation[idx],
+            sh_rate,
+            rotate,
+        )
     }
 
     /// `cf_cal`'s weight formula (module doc's T7 section, quoted in full):
@@ -1499,27 +1336,14 @@ impl Cec2022 {
     /// of `(xs, shifts, delta)` -- no `&self` -- so Step 2's weight-formula
     /// test can call it directly on a hand-built 2-component miniature,
     /// independent of the embedded data.
+    // sezgi decision (M3-6 T1): body moved to
+    // `crate::cec_basics::composition_weights` (already `&self`-free, a
+    // pure function of `(xs, shifts, delta)` -- generalizes cleanly to any
+    // CEC composition-function suite that reuses `cf_cal`'s exact formula).
+    // Thin wrapper kept here, unchanged signature, since this module's own
+    // tests call `Cec2022::composition_weights` directly.
     fn composition_weights(xs: &[f64], shifts: &[Vec<f64>], delta: &[f64]) -> Vec<f64> {
-        let cf_num = shifts.len();
-        let dim = xs.len() as f64;
-        let mut w = vec![0.0f64; cf_num];
-        let mut w_max = 0.0f64;
-        for i in 0..cf_num {
-            let d2: f64 = xs.iter().zip(&shifts[i]).map(|(&x, &o)| (x - o) * (x - o)).sum();
-            w[i] = if d2 != 0.0 {
-                (1.0 / d2).sqrt() * (-d2 / 2.0 / dim / (delta[i] * delta[i])).exp()
-            } else {
-                1.0e99 // `cf_cal`'s `INF` -- a finite sentinel, not IEEE inf.
-            };
-            if w[i] > w_max {
-                w_max = w[i];
-            }
-        }
-        if w_max == 0.0 {
-            return vec![1.0 / cf_num as f64; cf_num];
-        }
-        let w_sum: f64 = w.iter().sum();
-        w.iter().map(|&wi| wi / w_sum).collect()
+        crate::cec_basics::composition_weights(xs, shifts, delta)
     }
 
     /// One composition function's total (BEFORE `F_i*`): each component's
@@ -1546,23 +1370,28 @@ impl Cec2022 {
     /// 3/4/5 discrepancies from the printed report).
     fn eval_one(&self, xs: &[f64]) -> f64 {
         match self.fid {
-            1 => Self::f1_base(&self.shift_scale_rotate(xs, 1.0, true)) + self.f_star(),
+            1 => {
+                crate::cec_basics::f1_base(&self.shift_scale_rotate(xs, 1.0, true)) + self.f_star()
+            }
             2 => {
                 let mut z = self.shift_scale_rotate(xs, 2.048 / 100.0, true);
                 for zi in &mut z {
                     *zi += 1.0;
                 }
-                Self::f2_base(&z) + self.f_star()
+                crate::cec_basics::f2_base(&z) + self.f_star()
             }
             3 => {
                 // No scale, no rotation -- module doc's F3 discrepancy note.
                 let y = self.shift_scale_rotate(xs, 1.0, false);
-                Self::f16_schaffer_f7_base(&y) + self.f_star()
+                crate::cec_basics::f16_schaffer_f7_base(&y) + self.f_star()
             }
-            4 => Self::f4_base(&self.shift_scale_rotate(xs, 5.12 / 100.0, true)) + self.f_star(),
+            4 => {
+                crate::cec_basics::f4_base(&self.shift_scale_rotate(xs, 5.12 / 100.0, true))
+                    + self.f_star()
+            }
             5 => {
                 // No extra scale -- module doc's F5 discrepancy note.
-                Self::f5_base(&self.shift_scale_rotate(xs, 1.0, true)) + self.f_star()
+                crate::cec_basics::f5_base(&self.shift_scale_rotate(xs, 1.0, true)) + self.f_star()
             }
             6..=8 => {
                 // Full shift+rotate ONCE (module doc: eq (21)'s per-component

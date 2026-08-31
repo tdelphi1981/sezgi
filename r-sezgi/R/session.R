@@ -123,6 +123,83 @@ sz_eval_session_cec2022 <- function(fid, dim, budget, log_dir = NULL,
                            algo_name, seed, log_dir)
 }
 
+#' Start an ask/tell evaluation session over a CEC 2014 problem.
+#'
+#' The generic-session counterpart to \code{\link{sz_eval_session}} (which
+#' is BBOB-only), mirroring \code{\link{sz_eval_session_cec2022}} exactly:
+#' builds a session over \code{sz_cec2014_evaluate}'s same \code{Cec2014}
+#' problem, with IOH logging allowed. Session metadata (\code{suite =
+#' "sezgi-cec2014"}, \code{name = "cec2014-f<fid>"}, \code{instance = 1},
+#' \code{f_opt} = the function's pinned \code{F_i* = 100*fid} bias) matches
+#' py-sezgi's \code{EvalSession.for_problem} exactly for a CEC 2014 problem
+#' handle, so an IOH record produced by an R session and one produced by an
+#' equivalent Python session reconstruct to the identical \code{(suite, fid,
+#' name, instance)} key and \code{f_opt}.
+#'
+#' See \code{\link{sz_eval_session}} for the full list of methods the
+#' returned object exposes (identical here, including \code{$dim()} /
+#' \code{$bounds()}).
+#'
+#' @param fid CEC 2014 function id (\code{1..=30}).
+#' @param dim Problem dimension, one of \code{10}, \code{30}.
+#' @param budget Evaluation budget (non-negative whole number).
+#' @param log_dir Optional directory: when given, IOH-profiler logging is
+#'   wired up in the constructor, before any evaluation is possible.
+#'   Default \code{NULL} (no logging).
+#' @param algo_name Algorithm label recorded in the IOH archive (only
+#'   meaningful when \code{log_dir} is given). Default \code{"custom"}.
+#' @param seed Caller-declared reproducibility label recorded in the IOH
+#'   archive meta only. Default \code{0}.
+#' @returns An `EvalSession` object (see \code{\link{sz_eval_session}}).
+#' @export
+sz_eval_session_cec2014 <- function(fid, dim, budget, log_dir = NULL,
+                                     algo_name = "custom", seed = 0) {
+  # `EvalSession$new_cec2014()`'s `fid`/`dim` are `i32` -- same integer
+  # coercion `sz_eval_session()` applies above.
+  EvalSession$new_cec2014(as.integer(fid), as.integer(dim), budget,
+                           algo_name, seed, log_dir)
+}
+
+#' Start an ask/tell evaluation session over a CEC 2017 problem.
+#'
+#' The generic-session counterpart to \code{\link{sz_eval_session}} (which
+#' is BBOB-only), mirroring \code{\link{sz_eval_session_cec2014}} exactly:
+#' builds a session over \code{sz_cec2017_evaluate}'s same \code{Cec2017}
+#' problem, with IOH logging allowed. Session metadata (\code{suite =
+#' "sezgi-cec2017"}, \code{name = "cec2017-f<fid>"}, \code{instance = 1},
+#' \code{f_opt} = the function's pinned \code{F_i* = 100*fid} bias) matches
+#' py-sezgi's \code{EvalSession.for_problem} exactly for a CEC 2017 problem
+#' handle.
+#'
+#' \code{fid = 2} ("Sum of Different Powers") was officially withdrawn from
+#' the CEC 2017 suite: this constructor raises the dedicated
+#' \code{sezgi_problems::Cec2017Error::Withdrawn} message VERBATIM for it,
+#' distinct from an ordinary out-of-range \code{fid}.
+#'
+#' See \code{\link{sz_eval_session}} for the full list of methods the
+#' returned object exposes (identical here, including \code{$dim()} /
+#' \code{$bounds()}).
+#'
+#' @param fid CEC 2017 function id (\code{1} or \code{3..=30}).
+#' @param dim Problem dimension, one of \code{10}, \code{30}.
+#' @param budget Evaluation budget (non-negative whole number).
+#' @param log_dir Optional directory: when given, IOH-profiler logging is
+#'   wired up in the constructor, before any evaluation is possible.
+#'   Default \code{NULL} (no logging).
+#' @param algo_name Algorithm label recorded in the IOH archive (only
+#'   meaningful when \code{log_dir} is given). Default \code{"custom"}.
+#' @param seed Caller-declared reproducibility label recorded in the IOH
+#'   archive meta only. Default \code{0}.
+#' @returns An `EvalSession` object (see \code{\link{sz_eval_session}}).
+#' @export
+sz_eval_session_cec2017 <- function(fid, dim, budget, log_dir = NULL,
+                                     algo_name = "custom", seed = 0) {
+  # `EvalSession$new_cec2017()`'s `fid`/`dim` are `i32` -- same integer
+  # coercion `sz_eval_session()` applies above.
+  EvalSession$new_cec2017(as.integer(fid), as.integer(dim), budget,
+                           algo_name, seed, log_dir)
+}
+
 #' Start an ask/tell evaluation session over the f0 BIAS-toolbox null
 #' problem.
 #'
