@@ -1,6 +1,7 @@
-//! Embedded CEC 2017 `input_data/` files for fid 1, 3-10 (this task's
-//! functional scope: unimodal F1/F3, simple-multimodal F4-F10) -- vendored
-//! verbatim (byte-for-byte, `include_str!`) from the official
+//! Embedded CEC 2017 `input_data/` files for fid 1, 3-10 (M3-6 T6:
+//! unimodal F1/F3, simple-multimodal F4-F10) and fid 11-20 (M3-6 T7, THIS
+//! TASK: hybrid functions 1-10) -- vendored verbatim (byte-for-byte,
+//! `include_str!`) from the official
 //! `github.com/P-N-Suganthan/CEC2017-BoundContrained` repository's
 //! `codes.rar` -> `codes/C version/input_data/` (fetched directly,
 //! PROVENANCE recorded in this crate's `cec2017/mod.rs` module doc and this
@@ -25,9 +26,10 @@
 //! files; `cec17_test_func.cpp`'s loader, quoted in `mod.rs`'s module doc,
 //! reads shuffle data exactly for `func_num>=11&&func_num<=20` or
 //! `func_num==29||func_num==30`). This module's `include_str!`/parser
-//! functions cover ONLY fid `{1,3..=10}` (this task's functional scope);
-//! fid 11-30's already-vendored `.txt` files sit unreferenced on disk until
-//! T7/T8 add their own `include_str!` consts and parsers here, mirroring
+//! functions cover fid `{1,3..=10}` (T6) and fid `{11..=20}` (T7, this
+//! task's own scope, ADDED this task -- `shuffle_indices` new this task);
+//! fid 21-30's already-vendored `.txt` files sit unreferenced on disk until
+//! T8 adds its own `include_str!` consts and parsers here, mirroring
 //! `cec2014/data.rs`'s own T2 -> T3 -> T4 staging note.
 //!
 //! ## File grammar (verified by reading `cec17_test_func.cpp`'s
@@ -50,6 +52,14 @@
 //!   buffer indexed `M[i*nx+j]` by `rotatefunc`). [`rotation_matrix`]
 //!   reshapes the same flat, whitespace-split stream into `Vec<Vec<f64>>`
 //!   rows, matching that indexing.
+//! - **`shuffle_data_<fid>_D<dim>.txt`** (fid 11-20 only, T7): ONE line of
+//!   `dim` whitespace-separated 1-based `int` indices -- a permutation of
+//!   `1..=dim` (the C loader: `for(i=0;i<nx;i++) fscanf(fpt,"%d",&SS[i]);`,
+//!   then every `hf0N` does `y[i]=z[S[i]-1]`, a 1-based lookup every single
+//!   time). [`shuffle_indices`] converts to 0-based ON LOAD instead (matches
+//!   `cec2014::data::shuffle_indices`/`cec2022::data::shuffle_indices`), so
+//!   `Cec2017::eval_one`'s hybrid arm can do `y[i] = z[shuffle[i]]`, no
+//!   per-use `-1`.
 
 const SHIFT_1: &str = include_str!("../../data/cec2017/shift_data_1.txt");
 const SHIFT_3: &str = include_str!("../../data/cec2017/shift_data_3.txt");
@@ -60,6 +70,17 @@ const SHIFT_7: &str = include_str!("../../data/cec2017/shift_data_7.txt");
 const SHIFT_8: &str = include_str!("../../data/cec2017/shift_data_8.txt");
 const SHIFT_9: &str = include_str!("../../data/cec2017/shift_data_9.txt");
 const SHIFT_10: &str = include_str!("../../data/cec2017/shift_data_10.txt");
+// ---- M3-6 T7: fid 11-20 (hybrid functions 1-10) ----
+const SHIFT_11: &str = include_str!("../../data/cec2017/shift_data_11.txt");
+const SHIFT_12: &str = include_str!("../../data/cec2017/shift_data_12.txt");
+const SHIFT_13: &str = include_str!("../../data/cec2017/shift_data_13.txt");
+const SHIFT_14: &str = include_str!("../../data/cec2017/shift_data_14.txt");
+const SHIFT_15: &str = include_str!("../../data/cec2017/shift_data_15.txt");
+const SHIFT_16: &str = include_str!("../../data/cec2017/shift_data_16.txt");
+const SHIFT_17: &str = include_str!("../../data/cec2017/shift_data_17.txt");
+const SHIFT_18: &str = include_str!("../../data/cec2017/shift_data_18.txt");
+const SHIFT_19: &str = include_str!("../../data/cec2017/shift_data_19.txt");
+const SHIFT_20: &str = include_str!("../../data/cec2017/shift_data_20.txt");
 
 const M_1_D10: &str = include_str!("../../data/cec2017/M_1_D10.txt");
 const M_1_D30: &str = include_str!("../../data/cec2017/M_1_D30.txt");
@@ -79,6 +100,48 @@ const M_9_D10: &str = include_str!("../../data/cec2017/M_9_D10.txt");
 const M_9_D30: &str = include_str!("../../data/cec2017/M_9_D30.txt");
 const M_10_D10: &str = include_str!("../../data/cec2017/M_10_D10.txt");
 const M_10_D30: &str = include_str!("../../data/cec2017/M_10_D30.txt");
+// ---- M3-6 T7: fid 11-20 (hybrid functions 1-10) ----
+const M_11_D10: &str = include_str!("../../data/cec2017/M_11_D10.txt");
+const M_11_D30: &str = include_str!("../../data/cec2017/M_11_D30.txt");
+const M_12_D10: &str = include_str!("../../data/cec2017/M_12_D10.txt");
+const M_12_D30: &str = include_str!("../../data/cec2017/M_12_D30.txt");
+const M_13_D10: &str = include_str!("../../data/cec2017/M_13_D10.txt");
+const M_13_D30: &str = include_str!("../../data/cec2017/M_13_D30.txt");
+const M_14_D10: &str = include_str!("../../data/cec2017/M_14_D10.txt");
+const M_14_D30: &str = include_str!("../../data/cec2017/M_14_D30.txt");
+const M_15_D10: &str = include_str!("../../data/cec2017/M_15_D10.txt");
+const M_15_D30: &str = include_str!("../../data/cec2017/M_15_D30.txt");
+const M_16_D10: &str = include_str!("../../data/cec2017/M_16_D10.txt");
+const M_16_D30: &str = include_str!("../../data/cec2017/M_16_D30.txt");
+const M_17_D10: &str = include_str!("../../data/cec2017/M_17_D10.txt");
+const M_17_D30: &str = include_str!("../../data/cec2017/M_17_D30.txt");
+const M_18_D10: &str = include_str!("../../data/cec2017/M_18_D10.txt");
+const M_18_D30: &str = include_str!("../../data/cec2017/M_18_D30.txt");
+const M_19_D10: &str = include_str!("../../data/cec2017/M_19_D10.txt");
+const M_19_D30: &str = include_str!("../../data/cec2017/M_19_D30.txt");
+const M_20_D10: &str = include_str!("../../data/cec2017/M_20_D10.txt");
+const M_20_D30: &str = include_str!("../../data/cec2017/M_20_D30.txt");
+
+const SHUFFLE_11_D10: &str = include_str!("../../data/cec2017/shuffle_data_11_D10.txt");
+const SHUFFLE_11_D30: &str = include_str!("../../data/cec2017/shuffle_data_11_D30.txt");
+const SHUFFLE_12_D10: &str = include_str!("../../data/cec2017/shuffle_data_12_D10.txt");
+const SHUFFLE_12_D30: &str = include_str!("../../data/cec2017/shuffle_data_12_D30.txt");
+const SHUFFLE_13_D10: &str = include_str!("../../data/cec2017/shuffle_data_13_D10.txt");
+const SHUFFLE_13_D30: &str = include_str!("../../data/cec2017/shuffle_data_13_D30.txt");
+const SHUFFLE_14_D10: &str = include_str!("../../data/cec2017/shuffle_data_14_D10.txt");
+const SHUFFLE_14_D30: &str = include_str!("../../data/cec2017/shuffle_data_14_D30.txt");
+const SHUFFLE_15_D10: &str = include_str!("../../data/cec2017/shuffle_data_15_D10.txt");
+const SHUFFLE_15_D30: &str = include_str!("../../data/cec2017/shuffle_data_15_D30.txt");
+const SHUFFLE_16_D10: &str = include_str!("../../data/cec2017/shuffle_data_16_D10.txt");
+const SHUFFLE_16_D30: &str = include_str!("../../data/cec2017/shuffle_data_16_D30.txt");
+const SHUFFLE_17_D10: &str = include_str!("../../data/cec2017/shuffle_data_17_D10.txt");
+const SHUFFLE_17_D30: &str = include_str!("../../data/cec2017/shuffle_data_17_D30.txt");
+const SHUFFLE_18_D10: &str = include_str!("../../data/cec2017/shuffle_data_18_D10.txt");
+const SHUFFLE_18_D30: &str = include_str!("../../data/cec2017/shuffle_data_18_D30.txt");
+const SHUFFLE_19_D10: &str = include_str!("../../data/cec2017/shuffle_data_19_D10.txt");
+const SHUFFLE_19_D30: &str = include_str!("../../data/cec2017/shuffle_data_19_D30.txt");
+const SHUFFLE_20_D10: &str = include_str!("../../data/cec2017/shuffle_data_20_D10.txt");
+const SHUFFLE_20_D30: &str = include_str!("../../data/cec2017/shuffle_data_20_D30.txt");
 
 /// Parse a whitespace-separated stream of `f64` values. Embedded-data parse
 /// failure panics with a clear message (acceptable for `include_str!`-baked
@@ -110,6 +173,16 @@ pub(crate) fn shift_vector(fid: u32, dim: usize) -> Vec<f64> {
         8 => (SHIFT_8, "shift_data_8.txt"),
         9 => (SHIFT_9, "shift_data_9.txt"),
         10 => (SHIFT_10, "shift_data_10.txt"),
+        11 => (SHIFT_11, "shift_data_11.txt"),
+        12 => (SHIFT_12, "shift_data_12.txt"),
+        13 => (SHIFT_13, "shift_data_13.txt"),
+        14 => (SHIFT_14, "shift_data_14.txt"),
+        15 => (SHIFT_15, "shift_data_15.txt"),
+        16 => (SHIFT_16, "shift_data_16.txt"),
+        17 => (SHIFT_17, "shift_data_17.txt"),
+        18 => (SHIFT_18, "shift_data_18.txt"),
+        19 => (SHIFT_19, "shift_data_19.txt"),
+        20 => (SHIFT_20, "shift_data_20.txt"),
         other => unreachable!("shift_vector called with unsupported fid {other}"),
     };
     let all = parse_floats(text, name);
@@ -145,6 +218,26 @@ pub(crate) fn rotation_matrix(fid: u32, dim: usize) -> Vec<Vec<f64>> {
         (9, 30) => (M_9_D30, "M_9_D30.txt"),
         (10, 10) => (M_10_D10, "M_10_D10.txt"),
         (10, 30) => (M_10_D30, "M_10_D30.txt"),
+        (11, 10) => (M_11_D10, "M_11_D10.txt"),
+        (11, 30) => (M_11_D30, "M_11_D30.txt"),
+        (12, 10) => (M_12_D10, "M_12_D10.txt"),
+        (12, 30) => (M_12_D30, "M_12_D30.txt"),
+        (13, 10) => (M_13_D10, "M_13_D10.txt"),
+        (13, 30) => (M_13_D30, "M_13_D30.txt"),
+        (14, 10) => (M_14_D10, "M_14_D10.txt"),
+        (14, 30) => (M_14_D30, "M_14_D30.txt"),
+        (15, 10) => (M_15_D10, "M_15_D10.txt"),
+        (15, 30) => (M_15_D30, "M_15_D30.txt"),
+        (16, 10) => (M_16_D10, "M_16_D10.txt"),
+        (16, 30) => (M_16_D30, "M_16_D30.txt"),
+        (17, 10) => (M_17_D10, "M_17_D10.txt"),
+        (17, 30) => (M_17_D30, "M_17_D30.txt"),
+        (18, 10) => (M_18_D10, "M_18_D10.txt"),
+        (18, 30) => (M_18_D30, "M_18_D30.txt"),
+        (19, 10) => (M_19_D10, "M_19_D10.txt"),
+        (19, 30) => (M_19_D30, "M_19_D30.txt"),
+        (20, 10) => (M_20_D10, "M_20_D10.txt"),
+        (20, 30) => (M_20_D30, "M_20_D30.txt"),
         (other_fid, other_dim) => {
             unreachable!("rotation_matrix called with unsupported (fid={other_fid}, dim={other_dim})")
         }
@@ -158,6 +251,64 @@ pub(crate) fn rotation_matrix(fid: u32, dim: usize) -> Vec<Vec<f64>> {
         flat.len()
     );
     (0..dim).map(|i| flat[i * dim..(i + 1) * dim].to_vec()).collect()
+}
+
+/// `fid`'s (`11..=20`, hybrid functions 1-10) 0-based shuffle permutation
+/// (module doc's `mod.rs` data-loading excerpt: `shuffle_data_<fid>_D<dim>.txt`
+/// carries `dim` whitespace-separated 1-based indices; `S[i]-1` conversion
+/// applied ON LOAD here, mirroring `cec2014::data::shuffle_indices` /
+/// `cec2022::data::shuffle_indices`, so callers can index directly:
+/// `y[i] = z[shuffle[i]]`, no per-use `-1`). `dim` must be one of `{10,30}`
+/// (caller's responsibility -- [`crate::cec2017::Cec2017::new`] validates
+/// before calling this).
+pub(crate) fn shuffle_indices(fid: u32, dim: usize) -> Vec<usize> {
+    let (text, name) = match (fid, dim) {
+        (11, 10) => (SHUFFLE_11_D10, "shuffle_data_11_D10.txt"),
+        (11, 30) => (SHUFFLE_11_D30, "shuffle_data_11_D30.txt"),
+        (12, 10) => (SHUFFLE_12_D10, "shuffle_data_12_D10.txt"),
+        (12, 30) => (SHUFFLE_12_D30, "shuffle_data_12_D30.txt"),
+        (13, 10) => (SHUFFLE_13_D10, "shuffle_data_13_D10.txt"),
+        (13, 30) => (SHUFFLE_13_D30, "shuffle_data_13_D30.txt"),
+        (14, 10) => (SHUFFLE_14_D10, "shuffle_data_14_D10.txt"),
+        (14, 30) => (SHUFFLE_14_D30, "shuffle_data_14_D30.txt"),
+        (15, 10) => (SHUFFLE_15_D10, "shuffle_data_15_D10.txt"),
+        (15, 30) => (SHUFFLE_15_D30, "shuffle_data_15_D30.txt"),
+        (16, 10) => (SHUFFLE_16_D10, "shuffle_data_16_D10.txt"),
+        (16, 30) => (SHUFFLE_16_D30, "shuffle_data_16_D30.txt"),
+        (17, 10) => (SHUFFLE_17_D10, "shuffle_data_17_D10.txt"),
+        (17, 30) => (SHUFFLE_17_D30, "shuffle_data_17_D30.txt"),
+        (18, 10) => (SHUFFLE_18_D10, "shuffle_data_18_D10.txt"),
+        (18, 30) => (SHUFFLE_18_D30, "shuffle_data_18_D30.txt"),
+        (19, 10) => (SHUFFLE_19_D10, "shuffle_data_19_D10.txt"),
+        (19, 30) => (SHUFFLE_19_D30, "shuffle_data_19_D30.txt"),
+        (20, 10) => (SHUFFLE_20_D10, "shuffle_data_20_D10.txt"),
+        (20, 30) => (SHUFFLE_20_D30, "shuffle_data_20_D30.txt"),
+        (other_fid, other_dim) => {
+            unreachable!("shuffle_indices called with unsupported (fid={other_fid}, dim={other_dim})")
+        }
+    };
+    let ints: Vec<i64> = text
+        .split_whitespace()
+        .map(|tok| {
+            tok.parse::<i64>()
+                .unwrap_or_else(|e| panic!("cec2017 embedded data {name}: malformed int {tok:?}: {e}"))
+        })
+        .collect();
+    assert_eq!(
+        ints.len(),
+        dim,
+        "cec2017 embedded data {name}: expected {dim} 1-based shuffle indices, got {}",
+        ints.len()
+    );
+    ints.iter()
+        .map(|&one_based| {
+            assert!(
+                (1..=dim as i64).contains(&one_based),
+                "cec2017 embedded data {name}: shuffle index {one_based} out of range 1..={dim}"
+            );
+            (one_based - 1) as usize
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -214,6 +365,77 @@ mod tests {
                 let m = rotation_matrix(fid, dim);
                 assert_eq!(m.len(), dim, "fid={fid} dim={dim}");
                 assert!(m.iter().all(|row| row.len() == dim), "fid={fid} dim={dim}");
+            }
+        }
+    }
+
+    // ---- M3-6 T7: fid 11-20 (hybrid functions) data-integrity checks ----
+
+    #[test]
+    fn shift_vector_11_dim10_matches_vendored_file() {
+        // data/cec2017/shift_data_11.txt, first two whitespace-separated
+        // tokens: "-2.4752590407036521e+01  -1.6786971062788261e+01 ...".
+        let o = shift_vector(11, 10);
+        assert_eq!(o.len(), 10);
+        assert_eq!(o[0], -2.4752590407036521e+01);
+        assert_eq!(o[1], -1.6786971062788261e+01);
+    }
+
+    #[test]
+    fn rotation_matrix_11_dim10_row_major_spot_checks() {
+        // data/cec2017/M_11_D10.txt row 1 (index 0) starts
+        // -5.8133130534526367e-01; row 2 (index 1) second token (index 1) is
+        // 1.3040874989052025e+00.
+        let m = rotation_matrix(11, 10);
+        assert_eq!(m.len(), 10);
+        assert_eq!(m[0].len(), 10);
+        assert_eq!(m[0][0], -5.8133130534526367e-01);
+        assert_eq!(m[1][1], 1.3040874989052025e+00);
+    }
+
+    #[test]
+    fn shuffle_indices_11_dim10_matches_vendored_file_0_based() {
+        // data/cec2017/shuffle_data_11_D10.txt: "7 5 10 8 2 9 6 4 1 3"
+        // (1-based); shuffle_indices subtracts 1 from each.
+        let s = shuffle_indices(11, 10);
+        assert_eq!(s, vec![6usize, 4, 9, 7, 1, 8, 5, 3, 0, 2]);
+    }
+
+    #[test]
+    fn shuffle_indices_20_dim30_matches_vendored_file_0_based() {
+        // data/cec2017/shuffle_data_20_D30.txt, first five tokens:
+        // "23 18 25 1 17 ..." (1-based).
+        let s = shuffle_indices(20, 30);
+        assert_eq!(s.len(), 30);
+        assert_eq!(&s[..5], &[22usize, 17, 24, 0, 16]);
+    }
+
+    #[test]
+    fn every_shuffle_file_11_to_20_is_a_valid_permutation_of_0_dim() {
+        // module doc's file-grammar note: every shuffle_data_<fid>_D<dim>.txt
+        // is a 1-based permutation of 1..=dim; shuffle_indices converts to
+        // 0-based, so the result must be a permutation of 0..dim.
+        for fid in 11u32..=20 {
+            for &dim in &[10usize, 30] {
+                let mut s = shuffle_indices(fid, dim);
+                s.sort_unstable();
+                let expect: Vec<usize> = (0..dim).collect();
+                assert_eq!(s, expect, "fid={fid} dim={dim}");
+            }
+        }
+    }
+
+    #[test]
+    fn all_fid_11_to_20_dims_10_30_parse_without_panic() {
+        for fid in 11u32..=20 {
+            for &dim in &[10usize, 30] {
+                let o = shift_vector(fid, dim);
+                assert_eq!(o.len(), dim, "fid={fid} dim={dim}");
+                let m = rotation_matrix(fid, dim);
+                assert_eq!(m.len(), dim, "fid={fid} dim={dim}");
+                assert!(m.iter().all(|row| row.len() == dim), "fid={fid} dim={dim}");
+                let s = shuffle_indices(fid, dim);
+                assert_eq!(s.len(), dim, "fid={fid} dim={dim}");
             }
         }
     }

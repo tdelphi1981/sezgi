@@ -295,14 +295,209 @@
 //! algebraically AND probe-verified (compiled C at `x=o`, this task's
 //! report). Fid 9 (Levy) is the documented exception (table above).
 //!
+//! ## M3-6 T7: Hybrid Functions (fid 11-20)
+//!
+//! Dispatch (`cec17_test_func.cpp`'s switch, `case 11..20`, quoted
+//! VERBATIM -- a CLEAN 1:1 mapping, fid 11 calls `hf01` ("Hybrid Function
+//! 1"), fid 12 calls `hf02`, ..., fid 20 calls `hf10`, same shape
+//! `cec2014/mod.rs`'s own T3 fid-17-22 dispatch table already documents for
+//! that suite, UNLIKE `cec2022`'s own hybrid dispatch whose internal
+//! `hf02`/`hf06`/`hf10` names don't track its report numbering at all):
+//! ```text
+//! case 11:  hf01(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=1100.0; break;
+//! case 12:  hf02(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=1200.0; break;
+//! case 13:  hf03(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=1300.0; break;
+//! case 14:  hf04(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=1400.0; break;
+//! case 15:  hf05(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=1500.0; break;
+//! case 16:  hf06(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=1600.0; break;
+//! case 17:  hf07(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=1700.0; break;
+//! case 18:  hf08(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=1800.0; break;
+//! case 19:  hf09(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=1900.0; break;
+//! case 20:  hf10(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=2000.0; break;
+//! ```
+//!
+//! ### Top-level dataflow -- VERIFIED to hold for CEC 2017's own `hf01`
+//! (quoted VERBATIM, cross-checked against every one of `hf02`..`hf10`,
+//! which share the identical shape modulo `cf_num`/`Gp`/component list):
+//! ```text
+//! void hf01 (double *x, double *f, int nx, double *Os,double *Mr,int *S,int s_flag,int r_flag)
+//! {
+//!     int i,tmp,cf_num=3;
+//!     double fit[3];
+//!     int G[3],G_nx[3];
+//!     double Gp[3]={0.2,0.4,0.4};
+//!     tmp=0;
+//!     for (i=0; i<cf_num-1; i++) { G_nx[i]=ceil(Gp[i]*nx); tmp+=G_nx[i]; }
+//!     G_nx[cf_num-1]=nx-tmp;
+//!     G[0]=0;
+//!     for (i=1; i<cf_num; i++) { G[i]=G[i-1]+G_nx[i-1]; }
+//!     sr_func (x, z, nx, Os, Mr, 1.0, s_flag, r_flag); /* shift and rotate */
+//!     for (i=0; i<nx; i++) { y[i]=z[S[i]-1]; }
+//!     i=0; zakharov_func(&y[G[i]],&fit[i],G_nx[i],Os,Mr,0,0);
+//!     i=1; rosenbrock_func(&y[G[i]],&fit[i],G_nx[i],Os,Mr,0,0);
+//!     i=2; rastrigin_func(&y[G[i]],&fit[i],G_nx[i],Os,Mr,0,0);
+//!     f[0]=0.0;
+//!     for(i=0;i<cf_num;i++) { f[0] += fit[i]; }
+//! }
+//! ```
+//! CONFIRMS the brief's own hint: full shift+rotate FIRST (`sr_func`, always
+//! `sh_rate=1.0`, `s_flag=1,r_flag=1` from the dispatch above), THEN shuffle
+//! (`y[i]=z[S[i]-1]`, 1-based lookup), THEN segment (`G`/`G_nx`, EXACTLY
+//! [`crate::cec_basics::segment_sizes`]/[`segment_starts`], already reused
+//! unmodified by `cec2014`'s own T3) -- byte-identical dataflow shape to
+//! `cec2014/mod.rs`'s own T3 hybrids, no new segmentation/shuffle machinery
+//! needed this task. EVERY component call passes `s_flag=0,r_flag=0` (never
+//! `1,1`) -- per `sr_func`'s own `s_flag==0,r_flag==0` branch (quoted in
+//! T6's module doc, `mod.rs`'s "Compile edits" section is a different quote;
+//! the exact branch is `sr_func`'s trailing `else` arm: `for(i=0;i<nx;i++)
+//! sr_x[i]=x[i]*sh_rate;`, PLAIN scale, no shift, no rotate, `Os`/`Mr`
+//! UNTOUCHED) -- so each component base function receives its own segment
+//! `y[G[i]..G[i]+G_nx[i]-1]`, scaled by ONLY that base function's OWN
+//! internal `sh_rate` constant (e.g. `rosenbrock_func`'s own
+//! `2.048/100.0`), no further shift or rotation.
+//!
+//! ### Hybrid composition tables -- quoted from the C (`Gp` arrays +
+//! component call order, ALL TEN `hf0N` read directly, this task's own
+//! compiled probe cross-checks below)
+//!
+//! | fid | `hf0N` | `Gp` (C) | Component call order (C) |
+//! |---|---|---|---|
+//! | 11 | `hf01` | `{0.2,0.4,0.4}` | `zakharov_func, rosenbrock_func, rastrigin_func` |
+//! | 12 | `hf02` | `{0.3,0.3,0.4}` | `ellips_func, schwefel_func, bent_cigar_func` |
+//! | 13 | `hf03` | `{0.3,0.3,0.4}` | `bent_cigar_func, rosenbrock_func, bi_rastrigin_func` |
+//! | 14 | `hf04` | `{0.2,0.2,0.2,0.4}` | `ellips_func, ackley_func, schaffer_F7_func, rastrigin_func` |
+//! | 15 | `hf05` | `{0.2,0.2,0.3,0.3}` | `bent_cigar_func, hgbat_func, rastrigin_func, rosenbrock_func` |
+//! | 16 | `hf06` | `{0.2,0.2,0.3,0.3}` | `escaffer6_func, hgbat_func, rosenbrock_func, schwefel_func` |
+//! | 17 | `hf07` | `{0.1,0.2,0.2,0.2,0.3}` | `katsuura_func, ackley_func, grie_rosen_func, schwefel_func, rastrigin_func` |
+//! | 18 | `hf08` | `{0.2,0.2,0.2,0.2,0.2}` | `ellips_func, ackley_func, rastrigin_func, hgbat_func, discus_func` |
+//! | 19 | `hf09` | `{0.2,0.2,0.2,0.2,0.2}` | `bent_cigar_func, rastrigin_func, grie_rosen_func, weierstrass_func, escaffer6_func` |
+//! | 20 | `hf10` | `{0.1,0.1,0.2,0.2,0.2,0.2}` | `hgbat_func, katsuura_func, ackley_func, rastrigin_func, schwefel_func, schaffer_F7_func` |
+//!
+//! ### New component enum ([`HybridComponent`]) -- every base function
+//! ALREADY exists in `crate::cec_basics` (T6/T2/T1's own extractions;
+//! `zakharov`=[`crate::cec_basics::f1_base`], `rosenbrock`=[`crate::cec_basics::f2_base`]
+//! `+1`'d per fid 4's own pattern, `rastrigin`=[`crate::cec_basics::f4_base`],
+//! plus `ellips_base`/`schwefel_base`/`bent_cigar_base`/`ackley_base`/
+//! `hgbat_base`/`escaffer6_base`/`katsuura_base`/`grie_rosen_base`/
+//! `weierstrass_base`/`discus_base`) -- NO new base function needed for any
+//! of these ten, EXCEPT the two VERIFIED-BUGGY components below, which are
+//! NOT pure functions of their own segment and so are special-cased
+//! directly in [`Cec2017::hybrid_fitness`] rather than routed through
+//! `HybridComponent::eval`'s uniform `(seg) -> f64` contract (same
+//! structural choice `cec2022::HybridComponent::SchafferF7Buggy` already
+//! established for that suite's own fid-7 hybrid; this task ADDS a second,
+//! CEC-2017-only buggy variant with no `cec2022`/`cec2014` precedent).
+//!
+//! Every base above was probe-verified against the compiled C for its
+//! HYBRID usage specifically (not just assumed identical to its T6
+//! standalone usage): this task wrote a from-scratch Python replica of ALL
+//! TEN `hf0N` (mirroring the C's OWN per-component `sh_rate` scale, since
+//! `s_flag=0,r_flag=0` still applies that constant even though it skips
+//! shift/rotate) and cross-checked it against the compiled C at 3 random
+//! points x 2 dims x 10 fids = 60 probes; every one matched to
+//! **~1e-15 relative or exact** (max measured: `1.9644724722821017e-15`,
+//! fid=18, dim=30 -- this task's report has the full probe transcript). The
+//! SAME replica, ported line-for-line to this module's
+//! [`Cec2017::hybrid_fitness`]/[`HybridComponent`], is what the Rust test
+//! suite below re-verifies (`hybrid_random_probe_*` tests, using DIFFERENT
+//! random points than the Python cross-check, generated independently by
+//! `t7_gen_fixtures.py` calling the compiled C directly for the literal
+//! values).
+//!
+//! ### VERIFIED DISCREPANCY 1: `schaffer_F7_func` as a hybrid component
+//! (fid 14's `hf04`, fid 20's `hf10`) reads a PREFIX of the WHOLE shuffled
+//! `y`, not its own assigned segment -- the SAME bug class T6 already found
+//! for fid 6's STANDALONE usage (module doc above), but here it also
+//! survives the segment-offset call convention
+//!
+//! `schaffer_F7_func`'s body (T6's module doc quotes it in full) computes
+//! its formula from the GLOBAL `y[i]`/`y[i+1]` (module-level C globals, NOT
+//! its own `x` parameter, NOT the `z` its own internal `sr_func` call
+//! writes) for `i=0..nx_local-2`. When called as a hybrid component
+//! (`schaffer_F7_func(&y[G[i]],&fit[i],G_nx[i],Os,Mr,0,0)`), the GLOBAL `y`
+//! identifier is the SAME dim-length buffer the outer `hf0N` just wrote via
+//! its own shuffle step (`y[i]=z[S[i]-1]` for `i=0..nx-1`) -- but
+//! `schaffer_F7_func`'s own loop indexes THAT buffer starting from absolute
+//! position `0`, NOT from `G[i]` (its caller's intended offset, which only
+//! reaches the function through the IGNORED `x` parameter). Net effect:
+//! this component ALWAYS evaluates Schaffer's F7 on `y[0..G_nx[component]-1]`
+//! -- the FIRST `G_nx[component]` elements of the FULL shuffled vector --
+//! regardless of where its own segment actually sits. Verified with a
+//! targeted compiled-C probe (fid 14/`hf04`, `x` chosen so segments are
+//! numerically distinguishable): the "correct segment" hypothesis
+//! (`f16_schaffer_f7_base` on `y[G[2]..G[2]+2]`) gave a component value of
+//! `519.7396346671704`; the "reads `y[0..2]`" hypothesis gave
+//! `262.971892911507`; the compiled C's actual total
+//! (`515861491.82161021232604980469`) matches ONLY the second hypothesis
+//! bit-for-bit once summed with the other three (correctly-behaved)
+//! components -- confirmed again independently for fid 20/`hf10` (component
+//! at the LAST position, `G[5]=8`, same "reads from 0" behavior). `sezgi`
+//! mirrors this: [`Cec2017::hybrid_fitness`]'s `SchafferF7Buggy` arm calls
+//! `crate::cec_basics::f16_schaffer_f7_base(&y[0..len])`, `len` = this
+//! component's OWN segment length, but sliced from index `0` of the FULL
+//! `y`, never `start`.
+//!
+//! ### VERIFIED DISCREPANCY 2: `bi_rastrigin_func` as a hybrid component
+//! (fid 13's `hf03`, position 3) reads the WRONG slice of the ORIGINAL
+//! shift vector `Os` for its sign-flip test -- a NEW bug, no `cec2022`/
+//! `cec2014` precedent
+//!
+//! `bi_rastrigin_func`'s body (T6's module doc quotes it in full) reads the
+//! RAW shift vector `Os[i]` a second time (independent of its own `s_flag`-
+//! gated shift step) to decide a per-dimension sign flip:
+//! `if (Os[i] < 0.0) tmpx[i] *= -1.;`. When called as a hybrid component
+//! (`bi_rastrigin_func(&y[G[2]],&fit[2],G_nx[2],Os,Mr,0,0)`), `Os` is passed
+//! as the SAME unoffset, full dim-length pointer every component call uses
+//! (never `&Os[G[2]]`) -- so `Os[i]` for LOCAL `i=0..G_nx[2]-1` reads
+//! `Os[0..G_nx[2]-1]`, the FIRST `G_nx[2]` values of the ORIGINAL
+//! (unshuffled, unrotated) shift vector, NOT the values aligned with this
+//! component's actual position `G[2]` in the shuffled/segmented vector.
+//! (With `s_flag=0`, the function's OWN `y[i]=x[i]` shift-step branch DOES
+//! correctly use its `x` parameter -- so the segment CONTENT is right, only
+//! the SIGN-FLIP REFERENCE is misaligned.) Verified with a targeted
+//! compiled-C probe (fid 13/`hf03`): the "correct offset" hypothesis
+//! (`Os[G[2]..G[2]+3]` as the sign reference) gave a component value of
+//! `311.712370364593`; the "reads `Os[0..3]`" hypothesis gave
+//! `669.6574913888649`; the compiled C's actual total
+//! (`3950498384.45452404022216796875`) matches ONLY the second hypothesis
+//! bit-for-bit. `sezgi` mirrors this: [`Cec2017::hybrid_fitness`]'s
+//! `BiRastriginBuggy` arm calls [`bi_rastrigin_hybrid_component`] with
+//! `sign_ref = &self.o[0..len]`, never `&self.o[start..start+len]`.
+//!
+//! ### `x = o` pin (fid 11-20): exactly `F_i*`, same as fid 1,3-8,10
+//!
+//! At `x=o`: the outer `sr_func`'s shift is exact-zero (`x-o=0`, IEEE 754
+//! subtraction of equal `f64` operands), so `z=0` exactly for every index,
+//! and the shuffle (`y[i]=z[S[i]-1]`) leaves `y` all-zero too (a
+//! permutation of an all-zero vector is still all-zero) -- so EVERY
+//! component (including the two verified-buggy ones above, since their
+//! bugs only misalign WHICH zero they read, and `0.0` reads identically
+//! from any index) evaluates its base formula on an all-zero segment, which
+//! is `0` for every base here (same per-fid derivation T6's module doc
+//! already gives for fid 1,3-8,10's own standalone bases, all reused
+//! unmodified). Compiled-C probe confirms all 10 fids, both dims, hit
+//! EXACTLY `100*fid` at `x=o` (this task's report has the full transcript,
+//! `t7_xo_pin.py`) -- no exception this task, unlike fid 9's own Levy
+//! exception above.
+//!
+//! ### Measured deviations (this task)
+//!
+//! 60-probe Python-vs-compiled-C cross-check (above): max
+//! `1.9644724722821017e-15` relative (fid=18, dim=30). The Rust test
+//! suite's own independent 60-probe cross-check (different random points,
+//! `hybrid_random_probe_*` tests below) uses the SAME `1e-9`
+//! [`tests::assert_close`] tolerance the fid-1-10 tests already use,
+//! comfortably above both measured figures.
+//!
 //! ## Struct/impl notes
 //!
 //! [`Cec2017::new`] rejects `dim` outside `{10,30}` (vendoring scope) and
-//! `fid` outside `{1,3..=10}` (this task's functional scope -- `fid==2`
-//! gets its own dedicated [`Cec2017Error::Withdrawn`], everything else
-//! outside `{1,3..=10}` gets [`Cec2017Error::UnknownFid`], INCLUDING `fid`
-//! in `11..=30` even though those are legitimate C `func_num`s not yet
-//! wired here -- T7/T8's own concern, mirrors `cec2014/mod.rs`'s own T2
+//! `fid` outside `{1,3..=20}` (T6+T7's combined functional scope: unimodal/
+//! simple-multimodal F1/F3-F10, hybrid F11-F20 -- `fid==2` gets its own
+//! dedicated [`Cec2017Error::Withdrawn`], everything else outside
+//! `{1,3..=20}` gets [`Cec2017Error::UnknownFid`], INCLUDING `fid` in
+//! `21..=30` even though those are legitimate C `func_num`s not yet wired
+//! here -- T8's own concern, mirrors `cec2014/mod.rs`'s own T2->T3->T4
 //! `UnknownFid` scoping to whatever it had wired at the time).
 
 use sezgi_core::problem::Problem;
@@ -313,8 +508,9 @@ mod data;
 #[derive(Debug, thiserror::Error)]
 pub enum Cec2017Error {
     #[error(
-        "fid must be 1 or in 3..=10 (this task's functional scope of the CEC 2017 suite: \
-         unimodal F1/F3, simple-multimodal F4-F10; fid 11-30 are staged for later tasks), got {0}"
+        "fid must be 1 or in 3..=20 (T6+T7's combined functional scope of the CEC 2017 suite: \
+         unimodal F1/F3, simple-multimodal F4-F10, hybrid F11-F20; fid 21-30 are staged for a \
+         later task), got {0}"
     )]
     UnknownFid(u32),
     #[error(
@@ -343,11 +539,16 @@ pub struct Cec2017 {
     dim: usize,
     o: Vec<f64>,
     m: Vec<Vec<f64>>,
+    /// fid 11-20 only (M3-6 T7): 0-based shuffle permutation applied to the
+    /// shift-rotated vector before segmenting into hybrid components
+    /// (module doc's T7 section: `y[i] = z[shuffle[i]]`). Empty for fid 1,
+    /// 3-10.
+    shuffle: Vec<usize>,
     space: SearchSpace,
 }
 
 impl Cec2017 {
-    /// `fid` must be `1` or in `3..=10` ([`Cec2017Error::UnknownFid`]
+    /// `fid` must be `1` or in `3..=20` ([`Cec2017Error::UnknownFid`]
     /// otherwise); `fid==2` specifically returns
     /// [`Cec2017Error::Withdrawn`] (module doc's F2 ruling). `dim` must be
     /// one of `{10,30}` ([`Cec2017Error::BadDim`] otherwise, module doc's
@@ -356,7 +557,7 @@ impl Cec2017 {
         if fid == 2 {
             return Err(Cec2017Error::Withdrawn);
         }
-        if !(fid == 1 || (3..=10).contains(&fid)) {
+        if !(fid == 1 || (3..=20).contains(&fid)) {
             return Err(Cec2017Error::UnknownFid(fid));
         }
         if !matches!(dim, 10 | 30) {
@@ -364,9 +565,11 @@ impl Cec2017 {
         }
         let o = data::shift_vector(fid, dim);
         let m = data::rotation_matrix(fid, dim);
+        let shuffle =
+            if (11..=20).contains(&fid) { data::shuffle_indices(fid, dim) } else { Vec::new() };
         let space = SearchSpace::new(vec![Block::Float { lo: -100.0, hi: 100.0, n: dim }])
             .expect("CEC 2017 bounds (-100 < 100) are always valid");
-        Ok(Self { fid, dim, o, m, space })
+        Ok(Self { fid, dim, o, m, shuffle, space })
     }
 
     pub fn fid(&self) -> u32 { self.fid }
@@ -434,10 +637,237 @@ impl Cec2017 {
                 cb::f5_base(&z)
             }
             10 => cb::schwefel_base(&self.shift_scale_rotate(xs, 1000.0 / 100.0, true)),
-            other => unreachable!("Cec2017::new rejects fid outside {{1,3..=10}}, got {other}"),
+            11..=20 => {
+                // Module doc's T7 section: outer `sr_func` is ALWAYS
+                // `sh_rate=1.0, s_flag=1,r_flag=1` for every `hf0N`, THEN
+                // shuffle, THEN segment/dispatch to components.
+                let z = self.shift_scale_rotate(xs, 1.0, true);
+                let y: Vec<f64> = (0..self.dim).map(|i| z[self.shuffle[i]]).collect();
+                Self::hybrid_fitness(self.fid, self.dim, &y, &self.o)
+            }
+            other => unreachable!("Cec2017::new rejects fid outside {{1,3..=20}}, got {other}"),
         };
         value + self.f_star()
     }
+
+    /// One hybrid function's (fid 11-20) component-sum (BEFORE `F_i*`),
+    /// given the already shift-rotate-shuffled `y` (module doc's T7
+    /// section: `y[i] = z[shuffle[i]]`) and the RAW (unshuffled, unrotated)
+    /// shift vector `o` (needed ONLY by the `BiRastriginBuggy` arm's own
+    /// verified-buggy sign-flip reference, module doc's "VERIFIED
+    /// DISCREPANCY 2" section). A separate associated function (not inlined
+    /// into [`Self::eval_one`]) so the segmentation/shuffle logic can be
+    /// probed directly on a hand-built `y`, independent of the shift/
+    /// rotate/embedded-data plumbing -- mirrors `cec2014::Cec2014::
+    /// hybrid_fitness`'s own separation.
+    fn hybrid_fitness(fid: u32, dim: usize, y: &[f64], o: &[f64]) -> f64 {
+        use crate::cec_basics as cb;
+        let (gp, comps) = Self::hybrid_spec(fid);
+        let sizes = cb::segment_sizes(gp, dim);
+        let starts = cb::segment_starts(&sizes);
+        comps
+            .iter()
+            .enumerate()
+            .map(|(idx, &comp)| {
+                let start = starts[idx];
+                let len = sizes[idx];
+                match comp {
+                    // Module doc's "VERIFIED DISCREPANCY 1": reads a PREFIX
+                    // of the WHOLE shuffled `y` (`y[0..len]`), NOT this
+                    // component's own assigned segment
+                    // `y[start..start+len]` -- replicates the reference C
+                    // bug exactly (same structural shape
+                    // `cec2022::HybridComponent::SchafferF7Buggy` already
+                    // established for that suite's own fid-7 hybrid).
+                    HybridComponent::SchafferF7Buggy => cb::f16_schaffer_f7_base(&y[0..len]),
+                    // Module doc's "VERIFIED DISCREPANCY 2": the segment
+                    // CONTENT is this component's own correctly-offset
+                    // `y[start..start+len]`, but the sign-flip reference
+                    // reads `o[0..len]` (a PREFIX of the ORIGINAL,
+                    // unshuffled shift vector), NOT `o[start..start+len]`.
+                    HybridComponent::BiRastriginBuggy => {
+                        bi_rastrigin_hybrid_component(&y[start..start + len], &o[0..len])
+                    }
+                    _ => {
+                        let seg: Vec<f64> =
+                            y[start..start + len].iter().map(|&yi| yi * comp.sh_rate()).collect();
+                        comp.eval(&seg)
+                    }
+                }
+            })
+            .sum()
+    }
+
+    /// `fid`'s (`11..=20`) proportions `p` and component list, in call order
+    /// (module doc's T7 "Hybrid composition tables" section, transcribed
+    /// verbatim from the cross-checked C, all ten `hf0N` read directly).
+    fn hybrid_spec(fid: u32) -> (&'static [f64], &'static [HybridComponent]) {
+        use HybridComponent::*;
+        match fid {
+            11 => (&[0.2, 0.4, 0.4], &[Zakharov, Rosenbrock, Rastrigin]),
+            12 => (&[0.3, 0.3, 0.4], &[Ellips, Schwefel, BentCigar]),
+            13 => (&[0.3, 0.3, 0.4], &[BentCigar, Rosenbrock, BiRastriginBuggy]),
+            14 => (&[0.2, 0.2, 0.2, 0.4], &[Ellips, Ackley, SchafferF7Buggy, Rastrigin]),
+            15 => (&[0.2, 0.2, 0.3, 0.3], &[BentCigar, HGBat, Rastrigin, Rosenbrock]),
+            16 => (&[0.2, 0.2, 0.3, 0.3], &[EScaffer6, HGBat, Rosenbrock, Schwefel]),
+            17 => (&[0.1, 0.2, 0.2, 0.2, 0.3], &[Katsuura, Ackley, GrieRosen, Schwefel, Rastrigin]),
+            18 => (&[0.2, 0.2, 0.2, 0.2, 0.2], &[Ellips, Ackley, Rastrigin, HGBat, Discus]),
+            19 => {
+                (&[0.2, 0.2, 0.2, 0.2, 0.2], &[BentCigar, Rastrigin, GrieRosen, Weierstrass, EScaffer6])
+            }
+            20 => (
+                &[0.1, 0.1, 0.2, 0.2, 0.2, 0.2],
+                &[HGBat, Katsuura, Ackley, Rastrigin, Schwefel, SchafferF7Buggy],
+            ),
+            other => unreachable!("hybrid_spec called with unsupported fid {other}"),
+        }
+    }
+}
+
+/// One hybrid function's (fid 11-20) sub-component (module doc's T7
+/// section): pairs the base function with the `sh_rate` constant the C
+/// reference's OWN per-component `sr_func` call uses (`s_flag=0,r_flag=0`
+/// branch -- pure scale, no shift, no rotate). `SchafferF7Buggy` and
+/// `BiRastriginBuggy` are the two verified-buggy components (module doc's
+/// "VERIFIED DISCREPANCY 1/2" sections) -- NOT pure functions of their own
+/// segment, so [`Cec2017::hybrid_fitness`] special-cases them directly
+/// rather than routing them through [`HybridComponent::eval`].
+// sezgi decision (M3-6 T7): mirrors `cec2022::HybridComponent::
+// SchafferF7Buggy`'s own established shape (a variant that carries no
+// `eval`-callable formula, special-cased by name in the caller) for
+// `SchafferF7Buggy`; `BiRastriginBuggy` is a SECOND such variant, new this
+// task (no `cec2014`/`cec2022` precedent for a buggy Lunacek component) --
+// judged the same shape is the right fit here too, rather than inventing a
+// different mechanism (e.g. a closure field or a second enum) for a single
+// additional buggy case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HybridComponent {
+    Zakharov,
+    Rosenbrock,
+    Rastrigin,
+    Ellips,
+    Schwefel,
+    BentCigar,
+    Ackley,
+    HGBat,
+    EScaffer6,
+    Katsuura,
+    GrieRosen,
+    Weierstrass,
+    Discus,
+    SchafferF7Buggy,
+    BiRastriginBuggy,
+}
+
+impl HybridComponent {
+    /// This component's own inner scale constant -- module doc's T7
+    /// section, the SAME constant this base function's standalone `sr_func`
+    /// call uses (T6's module doc "Reused bases" table, where a standalone
+    /// fid dispatches to the same base). `SchafferF7Buggy`/
+    /// `BiRastriginBuggy` are never routed through the generic scale-then-
+    /// `eval` path (module doc), so their own `sh_rate` here is unused --
+    /// still `1.0` (their own C-side `sr_func`/internal scale constant) for
+    /// completeness, not read by [`Cec2017::hybrid_fitness`].
+    fn sh_rate(self) -> f64 {
+        match self {
+            Self::Zakharov => 1.0,
+            Self::Rosenbrock => 2.048 / 100.0,
+            Self::Rastrigin => 5.12 / 100.0,
+            Self::Ellips => 1.0,
+            Self::Schwefel => 1000.0 / 100.0,
+            Self::BentCigar => 1.0,
+            Self::Ackley => 1.0,
+            Self::HGBat => 5.0 / 100.0,
+            Self::EScaffer6 => 1.0,
+            Self::Katsuura => 5.0 / 100.0,
+            Self::GrieRosen => 5.0 / 100.0,
+            Self::Weierstrass => 0.5 / 100.0,
+            Self::Discus => 1.0,
+            Self::SchafferF7Buggy | Self::BiRastriginBuggy => 1.0,
+        }
+    }
+
+    /// Evaluate this component's base function on an ALREADY-scaled segment
+    /// (caller applies `sh_rate`, module doc's T7 section -- same pattern
+    /// `cec2014::HybridComponent::eval`/`cec2022::HybridComponent::eval`
+    /// use). Never called for `SchafferF7Buggy`/`BiRastriginBuggy`
+    /// (special-cased in [`Cec2017::hybrid_fitness`] instead).
+    fn eval(self, seg: &[f64]) -> f64 {
+        use crate::cec_basics as cb;
+        match self {
+            Self::Zakharov => cb::f1_base(seg),
+            Self::Rosenbrock => {
+                // `rosenbrock_func`'s own "+1, shift to origin" convention
+                // (T6's module doc fid-4 note) -- reuses `f2_base`, which
+                // expects the array already `+1`'d.
+                let shifted: Vec<f64> = seg.iter().map(|&zi| zi + 1.0).collect();
+                cb::f2_base(&shifted)
+            }
+            Self::Rastrigin => cb::f4_base(seg),
+            Self::Ellips => cb::ellips_base(seg),
+            Self::Schwefel => cb::schwefel_base(seg),
+            Self::BentCigar => cb::bent_cigar_base(seg),
+            Self::Ackley => cb::ackley_base(seg),
+            Self::HGBat => cb::hgbat_base(seg),
+            Self::EScaffer6 => cb::escaffer6_base(seg),
+            Self::Katsuura => cb::katsuura_base(seg),
+            // `grie_rosen_base` handles its own `+1` internally.
+            Self::GrieRosen => cb::grie_rosen_base(seg),
+            Self::Weierstrass => cb::weierstrass_base(seg),
+            Self::Discus => cb::discus_base(seg),
+            Self::SchafferF7Buggy | Self::BiRastriginBuggy => unreachable!(
+                "SchafferF7Buggy/BiRastriginBuggy are handled directly in Cec2017::hybrid_fitness"
+            ),
+        }
+    }
+}
+
+/// Lunacek bi-Rastrigin Function's fid-13 hybrid-component form
+/// (`bi_rastrigin_func` called from `hf03` with `s_flag=0,r_flag=0`, module
+/// doc's "VERIFIED DISCREPANCY 2" section) -- NOT the same code path as fid
+/// 7 standalone's [`f7_bi_rastrigin`]: no shift step (`seg` is already the
+/// shift-rotate-shuffled `y[G[2]..G[2]+len]` `hf03` computed, and
+/// `s_flag=0`'s `y[i]=x[i]` branch takes it as-is), rotation always off
+/// (`r_flag=0` for every component call), and (the verified bug) the
+/// sign-flip reference `sign_ref` is the CALLER's already-buggy-sliced
+/// `o[0..len]`, not `o[G[2]..G[2]+len]`. `bi_rastrigin_func`'s FULL body is
+/// quoted at [`f7_bi_rastrigin`]'s own doc; this is the SAME arithmetic
+/// with the shift step removed and `rotate` hardcoded false (component
+/// calls always pass `r_flag=0`).
+// sezgi decision (M3-6 T7): a SEPARATE function rather than refactoring
+// `f7_bi_rastrigin` to share an inner helper. The two differ in three
+// places (shift step present/absent, rotation toggle vs. hardcoded off,
+// and which array aligns with `sign_ref`), so a shared helper would need
+// 2-3 extra parameters threading those differences through -- for ~15
+// lines of arithmetic, that indirection was judged to cost more
+// readability than the duplication it would remove; `f7_bi_rastrigin`
+// (T6, already committed and covered by its own passing hand-fixture
+// tests) is left completely untouched, avoiding any risk of a refactor
+// regression to already-verified code.
+fn bi_rastrigin_hybrid_component(seg: &[f64], sign_ref: &[f64]) -> f64 {
+    const MU0: f64 = 2.5;
+    const D_CONST: f64 = 1.0;
+    let pi = std::f64::consts::PI;
+    let n = seg.len() as f64;
+    let s = 1.0 - 1.0 / (2.0 * (n + 20.0).sqrt() - 8.2);
+    let mu1 = -(((MU0 * MU0) - D_CONST) / s).sqrt();
+
+    let y: Vec<f64> = seg.iter().map(|&si| si * (10.0 / 100.0)).collect();
+    let z: Vec<f64> = y
+        .iter()
+        .zip(sign_ref)
+        .map(|(&yi, &si)| {
+            let t = 2.0 * yi;
+            if si < 0.0 { -t } else { t }
+        })
+        .collect();
+
+    let tmp1: f64 = z.iter().map(|&zi| zi * zi).sum();
+    let tmp2: f64 = z.iter().map(|&zi| (zi + MU0 - mu1).powi(2)).sum::<f64>() * s + D_CONST * n;
+    // r_flag=0 branch always, for every hybrid component call.
+    let cos_sum: f64 = z.iter().map(|&zi| (2.0 * pi * zi).cos()).sum();
+
+    tmp1.min(tmp2) + 10.0 * (n - cos_sum)
 }
 
 /// Lunacek bi-Rastrigin Function (CEC 2017 fid 7, `bi_rastrigin_func`).
@@ -572,8 +1002,11 @@ mod tests {
     }
 
     #[test]
-    fn fid_0_2_and_11_upward_are_unknown_or_withdrawn() {
-        for fid in [0u32, 11, 20, 21, 30, 31, 100] {
+    fn fid_0_2_and_21_upward_are_unknown_or_withdrawn() {
+        // fid 11 and 20 (this task's own range) are now VALID -- the
+        // previous T6-era test's boundary (11 was "upward" back then) moved
+        // to 21, module doc's "Struct/impl notes" section.
+        for fid in [0u32, 21, 25, 30, 31, 100] {
             assert!(
                 matches!(Cec2017::new(fid, 10), Err(Cec2017Error::UnknownFid(f)) if f == fid),
                 "fid={fid}"
@@ -582,8 +1015,8 @@ mod tests {
     }
 
     #[test]
-    fn fid_1_and_3_to_10_all_construct_at_dim_10_and_30() {
-        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10] {
+    fn fid_1_and_3_to_20_all_construct_at_dim_10_and_30() {
+        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] {
             for &dim in &[10usize, 30] {
                 assert!(Cec2017::new(fid, dim).is_ok(), "fid={fid} dim={dim}");
             }
@@ -592,7 +1025,7 @@ mod tests {
 
     #[test]
     fn unsupported_dims_are_bad_dim_for_every_fid() {
-        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10] {
+        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] {
             for &dim in &[2usize, 5, 20, 50, 100] {
                 assert!(
                     matches!(Cec2017::new(fid, dim), Err(Cec2017Error::BadDim(d)) if d == dim),
@@ -604,7 +1037,7 @@ mod tests {
 
     #[test]
     fn space_is_single_float_block_pm100() {
-        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10] {
+        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] {
             for &dim in &[10usize, 30] {
                 let p = Cec2017::new(fid, dim).unwrap();
                 assert_eq!(
@@ -619,8 +1052,27 @@ mod tests {
 
     #[test]
     fn f_star_matches_dispatch_bias() {
-        let expect =
-            [(1u32, 100.0), (3, 300.0), (4, 400.0), (5, 500.0), (6, 600.0), (7, 700.0), (8, 800.0), (9, 900.0), (10, 1000.0)];
+        let expect = [
+            (1u32, 100.0),
+            (3, 300.0),
+            (4, 400.0),
+            (5, 500.0),
+            (6, 600.0),
+            (7, 700.0),
+            (8, 800.0),
+            (9, 900.0),
+            (10, 1000.0),
+            (11, 1100.0),
+            (12, 1200.0),
+            (13, 1300.0),
+            (14, 1400.0),
+            (15, 1500.0),
+            (16, 1600.0),
+            (17, 1700.0),
+            (18, 1800.0),
+            (19, 1900.0),
+            (20, 2000.0),
+        ];
         for (fid, fstar) in expect {
             assert_eq!(Cec2017::new(fid, 10).unwrap().f_star(), fstar, "fid={fid}");
         }
@@ -658,6 +1110,72 @@ mod tests {
         assert_ne!(out30, p30.f_star());
     }
 
+    #[test]
+    fn fid_11_to_20_x_eq_o_is_exactly_f_star_dim10_and_dim30() {
+        // Module doc's T7 "x = o pin" section: unlike fid 9's own Levy
+        // exception, ALL TEN hybrid fids hit `F_i*` exactly at `x=o`
+        // (verified against the compiled C, `t7_xo_pin.py`, this task's
+        // report has the full transcript).
+        for fid in 11u32..=20 {
+            for &dim in &[10usize, 30] {
+                let p = Cec2017::new(fid, dim).unwrap();
+                let out = p.evaluate_batch(&[g(p.o.clone())])[0];
+                assert_eq!(out, p.f_star(), "fid={fid} dim={dim}");
+            }
+        }
+    }
+
+    // ---- fid 13/14/20 verified-buggy hybrid components: hand fixtures
+    // derived from a targeted compiled-C probe (module doc's "VERIFIED
+    // DISCREPANCY 1/2" sections have the full derivation) ----
+
+    #[test]
+    fn schaffer_f7_buggy_component_reads_prefix_of_full_y_not_own_segment() {
+        // Module doc's "VERIFIED DISCREPANCY 1": fid 14 (`hf04`), component
+        // index 2 (`schaffer_F7_func`), segment `G[2]=4, G_nx[2]=2` of a
+        // 10-long shuffled `y`. The "correct segment" value
+        // (`y[4..6]`) is 519.7396346671704; the ACTUAL compiled-C behavior
+        // (`y[0..2]`) is 262.971892911507 -- `hybrid_fitness` must produce
+        // the SECOND value, not the first.
+        let y = [
+            -145.52428725828193,
+            22.71207862270197,
+            48.49251134825084,
+            -12.433687574098899,
+            16.315276067523875,
+            -166.98226316887443,
+            -55.91665381774592,
+            -49.29522766284257,
+            -135.82586109367236,
+            -72.13027964071914,
+        ];
+        use crate::cec_basics as cb;
+        let buggy = cb::f16_schaffer_f7_base(&y[0..2]);
+        let correct = cb::f16_schaffer_f7_base(&y[4..6]);
+        assert!((buggy - 262.971892911507).abs() < 1e-9, "buggy={buggy}");
+        assert!((correct - 519.7396346671704).abs() < 1e-9, "correct={correct}");
+        assert_ne!(buggy, correct);
+    }
+
+    #[test]
+    fn bi_rastrigin_hybrid_component_hand_fixture_matches_compiled_c() {
+        // Module doc's "VERIFIED DISCREPANCY 2": fid 13 (`hf03`), component
+        // index 2 (`bi_rastrigin_func`), segment `G[2]=6, G_nx[2]=4` of a
+        // 10-dim `hf03` evaluation (random-point probe, this task's
+        // report). Compiled-C component contribution using the BUGGY
+        // `Os[0..4]` sign reference: `669.6574913888649`; using the
+        // (hypothetical, NOT what the C does) correctly-offset
+        // `Os[6..10]`: `311.712370364593`.
+        let seg = [-26.058055713356502, 39.385024412774236, -69.01647034067578, -148.48626825133059];
+        let sign_ref_buggy = [4.574812690063766, -71.12311809841688, -6.245880092608687, -14.506716474195343];
+        let sign_ref_correct = [-65.84337852236041, -69.66282531137709, 56.894991685121795, 74.12525184178969];
+        let buggy = bi_rastrigin_hybrid_component(&seg, &sign_ref_buggy);
+        let correct = bi_rastrigin_hybrid_component(&seg, &sign_ref_correct);
+        assert!((buggy - 669.6574913888649).abs() < 1e-6, "buggy={buggy}");
+        assert!((correct - 311.712370364593).abs() < 1e-6, "correct={correct}");
+        assert_ne!(buggy, correct);
+    }
+
     // ---- fid 7 (Lunacek bi-Rastrigin) hand fixtures vs. compiled C
     // (module doc's `f7_bi_rastrigin` own doc has the full derivation and
     // `probe2.cpp` transcript reference) ----
@@ -690,7 +1208,7 @@ mod tests {
 
     #[test]
     fn constructed_o_and_m_have_the_right_shape_for_every_fid() {
-        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10] {
+        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] {
             for &dim in &[10usize, 30] {
                 let p = Cec2017::new(fid, dim).unwrap();
                 assert_eq!(p.o.len(), dim, "fid={fid} dim={dim}");
@@ -700,8 +1218,29 @@ mod tests {
         }
     }
 
-    // ---- random-point probes vs compiled C reference ----
+    #[test]
+    fn shuffle_is_populated_only_for_fid_11_to_20() {
+        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10] {
+            let p = Cec2017::new(fid, 10).unwrap();
+            assert!(p.shuffle.is_empty(), "fid={fid}");
+        }
+        for fid in 11u32..=20 {
+            for &dim in &[10usize, 30] {
+                let p = Cec2017::new(fid, dim).unwrap();
+                assert_eq!(p.shuffle.len(), dim, "fid={fid} dim={dim}");
+                let mut sorted = p.shuffle.clone();
+                sorted.sort_unstable();
+                assert_eq!(sorted, (0..dim).collect::<Vec<_>>(), "fid={fid} dim={dim}");
+            }
+        }
+    }
+
+    // ---- random-point probes vs compiled C reference (fid 1,3-10) ----
     include!("random_probe_tests.rs.fragment");
+
+    // ---- random-point probes vs compiled C reference (fid 11-20 hybrids,
+    // M3-6 T7) ----
+    include!("hybrid_random_probe_tests.rs.fragment");
 
     // ---- Evaluator integration + budget counting ----
 
@@ -719,7 +1258,7 @@ mod tests {
 
     #[test]
     fn optimum_maps_to_f_star() {
-        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10] {
+        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] {
             let p = Cec2017::new(fid, 10).unwrap();
             assert_eq!(Problem::optimum(&p), Some(p.f_star()), "fid={fid}");
         }
