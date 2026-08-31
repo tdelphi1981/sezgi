@@ -274,6 +274,41 @@ pub(crate) fn segment_starts(sizes: &[usize]) -> Vec<usize> {
     starts
 }
 
+/// Weierstrass Function (CEC 2014 report, section 1.3, eq (6)): `f(z) =
+/// sum_{i=1}^{D} sum_{k=0}^{kmax} [a^k cos(2*pi*b^k*(z_i+0.5))] - D *
+/// sum_{k=0}^{kmax} [a^k cos(2*pi*b^k*0.5)]`, `a=0.5, b=3, kmax=20`
+/// (`crates/problems/src/cec2014/mod.rs`'s module doc has the full
+/// PROVENANCE quote and the compiled-C hand fixture this was verified
+/// against; new for M3-6 T2, CEC 2014 does not appear in CEC 2022's basic-
+/// function set so this has no cec2022 sibling to reuse). `weierstrass_func`,
+/// quoted in full: `a=0.5;b=3.0;k_max=20;f[0]=0.0; ... for(i=0;i<nx;i++) {
+/// sum=0.0;sum2=0.0; for(j=0;j<=k_max;j++) {
+/// sum+=pow(a,j)*cos(2.0*PI*pow(b,j)*(z[i]+0.5));
+/// sum2+=pow(a,j)*cos(2.0*PI*pow(b,j)*0.5); } f[0]+=sum; } f[0]-=nx*sum2;` --
+/// `sum2` does NOT depend on `i` (recomputed identically on every outer-loop
+/// pass, a redundant-but-harmless C quirk); this Rust port keeps the same
+/// redundant recomputation rather than hoisting it out, so the two stay
+/// line-for-line diffable against the quoted C.
+pub(crate) fn weierstrass_base(z: &[f64]) -> f64 {
+    const A: f64 = 0.5;
+    const B: f64 = 3.0;
+    const K_MAX: i32 = 20;
+    let pi = std::f64::consts::PI;
+    let n = z.len() as f64;
+    let mut f = 0.0;
+    let mut sum2 = 0.0;
+    for &zi in z {
+        let mut sum = 0.0;
+        sum2 = 0.0;
+        for k in 0..=K_MAX {
+            sum += A.powi(k) * (2.0 * pi * B.powi(k) * (zi + 0.5)).cos();
+            sum2 += A.powi(k) * (2.0 * pi * B.powi(k) * 0.5).cos();
+        }
+        f += sum;
+    }
+    f - n * sum2
+}
+
 /// `cf_cal`'s weight formula (`cec2022/mod.rs`'s module doc T7 section,
 /// quoted there in full): `w_i = (1/D_i)^0.5 * exp(-D_i / (2 * dim *
 /// delta_i^2))` where `D_i = ||x - o_i||^2` (the RAW, UNSHIFTED distance --
@@ -305,4 +340,27 @@ pub(crate) fn composition_weights(xs: &[f64], shifts: &[Vec<f64>], delta: &[f64]
     }
     let w_sum: f64 = w.iter().sum();
     w.iter().map(|&wi| wi / w_sum).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- M3-6 T2 hand fixture: weierstrass_base cross-checked against the
+    // compiled CEC 2014 reference C (`weierstrass_func`, called directly
+    // with `s_flag=0,r_flag=0` so no shift/rotation intervenes -- only
+    // `weierstrass_func`'s OWN internal `sh_rate=0.5/100.0` scale, per
+    // `sr_func`'s `s_flag==0,r_flag==0` branch: `sr_x[i]=x[i]*sh_rate`; to
+    // land on z=[0.1,-0.2,0.3] the probe fed `x = z / (0.5/100.0) =
+    // z*200.0`). This task's report has the isolated probe driver's full
+    // source and the exact `g++`/run transcript.
+    #[test]
+    fn weierstrass_base_matches_compiled_c_hand_fixture() {
+        // Compiled reference output (`%.20f`):
+        // 5.12731920344174341153 for z=[0.1,-0.2,0.3].
+        let z = [0.1_f64, -0.2, 0.3];
+        let got = weierstrass_base(&z);
+        let expect = 5.127_319_203_441_743_f64;
+        assert!((got - expect).abs() < 1e-12, "got {got}, expect {expect}");
+    }
 }
