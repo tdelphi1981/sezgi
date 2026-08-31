@@ -1,0 +1,7096 @@
+{
+ "header": {
+  "technical_report_url": "https://raw.githubusercontent.com/P-N-Suganthan/CEC2017-BoundContrained/master/Definitions%20of%20%20CEC2017%20benchmark%20suite%20final%20version%20updated.pdf",
+  "technical_report_sha256": "b69f52f047f6bca888787ac19f3f1224293000c0a2446bdd5c355795efa9684a",
+  "c_source_url": "https://raw.githubusercontent.com/P-N-Suganthan/CEC2017-BoundContrained/master/codes.rar",
+  "c_source_file": "codes/C version/cec17_test_func.cpp",
+  "c_source_rar_sha256": "4fd2ac6913db34c61821476deb402e17e1a5c26a1ab016f71da5c9011317be89",
+  "c_source_patched_sha256": "63dd4b36a33ca5cb2c5debd94dbbae4cc702609468552b47821e57328d461516",
+  "c_source_patched_sha256_note": "sha256 of cec17_test_func.cpp AFTER the two portability-only edits M3-6 T6 applied and every later task (T7, T8, this task) reused unmodified: #include <WINDOWS.H>/<malloc.h> removed (replaced by <cstdlib>), and the 5 fscanf(fpt,\"%Lf\",...) call sites rewritten to %lf (the vendored readme.txt's own documented Linux fix). No computational line touched.",
+  "c_compile_command": "g++ -O2 -o probe cec17_test_func.cpp probe.cpp -lm (probe.cpp: T6's own scratchpad-only driver, argv: fid dim x0 x1 ... -> %.20f-printed f(x), dispatches through the unmodified cec17_test_func() entry point for ANY fid, reused unmodified by T7/T8/this task). Compiled fresh in scratchpad/t6_build/src/ (never in the repo).",
+  "opfunu_version": "1.0.4",
+  "opfunu_install": "uv venv <scratchpad>/opfunu-venv (isolated from py-sezgi/.venv, reused unmodified from T5) then VIRTUAL_ENV=<scratchpad>/opfunu-venv uv pip install opfunu numpy 'setuptools<81' -- PyPI, scratchpad-only.",
+  "tolerance": 1e-08,
+  "tolerance_rationale": "1e-8 relative, same value and rationale every earlier crosscheck fixture in this crate uses (cec2014_reference_values.json's header, M3-6 T5 precedent, itself following cec2022_reference_values.json's M3-3 T8 precedent). In practice sezgi vs. the compiled C measures far tighter: max relative delta 6.066832304353314e-15 over all 232 probe points in this task's own generation run (near f64 machine epsilon), consistent with T2-T8's own ~1e-15 findings for their own fixtures.",
+  "opfunu_remap": {
+   "rule": "opfunu_class_index(fid) = 1 if fid == 1 else fid - 1 (opfunu's own F<k> class name, e.g. fid=21 -> F20).",
+   "derivation": "opfunu numbers CEC2017 CONTIGUOUSLY (F1..F29, no gap for the withdrawn fid 2 -- opfunu/cec_based/cec2017.py's own class sequence, grepped directly). Its own bias/formula for class Fk matches the DEFINITIONS PDF's Table I row k (the SAME contiguous, no-gap numbering cec2017/mod.rs's own module doc already documents diverges from the code's gapped func_num for the report's own prose) -- so Fk's INTENDED sezgi counterpart is Table row k's real func_num, which is k+1 for k>=2 (the gap at func_num 2 pushes every later slot up by one) and k itself for k=1 (before the gap). Empirically verified, not merely asserted: t8_probe_remap.py evaluated every opfunu class against every sezgi fid at 3 points and confirmed F1 is the ONLY class that numerically agrees with any sezgi fid (fid 1) -- every other class (F2..F29) diverges from ALL 29 sezgi fids at every probed point, consistent with the two independent bug classes documented below (data-source offset for F2-F19, per-component defects for the composition classes F20-F29) that make the 'intended' Table-row correspondence never actually hold numerically.",
+   "opfunu_f2_status": "EXCLUDED entirely, not merely tagged -- per this milestone's own scope ruling (task-8-brief.md item 6): F2 does not correspond to any REAL CEC2017 function (Zakharov formula applied to the withdrawn fid 2's own dead shift/rotation data), so it is skipped as expected-disagreement-by-construction. It is still evaluated and stored in this fixture's fid-3 points (tagged 'opfunu-f2-bogus-withdrawn-data') for transparency, exactly like every other excluded point, rather than omitted from the JSON."
+  },
+  "probe_points": {
+   "o": "for fid 1,3-20: the official CEC2017 shift vector, first `dim` values of shift_data_<fid>.txt's single row. For fid 21-30 (composition): component 1's shift row (first `dim` values of shift_data_<fid>.txt's FIRST LINE) -- the same `x = comp_shift[0]` pin cec2017/mod.rs's own T8 module-doc section proves algebraically reduces to F_i* for every composition fid.",
+   "zeros": "all-zeros, length `dim`.",
+   "ones10": "all-10.0, length `dim`.",
+   "random": "python3 random.Random(20170101 + fid*100 + dim).uniform(-80.0, 80.0) drawn `dim` times -- one independent seeded draw per (fid,dim) combination, fully reproducible (t8_points.py in this task's report). Absolute domain point (not offset from `o`), range [-80,80] comfortably inside the suite's [-100,100] domain -- same numeric range/shape T5's own cec2014 fixture used, base seed swapped to this suite's own report-publication-year-styled 20170101."
+  },
+  "dims": "{10,30} only -- this milestone's vendored scope (cec2017/mod.rs module doc's 'Vendoring scope' section); the C itself also supports {2,20,50,100} but those dims were never vendored.",
+  "divergence_classes": {
+   "opfunu-f2-bogus-withdrawn-data": "NEW for CEC2017 (this task's own remap-derivation finding, empirically verified via t8_probe_remap.py). opfunu 1.0.4's CEC2017 numbers the suite CONTIGUOUSLY, no gap at the officially withdrawn fid 2 (opfunu/cec_based/cec2017.py's own F1..F29 class sequence, grepped directly). Its own 'F2' class (F22017), the one whose Table-row position and bias (200.0) correspond to sezgi fid 3 (the REAL Zakharov, F*=300 in the C's own gapped func_num numbering), is constructed `f_shift=\"shift_data_2\", f_matrix=\"M_2_D\"` -- i.e. it reads the C reference's shift_data_2.txt/M_2_D<dim>.txt, which is the OFFICIALLY WITHDRAWN fid 2's own dead data (never vendored into crates/problems/data/cec2017/ at all, per cec2017/mod.rs's own F2 ruling), NOT the real Zakharov's own shift_data_3.txt/M_3_D. Verified: opfunu's own vendored data_2017/shift_data_2.txt is byte-identical (diffed directly) to the compiled-C build's input_data/shift_data_2.txt (the withdrawn slot's own file, same 100-value row), confirming this is genuinely the SAME dead data, not a differently-numbered copy of the real Zakharov vector. Since sezgi's own fid 2 does not exist (Cec2017Error::Withdrawn), and opfunu's F2 does not correspond to any real CEC2017 function at all, this is expected-disagreement-BY-CONSTRUCTION for every point of fid 3 -- per this task's explicit scope ruling, F2 is treated as unconditionally excluded, same root cause class as the general offset bug below but singled out because its target data is not merely wrong, it is DEAD.",
+   "opfunu-unimodal-hybrid-data-source-offset": "NEW for CEC2017 (this task's own finding). For every opfunu class F3..F19 (sezgi fid 4..20), the class's OWN `f_shift`/`f_matrix` constructor defaults use `shift_data_<k>` / `M_<k>_D` where `k` is the class's OWN CONTIGUOUS index (e.g. F32017's `f_shift=\"shift_data_3\"`, F42017's `f_shift=\"shift_data_4\"`, grepped directly from opfunu/cec_based/cec2017.py) -- NOT `k+1`, the file the C reference's own gapped func_num numbering actually assigns to that Table-row's formula (e.g. Table row 3 is Rosenbrock, whose REAL C data is shift_data_4.txt/M_4_D<dim>.txt, func_num 4 -- cec17_test_func.cpp's own `case 4: rosenbrock_func(...)`). So opfunu's F3 class computes Rosenbrock's FORMULA on Zakharov's OWN shift/rotation data (func_num 3's real files) -- a formula/data mismatch that does not correspond to ANY function in the real 29-function suite. This recurs identically for every one of F3..F19 (all grepped directly: each uses `shift_data_<own index>`, never `<own index>+1`) -- the SAME root cause as 'opfunu-f2-bogus-withdrawn-data' above (an unapplied +1 gap adjustment), just landing on a REAL (if wrong) function's data instead of the withdrawn slot's dead data. Verified empirically (not merely by source reading): t8_probe_remap.py evaluated every opfunu F1..F29 class against every sezgi fid at 3 independent points (zeros, ones10, a seeded random point, dim=10) with a 1e-6 relative tolerance -- ZERO of F3..F19 matched ANY sezgi fid at all three points simultaneously (this task's report has the full 29-row output transcript).",
+   "opfunu-composition-missing-component-scale": "NEW for CEC2017 (this task's own finding, DIFFERENT bug shape from every cec2014_reference_values.json composition class -- those were shift/rotation-matrix misalignments; this is a missing SCALE constant). Unlike F3..F19, opfunu's composition classes F20..F27 (sezgi fid 21-28) DO correctly apply the +1 gap adjustment in their own file selection (F202017's own `f_shift=\"shift_data_21\", f_matrix=\"M_21_D\"` -- the REAL cf01/fid21 data, grepped directly) -- but at least one per-component base-function call inside `evaluate()` omits the component's own `sh_rate` scale constant the C reference's `sr_func` always applies internally. Verified via a targeted diagnostic probe this task (t8_diag_f20.py, dim=10, x=zeros): F202017's own Rastrigin component computes `z2 = np.dot(self.f_matrix[2*ndim:3*ndim,:], x - self.f_shift[2])` -- NO `5.12/100` scale (contrast its own Rosenbrock component two lines above, which DOES apply `2.048/100` correctly) -- giving `g2_raw=23139.686348881736` where an independent from-the-raw-files replica (this task's own script, matching sezgi's own `cb::f4_base` on the CORRECTLY `5.12/100`-scaled `z`) gives `164.075995` -- a ~141x error for that one component alone, which (weighted heavily by `cf_cal`'s own distance-based weighting, since this component's own delta=30 is the largest of the three) dominates F20's own final output: opfunu reports 21205.36 at x=zeros vs the compiled C's (and sezgi's own, cross-validated) 2828.61 -- roughly 7.5x off. Every one of fid 21-28's own composition_spec table (cec2017/mod.rs's module doc) includes at least one nontrivial-`sh_rate` component (Rastrigin 5.12/100, HGBat/HappyCat/Katsuura/GrieRosen 5/100, Schwefel 1000/100, Griewank 600/100, Weierstrass 0.5/100) -- this task verified the bug concretely for fid 21 only (F20) and, given every other fid 22-28 shares the SAME `F202017`-derived `evaluate()` shape (each subclass only overrides `__init__`'s component list, not the scale-application logic itself, per direct reading of F212017..F272017), generalizes the finding rather than re-running the same diagnostic nine more times -- this generalization is flagged here explicitly, not individually re-verified per fid.",
+   "opfunu-composition-hybrid-shared-shift": "NEW for CEC2017 (this task's own finding, DIFFERENT bug shape again -- a shared-shift copy-paste bug, closer in SHAPE to CEC2022's own 'opfunu-composition-shift-o1' class cec2014_reference_values.json's header references, but independently verified here for this suite, not assumed to recur). opfunu's F28/F29 classes (sezgi fid 29/30, cf09/cf10's hybrid-in-composition) construct their THREE sub-hybrid instances ALL with the SAME `self.f_shift[0]` (component 0's own shift row), quoted VERBATIM from F282017.__init__: `self.g0 = F142017(self.ndim, None, self.f_shift[0], self.f_matrix[:self.ndim,:], self.f_shuffle[0], 0)`, `self.g1 = F152017(self.ndim, None, self.f_shift[0], self.f_matrix[self.ndim:2*self.ndim,:], self.f_shuffle[1], 0)`, `self.g2 = F162017(...,  self.f_shift[0], ...)` -- `g1`/`g2` should each get their OWN component's shift (`self.f_shift[1]`/`self.f_shift[2]`), not component 0's, yet all three literally read index `[0]`. F292017 (fid30) has the IDENTICAL pattern (re-read directly, not assumed): `self.g0/g1/g2` all constructed with `self.f_shift[0]`. This means every sub-hybrid past the first evaluates on the WRONG shift vector (component 0's, not its own), compounding with the general per-component-base-function scale issue above wherever a sub-hybrid's own component list includes a scaled base."
+  }
+ },
+ "points": {
+  "1_10": {
+   "fid": 1,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -55.276398498228005,
+      -70.42955971808618,
+      -29.610181874414053,
+      -58.32676327709423,
+      22.089601877187192,
+      59.93874988515802,
+      30.569319851030272,
+      18.558736265897153,
+      76.68042093360816,
+      -32.16536884762597
+     ],
+     "c_value": 100.0,
+     "opfunu_value": 100.0,
+     "exclude": null
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 29975432515.94006,
+     "opfunu_value": 29975432515.94006,
+     "exclude": null
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 29161286136.499744,
+     "opfunu_value": 29161286136.49975,
+     "exclude": null
+    },
+    "random": {
+     "x": [
+      24.49456363500414,
+      44.479409260602765,
+      -57.42542712851042,
+      -13.930791903235047,
+      -74.35502647488939,
+      -11.473683690351805,
+      51.28836344303582,
+      33.591571317508226,
+      -9.277080220204269,
+      27.37228747950104
+     ],
+     "c_value": 77534979782.32336,
+     "opfunu_value": 77534979782.32338,
+     "exclude": null
+    }
+   }
+  },
+  "1_30": {
+   "fid": 1,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -55.276398498228005,
+      -70.42955971808618,
+      -29.610181874414053,
+      -58.32676327709423,
+      22.089601877187192,
+      59.93874988515802,
+      30.569319851030272,
+      18.558736265897153,
+      76.68042093360816,
+      -32.16536884762597,
+      36.645777950364064,
+      65.59001176878346,
+      -28.672202056586833,
+      26.3000349450391,
+      -55.31267872793259,
+      -40.19138036304683,
+      23.470238271853987,
+      64.29463505013595,
+      -40.06871236491423,
+      5.15128288657931,
+      17.611474738275376,
+      -3.944073805559455,
+      -48.04845003785959,
+      -30.299786306125938,
+      31.491552941264374,
+      -1.4697161696244478,
+      -61.519662878252404,
+      -40.973994788235984,
+      -9.930405882154773,
+      -20.331661375393935
+     ],
+     "c_value": 100.0,
+     "opfunu_value": 100.0,
+     "exclude": null
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 84786975953.39351,
+     "opfunu_value": 84786975953.39354,
+     "exclude": null
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 97887567597.21196,
+     "opfunu_value": 97887567597.21194,
+     "exclude": null
+    },
+    "random": {
+     "x": [
+      11.100422326012222,
+      47.66767784410479,
+      20.34435511952738,
+      19.064414193701026,
+      14.268235905156402,
+      -9.252910118531915,
+      -9.201411205057326,
+      43.029726578514186,
+      52.27137951948973,
+      -5.051406012754299,
+      8.734588253407168,
+      -25.947743328856404,
+      -37.66532632908074,
+      20.306253136694195,
+      -54.631583737012704,
+      -78.94386837320339,
+      -12.219725802701532,
+      -3.51106131874063,
+      14.652085361360975,
+      42.55871864444876,
+      59.90512404049716,
+      -55.42666678436273,
+      0.22104539176478966,
+      26.86340019890821,
+      14.59386123027619,
+      24.408797115793107,
+      58.03749493171679,
+      -65.60965446604939,
+      28.613934779670274,
+      -44.535611751484865
+     ],
+     "c_value": 150313709499.2802,
+     "opfunu_value": 150313709499.2802,
+     "exclude": null
+    }
+   }
+  },
+  "3_10": {
+   "fid": 3,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -55.938326705218444,
+      4.543065393596464,
+      35.300070175575115,
+      8.279440891127777,
+      -47.43694281551845,
+      7.302099581482864,
+      6.387665982538678,
+      -2.4978314724275066,
+      -61.05355708908921,
+      -47.133996322347784
+     ],
+     "c_value": 300.0,
+     "opfunu_value": 64682867.12336826,
+     "exclude": [
+      "opfunu-f2-bogus-withdrawn-data"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 1343217.039646537,
+     "opfunu_value": 4674966.047137636,
+     "exclude": [
+      "opfunu-f2-bogus-withdrawn-data"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 14858332.974904027,
+     "opfunu_value": 7392299.2660858305,
+     "exclude": [
+      "opfunu-f2-bogus-withdrawn-data"
+     ]
+    },
+    "random": {
+     "x": [
+      47.69814193163823,
+      42.488170512113555,
+      37.78104135005604,
+      -45.18307852386865,
+      -40.45934796263179,
+      35.79910284503481,
+      -6.147115142465026,
+      -60.50606229390128,
+      17.480987800982817,
+      44.441240152996215
+     ],
+     "c_value": 10277980.544603506,
+     "opfunu_value": 118026306.05731001,
+     "exclude": [
+      "opfunu-f2-bogus-withdrawn-data"
+     ]
+    }
+   }
+  },
+  "3_30": {
+   "fid": 3,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -55.938326705218444,
+      4.543065393596464,
+      35.300070175575115,
+      8.279440891127777,
+      -47.43694281551845,
+      7.302099581482864,
+      6.387665982538678,
+      -2.4978314724275066,
+      -61.05355708908921,
+      -47.133996322347784,
+      -21.07618969915257,
+      12.47972634270775,
+      -13.239358110930482,
+      46.108229591561596,
+      61.01474537561404,
+      34.825527944986476,
+      32.648171387914644,
+      77.81651668148885,
+      22.1958657830003,
+      -74.08378511391757,
+      -6.176409612491923,
+      33.08364284834063,
+      36.785352060937015,
+      11.412088168511204,
+      -37.03415183212336,
+      -32.98984249727327,
+      -60.28285167193173,
+      -53.88805015659335,
+      63.54101813563193,
+      -66.10819443413438
+     ],
+     "c_value": 300.0,
+     "opfunu_value": 2135905896.2182233,
+     "exclude": [
+      "opfunu-f2-bogus-withdrawn-data"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 1088370639.4186115,
+     "opfunu_value": 79425010.64778648,
+     "exclude": [
+      "opfunu-f2-bogus-withdrawn-data"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 9508564893577.18,
+     "opfunu_value": 211872261.86786753,
+     "exclude": [
+      "opfunu-f2-bogus-withdrawn-data"
+     ]
+    },
+    "random": {
+     "x": [
+      -28.79305964674289,
+      62.83207613822657,
+      16.495532124736414,
+      -56.02551552200449,
+      16.022043805264815,
+      -62.530753359789166,
+      65.25849140553612,
+      45.8435153308195,
+      61.92739029575614,
+      44.19100728078311,
+      30.340016620717748,
+      42.85275147410036,
+      -43.165965312683014,
+      73.25084611109003,
+      12.599675920042557,
+      -75.15666110387446,
+      -56.50631281684024,
+      16.100879312492452,
+      26.171981146543573,
+      11.689939114419317,
+      50.70718996441383,
+      41.50407366153516,
+      -11.39772517992101,
+      -67.64059326520062,
+      -1.5517925865095208,
+      5.871059276634185,
+      58.0848775253487,
+      -4.557394376097008,
+      50.47562074420176,
+      18.348710135796225
+     ],
+     "c_value": 306233686532.7968,
+     "opfunu_value": 150976.86072210857,
+     "exclude": [
+      "opfunu-f2-bogus-withdrawn-data"
+     ]
+    }
+   }
+  },
+  "4_10": {
+   "fid": 4,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      32.51072501414954,
+      7.755312811469338,
+      -56.45757763481586,
+      77.49269164981911,
+      19.66855850986603,
+      9.462875318463375,
+      2.545477413826376,
+      61.838894179947175,
+      -33.70551762809303,
+      71.36522464052086
+     ],
+     "c_value": 400.0,
+     "opfunu_value": 27903.030368946347,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 5901.656453086141,
+     "opfunu_value": 2687.1599160047117,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 5658.817476733706,
+     "opfunu_value": 4345.751028819676,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -56.79824493064024,
+      -65.16579024304261,
+      63.90425759693275,
+      -55.10508683657919,
+      40.06795587713779,
+      -21.85891001752894,
+      -31.04237307094651,
+      15.025438024733717,
+      -4.017582215742209,
+      -9.1231734532019
+     ],
+     "c_value": 25475.834033977146,
+     "opfunu_value": 4797.315142294693,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "4_30": {
+   "fid": 4,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      32.51072501414954,
+      7.755312811469338,
+      -56.45757763481586,
+      77.49269164981911,
+      19.66855850986603,
+      9.462875318463375,
+      2.545477413826376,
+      61.838894179947175,
+      -33.70551762809303,
+      71.36522464052086,
+      75.33053323409081,
+      0.2720653639510573,
+      -67.39742807457104,
+      51.42635068456937,
+      2.675955557579158,
+      14.785056232840304,
+      12.440105347167759,
+      -39.14943015163273,
+      -64.47255849115204,
+      -70.29056079233557,
+      66.54476321607117,
+      17.835372508426843,
+      79.10574912983262,
+      -69.6743749034006,
+      22.780998546062506,
+      0.24256367247672017,
+      76.76764331607504,
+      -6.218786726807622,
+      -39.14851745550918,
+      -49.13287474267784
+     ],
+     "c_value": 400.0,
+     "opfunu_value": 127557.05462344913,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 35319.14775760464,
+     "opfunu_value": 37385.15115210342,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 25798.874789757134,
+     "opfunu_value": 43464.40936449428,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -50.68907269937553,
+      -65.81265793439444,
+      -30.498689096331297,
+      2.506179374779407,
+      28.410154612984655,
+      16.61255714564558,
+      -69.03539859129125,
+      -43.55158511262726,
+      -48.243440473861426,
+      37.67503913997112,
+      -10.303720892827641,
+      -79.58293222663318,
+      -41.87141909703069,
+      12.380835900107428,
+      64.7307501264581,
+      -77.56069367337957,
+      -29.14886992559319,
+      19.184829322529623,
+      25.607157650249604,
+      75.56255024395514,
+      -41.19220109009915,
+      77.20934395760008,
+      -35.369595893900296,
+      60.10186347673741,
+      47.559126871842054,
+      52.054720708450446,
+      17.889877394021937,
+      -4.536976540713795,
+      49.61691997532813,
+      3.5383707288566058
+     ],
+     "c_value": 144552.62492079294,
+     "opfunu_value": 170074.90504370347,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "5_10": {
+   "fid": 5,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -17.408450365722388,
+      56.17470330380587,
+      -31.761572934576108,
+      -56.756311420703454,
+      16.673952237085416,
+      79.1152486946039,
+      -70.01518979203664,
+      54.70516524031066,
+      69.71219390151657,
+      -27.157097210715108
+     ],
+     "c_value": 500.0,
+     "opfunu_value": 71903.04228906726,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 726.7145612959114,
+     "opfunu_value": 21946.04040574052,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 734.3252754453656,
+     "opfunu_value": 18497.13767368587,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -32.01320122423741,
+      -23.01680609570827,
+      -29.7880864453507,
+      -41.8716799950775,
+      -4.063093931792082,
+      -6.727209609621411,
+      -11.261295242592922,
+      30.589754742762665,
+      -46.663020401932215,
+      -58.60540965372927
+     ],
+     "c_value": 737.1138769634862,
+     "opfunu_value": 42547.82731352529,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "5_30": {
+   "fid": 5,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -17.408450365722388,
+      56.17470330380587,
+      -31.761572934576108,
+      -56.756311420703454,
+      16.673952237085416,
+      79.1152486946039,
+      -70.01518979203664,
+      54.70516524031066,
+      69.71219390151657,
+      -27.157097210715108,
+      50.66717951123937,
+      43.28604540009334,
+      -11.434960631390553,
+      -27.38333178096606,
+      -71.65724269657267,
+      -23.27800129692909,
+      -33.36779748712098,
+      -12.572366042329165,
+      56.24392657365834,
+      11.673923475515991,
+      43.631852997295496,
+      40.55332554530041,
+      -20.257560135916606,
+      11.186795649671367,
+      16.474484026652988,
+      -73.346964043261,
+      57.57532491235776,
+      -11.514198003110579,
+      -79.12583827931705,
+      52.03603951820921
+     ],
+     "c_value": 500.0,
+     "opfunu_value": 212557.49035857047,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 1126.0394097190206,
+     "opfunu_value": 125383.96420457469,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 1062.6909743894207,
+     "opfunu_value": 110879.12944408231,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      53.61850285933372,
+      33.99055158391569,
+      -72.76667924372524,
+      26.548678910668173,
+      -65.67510857676072,
+      -70.42678254900962,
+      1.8752772699786533,
+      8.554138353989089,
+      64.4936227577625,
+      57.716239139252366,
+      -54.47080154079018,
+      52.801993425587796,
+      1.1587849122082048,
+      55.056315717883734,
+      -47.56786500740995,
+      56.69088372671956,
+      -37.6423234947528,
+      -51.9415747859345,
+      -66.0980509046896,
+      59.04095723808334,
+      -77.69624882050158,
+      -29.825581072408305,
+      -1.2538074770057648,
+      1.0716640294582334,
+      -34.10253339489344,
+      1.4168179881324647,
+      -58.7199933646016,
+      20.669295065983164,
+      -28.68697924417988,
+      22.541095644624548
+     ],
+     "c_value": 1470.929387599405,
+     "opfunu_value": 270326.668322657,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "6_10": {
+   "fid": 6,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      79.08939294474638,
+      -24.57277764779179,
+      -34.67392643665612,
+      -44.68162087941618,
+      75.99787965230544,
+      16.363316297700322,
+      -21.74298455088539,
+      5.6586532693629294,
+      64.98549818293446,
+      51.26796057972496
+     ],
+     "c_value": 600.0,
+     "opfunu_value": 500.25795662158185,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 741.775494104428,
+     "opfunu_value": 500.051837067772,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 715.296115763938,
+     "opfunu_value": 500.01322217422864,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      77.56110371987151,
+      46.55134982179406,
+      27.035150344032644,
+      -52.52839563299473,
+      48.45508405844333,
+      37.72050623504667,
+      38.73471265095411,
+      23.060106536111235,
+      -54.523905904590904,
+      -63.15524928048235
+     ],
+     "c_value": 831.2680668027533,
+     "opfunu_value": 500.24014415132893,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "6_30": {
+   "fid": 6,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      79.08939294474638,
+      -24.57277764779179,
+      -34.67392643665612,
+      -44.68162087941618,
+      75.99787965230544,
+      16.363316297700322,
+      -21.74298455088539,
+      5.6586532693629294,
+      64.98549818293446,
+      51.26796057972496,
+      60.61346343747036,
+      10.479993564300244,
+      -22.74816480593205,
+      71.59410670008236,
+      -77.84869171578842,
+      77.03833274405372,
+      63.258429310870554,
+      -15.57857219855235,
+      -69.06294106927837,
+      59.14944863838582,
+      44.783265350751236,
+      32.34075007603538,
+      30.986527926747925,
+      -9.425135147490138,
+      -8.24642386671455,
+      -37.64592787141257,
+      -75.1097348309633,
+      30.68669599978564,
+      71.29966839742832,
+      -66.47324442233575
+     ],
+     "c_value": 600.0,
+     "opfunu_value": 500.54476340878506,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 747.8837135132776,
+     "opfunu_value": 500.2448726730358,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 732.4759167257821,
+     "opfunu_value": 500.2390060976235,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      36.79604605149093,
+      -43.343164884938616,
+      38.51916513071373,
+      -54.78915383773882,
+      6.712724888153218,
+      52.436786407922284,
+      23.9072083233291,
+      -42.98937576634772,
+      49.76036426165473,
+      54.698555516377326,
+      6.771616444122245,
+      -38.47936030505585,
+      36.636427516763334,
+      38.46309073228939,
+      -55.699681723338976,
+      -13.182851093114124,
+      46.48016622295572,
+      31.440557502683845,
+      -3.5482251440821813,
+      -75.18976069928956,
+      1.7787034825815624,
+      -67.09745435606139,
+      -78.84005694455018,
+      66.97912344098964,
+      -68.11621363689271,
+      -55.87463877109124,
+      -1.6735075215763402,
+      3.492529814358562,
+      -64.01782848176963,
+      56.588129006868
+     ],
+     "c_value": 781.1070275626391,
+     "opfunu_value": 500.2128254667319,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "7_10": {
+   "fid": 7,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -46.58758407765421,
+      42.474406865646316,
+      -52.64380908228634,
+      15.500754013425095,
+      41.17270363549363,
+      -10.369998258710837,
+      -48.560734153054995,
+      -0.2589103953255858,
+      -31.507014237114703,
+      61.61171681322702
+     ],
+     "c_value": 700.0,
+     "opfunu_value": 1207953.5358834423,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 939.7163239134326,
+     "opfunu_value": 638100.0170778999,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 937.6403925337597,
+     "opfunu_value": 573823.6993810134,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -29.56520853641267,
+      -67.10642565262552,
+      -19.686012710746894,
+      73.46359716801788,
+      56.28960506331646,
+      -79.7834603120055,
+      -65.38661937312017,
+      43.327317061110634,
+      52.53271956926196,
+      45.45851234847606
+     ],
+     "c_value": 1588.9094489857018,
+     "opfunu_value": 1125938.6017383817,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "7_30": {
+   "fid": 7,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -46.58758407765421,
+      42.474406865646316,
+      -52.64380908228634,
+      15.500754013425095,
+      41.17270363549363,
+      -10.369998258710837,
+      -48.560734153054995,
+      -0.2589103953255858,
+      -31.507014237114703,
+      61.61171681322702,
+      -11.875520093308538,
+      -71.86620823660223,
+      -15.361832573712718,
+      53.6799336102232,
+      -41.355812978630794,
+      -27.148731847828593,
+      31.26383354480558,
+      11.250387547188609,
+      -34.73649440088146,
+      23.73860438528405,
+      -65.27609653085288,
+      24.645605955573558,
+      -21.30070467540095,
+      79.0565205361026,
+      62.94065027634642,
+      -76.4908054454675,
+      19.032878027778523,
+      45.58101287371527,
+      0.08336853239840991,
+      -38.82507597972875
+     ],
+     "c_value": 700.0,
+     "opfunu_value": 5807166.330323348,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 1660.5016308166832,
+     "opfunu_value": 4121767.274895538,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 1834.1924114330657,
+     "opfunu_value": 3842934.5939085786,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      16.203645669845514,
+      27.80767409969249,
+      -56.8681003596525,
+      54.769522067158704,
+      -73.07650505995156,
+      24.295082609870605,
+      79.51632031261363,
+      55.09175417311647,
+      -61.17265547005013,
+      -35.83026199916192,
+      -43.09560964924847,
+      -45.92751657420809,
+      9.0599126112037,
+      30.8095171787715,
+      49.991089606521484,
+      65.96574748423095,
+      37.692294701860874,
+      -74.62607974229226,
+      4.1362183439910325,
+      10.62511261499094,
+      -4.680004338823778,
+      -58.03545402634116,
+      74.38805872840302,
+      28.44686213798731,
+      -3.463511302726914,
+      39.123587289426,
+      71.0942695641088,
+      -47.76097431425139,
+      -0.5696366223108527,
+      63.50883897137919
+     ],
+     "c_value": 3987.905217747273,
+     "opfunu_value": 9151642.955572737,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "8_10": {
+   "fid": 8,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      32.16421937205095,
+      -55.96501393987099,
+      36.01071258821092,
+      -47.9535299390338,
+      -34.977685341135455,
+      -29.95752846354503,
+      23.819113198583537,
+      7.835528593433807,
+      11.729069841899488,
+      10.476832804492133
+     ],
+     "c_value": 800.0,
+     "opfunu_value": 1055.0584317909936,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 946.6454808525953,
+     "opfunu_value": 1062.83005020716,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 960.5064249275981,
+     "opfunu_value": 984.5,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -40.133699112412074,
+      0.2966381005465024,
+      -28.724785922086454,
+      4.810182247681325,
+      -71.39900993671951,
+      12.747589232850686,
+      9.341053910543309,
+      46.22662632681343,
+      25.413184555824188,
+      46.86688989087992
+     ],
+     "c_value": 980.6317091378785,
+     "opfunu_value": 1088.9476286089912,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "8_30": {
+   "fid": 8,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      32.16421937205095,
+      -55.96501393987099,
+      36.01071258821092,
+      -47.9535299390338,
+      -34.977685341135455,
+      -29.95752846354503,
+      23.819113198583537,
+      7.835528593433807,
+      11.729069841899488,
+      10.476832804492133,
+      -75.87105490075008,
+      35.18028309344328,
+      75.01795150107608,
+      26.71087858579628,
+      -30.263608521904615,
+      -0.4684276508485965,
+      -32.863527812465804,
+      -17.31194411279258,
+      78.15529629502225,
+      -43.935169560804574,
+      -18.394808442515696,
+      -41.5454933613285,
+      -15.106923847974713,
+      17.930887089078723,
+      -75.58069385382379,
+      -44.72160121645853,
+      44.04835498148964,
+      0.7021738964608772,
+      -38.56332218207574,
+      26.244085853101723
+     ],
+     "c_value": 800.0,
+     "opfunu_value": 2350.3409854579368,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 1321.0266610717174,
+     "opfunu_value": 1560.6125591519271,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 1243.1567149769667,
+     "opfunu_value": 2028.8297300264758,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -18.90068154185235,
+      52.21214995330348,
+      -22.534440860866795,
+      64.35175304576364,
+      -40.41828765857551,
+      -47.12995036648401,
+      69.77750583542525,
+      -63.60091613999895,
+      -54.16360330706336,
+      -75.69796707018126,
+      60.095881316242185,
+      -24.538979225136984,
+      17.357310590949012,
+      46.25743759352319,
+      36.34208025418337,
+      60.687624947009,
+      -71.77752079980559,
+      -13.925575690853861,
+      1.5211508491930914,
+      16.613926960065754,
+      17.680975364124407,
+      47.60699460350199,
+      -73.81942788305024,
+      -12.233760738759912,
+      2.273018259227854,
+      -33.39820521419695,
+      0.1980290815694019,
+      47.709405071575404,
+      75.23604847239267,
+      4.58860967234051
+     ],
+     "c_value": 1507.8989887951695,
+     "opfunu_value": 2209.9739390318073,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "9_10": {
+   "fid": 9,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -24.856254283737513,
+      0.9342532236754266,
+      21.993930312802064,
+      51.98676726407686,
+      -18.402592660115374,
+      -12.374838559131533,
+      16.088336676400303,
+      -3.32547973996283,
+      -51.337989555363535,
+      42.40954300500897
+     ],
+     "c_value": 901.4426009870527,
+     "opfunu_value": 829.5503343369033,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 4306.1324978942675,
+     "opfunu_value": 808.607227206655,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 5504.393519339613,
+     "opfunu_value": 810.271748361397,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      5.784588090624794,
+      42.55299953404561,
+      13.176622185904677,
+      53.86186410012033,
+      5.837788088264915,
+      -55.06656834385112,
+      -18.80844504038413,
+      25.03356818467816,
+      32.230075542903975,
+      -23.26306197791478
+     ],
+     "c_value": 7116.2987035491215,
+     "opfunu_value": 836.112445694585,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "9_30": {
+   "fid": 9,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -24.856254283737513,
+      0.9342532236754266,
+      21.993930312802064,
+      51.98676726407686,
+      -18.402592660115374,
+      -12.374838559131533,
+      16.088336676400303,
+      -3.32547973996283,
+      -51.337989555363535,
+      42.40954300500897,
+      -22.810714814258134,
+      -19.683883236573948,
+      52.97444290154354,
+      -58.5381537575918,
+      -10.750203845440495,
+      -38.67603031856754,
+      51.95843583529742,
+      -14.568916156221604,
+      -59.773837616561835,
+      21.111178445215884,
+      -64.42387125660845,
+      -52.00420981832045,
+      45.245583488254624,
+      -37.47831290470358,
+      21.9950106469891,
+      70.14394394594427,
+      29.265899485566607,
+      31.97265391795554,
+      -75.60560092125348,
+      16.665316492628918
+     ],
+     "c_value": 903.2594920693923,
+     "opfunu_value": 956.7701936215192,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 34485.551542309455,
+     "opfunu_value": 864.5095696883748,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 24922.74522470685,
+     "opfunu_value": 868.7499645149584,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -2.6992595146059415,
+      -78.35923315261496,
+      -28.541706320620136,
+      -36.80426722293332,
+      18.607559869631217,
+      -78.13872522691497,
+      24.099008814583243,
+      26.08540608875805,
+      74.6176078361487,
+      24.19676122684905,
+      77.39833269106134,
+      -13.353518704934814,
+      -68.88135628980329,
+      17.00083395567829,
+      54.895019770280555,
+      -62.879799849712455,
+      53.640344182030475,
+      -63.35137116925027,
+      -36.48749018396597,
+      42.58100098271248,
+      -53.13451833311697,
+      -79.38091856156221,
+      8.846387937802291,
+      -28.052978572515173,
+      70.4142837443282,
+      59.87031748038433,
+      -46.12823523350997,
+      22.97416204447063,
+      -70.5396264040467,
+      -40.44206350612306
+     ],
+     "c_value": 69427.25552855607,
+     "opfunu_value": 1116.0831596190028,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "10_10": {
+   "fid": 10,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -21.871513548247286,
+      -74.52820539219687,
+      44.45197334720379,
+      64.31604645415956,
+      -0.2072449401986063,
+      36.834290082023614,
+      33.913408570882595,
+      62.65785082367148,
+      -29.501206553308855,
+      13.221458538072866
+     ],
+     "c_value": 1000.0,
+     "opfunu_value": 6408.668661145605,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 6138.308625159192,
+     "opfunu_value": 5379.726542924857,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 4738.30360793693,
+     "opfunu_value": 4055.6845647733558,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      50.75859533675768,
+      46.24201755256331,
+      -8.968426541729173,
+      -15.056761133919053,
+      66.65393639234506,
+      57.383873116563365,
+      -28.5612225587044,
+      -72.07307065586451,
+      6.0500406744650235,
+      -74.521823660135
+     ],
+     "c_value": 5090.002775612657,
+     "opfunu_value": 5175.536679994081,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "10_30": {
+   "fid": 10,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -21.871513548247286,
+      -74.52820539219687,
+      44.45197334720379,
+      64.31604645415956,
+      -0.2072449401986063,
+      36.834290082023614,
+      33.913408570882595,
+      62.65785082367148,
+      -29.501206553308855,
+      13.221458538072866,
+      -26.946350609393022,
+      72.68530793147409,
+      21.97040428499244,
+      -23.41518213200159,
+      61.03390744935436,
+      36.88250129897264,
+      44.19933183314248,
+      -21.82988037440454,
+      -14.799452617205432,
+      65.59986262843006,
+      -23.10880397591219,
+      -69.66842315609959,
+      -37.18798456582612,
+      -58.45659783969475,
+      79.96010825036097,
+      49.539363817097325,
+      -31.91232604529351,
+      -30.463843248069217,
+      -5.813470299268829,
+      53.00468018884058
+     ],
+     "c_value": 1000.0,
+     "opfunu_value": 11766.09925571298,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 11296.473779287446,
+     "opfunu_value": 10648.74754379363,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 12591.95578385652,
+     "opfunu_value": 13017.29862304626,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      74.59774353537321,
+      45.20035477974443,
+      -10.61589251228122,
+      -23.097319566316145,
+      -56.39687032413393,
+      -72.54749883823973,
+      23.586285626403978,
+      73.00267136333636,
+      68.13140474352701,
+      -12.071952439014524,
+      34.32306823328136,
+      -55.31364570093302,
+      -58.038067053297056,
+      -41.7288257194805,
+      5.125803828643981,
+      -75.30415376191549,
+      -2.259118246990468,
+      60.021037555106005,
+      -0.11431654680173153,
+      -19.572066700113723,
+      -15.869358324213295,
+      -39.66697729990457,
+      47.32373639048524,
+      -8.52847651031854,
+      -6.590547045190078,
+      57.691243284229586,
+      27.93242880635175,
+      57.60568712271083,
+      7.32157663500054,
+      -77.14553734712027
+     ],
+     "c_value": 12505.76948750993,
+     "opfunu_value": 13407.849215972117,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "11_10": {
+   "fid": 11,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -24.75259040703652,
+      -16.78697106278826,
+      -58.62265228229698,
+      9.083091434595687,
+      19.517741249649674,
+      34.677182861919135,
+      -60.5876397251094,
+      -56.46085991359356,
+      22.327432233061373,
+      57.153541062564386
+     ],
+     "c_value": 1100.0,
+     "opfunu_value": 65006863280.22598,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 65027134.70655811,
+     "opfunu_value": 451516462.108631,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 36709104.28347567,
+     "opfunu_value": 103589498.91214763,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      75.86745444676981,
+      -16.5664796332736,
+      -11.219132187385895,
+      48.74332633783152,
+      -29.563229920880488,
+      50.380904045120786,
+      -47.591652723522046,
+      63.856210922847595,
+      41.4397915088764,
+      44.50433175597517
+     ],
+     "c_value": 147559871.0556606,
+     "opfunu_value": 32577007562.59477,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "11_30": {
+   "fid": 11,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -24.75259040703652,
+      -16.78697106278826,
+      -58.62265228229698,
+      9.083091434595687,
+      19.517741249649674,
+      34.677182861919135,
+      -60.5876397251094,
+      -56.46085991359356,
+      22.327432233061373,
+      57.153541062564386,
+      -60.435361480543094,
+      -57.12040348775703,
+      -22.62141873250782,
+      -38.184637258846614,
+      -9.19840943496601,
+      -37.667373473601124,
+      44.454029185908865,
+      -61.13147242978749,
+      -76.6571274384191,
+      -56.34085750968235,
+      -40.79216523132854,
+      6.078957061320054,
+      -70.96867039379136,
+      29.55669154858063,
+      -40.685143005421914,
+      44.801507873833884,
+      18.942835526048597,
+      -27.7633137012661,
+      -58.013377179397914,
+      9.16974585930339
+     ],
+     "c_value": 1100.0,
+     "opfunu_value": 657784113647.9082,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 618582396.7213805,
+     "opfunu_value": 24930958848.147636,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 2667602199.059909,
+     "opfunu_value": 15300000287.675995,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      5.449784384753684,
+      37.92692854543671,
+      -10.44179716985353,
+      -17.20153745661152,
+      -62.54958606555624,
+      -54.393443132751074,
+      -20.112371977122464,
+      -4.1987468844377815,
+      66.21145587912639,
+      13.588512949425521,
+      59.11825868192338,
+      16.678621410406024,
+      -13.031851075185031,
+      54.81200719407653,
+      55.05054123119373,
+      -66.76459349921029,
+      34.60436964643662,
+      -75.63077206899096,
+      -25.56494593224309,
+      51.14469994355176,
+      -34.393012699578236,
+      -68.39073261140737,
+      -41.85508412891443,
+      2.2457121766982766,
+      -17.622731194062276,
+      23.744144956259305,
+      -76.2285734646795,
+      23.926459802002014,
+      -13.917024619440781,
+      -0.3746719215227188
+     ],
+     "c_value": 1677666842.2008004,
+     "opfunu_value": 165306941280.35727,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "12_10": {
+   "fid": 12,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      65.25883279054372,
+      5.202710668185119,
+      -78.04179981259713,
+      31.470549680046076,
+      -34.47152746583872,
+      -2.962118351348721,
+      -24.323131118120223,
+      1.135297753445471,
+      40.94934215813379,
+      75.59365175459237
+     ],
+     "c_value": 1200.0,
+     "opfunu_value": 11706954586.598577,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 5721203472.457083,
+     "opfunu_value": 11238176194.431906,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 4139545291.935956,
+     "opfunu_value": 11670526208.536505,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -6.895336079682778,
+      5.854445942235969,
+      -69.70754677339393,
+      -28.203438851641152,
+      -67.05743158939343,
+      73.08735274500103,
+      8.815157098877705,
+      70.26560299185837,
+      -32.73674165374459,
+      60.69859733372334
+     ],
+     "c_value": 5535970475.906,
+     "opfunu_value": 11067887705.1514,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "12_30": {
+   "fid": 12,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      65.25883279054372,
+      5.202710668185119,
+      -78.04179981259713,
+      31.470549680046076,
+      -34.47152746583872,
+      -2.962118351348721,
+      -24.323131118120223,
+      1.135297753445471,
+      40.94934215813379,
+      75.59365175459237,
+      -57.49496056581613,
+      -77.80222967164694,
+      57.925908629747994,
+      -39.253659825424506,
+      -56.26068590966085,
+      26.6519163300525,
+      -61.24224080761999,
+      -18.341253669160068,
+      58.549582426692155,
+      42.83184541521214,
+      34.825893470470746,
+      38.791558201793364,
+      -30.28130245873765,
+      22.149575996282323,
+      -52.07623048316512,
+      -45.20573055614052,
+      67.28654294614051,
+      4.927295783966457,
+      -66.93975887584489,
+      63.472573674969624
+     ],
+     "c_value": 1200.0,
+     "opfunu_value": 30275564692.804756,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 29488187131.3573,
+     "opfunu_value": 33023962468.916462,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 26795573637.122955,
+     "opfunu_value": 40037760087.655075,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      49.94804834473794,
+      4.820316378766904,
+      59.902006019213445,
+      16.40999826964665,
+      25.897871033777307,
+      66.02389886844858,
+      -0.49406259061414914,
+      -9.186839451388323,
+      30.508659882962547,
+      31.824675416624487,
+      2.577470065030113,
+      14.62478086547739,
+      -21.474143288491035,
+      -55.14645497501245,
+      14.665674891204276,
+      78.83397845592384,
+      42.797126862154826,
+      42.57121203694082,
+      3.7634443208337984,
+      16.67342479813854,
+      -21.09974047451935,
+      50.56559486269518,
+      66.41260587514651,
+      -49.14964539414118,
+      -56.55814222412984,
+      -25.18893284615949,
+      -47.60952507481168,
+      -11.759483991291475,
+      23.034158622295436,
+      -61.98895117740644
+     ],
+     "c_value": 56604827256.941696,
+     "opfunu_value": 71069682871.54662,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "13_10": {
+   "fid": 13,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      4.574812690063766,
+      -71.12311809841688,
+      -6.245880092608687,
+      -14.506716474195343,
+      25.6162181988434,
+      -28.22073203894344,
+      -65.84337852236041,
+      -69.66282531137709,
+      56.894991685121795,
+      74.12525184178969
+     ],
+     "c_value": 1300.0,
+     "opfunu_value": 18507218879.20811,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 2841537129.1318893,
+     "opfunu_value": 9613612718.775696,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 2070081484.1971626,
+     "opfunu_value": 11000154635.6072,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      2.7081914012530035,
+      32.17781825096904,
+      30.008526401865097,
+      -61.74734525553289,
+      -41.81437939072103,
+      78.49039005858697,
+      60.758839833334235,
+      10.150635447881058,
+      -8.46340482837536,
+      57.94169939721766
+     ],
+     "c_value": 1773045180.7061858,
+     "opfunu_value": 30861398349.30283,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "13_30": {
+   "fid": 13,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      4.574812690063766,
+      -71.12311809841688,
+      -6.245880092608687,
+      -14.506716474195343,
+      25.6162181988434,
+      -28.22073203894344,
+      -65.84337852236041,
+      -69.66282531137709,
+      56.894991685121795,
+      74.12525184178969,
+      63.10770495939428,
+      11.19725253954401,
+      32.22343211631451,
+      -20.776421102125397,
+      -69.30946342149258,
+      75.84827497408179,
+      61.95748939270035,
+      39.524223115073625,
+      -36.38210495765419,
+      45.96197670603263,
+      2.9424982904188823,
+      14.568767070103789,
+      57.268147234464124,
+      -54.249430361319995,
+      69.82391729477044,
+      -69.42202679320333,
+      -56.00431336835228,
+      15.505218103297622,
+      -43.79933787686719,
+      24.52830349306032
+     ],
+     "c_value": 1300.0,
+     "opfunu_value": 79331263811.50294,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 44187808088.324646,
+     "opfunu_value": 29132145345.159294,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 37972322797.75138,
+     "opfunu_value": 32267740850.30325,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -2.394718780548928,
+      -32.08537210275118,
+      -44.929289423655106,
+      -65.6226483315398,
+      66.8804132327584,
+      -43.59825216108124,
+      42.02195355100989,
+      -27.316156599232144,
+      -0.835620736972885,
+      -79.71074037958381,
+      12.022525276583451,
+      -70.24325547564581,
+      -71.6235752656134,
+      -3.1662401215762657,
+      42.950334755774776,
+      65.01884325698711,
+      -33.502332767766525,
+      75.50249119295617,
+      -21.71271700241654,
+      58.77662491029122,
+      16.76762791094164,
+      -24.714693804030006,
+      -33.89792225580558,
+      4.282986106665092,
+      62.79220706177307,
+      -59.20852480300594,
+      -7.828734428566406,
+      -33.072824428217956,
+      -75.94817553151272,
+      -16.886139625523825
+     ],
+     "c_value": 106760265623.01967,
+     "opfunu_value": 87409894383.84102,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "14_10": {
+   "fid": 14,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -36.6175269878551,
+      -70.77608488070597,
+      66.3414099748905,
+      -39.922552015596324,
+      61.66827387254139,
+      -21.321024196837577,
+      57.54632375088815,
+      -18.936718822893084,
+      -29.433256364163597,
+      35.2602875024361
+     ],
+     "c_value": 1400.0,
+     "opfunu_value": 4256753188.2867384,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 2215435591.97279,
+     "opfunu_value": 23220360.556404665,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 1628400962.6161294,
+     "opfunu_value": 80533275.92054111,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -24.052622880775196,
+      -34.42855957577777,
+      25.492340859689563,
+      -71.52465782298991,
+      -70.32707673367467,
+      48.98058209936866,
+      35.71172600843377,
+      62.279929627697044,
+      14.188181254317271,
+      38.823713382656706
+     ],
+     "c_value": 1081022065.1793046,
+     "opfunu_value": 1564614883.9374006,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "14_30": {
+   "fid": 14,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -36.6175269878551,
+      -70.77608488070597,
+      66.3414099748905,
+      -39.922552015596324,
+      61.66827387254139,
+      -21.321024196837577,
+      57.54632375088815,
+      -18.936718822893084,
+      -29.433256364163597,
+      35.2602875024361,
+      -20.34794655644704,
+      -67.93777420555138,
+      -70.17107270200322,
+      -5.218902567969124,
+      -34.095459857068704,
+      77.60618224628558,
+      7.105013321668395,
+      53.95889728048763,
+      7.18659315592916,
+      -14.928828298546762,
+      -28.81721367538777,
+      -10.91024224223115,
+      -8.441365178879991,
+      45.975438564073045,
+      69.19594637546498,
+      -63.72926755981951,
+      -57.7998778865672,
+      77.45236046493628,
+      -18.177665815771398,
+      -72.02936566994961
+     ],
+     "c_value": 1400.0,
+     "opfunu_value": 1054389613.6142435,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 1251169642.4916682,
+     "opfunu_value": 1075553494.8293242,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 2071019910.732985,
+     "opfunu_value": 2297085407.2508707,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -26.906413987874096,
+      -14.235543610463026,
+      63.267778433001666,
+      65.728456113781,
+      72.34912133030574,
+      -53.285972757708166,
+      43.791811218818125,
+      -55.551536270563574,
+      -10.421429365173452,
+      34.76860087907593,
+      -30.527164294783624,
+      -25.015233517593728,
+      48.42180300901455,
+      -5.104482920945202,
+      56.94163411718927,
+      28.10095592445178,
+      13.818139244053867,
+      76.25209312247006,
+      -20.025346357792237,
+      45.59725793537572,
+      -79.91894342474679,
+      -31.096774993820055,
+      -75.90157679574253,
+      -5.9826278595707265,
+      79.33722402610613,
+      -27.676542107957914,
+      26.21388875188471,
+      -49.08637376566679,
+      -24.258068348108743,
+      -49.548281858841904
+     ],
+     "c_value": 6891082038.7766905,
+     "opfunu_value": 1202629293.0555432,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "15_10": {
+   "fid": 15,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      4.979006091588644,
+      2.1553813303613083,
+      65.49401938239765,
+      -42.01624004264187,
+      73.05360331807918,
+      -28.089033043053476,
+      67.62164540012444,
+      36.99423989141093,
+      2.189854943281915,
+      4.892031738949953
+     ],
+     "c_value": 1500.0,
+     "opfunu_value": 992040605.7685443,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 769548252.8508397,
+     "opfunu_value": 3116721589.186779,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 266094892.3109307,
+     "opfunu_value": 2368663414.220027,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      5.298115342162916,
+      53.501989030780294,
+      -23.276111284593526,
+      78.89079027421744,
+      42.97957377430461,
+      56.2819488530543,
+      59.928226065221935,
+      14.25126671544163,
+      73.63672030911559,
+      66.27059973142383
+     ],
+     "c_value": 1767158728.0714755,
+     "opfunu_value": 11303462741.023258,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "15_30": {
+   "fid": 15,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      4.979006091588644,
+      2.1553813303613083,
+      65.49401938239765,
+      -42.01624004264187,
+      73.05360331807918,
+      -28.089033043053476,
+      67.62164540012444,
+      36.99423989141093,
+      2.189854943281915,
+      4.892031738949953,
+      -19.622563468116596,
+      -36.424208635661856,
+      -21.674539568682448,
+      36.01346915402145,
+      -1.6239283613972049,
+      66.63602999720538,
+      -48.24383696925074,
+      45.83205780285972,
+      59.39549266332551,
+      20.045192511773294,
+      -60.44945462627777,
+      26.01609614957873,
+      -27.47201403019578,
+      37.86019449953929,
+      -3.711046242951909,
+      28.445794707371746,
+      8.471646797131584,
+      -17.032280609492346,
+      -21.540203737812213,
+      53.79577859015939
+     ],
+     "c_value": 1500.0,
+     "opfunu_value": 28886979899.877182,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 6515671179.209264,
+     "opfunu_value": 17985889945.875557,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 4559332654.705927,
+     "opfunu_value": 21582435342.272804,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      39.2533793488719,
+      25.77895168820747,
+      49.7969311380634,
+      -2.1568980617998363,
+      -67.93144662101469,
+      -78.7728590875048,
+      -38.07476691404258,
+      6.078851216217757,
+      -18.9418912093886,
+      -22.46098246547278,
+      -56.92485202026951,
+      1.1075422315540209,
+      67.64953463475553,
+      66.22184911589346,
+      38.12865839043374,
+      45.333574267297095,
+      50.53226593299402,
+      -9.165461152380416,
+      31.108138828724336,
+      73.22914586632061,
+      19.47697647157696,
+      -20.649770022219812,
+      24.526315801365655,
+      77.76678506973221,
+      -29.00730858172531,
+      -26.391631449886702,
+      64.95253569175762,
+      -56.464290740079775,
+      -3.6551865438332243,
+      -48.492035590920764
+     ],
+     "c_value": 36492203038.51524,
+     "opfunu_value": 70160441466.5425,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "16_10": {
+   "fid": 16,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      37.99680298101008,
+      52.267701836427534,
+      63.2647648375783,
+      -69.09737482159277,
+      -39.57862650955963,
+      -77.9757461687437,
+      21.63414192462068,
+      -74.97667290036412,
+      27.058563580298127,
+      53.27809407062739
+     ],
+     "c_value": 1600.0,
+     "opfunu_value": 4571554297.926906,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 3437.762945702212,
+     "opfunu_value": 9835270083.57296,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 3917.2342737982453,
+     "opfunu_value": 7421514584.830616,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -42.589110408494015,
+      -38.74243453745309,
+      30.065413352715282,
+      -47.89855718296957,
+      1.9755436046124117,
+      4.127752292238739,
+      -15.74427903204409,
+      -48.70149350581734,
+      61.73823705632509,
+      -35.59992849783647
+     ],
+     "c_value": 3534.459120362386,
+     "opfunu_value": 9354360834.62015,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "16_30": {
+   "fid": 16,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      37.99680298101008,
+      52.267701836427534,
+      63.2647648375783,
+      -69.09737482159277,
+      -39.57862650955963,
+      -77.9757461687437,
+      21.63414192462068,
+      -74.97667290036412,
+      27.058563580298127,
+      53.27809407062739,
+      -75.07295496532366,
+      8.845897805339604,
+      33.00441434281153,
+      -14.808140366714511,
+      79.58485662917832,
+      -17.31463339986029,
+      32.95644854798749,
+      -20.969253974486726,
+      49.74845080159068,
+      -37.787377665651675,
+      -52.45642660765742,
+      -35.16199489830154,
+      72.35174424590159,
+      15.765540867934718,
+      11.44536737885575,
+      42.289536428772635,
+      40.23875838156732,
+      -27.187880998099168,
+      13.284064947294098,
+      65.27956917196494
+     ],
+     "c_value": 1600.0,
+     "opfunu_value": 243378397816.2863,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 27334.34125691474,
+     "opfunu_value": 72629755358.39221,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 40019.82415531853,
+     "opfunu_value": 64212053418.704735,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      47.26786241853847,
+      9.487338603371072,
+      -7.18384253538494,
+      71.23688992746852,
+      -55.48039947084128,
+      20.06466311309667,
+      49.81451689442429,
+      50.76776847273709,
+      -51.05970049678554,
+      -58.879750989335875,
+      18.77000010502931,
+      -59.66202155955551,
+      -69.07477716432825,
+      36.71110378850712,
+      -55.9956122663049,
+      -66.89314248412205,
+      47.33698831950704,
+      6.796721741428428,
+      -35.978886473121804,
+      58.514710016501425,
+      0.9789936852069729,
+      -33.229820634652455,
+      -24.285235769733774,
+      29.320249637982997,
+      16.42559041920363,
+      15.714665152974177,
+      -36.447288084682526,
+      -43.964184220204494,
+      58.25394657935584,
+      3.0738690650158276
+     ],
+     "c_value": 65842.99035898886,
+     "opfunu_value": 821603359126.1249,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "17_10": {
+   "fid": 17,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -38.8413851516514,
+      -7.160243805106845,
+      -22.217632430706935,
+      28.25173710857132,
+      -53.05441624161527,
+      -5.573772827896178,
+      -78.39991845116016,
+      -67.42940864871694,
+      -6.071158985640466,
+      42.03092834075491
+     ],
+     "c_value": 1700.0,
+     "opfunu_value": 8.200029222579659e+16,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 3283.008457029825,
+     "opfunu_value": 132887956466478.42,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 2963.417993144768,
+     "opfunu_value": 815237498751881.5,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -71.64611530871555,
+      33.53420388394041,
+      47.090258529926444,
+      -41.219845402369145,
+      -55.99470183292959,
+      -37.81827357435267,
+      -71.93312587093375,
+      -26.823495977325834,
+      -45.24146461209676,
+      -49.5343912693567
+     ],
+     "c_value": 211609.35674083006,
+     "opfunu_value": 163446138597990.9,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "17_30": {
+   "fid": 17,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -38.8413851516514,
+      -7.160243805106845,
+      -22.217632430706935,
+      28.25173710857132,
+      -53.05441624161527,
+      -5.573772827896178,
+      -78.39991845116016,
+      -67.42940864871694,
+      -6.071158985640466,
+      42.03092834075491,
+      13.812623067671723,
+      -11.244101641347683,
+      -19.616286130443342,
+      69.07900563863993,
+      50.84776862098266,
+      38.44721285553986,
+      -57.69353694175069,
+      -55.27538000385994,
+      -53.31172487387049,
+      -10.15995514120904,
+      -38.36605830041974,
+      -18.341855154531935,
+      48.4404177816773,
+      58.101656650240386,
+      34.54332058995185,
+      -70.41084467918186,
+      -35.0665230094765,
+      76.94777972854104,
+      -18.66610241060429,
+      38.81678497363664
+     ],
+     "c_value": 1700.0,
+     "opfunu_value": 2.1623485486448276e+18,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 285573.3271443177,
+     "opfunu_value": 3.119713453397497e+17,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 247668.70599228537,
+     "opfunu_value": 4.6680097211072806e+17,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      6.830549374305207,
+      36.19643406285212,
+      -51.139479583545096,
+      -1.9276859728627613,
+      78.73043646745091,
+      -39.1610868404115,
+      31.50726591800293,
+      3.16461434455222,
+      57.978927355377095,
+      -37.72197798930229,
+      37.45181619649759,
+      7.716526662096214,
+      -64.88414454808967,
+      72.77335596174618,
+      -10.855147282827005,
+      44.660839169309625,
+      -43.43038863461519,
+      33.71672029728026,
+      56.75556101700127,
+      -11.695702706642265,
+      -37.168195950031745,
+      13.562913289231702,
+      37.54708933770105,
+      76.08319155180541,
+      -35.693022137915506,
+      36.23912264885716,
+      -20.17658694413521,
+      -50.92210543371708,
+      77.36853427196681,
+      -12.806020873509269
+     ],
+     "c_value": 4767911.198090687,
+     "opfunu_value": 1.1365337646815355e+19,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "18_10": {
+   "fid": 18,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      18.154450402667024,
+      1.8479176246784164,
+      17.95151797027863,
+      -48.837473526987,
+      -11.4175680705428,
+      -55.06656161279723,
+      -63.70102628306533,
+      -63.148739479085776,
+      -60.8644249946179,
+      -68.39088454301975
+     ],
+     "c_value": 1800.0,
+     "opfunu_value": 2546255696.3211756,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 14468752711.761955,
+     "opfunu_value": 4818888073.698443,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 16451186424.733946,
+     "opfunu_value": 6968788160.799253,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      17.187903494954384,
+      15.459651978372847,
+      52.92577790268862,
+      27.11086056856888,
+      -29.19663317283552,
+      54.76064251538054,
+      -18.36741331904271,
+      43.60776123857464,
+      -29.871802544220216,
+      40.83969486529185
+     ],
+     "c_value": 18248532708.495113,
+     "opfunu_value": 7140924364.543667,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "18_30": {
+   "fid": 18,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      18.154450402667024,
+      1.8479176246784164,
+      17.95151797027863,
+      -48.837473526987,
+      -11.4175680705428,
+      -55.06656161279723,
+      -63.70102628306533,
+      -63.148739479085776,
+      -60.8644249946179,
+      -68.39088454301975,
+      -5.596514533085994,
+      19.380242423797128,
+      -36.26558324148207,
+      -75.65753958917108,
+      -56.26787519839959,
+      65.82154049809162,
+      22.631151425946115,
+      41.76201587624942,
+      -25.79916787603831,
+      -6.614492575924146,
+      30.223276442952113,
+      -37.39282330376693,
+      18.818733589173632,
+      -33.54456675869625,
+      56.46648659206298,
+      72.24015280243015,
+      60.248150443773795,
+      -49.33549149396619,
+      -61.6055390898164,
+      -44.29548254436603
+     ],
+     "c_value": 1800.0,
+     "opfunu_value": 18620890332.352764,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 4736260953.171221,
+     "opfunu_value": 4445780885.235225,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 5863916411.116232,
+     "opfunu_value": 3645318111.454909,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      59.72049742941212,
+      -14.971387632462097,
+      -27.029925125317376,
+      26.13732797799733,
+      -35.334390144889426,
+      -45.66660491046491,
+      74.06945397056589,
+      -65.16026709835396,
+      -79.08972786278626,
+      -35.35308357869481,
+      -22.908909364422115,
+      -8.13135770103672,
+      43.43252548460676,
+      -29.96432316911617,
+      46.075491695998466,
+      29.146427769423525,
+      49.53243104473711,
+      6.915293495878188,
+      -37.14588781329361,
+      35.57524324238619,
+      43.77570847519226,
+      5.965565934782276,
+      45.965973197772115,
+      20.699162822208052,
+      24.67949790606555,
+      23.845495644826897,
+      32.98782050740172,
+      32.880428269427256,
+      41.66400307431316,
+      0.19533448553359278
+     ],
+     "c_value": 3736649388.8160005,
+     "opfunu_value": 3325725323.2469244,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "19_10": {
+   "fid": 19,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      79.29118506577387,
+      6.947400461392192,
+      -35.040445381328674,
+      35.23447600902733,
+      25.838283722213603,
+      24.034519244001473,
+      -51.835066066978065,
+      8.044612299671684,
+      5.79892058195496,
+      22.458220917013577
+     ],
+     "c_value": 1900.0,
+     "opfunu_value": 7.37550955516877e+17,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 12289135494.984451,
+     "opfunu_value": 1.0900458714689085e+17,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 7853882007.24095,
+     "opfunu_value": 2.358099404281549e+17,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      19.721208277636677,
+      3.9441034278495835,
+      43.54672635472113,
+      -64.48756085186069,
+      -33.59860311270413,
+      -49.829019549817666,
+      17.918258346801622,
+      -56.83659678382071,
+      -19.32688538702699,
+      23.87269235006633
+     ],
+     "c_value": 37064092332.49671,
+     "opfunu_value": 2095201325616.2886,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "19_30": {
+   "fid": 19,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      79.29118506577387,
+      6.947400461392192,
+      -35.040445381328674,
+      35.23447600902733,
+      25.838283722213603,
+      24.034519244001473,
+      -51.835066066978065,
+      8.044612299671684,
+      5.79892058195496,
+      22.458220917013577,
+      15.318952247183276,
+      25.63041840942131,
+      50.442207143847924,
+      -57.82453334789003,
+      -16.931977987723414,
+      64.24596033256779,
+      -58.14469053323599,
+      42.18620790270447,
+      63.59622075389896,
+      61.682210779600865,
+      52.91657275190417,
+      -71.16175874656147,
+      -15.67925345882739,
+      -1.2128825118825262,
+      -64.91637720955367,
+      -9.551760968543476,
+      -56.44659831023151,
+      -57.977800060984585,
+      -32.88562496792787,
+      -68.69883596370875
+     ],
+     "c_value": 1900.0,
+     "opfunu_value": 9.671773714244925e+17,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 6647940171.561268,
+     "opfunu_value": 1.7303565207672544e+17,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 3762539506.215751,
+     "opfunu_value": 1.8019929858236362e+17,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      7.566907426884171,
+      34.45373479626849,
+      22.393591884745547,
+      47.313651040175344,
+      -0.05755746799246708,
+      59.222317894799346,
+      -59.3957961230479,
+      -39.59027584880001,
+      18.874665967532934,
+      -57.80691054544288,
+      57.02173819633066,
+      76.5677214726374,
+      -79.47258340653315,
+      39.51994892500406,
+      -28.333927901093894,
+      16.17827291833963,
+      66.47466619001537,
+      -23.234427640260407,
+      -72.40447776952666,
+      68.10705187896448,
+      12.909842209444378,
+      -6.851156730292701,
+      62.861175134151466,
+      -23.435475558716234,
+      -37.88753007115641,
+      65.71398917045346,
+      25.553780045265043,
+      -38.18610339769432,
+      27.814940431515566,
+      29.296615989638767
+     ],
+     "c_value": 7585632544.367901,
+     "opfunu_value": 3.963899918471491e+18,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "20_10": {
+   "fid": 20,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -30.590574643849664,
+      -55.78803918128276,
+      -29.57451981938189,
+      61.04539564859374,
+      69.96466591486924,
+      56.140031207418076,
+      25.504503075734007,
+      14.183193861592187,
+      -23.060768220136296,
+      -62.33147583079128
+     ],
+     "c_value": 2000.0,
+     "opfunu_value": 93935.25105112541,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 3152.3424399956784,
+     "opfunu_value": 22579.07363211151,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 3069.93534423702,
+     "opfunu_value": 20255.285283166177,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      -17.377555064150663,
+      -23.43017161173318,
+      16.27803507517639,
+      -78.78367683151987,
+      -56.07568603599223,
+      27.935243461218008,
+      45.4591505804446,
+      -60.492949663577335,
+      51.091660982953016,
+      5.072408771737074
+     ],
+     "c_value": 2851.555277566252,
+     "opfunu_value": 106340.62714403404,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "20_30": {
+   "fid": 20,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -30.590574643849664,
+      -55.78803918128276,
+      -29.57451981938189,
+      61.04539564859374,
+      69.96466591486924,
+      56.140031207418076,
+      25.504503075734007,
+      14.183193861592187,
+      -23.060768220136296,
+      -62.33147583079128,
+      74.88571189105778,
+      44.15975300788867,
+      -47.03119641497321,
+      -53.318146454784156,
+      41.91253444268952,
+      -56.03362171726005,
+      2.919798010457214,
+      -46.95483824562041,
+      -49.96639414223209,
+      54.81365150530527,
+      -26.95915033433547,
+      17.56033082379045,
+      -63.51984455414109,
+      -58.027421449323846,
+      -66.87229878589153,
+      77.27430552117261,
+      29.25289434811701,
+      -26.604691197445938,
+      54.95504452612022,
+      -50.56664949775052
+     ],
+     "c_value": 2000.0,
+     "opfunu_value": 72186.02602536639,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 5496.869272417351,
+     "opfunu_value": 28155.891204742227,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 4584.91156976101,
+     "opfunu_value": 51224.820864421825,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    },
+    "random": {
+     "x": [
+      36.26405167946939,
+      11.22114375145857,
+      -71.70790398567979,
+      -60.64163037191438,
+      -41.14728535330498,
+      -49.23092634867867,
+      -65.92888089367554,
+      12.543160346720782,
+      -34.89766058166383,
+      -74.21870514807372,
+      16.643996525382363,
+      -17.420356698383216,
+      -15.088794862197346,
+      8.172886858253463,
+      55.298772842329214,
+      -49.75519450229939,
+      54.68990333773186,
+      18.089543971950974,
+      -20.41743399881797,
+      -66.20801811981957,
+      17.748576703393795,
+      -67.65525577429335,
+      43.1490897416416,
+      67.29680472423163,
+      36.99023022203724,
+      7.096742572690914,
+      -14.796554923536362,
+      7.553112713240779,
+      -19.460759973394715,
+      -46.068105552684315
+     ],
+     "c_value": 4792.2968582927915,
+     "opfunu_value": 54264.273994339215,
+     "exclude": [
+      "opfunu-unimodal-hybrid-data-source-offset"
+     ]
+    }
+   }
+  },
+  "21_10": {
+   "fid": 21,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      64.34688455627621,
+      12.707352301435243,
+      74.49516701441965,
+      16.796387941016064,
+      -72.64685076877794,
+      -72.92459326653024,
+      54.639988328628235,
+      23.612044948903865,
+      -58.46282943825369,
+      -77.98717661853283
+     ],
+     "c_value": 2100.0,
+     "opfunu_value": 2000.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 2828.6145683142254,
+     "opfunu_value": 21205.364907616622,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 2817.5448279460634,
+     "opfunu_value": 21989.39144078954,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      -60.264305465873974,
+      1.4069714651910061,
+      -36.56973830717733,
+      -63.00429708883138,
+      -16.24930270593275,
+      -79.05716145978461,
+      -51.2806523490606,
+      57.82438793904279,
+      41.20126595548473,
+      56.10044162931766
+     ],
+     "c_value": 2629.5530280681724,
+     "opfunu_value": 59161.392895989324,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "21_30": {
+   "fid": 21,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      64.34688455627621,
+      12.707352301435243,
+      74.49516701441965,
+      16.796387941016064,
+      -72.64685076877794,
+      -72.92459326653024,
+      54.639988328628235,
+      23.612044948903865,
+      -58.46282943825369,
+      -77.98717661853283,
+      -56.40040896479059,
+      -30.438121586310736,
+      -69.426865826094,
+      -55.529959898223154,
+      -40.570425380286956,
+      -45.03748336296411,
+      -7.985141303383346,
+      55.4664630924661,
+      24.43315151726508,
+      56.86521789099333,
+      52.022313544537084,
+      -4.967371093559718,
+      52.194347778425715,
+      -45.72373302919964,
+      -54.052085558908104,
+      41.51053478266603,
+      72.40406833235363,
+      -74.14344171161923,
+      53.3305429170516,
+      3.6615057753685423
+     ],
+     "c_value": 2100.0,
+     "opfunu_value": 2000.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 3236.054341459003,
+     "opfunu_value": 72554.90474471533,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 3181.3877556867124,
+     "opfunu_value": 70685.18647337225,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      -1.404258507962922,
+      -51.132867203020886,
+      20.43226036536788,
+      -20.359252665975077,
+      -51.11984083904314,
+      11.20611305626727,
+      -32.191118459990626,
+      40.81361679392268,
+      70.81932572888863,
+      66.13846864575865,
+      -2.6608103842960986,
+      -0.22527574089828306,
+      -44.06273363459641,
+      8.138336704517258,
+      38.86058742357618,
+      0.7968807445667778,
+      -8.345933780603843,
+      2.719440318259899,
+      26.174670469165363,
+      9.200345874728995,
+      37.644576923985255,
+      -32.116134461216305,
+      -61.95377407295845,
+      17.344967752974497,
+      -19.940610071581318,
+      -34.294520316627924,
+      -8.38615545094855,
+      -27.82709087779034,
+      12.304905719443042,
+      -12.26663859660627
+     ],
+     "c_value": 3437.111220655377,
+     "opfunu_value": 92543.9683572665,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "22_10": {
+   "fid": 22,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -14.386804758751207,
+      70.92451068336354,
+      54.035479973086844,
+      -50.249947519157985,
+      59.854126935756824,
+      55.33809077336364,
+      69.75603555410916,
+      -8.932298016237233,
+      38.99757717875651,
+      41.91030028923895
+     ],
+     "c_value": 2200.0,
+     "opfunu_value": 2100.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 5302.4980403395475,
+     "opfunu_value": 4420.07626868651,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 5302.297300324417,
+     "opfunu_value": 4802.9864692725805,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      18.274621935362177,
+      -37.07641112229144,
+      62.68890730740213,
+      23.401675003240115,
+      26.586318873075243,
+      -33.2025110151066,
+      -57.0675335223093,
+      -38.77910375990028,
+      -35.27113298403263,
+      -71.61477749331097
+     ],
+     "c_value": 6188.279212639656,
+     "opfunu_value": 5025.767457791906,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "22_30": {
+   "fid": 22,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -14.386804758751207,
+      70.92451068336354,
+      54.035479973086844,
+      -50.249947519157985,
+      59.854126935756824,
+      55.33809077336364,
+      69.75603555410916,
+      -8.932298016237233,
+      38.99757717875651,
+      41.91030028923895,
+      -25.5032936825898,
+      38.68126404596551,
+      14.585345438954116,
+      5.229760299078078,
+      -42.49253291380244,
+      -31.909567445474476,
+      24.43399165218416,
+      -60.0379321929244,
+      45.06179969620975,
+      -11.038922471478081,
+      -42.75048584246565,
+      -70.5659788057981,
+      -68.12089944822756,
+      -78.5879421823602,
+      -26.1172757940913,
+      -39.298971157194565,
+      6.900088328355965,
+      71.93693500381752,
+      -25.160305936429793,
+      64.94870151623557
+     ],
+     "c_value": 2200.0,
+     "opfunu_value": 2100.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 13253.253620256231,
+     "opfunu_value": 9967.799846361264,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 12286.307553416213,
+     "opfunu_value": 9898.892746852147,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      -37.49587941124517,
+      44.825454049620504,
+      -16.19168435455265,
+      39.46923337124235,
+      -36.85455574099569,
+      40.21158624448074,
+      -0.6494229572172259,
+      -52.20384127229751,
+      4.067037414748498,
+      -51.98974763625085,
+      6.871879930476695,
+      49.20713972431196,
+      -44.389512854869295,
+      -66.75367852717369,
+      25.888058651130365,
+      -59.47394087480164,
+      -70.36369491712048,
+      -26.204287174210528,
+      47.73952140148259,
+      12.202266353015233,
+      -52.72954609730018,
+      21.06839477954665,
+      33.696218363051415,
+      -60.291884092111054,
+      32.16391985428322,
+      7.343606934266745,
+      -2.074271329427958,
+      -73.07638290925368,
+      20.167627886287477,
+      0.1860374671874041
+     ],
+     "c_value": 15108.053039935847,
+     "opfunu_value": 13322.63367658134,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "23_10": {
+   "fid": 23,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      52.89815699537199,
+      -2.537496217776786,
+      -3.039800786897448,
+      -63.755983993297434,
+      44.37135534564562,
+      59.52717579692936,
+      18.41019526236234,
+      -61.651242866018436,
+      -36.39821970667607,
+      28.229167869421268
+     ],
+     "c_value": 2300.0,
+     "opfunu_value": 2200.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 4335.929884533787,
+     "opfunu_value": 16752.15348994093,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 4662.625597712217,
+     "opfunu_value": 13971.412038867738,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      -49.300550983657004,
+      -51.56133847345405,
+      50.95255966194682,
+      -17.432958029557426,
+      -4.534820408792669,
+      40.44561772658456,
+      67.47906453456955,
+      -7.176859364374124,
+      -28.041002690246813,
+      -74.5713416498443
+     ],
+     "c_value": 3067.0648288792163,
+     "opfunu_value": 33135.797576519995,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "23_30": {
+   "fid": 23,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      52.89815699537199,
+      -2.537496217776786,
+      -3.039800786897448,
+      -63.755983993297434,
+      44.37135534564562,
+      59.52717579692936,
+      18.41019526236234,
+      -61.651242866018436,
+      -36.39821970667607,
+      28.229167869421268,
+      -64.24550643574703,
+      58.15837363626732,
+      61.4217493224059,
+      -26.27596467466837,
+      48.144321441717594,
+      70.37265681027093,
+      75.92587746490067,
+      -18.48652621474421,
+      6.907223108647029,
+      -44.86103559884291,
+      79.23519301378876,
+      62.86949029512214,
+      52.070482866871394,
+      62.81196838562003,
+      -41.04374006811703,
+      -62.547725743869194,
+      -10.520952028464968,
+      -39.75658315781345,
+      -7.250034723081642,
+      73.66193372461103
+     ],
+     "c_value": 2300.0,
+     "opfunu_value": 2200.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 8060.649807119937,
+     "opfunu_value": 77607.51562889975,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 7617.231922185148,
+     "opfunu_value": 78616.96404751389,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      -8.314838000948072,
+      -70.67234340252867,
+      -38.26364226767828,
+      75.79135604152466,
+      -57.3480237709002,
+      53.459213953519566,
+      -30.241702379475903,
+      -50.188286009440404,
+      9.735716380169933,
+      49.38927546597998,
+      -67.8012382839776,
+      36.59081133321372,
+      21.39329798071104,
+      -34.459349270670586,
+      54.25320684988742,
+      49.32044854781614,
+      -51.33167380866272,
+      14.053460646720282,
+      -4.207584365335734,
+      -9.013139450962328,
+      -47.46082510486788,
+      -34.07804576850823,
+      -35.86316501410668,
+      72.57750574569005,
+      53.23318658933158,
+      -31.537510059211286,
+      71.34847473227975,
+      -60.004926640413814,
+      54.27842993389024,
+      -29.947803697869126
+     ],
+     "c_value": 4470.6170187873995,
+     "opfunu_value": 138967.97919598786,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "24_10": {
+   "fid": 24,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      61.77016423538801,
+      -8.240355078242885,
+      -21.511735494021202,
+      10.662928429740914,
+      -28.85312767925352,
+      31.24207327479593,
+      71.83751742906753,
+      -67.53976113514032,
+      -79.1941269036355,
+      27.532766213422995
+     ],
+     "c_value": 2400.0,
+     "opfunu_value": 2300.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 3392.2088309135484,
+     "opfunu_value": 12593.081916939449,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 3569.98977344947,
+     "opfunu_value": 12802.290353845336,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      -61.754356501683375,
+      -24.40654685136886,
+      -47.37273585581665,
+      -77.89879390722609,
+      -4.589152515596041,
+      42.894836031155265,
+      -29.337771290216907,
+      19.890577329328423,
+      -11.782450383814165,
+      -77.57607159227214
+     ],
+     "c_value": 3497.8165226927513,
+     "opfunu_value": 16303.110022143012,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "24_30": {
+   "fid": 24,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      61.77016423538801,
+      -8.240355078242885,
+      -21.511735494021202,
+      10.662928429740914,
+      -28.85312767925352,
+      31.24207327479593,
+      71.83751742906753,
+      -67.53976113514032,
+      -79.1941269036355,
+      27.532766213422995,
+      -46.39323916956467,
+      -19.189660498495055,
+      42.1618266376489,
+      -24.089553091716745,
+      -64.41955395807491,
+      59.11856034915827,
+      58.197810408751394,
+      -45.515033236478935,
+      -36.03100022861315,
+      -52.27522982856037,
+      30.729226305489068,
+      -41.72663265919622,
+      -71.20438121594692,
+      -55.79742958759769,
+      46.560273162350185,
+      65.53457594734364,
+      0.6659335795165662,
+      -22.53143217718761,
+      47.62311520409915,
+      74.11363668465691
+     ],
+     "c_value": 2400.0,
+     "opfunu_value": 2300.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 5196.969122891929,
+     "opfunu_value": 38614.948327212296,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 5313.987674553324,
+     "opfunu_value": 40014.96920941324,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      51.173540333523675,
+      -56.31734716734954,
+      47.53992775422974,
+      55.752762205388564,
+      69.14651809406607,
+      -35.23096133926329,
+      27.668021461751238,
+      -40.98243119396578,
+      -54.70786662682013,
+      -44.812338196183944,
+      -30.628957067042535,
+      -64.21967591261162,
+      -22.426835739973896,
+      38.845263362143726,
+      -22.01379098044869,
+      8.182871011352404,
+      -60.097906797163475,
+      -12.091845513142289,
+      -76.74043204769166,
+      -5.801280826025064,
+      69.7102719500325,
+      -55.26661881024985,
+      59.264196684551365,
+      -40.71635669158232,
+      -42.16361703441146,
+      -72.66743186552601,
+      21.489530793065484,
+      -60.205107147604394,
+      48.36824242614338,
+      -54.87919333442042
+     ],
+     "c_value": 6163.596228120487,
+     "opfunu_value": 122635.07229897773,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "25_10": {
+   "fid": 25,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      9.585701134794252,
+      73.28406974360536,
+      -20.094577798663906,
+      17.37165314022994,
+      59.57412794026273,
+      -7.350107837165757,
+      -72.25270727661099,
+      71.52316050581781,
+      -30.593826926589863,
+      29.168098455838905
+     ],
+     "c_value": 2500.0,
+     "opfunu_value": 2400.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 4820.812334105731,
+     "opfunu_value": 4262.289043159023,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 5231.240799592555,
+     "opfunu_value": 4242.507549914956,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      9.831409673654548,
+      38.09398168692731,
+      60.426358306925295,
+      -74.89670087864097,
+      -79.48362872806938,
+      23.90919912470123,
+      56.92173215685287,
+      -36.511760026415615,
+      4.737046257219376,
+      -35.47322344554196
+     ],
+     "c_value": 12799.93250386983,
+     "opfunu_value": 19871.922933461272,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "25_30": {
+   "fid": 25,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      9.585701134794252,
+      73.28406974360536,
+      -20.094577798663906,
+      17.37165314022994,
+      59.57412794026273,
+      -7.350107837165757,
+      -72.25270727661099,
+      71.52316050581781,
+      -30.593826926589863,
+      29.168098455838905,
+      -4.882752756067902,
+      -20.29799227616656,
+      -29.676773673704254,
+      69.61663940810442,
+      -20.525248447677704,
+      63.38073448807967,
+      50.8974381773255,
+      -27.40431016469575,
+      42.37522002047636,
+      -68.37200336361863,
+      61.12069692328605,
+      29.826898722828787,
+      -36.08029797118171,
+      4.052601235011872,
+      -51.488403582707235,
+      -30.635065577288653,
+      0.1245593503697586,
+      31.959388017635508,
+      -69.11239027469996,
+      -26.75988293195138
+     ],
+     "c_value": 2500.0,
+     "opfunu_value": 2400.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 9245.541054481317,
+     "opfunu_value": 12293.91044019524,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 7712.9211504838695,
+     "opfunu_value": 15880.938075168038,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      -13.884928084959796,
+      35.60089466555162,
+      79.85980339905487,
+      45.39079671935667,
+      -50.17462246322337,
+      73.84694871910011,
+      -22.477336067237772,
+      -47.144101109706504,
+      -14.321425560629052,
+      18.089718126056596,
+      32.601173314945015,
+      -52.761164022228456,
+      -72.70383541193999,
+      -44.83893465657214,
+      32.764879991906795,
+      -77.94353575502117,
+      29.201840125175025,
+      53.53317621533631,
+      48.30137752138174,
+      -43.573215435252536,
+      -73.22865349506026,
+      57.42035726325963,
+      -42.490550034487185,
+      -13.348952108354041,
+      -20.99327694247055,
+      -25.682322770318763,
+      -29.328843104827683,
+      37.204246900499015,
+      30.226320331119737,
+      36.16666558179048
+     ],
+     "c_value": 35851.05771026228,
+     "opfunu_value": 58383.9843973645,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "26_10": {
+   "fid": 26,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      49.17899970020121,
+      7.43830158907841,
+      -32.765270963667554,
+      4.969784090747025,
+      70.62546047131785,
+      45.012039004365,
+      29.448808974329758,
+      12.665226651665394,
+      16.75437489932141,
+      -56.36558121832348
+     ],
+     "c_value": 2600.0,
+     "opfunu_value": 2500.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 5733.919057477804,
+     "opfunu_value": 6747.2345412008335,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 6435.052807356305,
+     "opfunu_value": 7685.642787020779,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      -22.559055874873266,
+      -14.556332796660541,
+      54.889172143278955,
+      -12.471294319591252,
+      -15.618134568210351,
+      59.82330760134053,
+      49.20461099785959,
+      -74.94700039424536,
+      42.51513527265027,
+      -26.480814010020893
+     ],
+     "c_value": 6640.203351278022,
+     "opfunu_value": 17711.89693964594,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "26_30": {
+   "fid": 26,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      49.17899970020121,
+      7.43830158907841,
+      -32.765270963667554,
+      4.969784090747025,
+      70.62546047131785,
+      45.012039004365,
+      29.448808974329758,
+      12.665226651665394,
+      16.75437489932141,
+      -56.36558121832348,
+      47.69442833945827,
+      -65.43140522457259,
+      71.19618872888209,
+      -17.961680547316412,
+      -45.499950698344016,
+      25.998661060816914,
+      9.80860191295324,
+      -57.04684251223078,
+      60.09459762838418,
+      -40.30277326344641,
+      -33.078862593080316,
+      -1.0682040606942973,
+      20.027560429660397,
+      -77.8631849726025,
+      -69.60651050024038,
+      9.562823151034687,
+      -67.99271069652993,
+      -3.4599388779420117,
+      35.12135362025413,
+      75.32902651807714
+     ],
+     "c_value": 2600.0,
+     "opfunu_value": 2500.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 16233.492468370523,
+     "opfunu_value": 45409.849697089136,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 17744.677241165562,
+     "opfunu_value": 55496.6554240357,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      -14.357399777543307,
+      8.786868709817028,
+      -41.34236017048616,
+      -74.55375972196546,
+      73.99199800306826,
+      6.156725980605643,
+      -68.83218212272641,
+      -60.671387747761344,
+      19.598983404781322,
+      -32.49290160560047,
+      -63.01175624949947,
+      -39.984465780468135,
+      46.275100177845005,
+      -0.7920321839955307,
+      3.8542993409493675,
+      -22.983610152103893,
+      7.1564927880566245,
+      50.91634360014345,
+      -9.348433876422433,
+      -59.16896746212341,
+      -39.21852100343537,
+      -68.55391508755628,
+      46.337559025448115,
+      50.65488834252838,
+      4.757929111405929,
+      -2.016390339225481,
+      -3.9336026311930254,
+      -59.67431442863868,
+      -47.38159933254902,
+      -32.428274239645006
+     ],
+     "c_value": 19390.800090161392,
+     "opfunu_value": 30400.25045165721,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "27_10": {
+   "fid": 27,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -62.391809693720106,
+      45.318698695543546,
+      76.10465631452605,
+      64.74936403369036,
+      -15.761809863039204,
+      59.48680739639644,
+      -44.02342851274806,
+      44.93865477896233,
+      -61.821999131619,
+      15.05561020926368
+     ],
+     "c_value": 2700.0,
+     "opfunu_value": 2600.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 5055.89269684044,
+     "opfunu_value": 5535.531627075542,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 5201.655850042851,
+     "opfunu_value": 5627.79912911262,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      58.72922193589662,
+      -56.98980651049936,
+      68.28632233036828,
+      4.468069785257825,
+      -14.899332148459479,
+      23.95803171602023,
+      -15.039698170065705,
+      10.977738914076923,
+      -18.299776030271104,
+      40.135906777776285
+     ],
+     "c_value": 5639.281965408403,
+     "opfunu_value": 7150.896220289803,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "27_30": {
+   "fid": 27,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -62.391809693720106,
+      45.318698695543546,
+      76.10465631452605,
+      64.74936403369036,
+      -15.761809863039204,
+      59.48680739639644,
+      -44.02342851274806,
+      44.93865477896233,
+      -61.821999131619,
+      15.05561020926368,
+      68.0299334097793,
+      -68.13781897916357,
+      29.162771700491557,
+      74.30576499286376,
+      33.999710642732545,
+      48.39033166337308,
+      -63.97417280076731,
+      -35.66549112073402,
+      -51.020273277079816,
+      -32.069047518106665,
+      33.80374336326669,
+      60.410811526892154,
+      63.609807930705045,
+      -48.558231018743584,
+      -50.52987519769458,
+      -61.91109621427539,
+      -17.963670992275546,
+      7.5888808404975014,
+      -0.6529421213329503,
+      -38.20256144842252
+     ],
+     "c_value": 2700.0,
+     "opfunu_value": 2600.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 10647.232068616628,
+     "opfunu_value": 11616.959975389822,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 11076.569524107501,
+     "opfunu_value": 11932.08917804021,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      -52.197153115790144,
+      78.19015372492598,
+      -31.065990378359643,
+      23.205900206635746,
+      26.310645940880534,
+      35.99496986412349,
+      56.38042682281764,
+      48.04492840532521,
+      52.7613026470284,
+      27.4764682031593,
+      -16.380250701067745,
+      70.86018967876396,
+      45.99240327088313,
+      -24.52823444196936,
+      72.8620109347267,
+      -55.754852276943026,
+      38.55668935248261,
+      -63.030978612022764,
+      -33.52604443317258,
+      -70.17156602709206,
+      53.60350475031595,
+      12.005251174411526,
+      20.374088920563125,
+      -53.79067069974491,
+      70.4005283661827,
+      -55.84739558907059,
+      -60.362820570128605,
+      -35.882708209880164,
+      47.241195148565964,
+      10.783587373303604
+     ],
+     "c_value": 6393.388543178944,
+     "opfunu_value": 7401.090140347721,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "28_10": {
+   "fid": 28,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      70.32030465748176,
+      -58.61760031181276,
+      44.94094583994753,
+      66.98718245466574,
+      31.43421277377485,
+      56.166641544628256,
+      -13.050680270907787,
+      -14.46297119486284,
+      -29.379579423637864,
+      -69.9821006460032
+     ],
+     "c_value": 2800.0,
+     "opfunu_value": 2700.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 4517.335284966346,
+     "opfunu_value": 5232.581503579592,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 4157.378756008256,
+     "opfunu_value": 4826.8395704189825,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      72.68069394120292,
+      -24.426584619605848,
+      -51.37519414853294,
+      -23.519991827920634,
+      -70.07381886949928,
+      23.22019390556362,
+      14.197507581765791,
+      -70.50987093942518,
+      20.233079306796157,
+      37.20892374206505
+     ],
+     "c_value": 7725.369883864923,
+     "opfunu_value": 5295.905902703478,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "28_30": {
+   "fid": 28,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      70.32030465748176,
+      -58.61760031181276,
+      44.94094583994753,
+      66.98718245466574,
+      31.43421277377485,
+      56.166641544628256,
+      -13.050680270907787,
+      -14.46297119486284,
+      -29.379579423637864,
+      -69.9821006460032,
+      22.702260422847356,
+      39.326167147292836,
+      -25.215086501657538,
+      -48.756960459406,
+      21.462170871655537,
+      -53.57519252112843,
+      -21.72093815622895,
+      27.907816154839388,
+      59.511165415640534,
+      42.978218903289275,
+      25.856398281574435,
+      -50.222179957768965,
+      57.6045182466528,
+      28.82921924294402,
+      75.11916797380856,
+      78.22722782857122,
+      -57.86159123194478,
+      58.53199751420505,
+      40.129039477617034,
+      -77.33662424112512
+     ],
+     "c_value": 2800.0,
+     "opfunu_value": 2700.0,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 10248.290726809118,
+     "opfunu_value": 26912.200041500262,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 9546.130724409784,
+     "opfunu_value": 21623.253515034983,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    },
+    "random": {
+     "x": [
+      69.24940778368932,
+      27.775115675643775,
+      49.69257078716586,
+      -77.0496703279551,
+      -49.284354512262816,
+      -45.66585143841795,
+      -3.996022813187892,
+      -41.38031340862176,
+      -11.633920520051149,
+      -72.51790246881684,
+      9.55200607750146,
+      -51.8154670052499,
+      63.610064677855036,
+      6.476028598988094,
+      -77.5404734337782,
+      -0.7607503750853084,
+      59.222260198876995,
+      5.203421976191748,
+      74.88451261477763,
+      16.885201570318344,
+      33.274593011726694,
+      -65.27137183693165,
+      -63.82118544929641,
+      50.68456770538211,
+      59.92554538467368,
+      57.555958301982,
+      -39.933132388485966,
+      -28.80071167447616,
+      43.95152321418405,
+      30.088437623422976
+     ],
+     "c_value": 39063.89108806059,
+     "opfunu_value": 35146.16172611837,
+     "exclude": [
+      "opfunu-composition-missing-component-scale"
+     ]
+    }
+   }
+  },
+  "29_10": {
+   "fid": 29,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -72.14903955541041,
+      -15.946078747485801,
+      -2.5718003076369875,
+      70.5757361532076,
+      -43.11730805557096,
+      -44.7052964925325,
+      -63.877477988543674,
+      -54.448065492533175,
+      15.219652644926521,
+      6.3854612812332165
+     ],
+     "c_value": 2900.0,
+     "opfunu_value": 2800.0,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 48958.52982264661,
+     "opfunu_value": 1.7970325297860842e+16,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 6551.5346568811,
+     "opfunu_value": 8.928164667526845e+16,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    },
+    "random": {
+     "x": [
+      73.3113345982924,
+      12.722794438302586,
+      -70.28310515333077,
+      64.45035770313473,
+      -39.1151013796385,
+      44.38080238796607,
+      58.78077101896258,
+      -1.2712429487857833,
+      19.837504389486455,
+      2.272420436060713
+     ],
+     "c_value": 4357.720839467801,
+     "opfunu_value": 1.2305648215002644e+18,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    }
+   }
+  },
+  "29_30": {
+   "fid": 29,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -72.14903955541041,
+      -15.946078747485801,
+      -2.5718003076369875,
+      70.5757361532076,
+      -43.11730805557096,
+      -44.7052964925325,
+      -63.877477988543674,
+      -54.448065492533175,
+      15.219652644926521,
+      6.3854612812332165,
+      -76.23517355892582,
+      74.05843125752101,
+      71.3270094354297,
+      -56.406600702743326,
+      76.11660720972186,
+      -63.962075084430204,
+      21.142386818836624,
+      19.89017970296097,
+      27.712401730805823,
+      68.0454551670912,
+      54.751556682750376,
+      -37.63718313986304,
+      64.07789707932524,
+      78.23351516492363,
+      4.892383585168227,
+      -14.809143751305129,
+      52.91290617962969,
+      -55.79985504215576,
+      32.68304717572548,
+      70.75170702801631
+     ],
+     "c_value": 2900.0,
+     "opfunu_value": 2800.0,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 238914.72113319745,
+     "opfunu_value": 1782055550111714.8,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 549768.8933027685,
+     "opfunu_value": 3026378414604882.0,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    },
+    "random": {
+     "x": [
+      -70.41290223922815,
+      -28.27345410257312,
+      21.83626173795261,
+      25.119433324128153,
+      -1.2175386112873525,
+      -13.308889929705003,
+      0.19840401961891985,
+      59.943447579390295,
+      -49.2418972856518,
+      46.68820202208123,
+      48.38025064480195,
+      -27.661122295924855,
+      39.17401474461629,
+      -63.86076752327129,
+      26.640043306370828,
+      -41.08120987286114,
+      -24.71610434045664,
+      31.462563116753856,
+      -70.9969325177458,
+      71.70494761310204,
+      -32.281818049961345,
+      10.328007442064404,
+      55.78624445423668,
+      68.32968037159392,
+      16.432499936257216,
+      11.291583803386573,
+      -30.740938142895047,
+      -63.677580502883515,
+      -20.814800920428326,
+      -10.059917248578557
+     ],
+     "c_value": 1988748.3072105981,
+     "opfunu_value": 138092470736375.69,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    }
+   }
+  },
+  "30_10": {
+   "fid": 30,
+   "dim": 10,
+   "points": {
+    "o": {
+     "x": [
+      -1.6674622156040098,
+      -33.466105066922545,
+      -17.348838955792058,
+      -26.88174450159154,
+      17.573640123742464,
+      -74.20010297475388,
+      -52.02893928626037,
+      -52.7392294652477,
+      44.30856405771736,
+      -64.21477379659879
+     ],
+     "c_value": 3000.0,
+     "opfunu_value": 2900.0,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 506077323.00365406,
+     "opfunu_value": 8496587506525917.0,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 372861866.5512322,
+     "opfunu_value": 1.9650655294912456e+16,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    },
+    "random": {
+     "x": [
+      -41.46787288316542,
+      78.62536734431814,
+      19.723837569351048,
+      16.251005441238377,
+      -24.36960448593755,
+      -38.36661307572918,
+      -29.920831828053437,
+      66.08652723135987,
+      -54.717930156414084,
+      35.6034334376192
+     ],
+     "c_value": 4643926205.900951,
+     "opfunu_value": 1.0154441505413271e+18,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    }
+   }
+  },
+  "30_30": {
+   "fid": 30,
+   "dim": 30,
+   "points": {
+    "o": {
+     "x": [
+      -1.6674622156040098,
+      -33.466105066922545,
+      -17.348838955792058,
+      -26.88174450159154,
+      17.573640123742464,
+      -74.20010297475388,
+      -52.02893928626037,
+      -52.7392294652477,
+      44.30856405771736,
+      -64.21477379659879,
+      22.598758000227974,
+      52.940328063881175,
+      -31.866194605765024,
+      24.188124720094784,
+      77.4765504139832,
+      63.06700617776578,
+      -43.52987529874308,
+      -52.82372915224346,
+      77.09085209532215,
+      79.06821423725607,
+      77.79132477091221,
+      -31.797524146641383,
+      58.32416820261822,
+      30.876101426256866,
+      0.07372534278488035,
+      77.81731989878105,
+      12.01312658750132,
+      48.33040801451095,
+      -47.90152706201259,
+      -24.447718646585813
+     ],
+     "c_value": 3000.0,
+     "opfunu_value": 2900.0,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    },
+    "zeros": {
+     "x": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "c_value": 10274982607.561247,
+     "opfunu_value": 704710815549179.5,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    },
+    "ones10": {
+     "x": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+     ],
+     "c_value": 10951320893.472748,
+     "opfunu_value": 567539738229133.9,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    },
+    "random": {
+     "x": [
+      -0.5448492911549465,
+      44.92445604322626,
+      22.93378816570005,
+      79.73379634935029,
+      12.39380859421992,
+      -48.142892883111244,
+      -60.55386791006299,
+      -55.19742421115865,
+      -37.874479469276494,
+      71.53210843281514,
+      70.83405069050772,
+      -53.50622790286231,
+      50.761255299856344,
+      -74.729402275348,
+      -26.656493079077862,
+      -28.909885457459993,
+      43.717202765746364,
+      26.55252330046946,
+      19.56919356340063,
+      -50.83376284377579,
+      69.66528352000273,
+      77.52461811430524,
+      -2.21814939050455,
+      -50.92555031553262,
+      -12.780931649337958,
+      -47.10053644285564,
+      14.171828917094047,
+      53.312113739500944,
+      51.2638851685883,
+      74.01453145455864
+     ],
+     "c_value": 4160708891.2130365,
+     "opfunu_value": 1.5814786411401724e+16,
+     "exclude": [
+      "opfunu-composition-hybrid-shared-shift"
+     ]
+    }
+   }
+  }
+ }
+}
