@@ -759,7 +759,7 @@ estimates), reusing the CEC 2022-derived shared basic-function library
 (`crates/problems/src/cec_basics.rs`) byte-for-byte; every
 report-vs-official-C divergence found and resolved per the standing
 code-over-report ruling, including two VERIFIED reference-C bugs
-replicated deliberately; Python (`sezgi.problems.Cec2014`/`Cec2017`) and
+replicated deliberately; Python (`sezgi.problems.cec2014`/`cec2017`) and
 R (`sz_solve_cec2014`/`sz_solve_cec2017`, `sz_eval_session_cec2014`/
 `sz_eval_session_cec2017`) bindings with suite-aware IOH logging
 (`"sezgi-cec2014"`/`"sezgi-cec2017"`, riding M3-5's `RunKey.suite`

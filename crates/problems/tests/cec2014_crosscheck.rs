@@ -211,7 +211,7 @@ fn every_exclusion_tag_is_documented_in_the_fixture_header() {
 fn fixture_o_points_are_exactly_f_star() {
     let fixture = load_fixture();
     for fd in &fixture {
-        let o = &fixture.iter().find(|f| f.fid == fd.fid && f.dim == fd.dim).unwrap().points["o"];
+        let o = &fd.points["o"];
         assert_eq!(
             o.c_value,
             100.0 * f64::from(fd.fid),

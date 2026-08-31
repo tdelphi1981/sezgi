@@ -1,37 +1,40 @@
-//! Embedded CEC 2014 `input_data/` files for fid 1-16 (basic + simple-
-//! multimodal functions) -- vendored verbatim (byte-for-byte, `include_str!`)
-//! from the official `github.com/P-N-Suganthan/CEC2014` repository's
-//! `cec14-c-code.zip` -> `cec14-c-code/input_data/` (fetched directly,
-//! PROVENANCE recorded in this crate's `cec2014/mod.rs` module doc and this
-//! task's report). Files live at `crates/problems/data/cec2014/`, named
-//! exactly as the upstream repo names them (`M_<fid>_D<dim>.txt`,
+//! Embedded CEC 2014 `input_data/` files for the full suite, fid 1-30
+//! (basic fid 1-3, simple-multimodal fid 4-16, hybrid fid 17-22,
+//! composition fid 23-30) -- vendored verbatim (byte-for-byte,
+//! `include_str!`) from the official `github.com/P-N-Suganthan/CEC2014`
+//! repository's `cec14-c-code.zip` -> `cec14-c-code/input_data/` (fetched
+//! directly, PROVENANCE recorded in this crate's `cec2014/mod.rs` module doc
+//! and the M3-6 task reports). Files live at `crates/problems/data/cec2014/`,
+//! named exactly as the upstream repo names them (`M_<fid>_D<dim>.txt`,
 //! `shift_data_<fid>.txt`, `shuffle_data_<fid>_D<dim>.txt`), mirroring the
 //! `cec2022/data.rs` convention this module is siblings with.
 //!
 //! ## Vendoring scope (M3-6 T2, user-approved): dims {10, 30}, ALL 30 fids'
-//! files copied to `crates/problems/data/cec2014/` (so T3/T4, which extend
-//! `Cec2014` to fid 17-30, do not need to re-fetch anything). This module's
-//! `include_str!`/parser functions now cover fid 1-22 (T3, this task, adds
-//! fid 17-22's `shift_data_<fid>.txt` + `M_<fid>_D{10,30}.txt` +
+//! files vendored to `crates/problems/data/cec2014/`. This module's
+//! `include_str!`/parser functions cover the full range: fid 1-16 (basic
+//! and simple-multimodal), fid 17-22 (hybrid, added T3 -- the
+//! `shift_data_<fid>.txt`, `M_<fid>_D{10,30}.txt`, and
 //! `shuffle_data_<fid>_D{10,30}.txt` consts and [`shuffle_indices`],
-//! mirroring `cec2022/data.rs`'s own fid-6-8 shuffle-data section); fid
-//! 23-30 (composition) remains vendored-but-unreferenced until a later
-//! milestone task, per `mod.rs`'s module doc staging note.
+//! mirroring `cec2022/data.rs`'s own fid-6-8 shuffle-data section), and fid
+//! 23-30 (composition, added T4 -- [`composition_shift_blocks`],
+//! [`composition_rotation_blocks`], and [`composition_shuffle_blocks`]
+//! below).
 //! `crates/problems/tests/cec2014_data_inventory.rs` asserts the full 30-fid
-//! vendored set is present and totals the exact byte count (T2's report has
-//! the measured number, 2,816,016 bytes across 106 files -- every
-//! `shift_data_<fid>.txt` for `fid` 1-30 (dimension-independent, one copy),
-//! every `M_<fid>_D{10,30}.txt` for `fid` 1-30, and
-//! `shuffle_data_<fid>_D{10,30}.txt` ONLY for the 8 fids the reference C's
-//! own loader ever reads shuffle data for -- `fid` in `{17..=22, 29, 30}`,
-//! verified directly against `cec14_test_func.cpp`'s loader, quoted in
-//! `mod.rs`'s module doc).
+//! vendored set is present and totals the exact byte count (2,816,016 bytes
+//! across 106 files -- every `shift_data_<fid>.txt` for `fid` 1-30
+//! (dimension-independent, one copy), every `M_<fid>_D{10,30}.txt` for `fid`
+//! 1-30, and `shuffle_data_<fid>_D{10,30}.txt` ONLY for the 8 fids the
+//! reference C's own loader ever reads shuffle data for -- `fid` in
+//! `{17..=22, 29, 30}`, verified directly against `cec14_test_func.cpp`'s
+//! loader, quoted in `mod.rs`'s module doc).
 //!
 //! ## File grammar (verified by reading `cec14_test_func.cpp`'s
 //! `cec14_test_func` initializer, `func_num<23` branch -- the branch that
-//! applies to every fid this module serves, 1..=16, byte-identical grammar to
-//! `cec2022/data.rs`'s fid-1-8 section since both suites share the same
-//! reference-C loader lineage)
+//! applies to fid 1-22 (basic, simple-multimodal, hybrid), byte-identical
+//! grammar to `cec2022/data.rs`'s fid-1-8 section since both suites share
+//! the same reference-C loader lineage; fid 23-30's composition grammar is
+//! documented separately, at the [`composition_shift_blocks`] doc comment
+//! below)
 //!
 //! - **`shift_data_<fid>.txt`**: ONE line of up to 100 whitespace-separated
 //!   `f64` values (`%lf`-scanned in the fixed-up C, module doc's `mod.rs`

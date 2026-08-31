@@ -8,11 +8,11 @@
 //! doc's F2 ruling), every `M_<fid>_D{10,30}.txt` for `fid` in
 //! `{1,3..=30}`, and `shuffle_data_<fid>_D{10,30}.txt` for the fids the
 //! reference C's own loader reads shuffle data for (`{11..=20, 29, 30}`).
-//! This is a filesystem-level check (not an `include_str!` one -- only fid
-//! `{1,3..=10}`'s files are embedded into the compiled crate this task,
-//! module doc's staging note) so a future task accidentally deleting or
-//! renaming an already-vendored fid-11-30 file fails CI here, not silently
-//! at T7/T8 time.
+//! This is a filesystem-level check independent of `include_str!` (all
+//! `{1,3..=30}` files are also embedded into the compiled crate,
+//! `cec2017/data.rs`'s own module doc) so a future change accidentally
+//! deleting or renaming an already-vendored file fails CI here, not
+//! silently.
 
 use std::fs;
 use std::path::PathBuf;

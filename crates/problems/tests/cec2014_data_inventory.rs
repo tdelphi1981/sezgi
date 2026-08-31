@@ -7,11 +7,10 @@
 //! independent), every `M_<fid>_D{10,30}.txt` for `fid` 1-30, and
 //! `shuffle_data_<fid>_D{10,30}.txt` for the 8 fids the reference C's own
 //! loader reads shuffle data for (`{17,18,19,20,21,22,29,30}`). This is a
-//! filesystem-level check (not an `include_str!` one -- only fid 1-16's
-//! files are embedded into the compiled crate this task, module doc's
-//! staging note) so a future task accidentally deleting or renaming an
-//! already-vendored fid-17-30 file fails CI here, not silently at T3/T4
-//! time.
+//! filesystem-level check independent of `include_str!` (all fid 1-30
+//! files are also embedded into the compiled crate, `cec2014/data.rs`'s own
+//! module doc) so a future change accidentally deleting or renaming an
+//! already-vendored file fails CI here, not silently.
 
 use std::fs;
 use std::path::PathBuf;

@@ -171,10 +171,11 @@
 //! has no dimension suffix and is shared across ALL dims, so summing "the
 //! D10 total" and "the D30 total" independently double-counts every shift
 //! file) AND without excluding fid 2's dead files -- both corrected here.
-//! This module's own `include_str!`/parser functions (`data.rs`) cover
-//! ONLY fid `{1,3..=10}` (this task's functional scope, 27 of the 111
-//! vendored files: 9 `shift_data_<fid>.txt` + 18 `M_<fid>_D{10,30}.txt`);
-//! the other 84 files (fid 11-30) sit unreferenced on disk until T7/T8.
+//! This module's own `include_str!`/parser functions (`data.rs`) cover the
+//! full vendored range, `fid` in `{1,3..=30}` -- fid `{1,3..=10}` (T6, 27 of
+//! the 111 vendored files: 9 `shift_data_<fid>.txt` + 18
+//! `M_<fid>_D{10,30}.txt`), fid `{11..=20}` (hybrid, T7), and fid
+//! `{21..=30}` (composition, T8).
 //!
 //! Supported dims -- `{2,10,20,30,50,100}` per the C
 //! (`cec17_test_func.cpp` line 103: `if (!(nx==2||nx==10||nx==20||nx==30||nx==50||nx==100))
@@ -829,12 +830,12 @@
 //! ## Struct/impl notes
 //!
 //! [`Cec2017::new`] rejects `dim` outside `{10,30}` (vendoring scope) and
-//! `fid` outside `{1} ∪ {3..=30}` (T6+T7+T8's combined, now COMPLETE
-//! functional scope: unimodal/simple-multimodal F1/F3-F10, hybrid F11-F20,
-//! composition F21-F30 -- `fid==2` gets its own dedicated
-//! [`Cec2017Error::Withdrawn`], everything else outside `{1,3..=30}` (`0`,
-//! `31` and up) gets [`Cec2017Error::UnknownFid`], mirrors
-//! `cec2014/mod.rs`'s own now-complete T2->T3->T4 `UnknownFid` scoping).
+//! `fid` outside `{1} ∪ {3..=30}` (the suite's complete functional scope:
+//! unimodal/simple-multimodal F1/F3-F10, hybrid F11-F20, composition
+//! F21-F30 -- `fid==2` gets its own dedicated [`Cec2017Error::Withdrawn`],
+//! everything else outside `{1,3..=30}` (`0`, `31` and up) gets
+//! [`Cec2017Error::UnknownFid`], mirrors `cec2014/mod.rs`'s own
+//! `UnknownFid` scoping).
 
 use sezgi_core::problem::Problem;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
@@ -844,9 +845,8 @@ mod data;
 #[derive(Debug, thiserror::Error)]
 pub enum Cec2017Error {
     #[error(
-        "fid must be 1 or in 3..=30 (T6+T7+T8's combined, now complete functional scope of the \
-         CEC 2017 suite: unimodal F1/F3, simple-multimodal F4-F10, hybrid F11-F20, composition \
-         F21-F30), got {0}"
+        "fid must be 1 or in 3..=30 (the full CEC 2017 suite: unimodal F1/F3, simple-multimodal \
+         F4-F10, hybrid F11-F20, composition F21-F30), got {0}"
     )]
     UnknownFid(u32),
     #[error(
@@ -863,13 +863,16 @@ pub enum Cec2017Error {
     BadDim(usize),
 }
 
-/// One instance of a CEC 2017 unimodal (fid 1,3) or simple-multimodal (fid
-/// 4-10) function: embedded official shift vector `o` and rotation matrix
-/// `M` for the requested `(fid, dim)`, plus the pinned `F_i* = 100*fid`
-/// bias (module doc's dispatch section). See the module doc for each fid's
-/// exact shift/scale/rotate pipeline, including the verified fid 6/8/9
-/// discrepancies between the printed report and the vendored reference C
-/// code this module actually follows.
+/// One instance of a CEC 2017 unimodal (fid 1,3), simple-multimodal (fid
+/// 4-10), hybrid (fid 11-20), or composition (fid 21-30) function: embedded
+/// official shift vector `o` (`comp_shift[0]` for fid 21-30) and rotation
+/// matrix `M` for the requested `(fid, dim)`, plus the pinned `F_i* =
+/// 100*fid` bias (module doc's dispatch section). Withdrawn fid 2 is
+/// rejected before construction (`Cec2017::new` returns
+/// [`Cec2017Error::Withdrawn`], never a `Cec2017`). See the module doc for
+/// each fid's exact shift/scale/rotate pipeline, including the verified fid
+/// 6/8/9 discrepancies between the printed report and the vendored
+/// reference C code this module actually follows.
 pub struct Cec2017 {
     fid: u32,
     dim: usize,

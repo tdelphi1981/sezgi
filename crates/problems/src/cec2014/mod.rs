@@ -1038,11 +1038,12 @@ pub enum Cec2014Error {
     BadDim(usize),
 }
 
-/// One instance of a CEC 2014 basic (fid 1-3) or simple-multimodal (fid
-/// 4-16) function: embedded official shift vector `o` and rotation matrix
-/// `M` for the requested `(fid, dim)`, plus the pinned `F_i* = 100*fid` bias
-/// (module doc, section 1.2's table). See the module doc for each fid's
-/// exact shift/scale/rotate pipeline, including the verified F16
+/// One instance of a CEC 2014 basic (fid 1-3), simple-multimodal (fid
+/// 4-16), hybrid (fid 17-22), or composition (fid 23-30) function: embedded
+/// official shift vector `o` (`comp_shift[0]` for fid 23-30) and rotation
+/// matrix `M` for the requested `(fid, dim)`, plus the pinned `F_i* =
+/// 100*fid` bias (module doc, section 1.2's table). See the module doc for
+/// each fid's exact shift/scale/rotate pipeline, including the verified F16
 /// discrepancy between the printed report and the vendored reference C code
 /// this module actually follows.
 pub struct Cec2014 {

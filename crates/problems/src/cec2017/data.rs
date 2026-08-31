@@ -1,42 +1,43 @@
-//! Embedded CEC 2017 `input_data/` files for fid 1, 3-10 (M3-6 T6:
-//! unimodal F1/F3, simple-multimodal F4-F10) and fid 11-20 (M3-6 T7, THIS
-//! TASK: hybrid functions 1-10) -- vendored verbatim (byte-for-byte,
-//! `include_str!`) from the official
+//! Embedded CEC 2017 `input_data/` files for the full usable suite, `fid`
+//! in `{1,3..=30}` -- unimodal F1/F3, simple-multimodal F4-F10 (M3-6 T6),
+//! hybrid F11-F20 (M3-6 T7), composition F21-F30 (M3-6 T8) -- vendored
+//! verbatim (byte-for-byte, `include_str!`) from the official
 //! `github.com/P-N-Suganthan/CEC2017-BoundContrained` repository's
 //! `codes.rar` -> `codes/C version/input_data/` (fetched directly,
-//! PROVENANCE recorded in this crate's `cec2017/mod.rs` module doc and this
-//! task's report). Files live at `crates/problems/data/cec2017/`, named
+//! PROVENANCE recorded in this crate's `cec2017/mod.rs` module doc and the
+//! M3-6 task reports). Files live at `crates/problems/data/cec2017/`, named
 //! exactly as the upstream repo names them (`M_<fid>_D<dim>.txt`,
 //! `shift_data_<fid>.txt`), mirroring `cec2014/data.rs`'s convention this
 //! module is siblings with.
 //!
 //! ## Vendoring scope (M3-6 T6, user-approved): dims {10, 30}, the FULL
-//! usable suite's files copied to `crates/problems/data/cec2017/` -- every
+//! usable suite's files vendored to `crates/problems/data/cec2017/` -- every
 //! `fid` in `{1,3..=30}` (fid 2 excluded: permanently withdrawn, module
 //! doc's F2 ruling; its `input_data` files are dead weight the reference C
-//! never usefully reads, so they are not vendored at all) -- so T7 (fid
-//! 11-20) and T8 (fid 21-30) do not need to re-fetch or re-copy anything.
-//! Measured total (independently cross-checked with both `find -exec stat`
-//! and a Python `os.path.getsize` sum during the copy step): **111 files,
-//! 3,285,318 bytes** -- every `shift_data_<fid>.txt` for `fid` in
-//! `{1,3..=30}` (dimension-independent, 29 files), every
-//! `M_<fid>_D{10,30}.txt` for `fid` in `{1,3..=30}` (58 files), and
-//! `shuffle_data_<fid>_D{10,30}.txt` ONLY for the fids the reference C's own
-//! loader ever reads shuffle data for -- `fid` in `{11..=20, 29, 30}` (24
-//! files; `cec17_test_func.cpp`'s loader, quoted in `mod.rs`'s module doc,
-//! reads shuffle data exactly for `func_num>=11&&func_num<=20` or
-//! `func_num==29||func_num==30`). This module's `include_str!`/parser
-//! functions cover fid `{1,3..=10}` (T6) and fid `{11..=20}` (T7, this
-//! task's own scope, ADDED this task -- `shuffle_indices` new this task);
-//! fid 21-30's already-vendored `.txt` files sit unreferenced on disk until
-//! T8 adds its own `include_str!` consts and parsers here, mirroring
-//! `cec2014/data.rs`'s own T2 -> T3 -> T4 staging note.
+//! never usefully reads, so they are not vendored at all). Measured total
+//! (independently cross-checked with both `find -exec stat` and a Python
+//! `os.path.getsize` sum during the copy step): **111 files, 3,285,318
+//! bytes** -- every `shift_data_<fid>.txt` for `fid` in `{1,3..=30}`
+//! (dimension-independent, 29 files), every `M_<fid>_D{10,30}.txt` for
+//! `fid` in `{1,3..=30}` (58 files), and `shuffle_data_<fid>_D{10,30}.txt`
+//! ONLY for the fids the reference C's own loader ever reads shuffle data
+//! for -- `fid` in `{11..=20, 29, 30}` (24 files; `cec17_test_func.cpp`'s
+//! loader, quoted in `mod.rs`'s module doc, reads shuffle data exactly for
+//! `func_num>=11&&func_num<=20` or `func_num==29||func_num==30`). This
+//! module's `include_str!`/parser functions cover the full vendored range:
+//! fid `{1,3..=10}` (unimodal + simple-multimodal, T6), fid `{11..=20}`
+//! (hybrid, added T7 -- [`shuffle_indices`]), and fid `{21..=30}`
+//! (composition, added T8 -- [`composition_shift_blocks`]/
+//! [`composition_rotation_blocks`]/[`composition_shuffle_blocks`] below),
+//! mirroring `cec2014/data.rs`'s own T2 -> T3 -> T4 range.
 //!
 //! ## File grammar (verified by reading `cec17_test_func.cpp`'s
 //! `cec17_test_func` initializer, `func_num<20` branch -- the branch that
-//! applies to every fid this module serves, byte-identical grammar to
-//! `cec2014/data.rs`'s fid-1-16 section since both suites share the same
-//! reference-C loader lineage)
+//! applies to fid `{1,3..=20}` (unimodal, simple-multimodal, hybrid),
+//! byte-identical grammar to `cec2014/data.rs`'s fid-1-16 section since both
+//! suites share the same reference-C loader lineage; fid 21-30's
+//! composition grammar is documented separately, at the
+//! [`composition_shift_blocks`] doc comment below)
 //!
 //! - **`shift_data_<fid>.txt`**: ONE line of 100 whitespace-separated `f64`
 //!   values (`%lf`-scanned in the fixed-up C, module doc's `mod.rs`
