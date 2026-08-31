@@ -127,18 +127,20 @@ either, see each script's own header for why), both going through
 
 | Pair | Files | What it demonstrates |
 |---|---|---|
-| SHADE on CEC 2022 f3 | `python/cec2022_shade.py`, `r/cec2022_shade.R` | `sezgi.presets.shade` (Tanabe & Fukunaga 2013) solved against `sezgi.problems.cec2022(fid, dim)` via `sezgi.solve()`, printing `best_f` and the gap to the report's pinned `F*`. **The R script does NOT run SHADE**: r-sezgi has no `solve()`-integrated CEC 2022 binding (T10 bound direct evaluation only, `sz_cec2022_evaluate`/`sz_cec2022_f_star`) -- it instead runs a small classic DE/rand/1/bin loop written directly in base R against `sz_cec2022_evaluate`, disclosed in the script's own header as a real capability gap, not a stylistic choice (see `docs/DECISIONS.md`'s M3-3 record and the v1.0 readiness checklist). |
+| SHADE on CEC 2022 f3 | `python/cec2022_shade.py`, `r/cec2022_shade.R` | `sezgi.presets.shade` / `sz_preset_shade` (Tanabe & Fukunaga 2013) solved against `sezgi.problems.cec2022(fid, dim)` / `sz_solve_cec2022` via `sezgi.solve()` / r-sezgi's own `sz_solve_cec2022`, printing `best_f` and the gap to the report's pinned `F*`. **Both scripts now run SHADE** (M3-5 Task 4 added `sz_solve_cec2022`, closing the M3-3 capability gap where r-sezgi had direct evaluation only, `sz_cec2022_evaluate`/`sz_cec2022_f_star`, and no `solve()`-integrated path -- see `docs/DECISIONS.md`'s M3-3 record, ruling (g), and its M3-5 closure note). |
 | ga-perm on TSPLIB berlin52 | `python/tsp_ga_perm.py`, `r/tsp_ga_perm.R` | `sezgi.presets.ga_perm` / `sz_preset_ga_perm` (a fused OX1-crossover + swap-mutation permutation GA) solved against the vendored `berlin52` TSPLIB instance (`sezgi.problems.tsp` / `sz_solve_tsp`), printing the best tour length against berlin52's published TSPLIB optimum (7542.0). The Python script uses 0-based tour indices; the R script uses 1-based (r-sezgi's own established indexing convention, matching TSPLIB's own node numbering -- see `docs/DECISIONS.md`'s M3-3 record). |
 
 Both pairs are single-seed, single-problem SMOKE demonstrations of the
 binding surface, reported as a gap against a known optimum -- never a
-cross-algorithm or cross-language quality claim (the CEC pair in
-particular runs two DIFFERENT algorithms in the two languages, per the
-capability gap above, so its Python/R numbers are not even expected to
-agree, unlike the TSP pair or the M3-2 NSGA-II pair, which do run the same
-algorithm through the same Rust core in both languages). See each script's
-own header comment for full provenance and the exact numbers from a real
-run.
+cross-algorithm or cross-language quality claim. **Both pairs now run the
+SAME algorithm through the SAME Rust core in both languages** (the CEC pair
+closed its two-different-algorithms gap in M3-5 Task 4, see the table row
+above): their Python/R `best_f` numbers agree BIT-FOR-BIT, verified via a
+`writeBin`/`struct.pack` byte comparison, not a decimal-literal
+eyeball-match (`r-sezgi/tests/testthat/test-cec-tsp.R`'s "R sz_solve_cec2022
+(SHADE) is bit-identical to the Python/Rust golden" test). See each
+script's own header comment for full provenance and the exact numbers from
+a real run.
 
 Run:
 
@@ -156,11 +158,11 @@ Live output (measured by running all four scripts from the repo root;
     gap (best_f - F*): 0.004018143711505218
     evals_used: 5000  iterations: 249
 
-    CEC 2022 f3 (dim=10), pure-R DE/rand/1/bin (NOT the SHADE preset -- see this file's header), pop_size=20 budget=5000 seed=20260830 -- SMOKE DEMO, single seed
+    CEC 2022 f3 (dim=10), SHADE, pop_size=20 budget=5000 seed=20260830 -- SMOKE DEMO, single seed
     F* (report's pinned optimum): 600
-    best_f: 600.488807581254
-    gap (best_f - F*): 0.488807581253923
-    evals_used: 5000
+    best_f: 600.004018143712
+    gap (best_f - F*): 0.00401814371150522
+    evals: 5000
 
     TSP berlin52 (52 cities), ga-perm, pop_size=32 budget=5000 seed=20260830 -- SMOKE DEMO, single seed
     known optimum (TSPLIB): 7542.0
@@ -168,9 +170,15 @@ Live output (measured by running all four scripts from the repo root;
     gap (best - optimum): 4229.0  ratio: 1.5607
     evals_used: 4992  iterations: 155
 
-The R `tsp_ga_perm.R` run prints the same tour length (`11771`) -- the TSP
-pair runs the same Rust core in both languages, so the numbers agree
-exactly (R's default printing drops the trailing `.0`).
+The R `cec2022_shade.R` run prints `best_f: 600.004018143712` against
+Python's `600.0040181437115` -- these are the SAME IEEE-754 double, just
+printed with different default precision (R's `cat`/`sprintf("%s", .)`
+shows ~15 significant digits, Python's `repr` shows the shortest
+round-tripping representation); a `writeBin`/`struct.pack` byte comparison
+confirms bit-identical bytes (`4082c0083aaa1ea7` on both sides). The R
+`tsp_ga_perm.R` run prints the same tour length (`11771`) -- the TSP pair
+runs the same Rust core in both languages, so the numbers agree exactly
+(R's default printing drops the trailing `.0`).
 
 ## OOP twins (M3-4)
 
@@ -222,3 +230,62 @@ Live output (same scenario/seed as the pure script above it):
 
 which matches `./py-sezgi/.venv/bin/python examples/python/gwo.py`'s own
 `gwo: evals_used=1980 best_f=-125.949 gap=0.000659831` field-for-field.
+
+## R authoring example (M3-5)
+
+`examples/r/oop/gwo.R` is the R-side counterpart to the Python OOP twins
+above — ONE worked twin (not a full 17-algorithm wave, per the M3-5 plan's
+own scope ruling: the 17 pure-R scripts under `examples/r/` already teach
+the algorithms; the pure-R authoring surface itself is what needed a
+worked proof), porting `examples/r/gwo.R` onto `sz_algorithm`/
+`sz_algo_solve` (r-sezgi's M3-5 pure-R mirror of `sezgi.Algorithm`,
+base-R closures/environments/condition classes only — see the main
+`README.md`'s "Write your own algorithm (R) (M3-5)" section for the
+authoring guide this twin demonstrates).
+
+**Bit-exact parity, achieved by draw-order identity, not restated
+statistical closeness.** `sz_algo_solve()` calls R's `set.seed(seed)`
+exactly once, up front, and R's global RNG is the ONE stream both
+`ctx$random_point()` and any direct `runif()` call inside `setup()`/
+`step()` draw from — the SAME stream and SAME per-call shape the pure
+`examples/r/gwo.R` script already uses. The twin's `setup()` reproduces the
+pure script's init draws verbatim (`ctx$random_point()` == `runif(dim, lo,
+hi)`, same `lapply` order); `step()` reproduces one generation's `for (i)
+for (d) runif(6)` nesting verbatim; `ctx$evaluate`'s `sz_budget_exhausted`
+condition reproduces the pure script's own `while used + pop_size <=
+budget` guard as a boundary condition instead of a loop precondition (see
+`examples/r/oop/gwo.R`'s own header comment for the one structural
+difference this introduces — a final, discarded burst of RNG draws on a
+generation whose batch never reaches the session — and why it provably
+does not change the printed output). Because of this, at the shared
+scenario (BBOB f1, dim 5, budget 2000, seed 42) the twin's printed
+`evals_used`/`best_f`/`gap` fields are STRING-IDENTICAL to the pure
+script's, verified live, not merely argued — gated by
+`r-sezgi/tests/testthat/test-algo.R`'s "R OOP gwo twin matches the pure
+gwo.R script" test, which runs both `examples/r/gwo.R` and
+`examples/r/oop/gwo.R` as `Rscript` subprocesses and compares their printed
+`evals_used=... best_f=... gap=...` fields for exact string equality
+(mirroring `py-sezgi/tests/test_examples_oop_parity.py`'s own subprocess/
+regex mechanics).
+
+**The pure script remains the pedagogical/provenance original** —
+`examples/r/gwo.R` was not touched by this port (verified empty `git diff`
+against it at this task's gate); it stays the primary teaching artifact the
+catalog table above describes. The twin is a SEPARATE, additional artifact
+demonstrating the `sz_algorithm` authoring surface on an already-understood
+algorithm, not a replacement for the pure script.
+
+Run:
+
+    Rscript examples/r/gwo.R
+    Rscript examples/r/oop/gwo.R
+
+Live output (same scenario/seed as the pure script, measured by running
+both from the repo root):
+
+    gwo: evals_used=1980 best_f=-125.949 gap=0.000431711
+    gwo (oop): evals_used=1980 best_f=-125.949 gap=0.000431711
+
+field-for-field identical (R's own RNG stream differs from Python's — the
+R pair's `best_f`/`gap` are not expected to match the Python pair's; only
+each language's pure/twin pair is compared).

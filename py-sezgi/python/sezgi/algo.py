@@ -136,7 +136,7 @@ class Algorithm(abc.ABC):
         return result
 
 
-def bbob_records(factory, fids, dims, instances, seeds, budget):
+def bbob_records(factory, fids, dims, instances, seeds, budget, log_dir=None):
     """BBOB-scenario sweep helper that records runs in stats-pipeline shape.
 
     Runs an algorithm across a multi-scenario sweep (combinations of BBOB
@@ -159,10 +159,23 @@ def bbob_records(factory, fids, dims, instances, seeds, budget):
     instances: list of BBOB instances (1..).
     seeds: list of random seeds.
     budget: fixed evaluation budget for all runs.
+    log_dir: optional path to an IOH output directory. When given, each run
+        calls `algo.solve(..., log_dir=log_dir)` on its own fresh session,
+        which creates a fresh IohLogger and `finish()`es it once per run.
+        `IohLogger::finish` merges that single run into any existing
+        (algo, fid, dim) scenario BY RUN IDENTITY -- an (instance, seed,
+        budget) not already present is appended, and a re-run of the exact
+        same (instance, seed, budget) rewrites its own prior entry in place
+        rather than duplicating it -- so sweeping multiple seeds through
+        this helper accumulates every seed's run into one archive instead of
+        each solve() call clobbering the last. Omitting log_dir keeps the
+        behavior unchanged (no IOH logging). The resulting archive is
+        readable via `read_ioh_records`, `ecdf`, and `coco_export`,
+        mirroring `run_experiment`'s contract exactly.
 
     Returns: list[dict], one record per (fid, dim, instance, seed) run,
-        with keys exactly {algo, fid, dim, instance, seed, budget, best_f,
-        f_opt, gap, evals_used, wall_secs}.
+        with keys exactly {algo, fid, dim, instance, seed, budget, suite,
+        best_f, f_opt, gap, evals_used, wall_secs}.
     """
     records = []
     for fid in fids:
@@ -172,7 +185,8 @@ def bbob_records(factory, fids, dims, instances, seeds, budget):
                     algo = factory()
                     start = time.perf_counter()
                     result = algo.solve(
-                        sezgi.bbob(fid, dim, instance), budget=budget, seed=seed)
+                        sezgi.bbob(fid, dim, instance), budget=budget, seed=seed,
+                        log_dir=log_dir)
                     elapsed = time.perf_counter() - start
                     records.append({
                         "algo": result.algo,
@@ -181,6 +195,14 @@ def bbob_records(factory, fids, dims, instances, seeds, budget):
                         "instance": instance,
                         "seed": seed,
                         "budget": result.budget,
+                        # M3-5 final review N1: this helper is BBOB-only by
+                        # construction (sezgi.bbob(...) above), so the
+                        # suite is always the BBOB constant -- matching
+                        # what run_experiment/read_ioh_records records
+                        # carry (py-sezgi/src/lib.rs's `record_to_dict`)
+                        # keeps this dict's shape genuinely interchangeable
+                        # with theirs, per this docstring's own claim.
+                        "suite": "sezgi-bbob",
                         "best_f": result.best_f,
                         "f_opt": result.f_opt,
                         "gap": result.gap,

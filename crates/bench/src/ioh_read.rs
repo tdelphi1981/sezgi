@@ -616,6 +616,7 @@ pub fn ioh_records(scenarios: &[IohScenario], budgets: &[u64]) -> Result<Vec<Run
                         instance,
                         seed,
                         budget,
+                        suite: sc.suite.clone(),
                     },
                     best_f,
                     f_opt,

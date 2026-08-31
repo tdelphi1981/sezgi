@@ -34,12 +34,24 @@
 #'   \item \code{$best()} -- \code{list(x = <numeric vector>, f = <numeric
 #'     scalar>)} for the best evaluation seen so far, or \code{NULL} if
 #'     nothing has been evaluated yet.
-#'   \item \code{$f_opt()} -- the problem's known optimum value.
+#'   \item \code{$f_opt()} -- the problem's known optimum value, or
+#'     \code{NULL} if it has none (e.g. an f0 session -- see
+#'     \code{\link{sz_eval_session_f0}}).
+#'   \item \code{$dim()} -- the search space's dimensionality.
+#'   \item \code{$bounds()} -- a length-2 numeric vector \code{c(lo, hi)},
+#'     the uniform bounds of this session's continuous space (errors for a
+#'     non-uniform/non-float space; unreachable through any constructor
+#'     this package exposes today).
 #'   \item \code{$finish()} -- flushes the IOH log (if enabled) and marks
 #'     the session finished; every method call afterward, including a
 #'     second \code{$finish()}, raises an error containing
 #'     \code{"session finished"}.
 #' }
+#'
+#' \code{$dim()}, \code{$bounds()}, and every method above except
+#' \code{$f_opt()} behave identically regardless of which constructor built
+#' the session (\code{sz_eval_session()}, \code{\link{sz_eval_session_cec2022}},
+#' or \code{\link{sz_eval_session_f0}}).
 #'
 #' @param fid BBOB function id (>= 1).
 #' @param dim Problem dimension (>= 1).
@@ -69,4 +81,74 @@ sz_eval_session <- function(fid, dim, instance, budget, log_dir = NULL,
   # py-sezgi's `sezgi.EvalSession(fid=1, dim=3, ...)`.
   EvalSession$new(as.integer(fid), as.integer(dim), as.integer(instance),
                    budget, algo_name, seed, log_dir)
+}
+
+#' Start an ask/tell evaluation session over a CEC 2022 problem.
+#'
+#' The generic-session counterpart to \code{\link{sz_eval_session}} (which
+#' is BBOB-only): builds a session over \code{sz_cec2022_evaluate}'s same
+#' \code{Cec2022} problem, with IOH logging allowed (unlike
+#' \code{\link{sz_eval_session_f0}}, whose problem has no known optimum for
+#' a log archive to record). Session metadata (\code{suite =
+#' "sezgi-cec2022"}, \code{name = "cec2022-f<fid>"}, \code{instance = 1},
+#' \code{f_opt} = the function's known optimum) matches py-sezgi's
+#' \code{EvalSession.for_problem} exactly for a CEC 2022 problem handle, so
+#' an IOH record produced by an R session and one produced by an equivalent
+#' Python session reconstruct to the identical \code{(suite, fid, name,
+#' instance)} key and \code{f_opt}.
+#'
+#' See \code{\link{sz_eval_session}} for the full list of methods the
+#' returned object exposes (identical here, including \code{$dim()} /
+#' \code{$bounds()}).
+#'
+#' @param fid CEC 2022 function id (\code{1..=12}).
+#' @param dim Problem dimension, one of \code{2}, \code{10}, \code{20}
+#'   (\code{dim = 2} is additionally rejected for a hybrid function,
+#'   \code{fid} 6-8).
+#' @param budget Evaluation budget (non-negative whole number).
+#' @param log_dir Optional directory: when given, IOH-profiler logging is
+#'   wired up in the constructor, before any evaluation is possible.
+#'   Default \code{NULL} (no logging).
+#' @param algo_name Algorithm label recorded in the IOH archive (only
+#'   meaningful when \code{log_dir} is given). Default \code{"custom"}.
+#' @param seed Caller-declared reproducibility label recorded in the IOH
+#'   archive meta only. Default \code{0}.
+#' @returns An `EvalSession` object (see \code{\link{sz_eval_session}}).
+#' @export
+sz_eval_session_cec2022 <- function(fid, dim, budget, log_dir = NULL,
+                                     algo_name = "custom", seed = 0) {
+  # `EvalSession$new_cec2022()`'s `fid`/`dim` are `i32` -- same integer
+  # coercion `sz_eval_session()` applies above.
+  EvalSession$new_cec2022(as.integer(fid), as.integer(dim), budget,
+                           algo_name, seed, log_dir)
+}
+
+#' Start an ask/tell evaluation session over the f0 BIAS-toolbox null
+#' problem.
+#'
+#' f0 (\code{sezgi_bias::F0Random} on the Rust side) has no landscape at
+#' all: every evaluation is an independent U(0,1) draw over the domain
+#' \verb{[0,1]^dim}, uncorrelated with the point being queried. It exists
+#' purely as a probe for an algorithm's OWN structural bias -- see
+#' \code{\link{sz_bias_structural}}.
+#'
+#' Deliberately has NO \code{log_dir}/\code{algo_name}/\code{seed} (log)
+#' arguments: f0 has no known optimum, and IOH logging requires one (see
+#' \code{\link{sz_eval_session}}'s \code{log_dir} for the BBOB/CEC-2022
+#' case). \code{$f_opt()} on the returned session always returns
+#' \code{NULL}.
+#'
+#' See \code{\link{sz_eval_session}} for the full list of methods the
+#' returned object exposes (identical here, including \code{$dim()} /
+#' \code{$bounds()}, which returns \code{c(0, 1)}).
+#'
+#' @param dim f0's domain dimensionality (>= 1); the space is
+#'   \verb{[0,1]^dim}.
+#' @param f0_seed Seed for f0's own RNG stream -- distinct from any engine
+#'   RNG seed.
+#' @param budget Evaluation budget (non-negative whole number).
+#' @returns An `EvalSession` object (see \code{\link{sz_eval_session}}).
+#' @export
+sz_eval_session_f0 <- function(dim, f0_seed, budget) {
+  EvalSession$new_f0(as.integer(dim), f0_seed, budget)
 }

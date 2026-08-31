@@ -37,9 +37,33 @@
 //! point. Both are cheap to support from one `Sexp`-typed argument (branch
 //! on `Sexp::is_list()`), so both are implemented and both are exercised in
 //! `tests/testthat/test-session.R`, rather than picking only one.
+//!
+//! ## Generic sessions (M3-5 Task 5)
+//!
+//! [`EvalSession::new`] remains BBOB-only, unchanged. Two more associated
+//! functions build a session over any other continuous problem this crate
+//! exposes: [`EvalSession::new_cec2022`] (CEC 2022, logging allowed --
+//! `SessionMeta` matches py-sezgi's `PyEvalSession::for_problem`
+//! `Inner::Cec2022` arm exactly, so R- and Python-produced IOH records
+//! reconstruct identically) and [`EvalSession::new_f0`] (the BIAS-toolbox
+//! null problem, `sezgi_bias::F0Random` -- NO log parameters at all, since
+//! f0 has no known optimum and `with_log` requires one). savvy generates
+//! each additional associated function as `EvalSession$new_cec2022(...)` /
+//! `EvalSession$new_f0(...)` (any associated-function name other than
+//! `new` is namespaced under the type -- see
+//! `savvy-bindgen-0.10.2/src/codegen/r.rs::SavvyFn::name_r`'s "Special
+//! convention" comment), each with its own hand-written R wrapper
+//! (`sz_eval_session_cec2022()` / `sz_eval_session_f0()` in
+//! `R/session.R`) giving it R-native default arguments, same raw/wrapper
+//! pattern as `sz_eval_session()` above. `$dim()`/`$bounds()` (see below)
+//! are available on every session regardless of which constructor built
+//! it.
 
 use savvy::{savvy, savvy_err, ListSexp, NullSexp, NumericSexp, OwnedListSexp, OwnedRealSexp, Sexp};
-use sezgi_bench::EvalSession as CoreSession;
+use sezgi_bench::{EvalSession as CoreSession, SessionMeta};
+use sezgi_bias::F0Random;
+use sezgi_core::problem::Problem;
+use sezgi_problems::Cec2022;
 use std::path::Path;
 
 /// Casts a non-negative-checked, WHOLE-NUMBER-checked `f64` (as passed from
@@ -217,6 +241,112 @@ impl EvalSession {
         Ok(Self { inner: Some(session) })
     }
 
+    /// Builds a new ask/tell evaluation session over a CEC 2022 problem
+    /// (M3-5 Task 5 -- the generic-session counterpart to [`Self::new`]'s
+    /// BBOB-only constructor). Generated as `EvalSession$new_cec2022(...)`;
+    /// the public R entry point is the hand-written wrapper
+    /// `sz_eval_session_cec2022()` in `R/session.R`.
+    ///
+    /// `SessionMeta` is built to match py-sezgi's `PyEvalSession::for_problem`
+    /// `Inner::Cec2022` arm EXACTLY (`py-sezgi/src/lib.rs`): `suite =
+    /// "sezgi-cec2022"`, `name = "cec2022-f{fid}"`, `instance = 1`, `f_opt =
+    /// Cec2022::optimum()` -- so an IOH record produced by an R session and
+    /// one produced by an equivalent Python session reconstruct to the
+    /// identical `(suite, fid, name, instance)` key and `f_opt`.
+    ///
+    /// `log_dir` is wired up here, before any `evaluate()` call is
+    /// possible -- same constructor-only placement as [`Self::new`], so
+    /// `EvalSession::with_log`'s "called after evaluation has started"
+    /// guard stays unreachable through this binding.
+    ///
+    /// @param fid CEC 2022 function id (`1..=12`).
+    /// @param dim Problem dimension, one of `2`, `10`, `20` (`dim = 2` is
+    ///   additionally rejected for a hybrid function, `fid` 6-8).
+    /// @param budget Evaluation budget (non-negative).
+    /// @param algo_name Algorithm label recorded in the IOH archive (only
+    ///   meaningful when `log_dir` is given).
+    /// @param seed Caller-declared reproducibility label recorded in the
+    ///   IOH archive meta only.
+    /// @param log_dir Optional directory: when given, every evaluation is
+    ///   logged in IOH-profiler format.
+    #[allow(clippy::too_many_arguments)]
+    fn new_cec2022(
+        fid: i32,
+        dim: i32,
+        budget: f64,
+        algo_name: &str,
+        seed: f64,
+        log_dir: Option<&str>,
+    ) -> savvy::Result<Self> {
+        if fid < 1 {
+            return Err(savvy_err!("fid must be >= 1"));
+        }
+        if dim < 1 {
+            return Err(savvy_err!("dim must be >= 1"));
+        }
+        let budget_u = f64_to_u64("budget", budget)?;
+        let seed_u = f64_to_u64("seed", seed)?;
+
+        let fid_u = fid as u32;
+        let problem = Cec2022::new(fid_u, dim as usize).map_err(|e| savvy_err!("{e}"))?;
+        let meta = SessionMeta {
+            suite: "sezgi-cec2022".to_string(),
+            fid: fid_u,
+            name: format!("cec2022-f{fid_u}"),
+            instance: 1,
+            f_opt: problem.optimum(),
+        };
+        let mut session = CoreSession::new_owned(Box::new(problem), meta, budget_u)
+            .map_err(|e| savvy_err!("{e}"))?;
+        if let Some(dir) = log_dir {
+            session = session
+                .with_log(Path::new(dir), algo_name, seed_u)
+                .map_err(|e| savvy_err!("{e}"))?;
+        }
+        Ok(Self { inner: Some(session) })
+    }
+
+    /// Builds a new ask/tell evaluation session over the f0 BIAS-toolbox
+    /// null problem ([`sezgi_bias::F0Random`]; see that module's own doc).
+    /// Generated as `EvalSession$new_f0(...)`; the public R entry point is
+    /// the hand-written wrapper `sz_eval_session_f0()` in `R/session.R`.
+    ///
+    /// Deliberately has NO `log_dir`/`algo_name`/`seed` (log) parameters at
+    /// all -- f0 has no known optimum (`SessionMeta::f_opt = None`), and
+    /// `EvalSession::with_log` rejects a `None` `f_opt` (see
+    /// `crates/bench/src/session.rs`'s `LogRequiresKnownOptimum`), so
+    /// offering log arguments here would advertise a capability this
+    /// constructor can never honor. `SessionMeta` otherwise matches
+    /// py-sezgi's `PyEvalSession::for_problem` `Inner::F0` arm: `suite =
+    /// "sezgi-f0"`, `fid = 0`, `name = "f0"`, `instance = 1`, `f_opt =
+    /// None`.
+    ///
+    /// @param dim f0's domain dimensionality (>= 1); the space is
+    ///   `[0,1]^dim`.
+    /// @param f0_seed Seed for f0's own RNG stream (see
+    ///   [`sezgi_bias::F0Random::new`]'s doc) -- distinct from any engine
+    ///   RNG seed.
+    /// @param budget Evaluation budget (non-negative).
+    fn new_f0(dim: i32, f0_seed: f64, budget: f64) -> savvy::Result<Self> {
+        if dim < 1 {
+            return Err(savvy_err!("dim must be >= 1"));
+        }
+        let seed_u = f64_to_u64("f0_seed", f0_seed)?;
+        let budget_u = f64_to_u64("budget", budget)?;
+
+        let problem = F0Random::new(dim as usize, seed_u);
+        let meta = SessionMeta {
+            suite: "sezgi-f0".to_string(),
+            fid: 0,
+            name: "f0".to_string(),
+            instance: 1,
+            f_opt: None,
+        };
+        let session = CoreSession::new_owned(Box::new(problem), meta, budget_u)
+            .map_err(|e| savvy_err!("{e}"))?;
+        Ok(Self { inner: Some(session) })
+    }
+
     /// Batch-evaluates `x` -- see the module doc for the accepted shapes.
     /// All-or-nothing: on any error (dimension mismatch, a non-finite
     /// coordinate, or budget overrun) nothing is counted.
@@ -262,16 +392,41 @@ impl EvalSession {
         }
     }
 
-    /// The problem's known optimum value.
-    /// @returns A numeric scalar.
+    /// The problem's known optimum value, or R `NULL` if it has none.
+    /// @returns A numeric scalar, or `NULL` (e.g. an f0 session -- see
+    ///   `sz_eval_session_f0()`).
     fn f_opt(&self) -> savvy::Result<Sexp> {
         let session = self.inner.as_ref().ok_or_else(session_finished_err)?;
-        // `CoreSession::f_opt()` is now `Option<f64>` (M3-4 Task 1 generalized
-        // `EvalSession` beyond BBOB); R only constructs BBOB sessions today
-        // (`new()` above always calls `CoreSession::new_bbob`), which always
-        // have a known optimum.
-        // sezgi decision: unwrap with `.expect(...)` rather than threading `Option` through this binding, since no R entry point can build a non-BBOB session.
-        session.f_opt().expect("BBOB sessions always have a known optimum").try_into()
+        // `CoreSession::f_opt()` is `Option<f64>` (M3-4 Task 1 generalized
+        // `EvalSession` beyond BBOB). Task 5 (M3-5) adds `new_cec2022`/
+        // `new_f0` constructors alongside the BBOB-only `new()` above; BBOB
+        // and CEC 2022 sessions always have a known optimum (`Some`), but
+        // an f0 session never does, so this now maps `Option<f64>` to
+        // R `NULL`/scalar honestly instead of `.expect()`-ing `Some`.
+        match session.f_opt() {
+            Some(v) => v.try_into(),
+            None => Ok(NullSexp.into()),
+        }
+    }
+
+    /// The search space's dimensionality.
+    /// @returns A numeric scalar (whole number).
+    fn dim(&self) -> savvy::Result<Sexp> {
+        let session = self.inner.as_ref().ok_or_else(session_finished_err)?;
+        (session.dim() as f64).try_into()
+    }
+
+    /// The uniform `(lo, hi)` bounds of this session's continuous (float)
+    /// space -- see `sezgi_bench::EvalSession::bounds`'s doc for the exact
+    /// rule (errors for a non-uniform/non-float space; unreachable through
+    /// every constructor this binding exposes today, since BBOB, CEC 2022,
+    /// and f0 are each a single uniform `Float` block, but the error path
+    /// is kept honest rather than assumed away).
+    /// @returns A length-2 numeric vector `c(lo, hi)`.
+    fn bounds(&self) -> savvy::Result<Sexp> {
+        let session = self.inner.as_ref().ok_or_else(session_finished_err)?;
+        let (lo, hi) = session.bounds().map_err(|e| savvy_err!("{e}"))?;
+        Ok(OwnedRealSexp::try_from_slice([lo, hi])?.into())
     }
 
     /// Flushes the IOH log (if logging was enabled) and marks the session

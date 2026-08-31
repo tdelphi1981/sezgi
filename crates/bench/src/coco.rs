@@ -21,6 +21,17 @@
 //!   `.dat` and refuses to post-process an archive missing it; see the
 //!   `// sezgi simplification:` tag at the write site in [`coco_export`].
 //!
+//! ## BBOB-only contract
+//!
+//! COCO's "old format" (this module's whole subject) IS the BBOB archive
+//! format — it has no CEC counterpart, so [`coco_export`] is BBOB-only BY
+//! FORMAT DEFINITION, not by an arbitrary scope cut: it errors, naming the
+//! offending suite, if any input scenario's [`IohScenario::suite`] is not
+//! [`crate::experiment::SUITE_BBOB`]. This is a permanent design boundary
+//! (see `docs/DECISIONS.md`'s M3-5 record), not a v1.0 deferral — a mixed
+//! BBOB+CEC tree (a documented, tested pattern since M3-5 Task 1/2) must be
+//! filtered to its BBOB scenarios before calling this function.
+//!
 //! ## `// sezgi simplification:` tags
 //!
 //! Every place this module's output diverges from what the reference COCO
@@ -46,7 +57,7 @@
 //! this vary per experiment; every sezgi export pins it since sezgi has no
 //! analogous per-experiment precision setting).
 
-use crate::experiment::ExperimentError;
+use crate::experiment::{ExperimentError, SUITE_BBOB};
 use crate::ioh_read::{IohScenario, canonical_anytime};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -79,9 +90,17 @@ fn fmt_exp(value: f64, decimals: usize) -> String {
 /// `out_dir` (created if absent), returning every file path written,
 /// sorted for determinism.
 ///
-/// Every run in `scenarios` MUST carry `f_opt` (see [`IohRun::f_opt`]) and
-/// at least one row in [`IohRun::rows`] — a legacy log missing either is an
-/// error naming the offending run (algo/fid/dim/instance) BEFORE any file
+/// BBOB-only (see the module doc's "BBOB-only contract"): every scenario
+/// in `scenarios` MUST carry `suite == `[`SUITE_BBOB`] — a scenario with
+/// any other suite is an error naming that scenario's algo/fid/dim and its
+/// offending suite BEFORE any file is written. COCO's "old format" has no
+/// CEC representation, so silently merging a non-BBOB scenario into a
+/// `bbob`-labeled archive (as an `(algo, fid)`-only grouping would) is
+/// exactly the silent cross-suite corruption this check exists to reject.
+///
+/// Every run in `scenarios` MUST also carry `f_opt` (see [`IohRun::f_opt`])
+/// and at least one row in [`IohRun::rows`] — a legacy log missing either is
+/// an error naming the offending run (algo/fid/dim/instance) BEFORE any file
 /// is written (validation is a full up-front pass, so a rejected export
 /// never leaves a partial archive on disk).
 ///
@@ -98,6 +117,29 @@ pub fn coco_export(scenarios: &[IohScenario], out_dir: &Path) -> Result<Vec<Path
     // export exactly one run per (instance, seed) — the largest-budget one.
     let mut scenarios = scenarios.to_vec();
     canonical_anytime(&mut scenarios)?;
+
+    // sezgi decision: COCO's "old format" IS the BBOB archive format -- it
+    // has no CEC counterpart (see the module doc's "BBOB-only contract"),
+    // so a scenario logged under any other suite cannot be represented in
+    // this archive. Grouping below is `(algo, fid)` only (no `suite`
+    // component), so silently accepting a non-BBOB scenario here would
+    // merge it into the SAME `bbobexp_f<fid>.info`/`.dat` files as any
+    // same-`(algo, fid)` BBOB scenario, clobbering one suite's data with
+    // the other's (the M3-5 final review's B1 finding, reproduced live on
+    // a mixed BBOB+CEC-2022 tree) -- reject up front instead, naming the
+    // offending suite, rather than merge.
+    for sc in &scenarios {
+        if sc.suite != SUITE_BBOB {
+            return Err(coco_err(format!(
+                "COCO export supports the BBOB suite only (`{SUITE_BBOB}`); \
+                 scenario algo `{}` fid {} dim {} has suite `{}` -- COCO's \
+                 \"old format\" has no CEC counterpart, so this tree cannot \
+                 be exported as one COCO archive (filter to BBOB scenarios \
+                 before calling coco_export)",
+                sc.algo, sc.fid, sc.dim, sc.suite
+            )));
+        }
+    }
 
     // ---- Up-front validation pass: every run needs f_opt + >=1 row. ----
     for sc in &scenarios {
@@ -224,7 +266,7 @@ mod tests {
     fn scenario(algo: &str, fid: u32, dim: usize, runs: Vec<IohRun>) -> IohScenario {
         IohScenario {
             algo: algo.into(),
-            suite: "bbob".into(),
+            suite: SUITE_BBOB.into(),
             fid,
             fname: "Sphere".into(),
             dim,
@@ -418,6 +460,31 @@ mod tests {
         // intermediate row shared by both trajectories' prefixes, so assert
         // on the row count instead — the 400-run has 3 rows, the 200-run 2).
         assert_eq!(dat.lines().filter(|l| !l.starts_with('%')).count(), 3);
+    }
+
+    /// M3-5 final review B1 (blocking): a tree holding one BBOB scenario
+    /// and one CEC-2022 scenario at the SAME `(algo, fid)` must be
+    /// REJECTED, naming the offending suite -- not silently merged into
+    /// one `bbobexp_f<fid>.info`/`.dat` pair (the exact live-reproduced
+    /// corruption the review found: the CEC scenario's `.dat` write would
+    /// clobber the BBOB scenario's, both under a `suite = 'bbob'` header).
+    /// Construction mirrors the T2 regression test's scenario
+    /// (`py-sezgi/tests/test_algo.py::test_no_collision_bbob_vs_cec2022_same_fid`,
+    /// same algo/fid/dim collision shape) but built directly, the way this
+    /// module's other tests build scenarios/archives.
+    #[test]
+    fn mixed_bbob_and_cec2022_scenarios_at_same_algo_fid_are_rejected() {
+        let bbob_sc = scenario("de", 1, 10, vec![run(1, 0.0, vec![(10, 5.0)], 10)]);
+        let mut cec_sc = scenario("de", 1, 10, vec![run(1, 300.0, vec![(10, 400.0)], 10)]);
+        cec_sc.suite = "sezgi-cec2022".into();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let err = coco_export(&[bbob_sc, cec_sc], tmp.path()).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("sezgi-cec2022"), "{msg}");
+        assert!(msg.contains("algo `de`"), "{msg}");
+        assert!(msg.contains("fid 1"), "{msg}");
+        assert!(!tmp.path().join("de").exists(), "no partial output on a rejected mixed-suite export");
     }
 
     #[test]

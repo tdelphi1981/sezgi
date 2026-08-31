@@ -115,8 +115,17 @@ def test_bbob_records_shape_and_mixing():
                                    instances=[1], seeds=[0, 1], budget=50)
     assert len(recs) == 4  # 2 fids x 1 dim x 1 instance x 2 seeds
     for r in recs:
+        # M3-5 final review N1 fix: `bbob_records` carries an explicit
+        # "suite" key (always "sezgi-bbob", since this helper is BBOB-only
+        # by construction) so its dict shape genuinely matches
+        # run_experiment/read_ioh_records, per this function's own
+        # docstring claim. Records without the key (e.g. from an older
+        # caller) still flow through results_matrix/per_budget_packages
+        # unchanged -- a missing "suite" key defaults to SUITE_BBOB (see
+        # `records_from_pylist`).
         assert set(r) == {"algo", "fid", "dim", "instance", "seed", "budget",
-                          "best_f", "f_opt", "gap", "evals_used", "wall_secs"}
+                          "suite", "best_f", "f_opt", "gap", "evals_used", "wall_secs"}
+        assert r["suite"] == "sezgi-bbob"
         assert r["gap"] == r["best_f"] - r["f_opt"]
         assert r["wall_secs"] >= 0.0
     # mixes with run_experiment records in one stats call: same problem set,
@@ -149,6 +158,33 @@ def test_bbob_records_shape_and_mixing():
     pkgs = sezgi.per_budget_packages(both)
     assert len(pkgs) == 1 and pkgs[0][0] == 50
 
+# M3-5 Task 1: RunKey/record suite discriminator -- the M3-4 final review's
+# silent-merge gap. A record dict's "suite" key is always emitted by
+# run_experiment/bbob_records/read_ioh_records, accepted optionally on input
+# (missing => "sezgi-bbob", matching every record built before this key
+# existed), and used to keep same-fid records from different suites in
+# distinct results_matrix problem labels.
+
+def _record(suite, fid=1, dim=5, instance=1, seed=1, f_opt=0.0, **overrides):
+    d = {"algo": "A", "fid": fid, "dim": dim, "instance": instance, "seed": seed,
+         "budget": 100, "suite": suite, "best_f": f_opt + 1.0, "f_opt": f_opt,
+         "evals_used": 100}
+    d.update(overrides)
+    return d
+
+def test_results_matrix_separates_mixed_bbob_and_cec2022_suites():
+    records = [_record("sezgi-bbob", f_opt=0.0), _record("sezgi-cec2022", f_opt=1.0)]
+    algos, problems, matrix = sezgi.results_matrix(records, budget=100)
+    assert algos == ["A"]
+    assert sorted(problems) == sorted(["f1d5i1", "cec2022-f1d5i1"])
+    assert len(matrix) == 2
+
+def test_results_matrix_accepts_record_dict_without_suite_key():
+    d = _record("sezgi-bbob")
+    del d["suite"]
+    algos, problems, matrix = sezgi.results_matrix([d], budget=100)
+    assert problems == ["f1d5i1"]  # missing "suite" defaults to sezgi-bbob, unchanged label
+
 def test_bbob_records_fresh_instance_per_run():
     created = []
     def factory():
@@ -158,6 +194,19 @@ def test_bbob_records_fresh_instance_per_run():
     sezgi.algo.bbob_records(factory, fids=[1], dims=[2], instances=[1],
                             seeds=[0, 1, 2], budget=20)
     assert len(created) == 3
+
+def test_bbob_records_log_dir_roundtrip(tmp_path):
+    recs = sezgi.algo.bbob_records(RandomSearch, fids=[1], dims=[2],
+                                   instances=[1], seeds=[0, 1], budget=40,
+                                   log_dir=str(tmp_path))
+    back = sezgi.read_ioh_records(str(tmp_path), [40])
+    assert len(back) == 2
+    # the reconstructed records agree with the live ones on the identity keys
+    # and best_f (wall_secs differs by nature; evals_used per ioh_records'
+    # documented best-so-far semantics)
+    live = {(r["fid"], r["dim"], r["instance"], r["seed"]): r["best_f"] for r in recs}
+    for b in back:
+        assert b["best_f"] == live[(b["fid"], b["dim"], b["instance"], b["seed"])]
 
 
 # M3-4 Task 4: the bias bridge -- sezgi.bias.f0 (an f0 Problem handle usable
@@ -216,3 +265,24 @@ def test_custom_algorithm_bias_scan_end_to_end():
     # RandomSearch's uniform per-batch resampling having no directional
     # operator to induce structural bias against f0's own random landscape.
     assert out["verdict"] == "no_evidence"  # uniform sampler must scan clean
+
+
+# M3-5 Task 2: CEC 2022 IOH logging from custom sessions (scope ruling 2 --
+# widens the M3-4 final-review's BBOB-only for_problem log_dir restriction
+# to BBOB + CEC 2022, now that T1's suite-aware record key means a CEC 2022
+# run and a BBOB run at the same (fid, dim, instance, seed, budget) no
+# longer silently merge into one results_matrix cell).
+
+def test_no_collision_bbob_vs_cec2022_same_fid(tmp_path):
+    # the M3-4 final review's exact collision scenario as a regression test:
+    # one BBOB f1 d10 run and one cec2022 f1 d10 run, same algo/seed/budget,
+    # logged into the same tree; read back and build the matrix.
+    class RS(sezgi.Algorithm):
+        def setup(self, ctx): ctx.evaluate([ctx.random_point() for _ in range(10)])
+        def step(self, ctx): ctx.evaluate([ctx.random_point() for _ in range(10)])
+    RS().solve(sezgi.bbob(1, 10, 1), budget=30, seed=1, log_dir=str(tmp_path))
+    RS().solve(sezgi.problems.cec2022(1, 10), budget=30, seed=1, log_dir=str(tmp_path))
+    recs = sezgi.read_ioh_records(str(tmp_path), [30])
+    assert len(recs) == 2
+    algos, problems, matrix = sezgi.results_matrix(recs, budget=30)
+    assert sorted(problems) == ["cec2022-f1d10i1", "f1d10i1"]

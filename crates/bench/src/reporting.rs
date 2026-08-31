@@ -19,7 +19,7 @@
 //! records, so a paper can report — and a reader can see — how (and
 //! whether) conclusions hold across budgets, instead of only at one.
 
-use crate::experiment::{ExperimentError, RunRecord};
+use crate::experiment::{ExperimentError, RunRecord, problem_segment};
 use sezgi_stats::PaperPackage;
 use std::collections::HashMap;
 
@@ -54,7 +54,15 @@ impl Aggregate {
 /// Builds a [`sezgi_stats`]-shaped results matrix for one `budget`.
 ///
 /// - Records not matching `budget` are ignored.
-/// - Problem label = `f{fid}d{dim}i{instance}`; problems and algorithms are
+/// - Problem label = `f{fid}d{dim}i{instance}` for BBOB records
+///   (`key.suite == SUITE_BBOB`, unchanged since before `RunKey.suite`
+///   existed), or `{short}-f{fid}d{dim}i{instance}` for any other suite
+///   (`short` strips the `sezgi-` namespace prefix) — see
+///   [`crate::experiment::problem_segment`], the single label-building
+///   helper this shares with [`crate::experiment::RunKey`]'s `Display`.
+///   Two records that would otherwise collide on `(fid, dim, instance)`
+///   across DIFFERENT suites therefore always get distinct labels (the
+///   M3-4 final review's silent-merge gap). Problems and algorithms are
 ///   both ordered by FIRST APPEARANCE in `records` (stable, pinned — not
 ///   sorted). This makes the returned `algo_names`/`problem_labels` order
 ///   a deterministic function of `records`' order, not of hashing or of
@@ -96,7 +104,7 @@ pub fn results_matrix(
             algo_names.len() - 1
         });
 
-        let label = format!("f{}d{}i{}", r.key.fid, r.key.dim, r.key.instance);
+        let label = problem_segment(&r.key.suite, r.key.fid, r.key.dim, r.key.instance);
         let problem_idx = *problem_index.entry(label.clone()).or_insert_with(|| {
             problem_labels.push(label.clone());
             problem_labels.len() - 1
@@ -169,12 +177,22 @@ pub fn per_budget_packages(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::experiment::RunKey;
+    use crate::experiment::{RunKey, SUITE_BBOB};
 
     fn record(algo: &str, fid: u32, dim: usize, instance: u32, seed: u64, budget: u64, gap: f64) -> RunRecord {
+        record_with_suite(algo, fid, dim, instance, seed, budget, SUITE_BBOB, gap)
+    }
+
+    /// Like [`record`], but for a `suite` other than [`SUITE_BBOB`] —
+    /// exercises the suite-discriminated label path.
+    #[allow(clippy::too_many_arguments)]
+    fn record_with_suite(
+        algo: &str, fid: u32, dim: usize, instance: u32, seed: u64, budget: u64,
+        suite: &str, gap: f64,
+    ) -> RunRecord {
         let f_opt = 10.0;
         RunRecord {
-            key: RunKey { algo: algo.into(), fid, dim, instance, seed, budget },
+            key: RunKey { algo: algo.into(), fid, dim, instance, seed, budget, suite: suite.into() },
             best_f: f_opt + gap,
             f_opt,
             evals_used: budget,
@@ -225,6 +243,39 @@ mod tests {
             assert!((row[0] - 5.5).abs() < 1e-12, "A cell: got {}", row[0]);
             assert!((row[1] - 1.5).abs() < 1e-12, "B cell: got {}", row[1]);
         }
+    }
+
+    /// M3-5 Task 1: the M3-4 final review's measured silent-merge, now
+    /// impossible -- two records identical in `(algo, fid=1, dim=5,
+    /// instance=1, seed, budget)`, differing ONLY in `key.suite` (and
+    /// `f_opt`, as a real cross-suite pair would), must land in two
+    /// distinct `results_matrix` rows, not merge into one.
+    #[test]
+    fn results_matrix_separates_suites_with_same_fid() {
+        let bbob = RunRecord {
+            key: RunKey { algo: "A".into(), fid: 1, dim: 5, instance: 1, seed: 1, budget: 100, suite: SUITE_BBOB.into() },
+            best_f: 1.0, f_opt: 0.0, evals_used: 100, wall_secs: 0.0,
+        };
+        let cec = RunRecord {
+            key: RunKey { algo: "A".into(), fid: 1, dim: 5, instance: 1, seed: 1, budget: 100, suite: "sezgi-cec2022".into() },
+            best_f: 2.0, f_opt: 1.0, evals_used: 100, wall_secs: 0.0,
+        };
+
+        let (algos, problems, matrix) = results_matrix(&[bbob, cec], 100, Aggregate::Mean).unwrap();
+        assert_eq!(algos, vec!["A".to_string()]);
+        assert_eq!(problems, vec!["f1d5i1".to_string(), "cec2022-f1d5i1".to_string()]);
+        assert_eq!(matrix.len(), 2, "one row per DISTINCT (suite, fid, dim, instance)");
+    }
+
+    /// M3-5 Task 1: adding `RunKey.suite` must not perturb any existing
+    /// BBOB label -- the flip fixture (all `suite == SUITE_BBOB`, implicit
+    /// via `record()`'s default) still yields exactly the pre-Task-1
+    /// labels.
+    #[test]
+    fn bbob_labels_unchanged_by_suite_field() {
+        let recs = flip_fixture_2problems();
+        let (_, problems, _) = results_matrix(&recs, 100, Aggregate::Mean).unwrap();
+        assert_eq!(problems, vec!["f1d2i1".to_string(), "f1d2i2".to_string()]);
     }
 
     #[test]
@@ -335,15 +386,15 @@ mod tests {
         let f_opt = 10.0;
         let recs = vec![
             RunRecord {
-                key: RunKey { algo: "A".into(), fid: 1, dim: 2, instance: 1, seed: 1, budget: 100 },
+                key: RunKey { algo: "A".into(), fid: 1, dim: 2, instance: 1, seed: 1, budget: 100, suite: SUITE_BBOB.into() },
                 best_f: f_opt + 1.0, f_opt, evals_used: 100, wall_secs: 0.0,
             },
             RunRecord {
-                key: RunKey { algo: "A".into(), fid: 1, dim: 2, instance: 1, seed: 2, budget: 100 },
+                key: RunKey { algo: "A".into(), fid: 1, dim: 2, instance: 1, seed: 2, budget: 100, suite: SUITE_BBOB.into() },
                 best_f: f_opt + 2.0, f_opt, evals_used: 100, wall_secs: 0.0,
             },
             RunRecord {
-                key: RunKey { algo: "A".into(), fid: 1, dim: 2, instance: 1, seed: 3, budget: 100 },
+                key: RunKey { algo: "A".into(), fid: 1, dim: 2, instance: 1, seed: 3, budget: 100, suite: SUITE_BBOB.into() },
                 best_f: f_opt + 100.0, f_opt, evals_used: 100, wall_secs: 0.0,
             },
         ];

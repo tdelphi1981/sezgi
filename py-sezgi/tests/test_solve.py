@@ -212,6 +212,46 @@ def test_log_dir_writes_ioh(tmp_path):
     assert dat.read_text().splitlines()[0] == '"evaluations" "raw_y"'
 
 
+# M3-5 Task 2, fix round 1: solve()'s own log_dir gate was widened to admit
+# Inner::Cec2022 the same way EvalSession.for_problem's was -- the two
+# log_dir entry points over the SAME handle (Algorithm.solve calls
+# for_problem internally; the module-level solve() below is the other,
+# spec-driven entry point) must agree, or the M3-4 final review's fixed
+# asymmetry (accepted here, rejected there) just reappears in reverse.
+
+def test_solve_cec2022_log_dir_writes_ioh(tmp_path):
+    p = sezgi.problems.cec2022(1, 10)
+    spec = sezgi.presets.random_search(pop_size=5, budget=20)
+    sezgi.solve(spec, p, master_seed=7, log_dir=str(tmp_path), algo_name="probe")
+    recs = sezgi.read_ioh_records(str(tmp_path), [20])
+    assert len(recs) == 1
+    assert recs[0]["suite"] == "sezgi-cec2022"
+    assert recs[0]["f_opt"] == 300.0
+
+
+def test_solve_and_for_problem_cec2022_logging_agree_on_identity(tmp_path):
+    """The same (fid, dim, algo_name, seed, budget) CEC 2022 scenario,
+    logged once via solve() and once via EvalSession.for_problem into two
+    separate trees, must reconstruct with IDENTICAL identity keys -- the two
+    entry points are not allowed to disagree on suite/fid/dim/instance."""
+    solve_dir = tmp_path / "via_solve"
+    fp_dir = tmp_path / "via_for_problem"
+
+    spec = sezgi.presets.random_search(pop_size=5, budget=20)
+    sezgi.solve(spec, sezgi.problems.cec2022(1, 10), master_seed=3,
+               log_dir=str(solve_dir), algo_name="probe")
+
+    s = sezgi.EvalSession.for_problem(sezgi.problems.cec2022(1, 10), budget=20,
+                                      log_dir=str(fp_dir), algo_name="probe", seed=3)
+    s.evaluate([[0.0] * 10] * 20)
+    s.finish()
+
+    r_solve = sezgi.read_ioh_records(str(solve_dir), [20])[0]
+    r_fp = sezgi.read_ioh_records(str(fp_dir), [20])[0]
+    identity_keys = ("algo", "suite", "fid", "dim", "instance", "seed", "budget")
+    assert {k: r_solve[k] for k in identity_keys} == {k: r_fp[k] for k in identity_keys}
+
+
 def test_callable_wrong_length_raises():
     def bad_sphere(X):
         # Deliberately returns a list of the wrong (too short) length (list — not ndarray).

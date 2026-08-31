@@ -456,10 +456,15 @@ fn parse_aggregate(aggregate: &str) -> savvy::Result<Aggregate> {
 }
 
 /// Rebuilds `RunRecord`s from a `data.frame`'s columns, as returned by
-/// `sz_run_experiment()`: `algo, fid, dim, instance, seed, budget, best_f,
-/// f_opt, evals`. `wall_secs` is not a column of that data.frame, so it is
-/// always defaulted to `0.0` -- it plays no role in
+/// `sz_run_experiment()`: `algo, fid, dim, instance, seed, budget, suite,
+/// best_f, f_opt, evals`. `wall_secs` is not a column of that data.frame, so
+/// it is always defaulted to `0.0` -- it plays no role in
 /// `results_matrix`/`per_budget_packages`.
+///
+/// `suite` (M3-5 Task 1): the R-native wrapper (`R/experiment.R`) is
+/// responsible for the backward-compat default -- a `df` lacking a `suite`
+/// column gets an all-`"sezgi-bbob"` vector built there before this
+/// function ever sees it, so `suite` here is always a full-length column.
 #[allow(clippy::too_many_arguments)]
 fn records_from_columns(
     algo: &StringSexp,
@@ -468,6 +473,7 @@ fn records_from_columns(
     instance: &RealSexp,
     seed: &RealSexp,
     budget: &RealSexp,
+    suite: &StringSexp,
     best_f: &RealSexp,
     f_opt: &RealSexp,
     evals: &RealSexp,
@@ -479,6 +485,7 @@ fn records_from_columns(
         ("instance", instance.len()),
         ("seed", seed.len()),
         ("budget", budget.len()),
+        ("suite", suite.len()),
         ("best_f", best_f.len()),
         ("f_opt", f_opt.len()),
         ("evals", evals.len()),
@@ -497,6 +504,7 @@ fn records_from_columns(
     let instance_s = instance.as_slice();
     let seed_s = seed.as_slice();
     let budget_s = budget.as_slice();
+    let suite_s = suite.to_vec();
     let best_f_s = best_f.as_slice();
     let f_opt_s = f_opt.as_slice();
     let evals_s = evals.as_slice();
@@ -511,6 +519,7 @@ fn records_from_columns(
                 instance: f64_to_u64("instance", instance_s[i])? as u32,
                 seed: f64_to_u64("seed", seed_s[i])?,
                 budget: f64_to_u64("budget", budget_s[i])?,
+                suite: suite_s[i].to_string(),
             },
             best_f: best_f_s[i],
             f_opt: f_opt_s[i],
@@ -552,9 +561,13 @@ fn rows_to_matrix(rows: &[Vec<f64>]) -> savvy::Result<OwnedRealSexp> {
 ///   clash with the scalar `budget` argument below).
 /// @param budget Only rows with this budget are used.
 /// @param aggregate `"mean"` or `"median"`.
+/// @param suite Character vector (the `suite` column) -- see
+///   `records_from_columns`'s doc comment for the backward-compat default
+///   the R-native wrapper applies when `df` has no `suite` column.
 /// @returns A named list with `algo_names` (character vector),
-///   `problem_labels` (character vector, `f{fid}d{dim}i{instance}`), and
-///   `matrix` (numeric matrix, rows = problems, columns = algorithms).
+///   `problem_labels` (character vector, `f{fid}d{dim}i{instance}` for the
+///   BBOB suite, `{short}-f{fid}d{dim}i{instance}` for any other suite),
+///   and `matrix` (numeric matrix, rows = problems, columns = algorithms).
 /// @noRd
 #[allow(clippy::too_many_arguments)]
 #[savvy]
@@ -565,6 +578,7 @@ fn sz_results_matrix_raw(
     instance: RealSexp,
     seed: RealSexp,
     budget_col: RealSexp,
+    suite: StringSexp,
     best_f: RealSexp,
     f_opt: RealSexp,
     evals: RealSexp,
@@ -572,7 +586,7 @@ fn sz_results_matrix_raw(
     aggregate: &str,
 ) -> savvy::Result<Sexp> {
     let records = records_from_columns(
-        &algo, &fid, &dim, &instance, &seed, &budget_col, &best_f, &f_opt, &evals,
+        &algo, &fid, &dim, &instance, &seed, &budget_col, &suite, &best_f, &f_opt, &evals,
     )?;
     let agg = parse_aggregate(aggregate)?;
     let budget_u = f64_to_u64("budget", budget)?;
@@ -606,6 +620,9 @@ fn sz_results_matrix_raw(
 /// @param algo Character vector (the `algo` column).
 /// @param fid,dim,instance,seed,budget_col,best_f,f_opt,evals Numeric
 ///   vectors (the correspondingly-named columns).
+/// @param suite Character vector (the `suite` column) -- see
+///   `records_from_columns`'s doc comment for the backward-compat default
+///   the R-native wrapper applies when `df` has no `suite` column.
 /// @param rope Region of practical equivalence half-width (>= 0) for the
 ///   Bayesian signed-rank test, forwarded to every budget's package.
 /// @param samples Number of Monte Carlo samples per pair (double, cast to
@@ -626,6 +643,7 @@ fn sz_per_budget_packages_raw(
     instance: RealSexp,
     seed: RealSexp,
     budget_col: RealSexp,
+    suite: StringSexp,
     best_f: RealSexp,
     f_opt: RealSexp,
     evals: RealSexp,
@@ -635,7 +653,7 @@ fn sz_per_budget_packages_raw(
     aggregate: &str,
 ) -> savvy::Result<Sexp> {
     let records = records_from_columns(
-        &algo, &fid, &dim, &instance, &seed, &budget_col, &best_f, &f_opt, &evals,
+        &algo, &fid, &dim, &instance, &seed, &budget_col, &suite, &best_f, &f_opt, &evals,
     )?;
     let agg = parse_aggregate(aggregate)?;
     let samples_u = f64_to_u64("samples", samples)?;

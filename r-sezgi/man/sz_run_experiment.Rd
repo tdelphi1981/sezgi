@@ -40,7 +40,8 @@ and is never re-logged). Read back with `sz_read_ioh_records()`.}
 }
 \value{
 A data.frame with one row per run and columns `algo`, `fid`,
-  `dim`, `instance`, `seed`, `budget`, `best_f`, `f_opt`, `evals`.
+  `dim`, `instance`, `seed`, `budget`, `suite`, `best_f`, `f_opt`,
+  `evals`.
 }
 \description{
 Mirrors py-sezgi's `run_experiment()`: `journal = NULL` runs directly

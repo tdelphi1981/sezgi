@@ -16,12 +16,13 @@ from sezgi import _sezgi
 #   seed=0) -- staticmethod building a session over any continuous (float)
 #   Problem handle: bbob(...), problems.cec2022(...), from_callable(...), or
 #   bias.f0(...). Raises ValueError for problems.tsp(...) (a permutation
-#   space, not continuous) and for log_dir on any non-BBOB problem: IOH
-#   logging is currently supported for BBOB problems only, matching
-#   solve()'s pre-existing policy -- a known optimum (which cec2022(...)
-#   also has) is necessary but not sufficient, since the on-disk IOH record
-#   key carries no suite discriminator and a non-BBOB run would silently
-#   merge with a BBOB run at the same (fid, dim, instance, seed, budget).
+#   space, not continuous) and for log_dir on a from_callable(...)/bias.f0(...)
+#   problem: IOH logging is supported for BBOB and CEC 2022 problems only
+#   (M3-5 widened this from BBOB-only, now that the on-disk IOH record key
+#   carries a "suite" discriminator -- see read_ioh_records/results_matrix --
+#   so a CEC 2022 run no longer silently merges with a BBOB run at the same
+#   (fid, dim, instance, seed, budget)). Callable/F0 have no fid identity or
+#   known optimum to log against, so they still raise.
 #
 # f_opt() now returns float | None (was always float, since only BBOB
 #   existed): None for a problem with no analytically known optimum (e.g.
@@ -118,6 +119,10 @@ def ecdf(log_root, targets=None, per_algo=True):
     per_algo: if True (default), returns a list of `(algo, curve)` pairs,
         one per distinct algorithm in the archive, in first-appearance
         order; if False, returns a single pooled curve over every scenario.
+        Grouping is by algo only, not (algo, suite): a mixed-suite tree
+        (BBOB and CEC 2022 runs for the same algo) pools both suites' runs
+        into that one algo's curve, so read a per-suite tree or filter
+        records by suite first for a curve that is suite-specific.
 
     Each curve is a dict `{"evals": [...], "proportion": [...]}`: `evals`
     ascending, `proportion` in [0, 1] and monotonically nondecreasing.
@@ -130,6 +135,12 @@ def coco_export(log_root, out_dir):
     format" archive rooted at `out_dir`, so it can be post-processed with
     `cocopp`. Returns the list of written file paths (as strings), sorted
     for determinism.
+
+    BBOB-only: COCO's "old format" IS the BBOB archive format and has no
+    CEC counterpart, so this raises `ValueError` if `log_root` holds any
+    non-BBOB scenario (naming the offending suite), rather than silently
+    merging it into a `bbob`-labeled archive. A mixed BBOB+CEC tree must be
+    filtered to its BBOB records before exporting.
     """
     return _sezgi.coco_export(log_root, out_dir)
 

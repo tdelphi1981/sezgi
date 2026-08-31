@@ -28,11 +28,12 @@
 //! (both call the identical seeded Rust core).
 
 use savvy::{
-    savvy, savvy_err, NullSexp, OwnedListSexp, OwnedRealSexp, OwnedStringSexp, RealSexp, Sexp,
+    savvy, savvy_err, ListSexp, NullSexp, NumericSexp, OwnedListSexp, OwnedRealSexp,
+    OwnedStringSexp, RealSexp, Sexp,
 };
 use sezgi_bias::{
-    bias_report, central_bias_scan, structural_bias_scan, BiasReportConfig, BiasVerdict,
-    CentralBiasConfig, CentralBiasResult, StructuralBiasConfig, StructuralBiasResult,
+    bias_report, central_bias_scan, scan_from_positions, structural_bias_scan, BiasReportConfig,
+    BiasVerdict, CentralBiasConfig, CentralBiasResult, StructuralBiasConfig, StructuralBiasResult,
 };
 use sezgi_core::spec::AlgorithmSpec;
 use sezgi_stats::uniformity::{AdResult, KsResult};
@@ -411,4 +412,119 @@ fn sz_bias_report_raw(
     out.set_name_and_value(4, "plot_data", plot)?;
 
     Ok(out.into())
+}
+
+/// Converts `x` -- either a numeric matrix (rows = positions, R's
+/// column-major storage) or a `list` of numeric vectors, one per run --
+/// into `Vec<Vec<f64>>` for [`scan_from_positions`]. Row/list-element order
+/// is preserved either way; NOT length-checked here (a ragged input, or one
+/// with too few rows, is left for [`scan_from_positions`] itself to reject
+/// with its own documented error message, exactly like this file's other
+/// `*_raw` bindings delegate their own domain validation to the crate they
+/// wrap).
+///
+/// Deliberately duplicated (not shared) from `session.rs`'s own
+/// `sexp_to_rows` -- same "no shared private cross-module import" rule
+/// `f64_to_u64`'s doc comment above already documents for this file, and
+/// the SAME two accepted input shapes (matrix OR list, `data.frame`
+/// rejected) `EvalSession$evaluate()` accepts, so a caller who already has
+/// `final_positions` in either shape (e.g. collected one
+/// `sz_algo_solve()` run at a time into a `list`, or `rbind()`-ed into a
+/// matrix) can hand it straight to `sz_bias_structural_positions()` without
+/// reshaping.
+fn positions_from_sexp(x: Sexp) -> savvy::Result<Vec<Vec<f64>>> {
+    if x.is_list() {
+        if let Some(classes) = x.get_class()
+            && classes.contains(&"data.frame")
+        {
+            return Err(savvy_err!(
+                "sz_bias_structural_positions() does not accept a data.frame: it would be read \
+                 column-wise, not row-wise, silently producing wrong positions -- pass a numeric \
+                 matrix instead, e.g. as.matrix(x) (rows = positions)"
+            ));
+        }
+        let list: ListSexp = x.try_into()?;
+        let mut rows = Vec::with_capacity(list.len());
+        for i in 0..list.len() {
+            let elt = list
+                .get_by_index(i)
+                .ok_or_else(|| savvy_err!("final_positions[[{}]] is missing", i + 1))?;
+            let num: NumericSexp = elt.try_into()?;
+            rows.push(num.as_slice_f64().to_vec());
+        }
+        Ok(rows)
+    } else {
+        let num: NumericSexp = x.try_into()?;
+        let dim = num.get_dim().ok_or_else(|| {
+            savvy_err!(
+                "sz_bias_structural_positions() expects a numeric matrix (rows = positions) or \
+                 a list of numeric vectors"
+            )
+        })?;
+        if dim.len() != 2 {
+            return Err(savvy_err!(
+                "expected a 2-D matrix, got {} dimensions",
+                dim.len()
+            ));
+        }
+        let nrow = dim[0] as usize;
+        let ncol = dim[1] as usize;
+        let data = num.as_slice_f64();
+        if data.len() != nrow * ncol {
+            return Err(savvy_err!(
+                "matrix data length {} does not match dim {}x{}",
+                data.len(),
+                nrow,
+                ncol
+            ));
+        }
+
+        let mut rows = vec![vec![0.0_f64; ncol]; nrow];
+        for c in 0..ncol {
+            for r in 0..nrow {
+                rows[r][c] = data[c * nrow + r];
+            }
+        }
+        Ok(rows)
+    }
+}
+
+/// Statistics-only structural-bias scan over EXTERNALLY-collected final
+/// positions -- see [`scan_from_positions`]. Unlike [`sz_bias_structural_raw`]
+/// (which drives an `AlgorithmSpec` through this crate's own engine, `runs`
+/// times), this entry point runs NOTHING itself: it tests final positions
+/// collected from ANY externally-authored algorithm -- e.g. a pure-R
+/// `sz_algorithm`/`sz_algo_solve()` run, one run at a time, over
+/// `sz_eval_session_f0()` (see `R/algo.R`) -- for departure from
+/// uniformity. `dim` is inferred from the first row's length; every row
+/// must have the SAME length. Mirrors py-sezgi's
+/// `sezgi.bias.structural_positions()` 1:1, including sharing the same
+/// dict/list-building helper ([`structural_result_list`] here,
+/// `structural_result_to_dict` there) with the engine-driven scan, so the
+/// two are interchangeable to any downstream consumer.
+///
+/// This is the raw savvy-generated binding; the public R entry point is the
+/// hand-written wrapper `sz_bias_structural_positions()` in `R/bias.R` --
+/// there is only one required argument, so the wrapper adds no R-native
+/// default, but keeps this file's raw/wrapper naming convention and gives
+/// this raw (`@noRd`) binding a proper `@export` roxygen block.
+///
+/// @param final_positions A numeric matrix (rows = independent runs' final
+///   positions, columns = dimension) or a `list` of numeric vectors, one
+///   per run. Must have at least 5 rows/elements (`scan_from_positions`'s
+///   own verified minimum run count), all the same length.
+/// @returns Same named-list shape as `sz_bias_structural_raw()`'s return:
+///   `per_dim_ks`, `per_dim_ad`, `holm_rejections_ks`, `holm_rejections_ad`,
+///   `verdict`, `detail`, `final_positions`.
+///
+/// # Errors
+/// A savvy error if `final_positions` has fewer than 5 rows/elements, is
+/// ragged (rows of differing length), or any row is empty (`dim == 0`).
+/// @noRd
+#[savvy]
+fn sz_bias_structural_positions_raw(final_positions: Sexp) -> savvy::Result<Sexp> {
+    let rows = positions_from_sexp(final_positions)?;
+    let dim = rows.first().map_or(0, |row| row.len());
+    let r = scan_from_positions(rows, dim).map_err(|e| savvy_err!("{e}"))?;
+    Ok(structural_result_list(&r)?.into())
 }

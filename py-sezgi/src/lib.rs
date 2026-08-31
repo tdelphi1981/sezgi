@@ -8,7 +8,7 @@ use sezgi_bench::{
     per_budget_packages as bench_per_budget_packages, read_ioh_root,
     results_matrix as bench_results_matrix, run_experiment_logged, run_experiment_parallel,
     run_experiment_sequential, run_experiment_with_checkpoint, Aggregate, EcdfCurve, EvalSession,
-    ExperimentSpec, IohLogger, RunKey, RunRecord, SessionMeta,
+    ExperimentSpec, IohLogger, RunKey, RunRecord, SessionMeta, SUITE_BBOB,
 };
 use sezgi_bias::{
     central_bias_scan, f0 as bias_f0_mod, scan_from_positions, structural_bias_scan,
@@ -534,7 +534,7 @@ impl PyEvalSession {
                 let fresh = BbobProblem::new(p.fid(), p.space().dim(), p.instance)
                     .map_err(|e| PyValueError::new_err(e.to_string()))?;
                 let meta = SessionMeta {
-                    suite: "sezgi-bbob".into(),
+                    suite: SUITE_BBOB.into(),
                     fid: p.fid(),
                     name: p.name().to_string(),
                     instance: p.instance,
@@ -586,18 +586,24 @@ impl PyEvalSession {
                 "EvalSession supports continuous (float) problems only")),
         };
 
-        // sezgi decision (final-review fix, narrowing scope ruling 3): IOH
-        // logging via for_problem is restricted to BBOB sessions only, not
-        // "any problem with a known optimum" -- CEC 2022 also has an f_opt,
-        // but the on-disk IOH record key (algo, fid, dim, instance, seed,
-        // budget) carries no suite discriminator, so a CEC 2022 run and a
-        // BBOB run sharing that key would silently merge into one
-        // results_matrix cell (read_ioh_records cannot tell them apart).
-        // This matches solve()'s pre-existing, already-documented policy
-        // exactly -- see docs/DECISIONS.md's M3-4 record.
-        if log_dir.is_some() && !matches!(&problem.inner, Inner::Bbob(_)) {
+        // sezgi decision (M3-5 scope ruling 2, widening M3-4's final-review
+        // narrowing): IOH logging via for_problem is restricted to BBOB and
+        // CEC 2022 sessions -- the two arms whose SessionMeta carries a real
+        // fid identity and a known optimum -- not to "any problem with a
+        // known optimum" (Callable/F0 have neither). M3-4's final review
+        // blocked CEC 2022 logging because the on-disk IOH record key
+        // (algo, fid, dim, instance, seed, budget) carried no suite
+        // discriminator, so a CEC 2022 run and a BBOB run sharing that key
+        // would silently merge into one results_matrix cell. M3-5 Task 1
+        // added a "suite" discriminator to that record key (RunKey::suite,
+        // threaded through read_ioh_records/results_matrix), closing that
+        // gap, so CEC 2022 is admitted here too. Callable and F0 arms keep
+        // the rejection: their SessionMeta has no fid identity or f_opt, so
+        // there is nothing to build an IOH archive against (with_log itself
+        // also rejects a None f_opt) -- see docs/DECISIONS.md's M3-5 record.
+        if log_dir.is_some() && !matches!(&problem.inner, Inner::Bbob(_) | Inner::Cec2022(_)) {
             return Err(PyValueError::new_err(
-                "IOH logging is currently supported for BBOB problems only"));
+                "IOH logging is currently supported for BBOB and CEC 2022 problems only"));
         }
 
         let mut session = EvalSession::new_owned(boxed, meta, budget)
@@ -677,7 +683,7 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
             if let Some(dir) = log_dir {
                 let name = algo_name.unwrap_or(&spec.name).to_string();
                 let mut lg = IohLogger::new(std::path::Path::new(dir), &name,
-                    "sezgi-bbob", p.fid(), p.name(),
+                    SUITE_BBOB, p.fid(), p.name(),
                     p.space().dim());
                 let obs = lg.start_run_with(p.instance, master_seed, p.f_opt(), spec.termination.budget);
                 // Logger observer is Rust-native (no GIL needed); GIL is released for the run.
@@ -696,17 +702,31 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
             // batch via Python::with_gil (standard PyO3 pattern).
             (run_with_bridge(py, || run(&cp, None))?, None)
         }
-        // sezgi decision: CEC 2022/TSP are solve()-eligible (Inner::Cec2022,
-        // Inner::Tsp) additively -- same shape as Inner::Bbob minus IOH
-        // logging (no fid/instance/name scenario metadata to log against for
-        // either, so log_dir is rejected the same way Inner::Callable
-        // rejects it).
+        // sezgi decision (M3-5 scope ruling 2, fix round 1): CEC 2022 is
+        // solve()-eligible (Inner::Cec2022) additively -- same shape as
+        // Inner::Bbob, IOH logging included. Widened alongside
+        // `EvalSession::for_problem`'s own CEC 2022 log_dir widening: the
+        // two entry points must agree on one handle's logging behavior (an
+        // asymmetry here would re-create the exact asymmetry M3-4's final
+        // review fixed, just in the opposite direction). Suite/fid/name/
+        // instance mirror `for_problem`'s Inner::Cec2022 SessionMeta
+        // exactly ("sezgi-cec2022", p.fid(), "cec2022-f{fid}", instance 1),
+        // so a run logged via solve() and one logged via for_problem
+        // reconstruct with identical identity keys. TSP still has no
+        // fid/instance/name scenario metadata to log against, so it keeps
+        // rejecting log_dir the same way Inner::Callable does.
         Inner::Cec2022(p) => {
-            if log_dir.is_some() {
-                return Err(PyValueError::new_err(
-                    "log_dir is only supported for builtin (bbob) problems"));
-            }
-            (run_with_bridge(py, || run(p, None))?, None)
+            if let Some(dir) = log_dir {
+                let name = algo_name.unwrap_or(&spec.name).to_string();
+                let scenario_name = format!("cec2022-f{}", p.fid());
+                let mut lg = IohLogger::new(std::path::Path::new(dir), &name,
+                    "sezgi-cec2022", p.fid(), &scenario_name,
+                    p.space().dim());
+                let obs = lg.start_run_with(1, master_seed, p.f_star(), spec.termination.budget);
+                let r = run_with_bridge(py, || run(p, Some(Box::new(obs))))?;
+                let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                (r, Some(fin.skipped_empty_runs as u64))
+            } else { (run_with_bridge(py, || run(p, None))?, None) }
         }
         Inner::Tsp(p) => {
             if log_dir.is_some() {
@@ -746,10 +766,14 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
 
 /// Builds a record dict from a [`RunRecord`], with the SAME shape
 /// `run_experiment` returns (keys: `algo, fid, dim, instance, seed, budget,
-/// best_f, f_opt, gap, evals_used, wall_secs`). Shared by `run_experiment`
-/// and `read_ioh_records` so a disk-reconstructed record and a freshly-run
-/// one are interchangeable to any downstream consumer (e.g.
-/// `per_budget_packages`).
+/// suite, best_f, f_opt, gap, evals_used, wall_secs`). Shared by
+/// `run_experiment` and `read_ioh_records` so a disk-reconstructed record
+/// and a freshly-run one are interchangeable to any downstream consumer
+/// (e.g. `per_budget_packages`).
+///
+/// `"suite"` (M3-5 Task 1): always emitted -- BBOB runs get [`SUITE_BBOB`]
+/// (`"sezgi-bbob"`), same as every record built before this key existed.
+/// See [`records_from_pylist`] for the read side.
 fn record_to_dict<'py>(py: Python<'py>, r: &RunRecord) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("algo", &r.key.algo)?;
@@ -758,6 +782,7 @@ fn record_to_dict<'py>(py: Python<'py>, r: &RunRecord) -> PyResult<Bound<'py, Py
     d.set_item("instance", r.key.instance)?;
     d.set_item("seed", r.key.seed)?;
     d.set_item("budget", r.key.budget)?;
+    d.set_item("suite", &r.key.suite)?;
     d.set_item("best_f", r.best_f)?;
     d.set_item("f_opt", r.f_opt)?;
     d.set_item("gap", r.best_f - r.f_opt)?;
@@ -868,7 +893,9 @@ fn ecdf_curve_to_dict<'py>(py: Python<'py>, curve: &EcdfCurve) -> PyResult<Bound
 /// `per_algo`: `True` (default) returns a list of `(algo, curve_dict)` pairs
 /// (first-appearance order, one curve per distinct algo in the archive);
 /// `False` returns a single pooled `curve_dict` over every scenario.
-/// Each `curve_dict` is `{"evals": [...], "proportion": [...]}`.
+/// Each `curve_dict` is `{"evals": [...], "proportion": [...]}`. Grouping
+/// (in both modes) is by algo only, not `(algo, suite)` -- see
+/// [`sezgi_bench::ecdf_per_algo`]'s doc.
 #[pyfunction]
 #[pyo3(signature = (log_root, targets=None, per_algo=true))]
 fn ecdf(py: Python<'_>, log_root: &str, targets: Option<Vec<f64>>, per_algo: bool) -> PyResult<Py<PyAny>> {
@@ -897,6 +924,8 @@ fn ecdf(py: Python<'_>, log_root: &str, targets: Option<Vec<f64>>, per_algo: boo
 /// Exports the IOH archive at `log_root` as a COCO/BBOB "old format"
 /// archive rooted at `out_dir` — see [`sezgi_bench::coco_export`]. Returns
 /// the list of written file paths (as strings), sorted for determinism.
+/// BBOB-only: raises `ValueError` (naming the offending suite) if the tree
+/// holds any non-BBOB scenario — see `coco_export`'s doc.
 #[pyfunction]
 fn coco_export(py: Python<'_>, log_root: &str, out_dir: &str) -> PyResult<Py<PyList>> {
     let scenarios =
@@ -1134,6 +1163,11 @@ fn parse_aggregate(aggregate: &str) -> PyResult<Aggregate> {
 /// (fields `algo, fid, dim, instance, seed, budget, best_f, f_opt,
 /// evals_used`; `wall_secs` is read if present, defaulted to `0.0`
 /// otherwise — it plays no role in `results_matrix`/`per_budget_packages`).
+///
+/// `"suite"` (M3-5 Task 1): read if present, defaulted to [`SUITE_BBOB`]
+/// otherwise — an old-shape dict from before this key existed (or any
+/// hand-built dict that omits it) is a BBOB record, matching every
+/// pre-Task-1 record. See [`record_to_dict`] for the write side.
 fn records_from_pylist(records: &Bound<'_, PyAny>) -> PyResult<Vec<RunRecord>> {
     let mut out = Vec::new();
     for item in records.try_iter()? {
@@ -1144,6 +1178,10 @@ fn records_from_pylist(records: &Bound<'_, PyAny>) -> PyResult<Vec<RunRecord>> {
         let get = |k: &str| -> PyResult<Bound<'_, PyAny>> {
             d.get_item(k)?.ok_or_else(|| PyValueError::new_err(format!("record is missing field `{k}`")))
         };
+        let suite = match d.get_item("suite")? {
+            Some(v) => v.extract::<String>()?,
+            None => SUITE_BBOB.to_string(),
+        };
         let key = RunKey {
             algo: get("algo")?.extract::<String>()?,
             fid: get("fid")?.extract::<u32>()?,
@@ -1151,6 +1189,7 @@ fn records_from_pylist(records: &Bound<'_, PyAny>) -> PyResult<Vec<RunRecord>> {
             instance: get("instance")?.extract::<u32>()?,
             seed: get("seed")?.extract::<u64>()?,
             budget: get("budget")?.extract::<u64>()?,
+            suite,
         };
         let evals_used = get("evals_used")?.extract::<u64>()?;
         let wall_secs = match d.get_item("wall_secs")? {

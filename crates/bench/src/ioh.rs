@@ -3,6 +3,41 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+/// The `.dat` file's per-run block header line (IOH convention).
+const DAT_HEADER: &str = "\"evaluations\" \"raw_y\"";
+
+/// Splits a `.dat` file's text (as written by this module, one header line
+/// per run followed by its rows) back into per-run blocks (each block's
+/// first line is [`DAT_HEADER`]) for [`IohLogger::finish`]'s run-identity
+/// merge. Trusts the input's own formatting (this module's writer is the
+/// only producer); unlike `crate::ioh_read`'s reader, it does not validate
+/// row shape — it only needs to preserve each block's lines verbatim so
+/// they can be re-written unchanged.
+fn split_dat_into_blocks(text: &str) -> Vec<Vec<String>> {
+    let mut blocks: Vec<Vec<String>> = Vec::new();
+    for line in text.lines() {
+        if line.trim_end_matches('\r') == DAT_HEADER {
+            blocks.push(vec![line.to_string()]);
+        } else if let Some(last) = blocks.last_mut() {
+            last.push(line.to_string());
+        }
+    }
+    blocks
+}
+
+/// One of this logger's own runs, staged in memory during [`IohLogger::finish`]
+/// before it is merged (by `identity`) against any existing scenario for the
+/// same dimension.
+struct NewRun {
+    /// `(instance, seed, budget)` — a legacy `start_run` run always carries
+    /// `(instance, 0, 0)`, matching its own never-serialized `RunData`
+    /// defaults, so it identifies consistently across `finish()` calls.
+    identity: (u64, u64, u64),
+    entry: serde_json::Value,
+    /// This run's `.dat` block, header line included.
+    block: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 struct RunData {
     instance: u32,
@@ -98,14 +133,36 @@ impl IohLogger {
     /// at) — never per-dim, even though the `.dat` files are (their names
     /// embed `DIM<dim>`). If a meta file already exists at that path, it is
     /// parsed and this call's scenario is merged into its `scenarios[]`
-    /// array, keyed by `dimension`: an existing entry for this logger's
-    /// `dim` is REPLACED (re-`finish()`ing the same dimension is
-    /// idempotent, not additive); any other dimension's entry is left
-    /// untouched and this one is appended. The file's other top-level
-    /// fields (`suite`, `function_id`, `function_name`, `algorithm.name`)
-    /// must already agree with this logger's — a mismatch (e.g. two
-    /// different algorithms writing into the same `(fid, fname)` meta
-    /// path) is an error rather than a silent clobber.
+    /// array, keyed by `dimension`: a dimension with no existing entry gets
+    /// one appended; any other dimension's entry is left untouched. The
+    /// file's other top-level fields (`suite`, `function_id`,
+    /// `function_name`, `algorithm.name`) must already agree with this
+    /// logger's — a mismatch (e.g. two different algorithms writing into
+    /// the same `(fid, fname)` meta path) is an error rather than a silent
+    /// clobber.
+    ///
+    /// // sezgi decision: within one dimension's scenario, this logger's
+    /// // runs are merged into any existing scenario BY RUN IDENTITY — the
+    /// // `(instance, seed, budget)` triple (a legacy `start_run` run, whose
+    /// // seed/budget are never serialized, identifies by `(instance, 0,
+    /// // 0)`, matching its own always-`0` `RunData` defaults). A run whose
+    /// // identity already exists in that scenario is REWRITTEN in place
+    /// // (both its meta entry and its `.dat` block) — this is what keeps
+    /// // re-`finish()`ing the SAME logger idempotent: re-running the exact
+    /// // same `(instance, seed, budget)` and finishing again reproduces
+    /// // that identity, so it replaces its own prior entry rather than
+    /// // duplicating it. A run whose identity is new to the scenario is
+    /// // APPENDED. This is what lets `bbob_records`-style callers — a
+    /// // fresh `IohLogger`/`finish()` per run, one seed at a time, into the
+    /// // same `(algo, fid, dim)` target — accumulate every seed's run
+    /// // into one archive instead of each `finish()` clobbering the last:
+    /// // distinct seeds are distinct identities, so they append; the same
+    /// // seed re-run replaces only itself. The single-`finish()`,
+    /// // many-`start_run_with()`-calls pattern (`run_experiment_logged`)
+    /// // is unaffected: its one `finish()` call per `(algo, fid, dim)`
+    /// // never re-enters this merge (no existing scenario for that
+    /// // dimension yet), so all of its runs are appended together exactly
+    /// // as before.
     ///
     /// The merge above is an UNLOCKED read-modify-write on the meta file (no
     /// file lock, no atomic rename): it reads `meta_path`, computes the
@@ -124,8 +181,12 @@ impl IohLogger {
         std::fs::create_dir_all(&data_dir)?;
 
         let dat_name = format!("IOHprofiler_f{}_DIM{}.dat", self.fid, self.dim);
-        let mut dat = std::fs::File::create(data_dir.join(&dat_name))?;
-        let mut runs_json = vec![];
+        let dat_path = data_dir.join(&dat_name);
+
+        // Build this logger's own run entries + `.dat` blocks in memory
+        // first (no file writes yet) so they can be merged by identity
+        // against whatever the dat file/meta already hold, below.
+        let mut new_runs: Vec<NewRun> = Vec::new();
         let mut skipped_empty_runs = 0;
         for run in &self.runs {
             let d = run.lock().unwrap();
@@ -134,10 +195,10 @@ impl IohLogger {
                 skipped_empty_runs += 1;
                 continue;
             }
-            writeln!(dat, "\"evaluations\" \"raw_y\"")?;
-            for (e, y) in &d.rows { writeln!(dat, "{e} {y}")?; }
+            let mut block = vec![DAT_HEADER.to_string()];
+            for (e, y) in &d.rows { block.push(format!("{e} {y}")); }
             if let Some((e, y)) = d.last {
-                if d.rows.last() != Some(&(e, y)) { writeln!(dat, "{e} {y}")?; }
+                if d.rows.last() != Some(&(e, y)) { block.push(format!("{e} {y}")); }
             }
             let (be, by) = d.best.unwrap();
             let mut entry = serde_json::json!({
@@ -151,14 +212,8 @@ impl IohLogger {
                 entry["f_opt"] = serde_json::json!(d.f_opt);
                 entry["budget"] = serde_json::json!(d.budget);
             }
-            runs_json.push(entry);
+            new_runs.push(NewRun { identity: (d.instance as u64, d.seed, d.budget), entry, block });
         }
-
-        let new_scenario = serde_json::json!({
-            "dimension": self.dim,
-            "path": format!("{data_rel}/{dat_name}"),
-            "runs": runs_json,
-        });
 
         let meta_path = dir.join(format!("IOHprofiler_f{}_{}.json", self.fid, self.fname));
 
@@ -203,9 +258,75 @@ impl IohLogger {
             Vec::new()
         };
 
-        // Replace this dimension's scenario if the file already had one
-        // (a re-finish of the same dim), otherwise append.
+        // Merge this logger's runs into this dimension's scenario by run
+        // identity (see the `finish()` doc's "sezgi decision" paragraph):
+        // an existing entry for this dim gets its runs merged in-place
+        // (matching identities REWRITTEN, new identities APPENDED); no
+        // existing entry means this dim's scenario is new and its runs are
+        // simply this logger's own.
         let dim_json = serde_json::Value::from(self.dim);
+        let (merged_runs, merged_blocks): (Vec<serde_json::Value>, Vec<Vec<String>>) =
+            match scenarios.iter().position(|s| s["dimension"] == dim_json) {
+                Some(idx) => {
+                    let existing_runs = scenarios[idx]["runs"].as_array().cloned().unwrap_or_default();
+                    let existing_blocks = if dat_path.exists() {
+                        split_dat_into_blocks(&std::fs::read_to_string(&dat_path)?)
+                    } else {
+                        Vec::new()
+                    };
+
+                    let mut consumed = vec![false; new_runs.len()];
+                    let mut merged_runs = Vec::with_capacity(existing_runs.len());
+                    let mut merged_blocks = Vec::with_capacity(existing_blocks.len());
+                    for (i, existing_entry) in existing_runs.iter().enumerate() {
+                        let ident = (
+                            existing_entry["instance"].as_u64().unwrap_or(0),
+                            existing_entry["seed"].as_u64().unwrap_or(0),
+                            existing_entry["budget"].as_u64().unwrap_or(0),
+                        );
+                        match new_runs.iter().position(|nr| nr.identity == ident) {
+                            Some(pos) => {
+                                // Rewrite: this identity is present in the new
+                                // logger's runs — take its entry/block instead
+                                // of the existing one, in the same position.
+                                merged_runs.push(new_runs[pos].entry.clone());
+                                merged_blocks.push(new_runs[pos].block.clone());
+                                consumed[pos] = true;
+                            }
+                            None => {
+                                merged_runs.push(existing_entry.clone());
+                                if let Some(b) = existing_blocks.get(i) {
+                                    merged_blocks.push(b.clone());
+                                }
+                            }
+                        }
+                    }
+                    // Append every new run whose identity wasn't already
+                    // present (and thus wasn't consumed as a rewrite above).
+                    for (i, nr) in new_runs.iter().enumerate() {
+                        if !consumed[i] {
+                            merged_runs.push(nr.entry.clone());
+                            merged_blocks.push(nr.block.clone());
+                        }
+                    }
+                    (merged_runs, merged_blocks)
+                }
+                None => (
+                    new_runs.iter().map(|nr| nr.entry.clone()).collect(),
+                    new_runs.iter().map(|nr| nr.block.clone()).collect(),
+                ),
+            };
+
+        let mut dat = std::fs::File::create(&dat_path)?;
+        for block in &merged_blocks {
+            for line in block { writeln!(dat, "{line}")?; }
+        }
+
+        let new_scenario = serde_json::json!({
+            "dimension": self.dim,
+            "path": format!("{data_rel}/{dat_name}"),
+            "runs": merged_runs,
+        });
         match scenarios.iter().position(|s| s["dimension"] == dim_json) {
             Some(idx) => scenarios[idx] = new_scenario,
             None => scenarios.push(new_scenario),
@@ -358,6 +479,76 @@ mod tests {
         assert_eq!(sc5["runs"][0]["best"]["y"], 99.0, "dim 5's scenario must reflect the re-finish");
         let sc10 = scenarios.iter().find(|s| s["dimension"] == 10).unwrap();
         assert_eq!(sc10["runs"][0]["best"]["y"], 20.0, "dim 10's scenario must be untouched");
+    }
+
+    #[test]
+    fn finish_appends_new_identity_within_same_dim() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut lg1 = IohLogger::new(tmp.path(), "de-rand-1", "sezgi-bbob", 1, "Sphere", 5);
+        { let mut o = lg1.start_run_with(1, 0, -1.0, 100); o.on_eval(1, 10.0, 10.0); }
+        lg1.finish().unwrap();
+
+        // A second finish() call into the SAME (algo, fid, dim) but with a
+        // DIFFERENT run identity (instance 2, not instance 1) must be
+        // APPENDED, not replace the first — this is the mechanism
+        // `bbob_records`-style multi-seed sweeps rely on (a fresh
+        // IohLogger/finish() per run, into the same target).
+        let mut lg2 = IohLogger::new(tmp.path(), "de-rand-1", "sezgi-bbob", 1, "Sphere", 5);
+        { let mut o = lg2.start_run_with(2, 0, -1.0, 100); o.on_eval(1, 20.0, 20.0); }
+        let fin2 = lg2.finish().unwrap();
+
+        let meta: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&fin2.meta_path).unwrap()).unwrap();
+        let runs = meta["scenarios"][0]["runs"].as_array().unwrap();
+        assert_eq!(runs.len(), 2, "a new run identity must append, not replace");
+        let instances: Vec<u64> = runs.iter().map(|r| r["instance"].as_u64().unwrap()).collect();
+        assert!(instances.contains(&1) && instances.contains(&2), "got instances {instances:?}");
+
+        let dat = std::fs::read_to_string(
+            tmp.path().join("de-rand-1/data_f1_Sphere/IOHprofiler_f1_DIM5.dat")).unwrap();
+        assert_eq!(dat.matches("\"evaluations\"").count(), 2,
+            "both runs' blocks must survive in the .dat file");
+    }
+
+    #[test]
+    fn finish_rewrites_matching_identity_leaving_one_copy() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut lg1 = IohLogger::new(tmp.path(), "de-rand-1", "sezgi-bbob", 1, "Sphere", 5);
+        { let mut o = lg1.start_run_with(1, 7, -1.0, 100); o.on_eval(1, 10.0, 10.0); }
+        lg1.finish().unwrap();
+
+        let mut lg2 = IohLogger::new(tmp.path(), "de-rand-1", "sezgi-bbob", 1, "Sphere", 5);
+        { let mut o = lg2.start_run_with(2, 8, -1.0, 100); o.on_eval(1, 20.0, 20.0); }
+        lg2.finish().unwrap();
+
+        // Re-finishing with the SAME identity (instance 1, seed 7,
+        // budget 100) as the first call must REWRITE that run in place,
+        // leaving exactly one copy of it (not duplicating), while the
+        // unrelated instance-2/seed-8 run from the second call is
+        // untouched.
+        let mut lg1_again = IohLogger::new(tmp.path(), "de-rand-1", "sezgi-bbob", 1, "Sphere", 5);
+        { let mut o = lg1_again.start_run_with(1, 7, -1.0, 100); o.on_eval(1, 99.0, 99.0); }
+        let fin_again = lg1_again.finish().unwrap();
+
+        let meta: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&fin_again.meta_path).unwrap()).unwrap();
+        let runs = meta["scenarios"][0]["runs"].as_array().unwrap();
+        assert_eq!(runs.len(), 2, "a matching identity must rewrite in place, not duplicate");
+
+        let matching: Vec<&serde_json::Value> = runs.iter()
+            .filter(|r| r["instance"] == 1 && r["seed"] == 7).collect();
+        assert_eq!(matching.len(), 1, "exactly one copy of the rewritten identity");
+        assert_eq!(matching[0]["best"]["y"], 99.0, "rewritten run must reflect the re-finish");
+
+        let untouched = runs.iter().find(|r| r["instance"] == 2).unwrap();
+        assert_eq!(untouched["best"]["y"], 20.0, "unrelated identity must be untouched by the rewrite");
+
+        let dat = std::fs::read_to_string(
+            tmp.path().join("de-rand-1/data_f1_Sphere/IOHprofiler_f1_DIM5.dat")).unwrap();
+        assert_eq!(dat.matches("\"evaluations\"").count(), 2,
+            "still exactly two .dat blocks after rewrite (no duplication)");
     }
 
     #[test]

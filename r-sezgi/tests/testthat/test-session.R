@@ -174,3 +174,73 @@ test_that("pure-R random search produces a parseable, bit-identical IOH archive"
   expect_equal(records$seed, seed)
   expect_identical(records$best_f, tracked_best)
 })
+
+# M3-5 Task 5: generic sessions (sz_eval_session_cec2022 / sz_eval_session_f0)
+# plus the $dim()/$bounds() accessors every session now exposes, regardless
+# of which constructor built it. Mirrors py-sezgi's `EvalSession.for_problem`
+# over the same two problem kinds -- see `src/rust/src/session.rs`'s module
+# doc.
+
+test_that("a BBOB session's dim()/bounds() match its construction args", {
+  s <- sz_eval_session(fid = 1, dim = 4, instance = 1, budget = 10)
+  expect_equal(s$dim(), 4)
+  expect_equal(s$bounds(), c(-5, 5))
+})
+
+test_that("a CEC 2022 session's dim()/bounds() match its construction args", {
+  s <- sz_eval_session_cec2022(fid = 1, dim = 10, budget = 10)
+  expect_equal(s$dim(), 10)
+  expect_equal(s$bounds(), c(-100, 100))
+})
+
+test_that("cec2022 session evaluate() matches sz_cec2022_evaluate() for two points", {
+  fid <- 3
+  dim <- 10
+  s <- sz_eval_session_cec2022(fid = fid, dim = dim, budget = 10)
+  x1 <- rep(0, dim)
+  x2 <- seq_len(dim) * 0.1
+  fs <- s$evaluate(points_matrix(x1, x2))
+  expect_equal(fs[1], sz_cec2022_evaluate(fid, dim, x1))
+  expect_equal(fs[2], sz_cec2022_evaluate(fid, dim, x2))
+})
+
+test_that("cec2022 session f_opt() matches sz_cec2022_f_star()", {
+  fid <- 5
+  s <- sz_eval_session_cec2022(fid = fid, dim = 10, budget = 10)
+  expect_equal(s$f_opt(), sz_cec2022_f_star(fid))
+})
+
+test_that("cec2022 session with log_dir writes an IOH .dat file", {
+  log_dir <- file.path(tempfile(), "log")
+  s <- sz_eval_session_cec2022(fid = 1, dim = 10, budget = 3,
+                                log_dir = log_dir, algo_name = "test-algo", seed = 7)
+  s$evaluate(points_matrix(rep(0, 10), rep(1, 10), rep(2, 10)))
+  s$finish()
+
+  dat_files <- list.files(log_dir, pattern = "\\.dat$", recursive = TRUE, full.names = TRUE)
+  expect_length(dat_files, 1)
+
+  records <- sz_read_ioh_records(log_dir, 3)
+  expect_equal(nrow(records), 1)
+  expect_equal(records$seed, 7)
+})
+
+test_that("f0 session: dim/bounds are (0,1)^dim, f_opt is NULL, budget counting, finish", {
+  s <- sz_eval_session_f0(dim = 3, f0_seed = 1, budget = 5)
+  expect_equal(s$dim(), 3)
+  expect_equal(s$bounds(), c(0, 1))
+  expect_null(s$f_opt())
+
+  fs <- s$evaluate(points_matrix(c(0.1, 0.2, 0.3), c(0.4, 0.5, 0.6)))
+  expect_length(fs, 2)
+  expect_equal(s$evals_used(), 2)
+  expect_equal(s$budget(), 5)
+  expect_no_error(s$finish())
+})
+
+test_that("sz_eval_session_f0 has no log_dir/algo_name/seed (log) arguments", {
+  # f0 has no known optimum, and EvalSession::with_log requires one -- so
+  # this constructor deliberately offers no way to ask for logging, rather
+  # than accepting log_dir and rejecting it at call time.
+  expect_identical(names(formals(sz_eval_session_f0)), c("dim", "f0_seed", "budget"))
+})

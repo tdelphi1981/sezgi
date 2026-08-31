@@ -146,6 +146,42 @@ NULL
   .Call(savvy_sz_bias_report_raw__impl, `spec_json`, `dim`, `budget`, `seed`, `structural_runs`, `central_runs_per`, `central_fids`, `central_instances`)
 }
 
+#' Statistics-only structural-bias scan over EXTERNALLY-collected final
+#' positions -- see [`scan_from_positions`]. Unlike [`sz_bias_structural_raw`]
+#' (which drives an `AlgorithmSpec` through this crate's own engine, `runs`
+#' times), this entry point runs NOTHING itself: it tests final positions
+#' collected from ANY externally-authored algorithm -- e.g. a pure-R
+#' `sz_algorithm`/`sz_algo_solve()` run, one run at a time, over
+#' `sz_eval_session_f0()` (see `R/algo.R`) -- for departure from
+#' uniformity. `dim` is inferred from the first row's length; every row
+#' must have the SAME length. Mirrors py-sezgi's
+#' `sezgi.bias.structural_positions()` 1:1, including sharing the same
+#' dict/list-building helper ([`structural_result_list`] here,
+#' `structural_result_to_dict` there) with the engine-driven scan, so the
+#' two are interchangeable to any downstream consumer.
+#'
+#' This is the raw savvy-generated binding; the public R entry point is the
+#' hand-written wrapper `sz_bias_structural_positions()` in `R/bias.R` --
+#' there is only one required argument, so the wrapper adds no R-native
+#' default, but keeps this file's raw/wrapper naming convention and gives
+#' this raw (`@noRd`) binding a proper `@export` roxygen block.
+#'
+#' @param final_positions A numeric matrix (rows = independent runs' final
+#'   positions, columns = dimension) or a `list` of numeric vectors, one
+#'   per run. Must have at least 5 rows/elements (`scan_from_positions`'s
+#'   own verified minimum run count), all the same length.
+#' @returns Same named-list shape as `sz_bias_structural_raw()`'s return:
+#'   `per_dim_ks`, `per_dim_ad`, `holm_rejections_ks`, `holm_rejections_ad`,
+#'   `verdict`, `detail`, `final_positions`.
+#'
+#' # Errors
+#' A savvy error if `final_positions` has fewer than 5 rows/elements, is
+#' ragged (rows of differing length), or any row is empty (`dim == 0`).
+#' @noRd
+`sz_bias_structural_positions_raw` <- function(`final_positions`) {
+  .Call(savvy_sz_bias_structural_positions_raw__impl, `final_positions`)
+}
+
 #' Structural-bias scan: run `spec_json` repeatedly on the f0
 #' random-function null problem and test its final positions for departure
 #' from uniformity -- see [`sezgi_bias::structural::structural_bias_scan`].
@@ -212,6 +248,12 @@ NULL
 #' archive rooted at `out_dir` -- see `sezgi_bench::coco_export`. Returns
 #' the list of written file paths (as strings), sorted for determinism.
 #'
+#' BBOB-only: COCO's "old format" IS the BBOB archive format and has no
+#' CEC counterpart, so this errors (naming the offending suite) if
+#' `log_root` holds any non-BBOB scenario, rather than silently merging it
+#' into a `bbob`-labeled archive. A mixed BBOB+CEC tree must be filtered
+#' to its BBOB records before exporting.
+#'
 #' @param log_root Path to the IOH archive directory (as passed to
 #'   `sz_run_experiment(..., log_dir = ...)`).
 #' @param out_dir Directory to write the COCO/BBOB archive under.
@@ -236,7 +278,10 @@ NULL
 #' @param per_algo `TRUE` returns a named list, one `list(evals=,
 #'   proportion=)` entry per distinct algo in the archive, named by algo
 #'   (first-appearance order); `FALSE` returns a single pooled
-#'   `list(evals=, proportion=)` over every scenario.
+#'   `list(evals=, proportion=)` over every scenario. Grouping (in both
+#'   modes) is by algo only, not `(algo, suite)`: a mixed-suite tree pools
+#'   both suites' runs into one algo's curve -- read a per-suite tree or
+#'   filter `scenarios` by suite first for a suite-specific curve.
 #' @param targets Optional numeric vector of precision targets; `NULL`
 #'   uses `sezgi_bench::default_targets` (the COCO-convention 51-value
 #'   set).
@@ -372,6 +417,9 @@ NULL
 #' @param algo Character vector (the `algo` column).
 #' @param fid,dim,instance,seed,budget_col,best_f,f_opt,evals Numeric
 #'   vectors (the correspondingly-named columns).
+#' @param suite Character vector (the `suite` column) -- see
+#'   `records_from_columns`'s doc comment for the backward-compat default
+#'   the R-native wrapper applies when `df` has no `suite` column.
 #' @param rope Region of practical equivalence half-width (>= 0) for the
 #'   Bayesian signed-rank test, forwarded to every budget's package.
 #' @param samples Number of Monte Carlo samples per pair (double, cast to
@@ -383,8 +431,8 @@ NULL
 #'   named by the budget (as a string); each value has exactly the shape
 #'   `sz_stats_paper_package_raw()` returns.
 #' @noRd
-`sz_per_budget_packages_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`) {
-  .Call(savvy_sz_per_budget_packages_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`)
+`sz_per_budget_packages_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `suite`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`) {
+  .Call(savvy_sz_per_budget_packages_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `suite`, `best_f`, `f_opt`, `evals`, `rope`, `samples`, `master_seed`, `aggregate`)
 }
 
 #' Builds an Artificial Bee Colony spec (Karaboga 2005, TR-06 / Karaboga &
@@ -866,12 +914,16 @@ NULL
 #'   clash with the scalar `budget` argument below).
 #' @param budget Only rows with this budget are used.
 #' @param aggregate `"mean"` or `"median"`.
+#' @param suite Character vector (the `suite` column) -- see
+#'   `records_from_columns`'s doc comment for the backward-compat default
+#'   the R-native wrapper applies when `df` has no `suite` column.
 #' @returns A named list with `algo_names` (character vector),
-#'   `problem_labels` (character vector, `f{fid}d{dim}i{instance}`), and
-#'   `matrix` (numeric matrix, rows = problems, columns = algorithms).
+#'   `problem_labels` (character vector, `f{fid}d{dim}i{instance}` for the
+#'   BBOB suite, `{short}-f{fid}d{dim}i{instance}` for any other suite),
+#'   and `matrix` (numeric matrix, rows = problems, columns = algorithms).
 #' @noRd
-`sz_results_matrix_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`) {
-  .Call(savvy_sz_results_matrix_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`)
+`sz_results_matrix_raw` <- function(`algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `suite`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`) {
+  .Call(savvy_sz_results_matrix_raw__impl, `algo`, `fid`, `dim`, `instance`, `seed`, `budget_col`, `suite`, `best_f`, `f_opt`, `evals`, `budget`, `aggregate`)
 }
 
 #' Runs an [`ExperimentSpec`] (parsed from `spec_toml`) and returns its
@@ -929,6 +981,39 @@ NULL
 #' @export
 `sz_solve_bbob` <- function(`spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`) {
   .Call(savvy_sz_solve_bbob__impl, `spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`)
+}
+
+#' Runs an algorithm spec on a CEC 2022 (Kumar, Price, Mohamed, Hadi &
+#' Suganthan 2021) function via [`Cec2022::new`] and returns the result --
+#' M3-5 Task 4, closing the M3-3 gap (`docs/DECISIONS.md`'s M3-3 record,
+#' ruling (g)): r-sezgi previously bound only direct evaluation
+#' (`sz_cec2022_evaluate`/`sz_cec2022_f_star`), with no `solve()`-integrated
+#' path, unlike py-sezgi's `sezgi.problems.cec2022(...)` + `sezgi.solve()`.
+#' Mirrors `sz_solve_bbob`/`sz_solve_tsp` exactly (`Engine::from_spec` +
+#' `engine.run` + result conversion): same `best_f`/`evals`/`best_x` shape,
+#' not py-sezgi's own `solve()` dict shape (`best_f`/`best_x`/`evals_used`/
+#' `iterations`) -- the established r-sezgi `sz_solve_*` convention governs
+#' here too. See `Cec2022::new`'s own doc for the exact `fid`/`dim` domain.
+#'
+#' @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_shade()`).
+#' @param fid CEC 2022 function id, `1..=12` (double, cast to `u32`).
+#' @param dim Problem dimension, one of `2`, `10`, `20` (double, cast to
+#'   `usize`); `dim = 2` is additionally rejected for a hybrid function
+#'   (`fid` 6-8).
+#' @param master_seed Master RNG seed.
+#' @param run_id Run id (mixed into the seed for independent replicate streams).
+#' @returns A named list with `best_f` (double), `evals` (double), and
+#'   `best_x` (double vector) -- the best EVALUATED point (paired with
+#'   `best_f`). Same caveat as `sz_solve_bbob()`: not every algorithm's
+#'   reported best is guaranteed to lie within the declared domain.
+#'
+#' # Errors
+#' A savvy error for `fid` outside `1..=12`, `dim` outside `{2,10,20}`,
+#' `dim = 2` for a hybrid function, any [`sezgi_core::spec`] parse error, or
+#' any [`sezgi_core::engine`] run error.
+#' @export
+`sz_solve_cec2022` <- function(`spec_json`, `fid`, `dim`, `master_seed`, `run_id`) {
+  .Call(savvy_sz_solve_cec2022__impl, `spec_json`, `fid`, `dim`, `master_seed`, `run_id`)
 }
 
 #' Runs an algorithm spec on a TSPLIB VENDORED instance (`"berlin52"`,
@@ -1142,9 +1227,21 @@ NULL
   }
 }
 
+`EvalSession_bounds` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_bounds__impl, `self`)
+  }
+}
+
 `EvalSession_budget` <- function(self) {
   function() {
     .Call(savvy_EvalSession_budget__impl, `self`)
+  }
+}
+
+`EvalSession_dim` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_dim__impl, `self`)
   }
 }
 
@@ -1176,7 +1273,9 @@ NULL
   e <- new.env(parent = emptyenv())
   e$.ptr <- ptr
   e$`best` <- `EvalSession_best`(ptr)
+  e$`bounds` <- `EvalSession_bounds`(ptr)
   e$`budget` <- `EvalSession_budget`(ptr)
+  e$`dim` <- `EvalSession_dim`(ptr)
   e$`evals_used` <- `EvalSession_evals_used`(ptr)
   e$`evaluate` <- `EvalSession_evaluate`(ptr)
   e$`f_opt` <- `EvalSession_f_opt`(ptr)
@@ -1194,6 +1293,14 @@ NULL
 
 `EvalSession`$`new` <- function(`fid`, `dim`, `instance`, `budget`, `algo_name`, `seed`, `log_dir` = NULL) {
   .savvy_wrap_EvalSession(.Call(savvy_EvalSession_new__impl, `fid`, `dim`, `instance`, `budget`, `algo_name`, `seed`, `log_dir`))
+}
+
+`EvalSession`$`new_cec2022` <- function(`fid`, `dim`, `budget`, `algo_name`, `seed`, `log_dir` = NULL) {
+  .savvy_wrap_EvalSession(.Call(savvy_EvalSession_new_cec2022__impl, `fid`, `dim`, `budget`, `algo_name`, `seed`, `log_dir`))
+}
+
+`EvalSession`$`new_f0` <- function(`dim`, `f0_seed`, `budget`) {
+  .savvy_wrap_EvalSession(.Call(savvy_EvalSession_new_f0__impl, `dim`, `f0_seed`, `budget`))
 }
 
 

@@ -330,10 +330,16 @@ table, every discrepancy quoted verbatim from the C source, and the
 opfunu cross-check's complete findings.
 
 R mirrors the direct-evaluation half 1:1 (`sz_cec2022_evaluate`,
-`sz_cec2022_f_star`) but does **not** yet have a `solve()`-integrated CEC
-2022 binding (no built-in preset can be pointed at a CEC2022 problem from
-R today) — see `examples/r/cec2022_shade.R`'s header and the v1.0
-readiness checklist below for this disclosed gap.
+`sz_cec2022_f_star`) and, since **M3-5**, also has a `solve()`-integrated
+CEC 2022 binding: `sz_solve_cec2022(spec_json, fid, dim, master_seed,
+run_id)` (mirrors `sz_solve_bbob`/`sz_solve_tsp` exactly) runs any built-in
+preset — including `sz_preset_shade` — against a CEC2022 problem, closing
+the gap M3-3 disclosed (`docs/DECISIONS.md`'s M3-3 record, ruling (g)).
+`examples/r/cec2022_shade.R` now runs the SAME SHADE preset through the
+SAME Rust core as `examples/python/cec2022_shade.py`; their `best_f`
+outputs are bit-identical (verified via `writeBin`/`struct.pack`, not a
+decimal-literal comparison — see that test in
+`r-sezgi/tests/testthat/test-cec-tsp.R`).
 
 ## Permutation problems and TSP (M3-3)
 
@@ -506,18 +512,112 @@ Output (live run):
 problems only in v1 — a TSP/permutation problem raises `ValueError` from
 `EvalSession.for_problem` ("EvalSession supports continuous (float)
 problems only"), and authoring a custom permutation-space algorithm this
-way is out of scope, deferred onward (this project's `Algorithm` ABC is
-Python-only for v1 too — an equivalent R-side authoring surface is a
-separate, deferred item, see the v1.0 readiness checklist below). IOH
-logging from a custom `Algorithm` is restricted to BBOB problems only —
-`sezgi.bbob(...)` works with `log_dir=`, but `sezgi.problems.cec2022(...)`,
-`sezgi.bias.f0(...)`, and a raw `from_callable` handle all raise
-`ValueError`, matching `sezgi.solve()`'s own, pre-existing policy for the
-identical handles exactly. A known optimum (`f_opt`) is necessary but not
-sufficient for `log_dir` — CEC 2022 has one too, but the on-disk IOH
-record key carries no suite discriminator, so a CEC 2022 run and a BBOB
-run sharing `(fid, dim, instance, seed, budget)` would otherwise silently
+way is out of scope, deferred onward (a base-R equivalent of this
+authoring surface now exists too — `sz_algorithm`/`sz_algo_solve`, see
+"Write your own algorithm (R) (M3-5)" below — it shares the same
+continuous-only scope). IOH logging from a custom `Algorithm` covers BBOB
+and CEC 2022 problems (widened in M3-5 — see `docs/DECISIONS.md`'s M3-5
+record; this superseded an earlier BBOB-only narrowing) —
+`sezgi.bbob(...)` and `sezgi.problems.cec2022(...)` both work with
+`log_dir=`, but `sezgi.bias.f0(...)` and a raw `from_callable` handle still
+raise `ValueError`, matching `sezgi.solve()`'s own policy for the identical
+handles exactly (neither has a known optimum, and `EvalSession.with_log`
+itself requires one). A known optimum (`f_opt`) is necessary but not
+sufficient on its own for `log_dir` — the on-disk IOH record key also
+needed a suite discriminator (`RunKey.suite`, M3-5) so a CEC 2022 run and a
+BBOB run sharing `(fid, dim, instance, seed, budget)` no longer silently
 merge into one `results_matrix` cell.
+
+## Write your own algorithm (R) (M3-5)
+
+`sz_algorithm(setup, step, name)`/`sz_algo_solve(algo, session, seed)` are
+the base-R mirror of `sezgi.Algorithm` above — same driver semantics
+(`setup(ctx)` once, `step(ctx)` repeatedly until the budget is exhausted),
+expressed as two plain closures instead of a subclass, since this project
+stays base-R only (no R6/S4 — see the scope ruling below). `ctx` is an
+`environment` of callables (`ctx$dim()`, `ctx$bounds()`,
+`ctx$random_point()`, `ctx$evaluate(points)`, `ctx$best()`, `ctx$f_opt()`,
+`ctx$evals_used()`, `ctx$budget()`, `ctx$remaining()`) — every member is a
+function, not a field, since R has no property/descriptor syntax to keep
+`dim`/`bounds` and `evaluate`/`best` uniform otherwise.
+`sz_algo_solve(algo, session, seed)` calls `set.seed(seed)` exactly once,
+up front — R's global RNG stream IS the `ctx` RNG for the whole run, so
+`ctx$random_point()` and any direct `runif()`/`sample()` call inside
+`setup()`/`step()` are both driven by the one seeded stream. A random
+search, in full:
+
+    library(sezgi)
+
+    rs_setup <- function(ctx) invisible(NULL)
+    rs_step  <- function(ctx) ctx$evaluate(t(replicate(10, ctx$random_point())))
+    rs <- sz_algorithm(rs_setup, rs_step, name = "random-search")
+
+    s <- sz_eval_session(fid = 1, dim = 5, instance = 1, budget = 2000)
+    res <- sz_algo_solve(rs, s, seed = 42)
+    cat(sprintf("evals_used=%d best_f=%.6g gap=%.6g\n",
+                res$evals_used, res$best_f, res$gap))
+
+Output (live run):
+
+    evals_used=2000 best_f=-124.389 gap=1.5604
+
+`ctx$evaluate(points)` signals the custom condition class
+`"sz_budget_exhausted"` (a base-R condition object, `c("sz_budget_exhausted",
+"error", "condition")` — the same three trailing classes `simpleError()`
+builds, so any generic handler catches it as an error too) when `points`
+would overrun the remaining budget — checked BEFORE the session is
+touched, so a rejected batch spends nothing; `sz_algo_solve()`'s own
+`tryCatch` catches ONLY this condition class around the whole
+`setup()`/`step()`-loop body, ending the run cleanly, same
+`while used + N <= budget` idiom the pure `examples/r/*.R` scripts already
+use, expressed as a boundary condition instead of a loop guard. `sz_algo_solve()`
+returns a named `list` (`algo`, `seed`, `budget`, `evals_used`, `best_x`,
+`best_f`, `f_opt`, `gap` — mirroring `SolveResult`'s field names exactly;
+`f_opt`/`gap` are `NULL` for a problem with no known optimum, e.g. an f0
+session) and GUARANTEES `session$finish()` runs exactly once on every exit
+path — success, a driver-error `stop()` (a `step()` that consumed no
+budget, or a run that evaluated nothing at all), or any other error
+`setup()`/`step()` raises — via `on.exit(session$finish(), add = TRUE)`,
+the base-R `finally` equivalent to py-sezgi's own `try`/`finally` guarantee.
+
+**Sessions and bias scanning.** The same `sz_algorithm`/`sz_algo_solve`
+surface drives any of r-sezgi's generic `EvalSession` constructors —
+`sz_eval_session()` (BBOB), `sz_eval_session_cec2022()`, or
+`sz_eval_session_f0()` (the BIAS-toolbox's own `[0,1]^d` random test
+function, no known optimum, no `log_dir`/IOH logging argument at all —
+`f_opt`/`gap` come back `NULL`) — so a custom R algorithm can be run and
+compared across suites exactly like a Python one. `sz_bias_structural_positions(final_positions)`
+runs the SAME statistical KS/AD structural-bias scan as the "Bias scanning
+(M3-1)" section above, but over a plain matrix/list of final-position
+vectors collected from ANY externally-driven algorithm — e.g. 30
+`sz_algo_solve()` runs of the random search above over `sz_eval_session_f0()`:
+
+    positions <- vector("list", 30)
+    for (run in 1:30) {
+      s <- sz_eval_session_f0(dim = 3, f0_seed = as.double(run), budget = 60)
+      res <- sz_algo_solve(rs, s, seed = run)
+      positions[[run]] <- res$best_x
+    }
+    verdict <- sz_bias_structural_positions(do.call(rbind, positions))
+    cat("verdict:", verdict$verdict, "\n")
+
+Output (live run):
+
+    verdict: no_evidence
+
+**Scope rulings.** Base-R only (no R6/S4/other new dependency — CRAN
+posture); continuous (`Float`-block) problems only, matching
+`Algorithm`/`AlgoContext`'s own v1 scope exactly. `sz_algorithm`/
+`sz_algo_solve` port the pinned `examples/r/gwo.R` script onto this surface
+verbatim as `examples/r/oop/gwo.R` — the ONE worked twin proving the
+surface (not a full 17-algorithm R wave like `examples/python/oop/`'s —
+see `examples/README.md`'s "R authoring example (M3-5)" section and
+`docs/DECISIONS.md`'s M3-5 record for the draw-order analysis and gate).
+**R callable-objective sessions are deferred** (M3-5 scope ruling 5): an R
+researcher can evaluate their own R function directly, but a
+session-backed counting/logging path for an R callable (the R analogue of
+`sezgi.from_callable`) needs a savvy callback design not undertaken this
+milestone — on the v1.0 readiness checklist below.
 
 ## Examples
 
@@ -542,11 +642,11 @@ optimization (M3-2)" above for why.
 
 `examples/python/cec2022_shade.py`/`examples/r/cec2022_shade.R` and
 `examples/python/tsp_ga_perm.py`/`examples/r/tsp_ga_perm.R` are two more
-matched PAIRs (M3-3): SHADE on CEC 2022 f3, and ga-perm on TSPLIB
-berlin52, both through `sezgi.solve()`/`sz_solve_*`. See "CEC 2022
-benchmark suite (M3-3)" and "Permutation problems and TSP (M3-3)" above —
-including the disclosed R/CEC2022 solve()-binding gap the first pair's R
-script works around.
+matched PAIRs (M3-3; the CEC pair's R-side gap closed in M3-5): SHADE on
+CEC 2022 f3, and ga-perm on TSPLIB berlin52, both through
+`sezgi.solve()`/`sz_solve_*`, both bit-identical between languages. See
+"CEC 2022 benchmark suite (M3-3)" and "Permutation problems and TSP
+(M3-3)" above.
 
 ## Development
 
@@ -555,6 +655,27 @@ script works around.
     R CMD INSTALL --preclean r-sezgi && Rscript -e 'testthat::test_dir("r-sezgi/tests/testthat", package = "sezgi")' # R tests
 
 ## Status
+
+M3-5 (frontend parity and logging gaps) **complete** — closed every deferred
+parity/logging gap from M3-3/M3-4: a `suite` discriminator on `RunKey`/
+record reconstruction (label-stable for BBOB, suite-prefixed otherwise,
+backward-compatible with old journals/record dicts) fixing the M3-4 final
+review's silent BBOB/CEC-2022 collision at its root; custom-session IOH
+logging widened from BBOB-only to BBOB + CEC 2022, at both entry points
+(`EvalSession.for_problem` and the module-level `solve()`); `log_dir`
+threaded through `bbob_records`; `sz_solve_cec2022` (r-sezgi), closing the
+M3-3 R-side CEC solve gap — `examples/r/cec2022_shade.R` now runs the SAME
+SHADE preset as its Python twin, bit-identical; generic R eval sessions
+(`sz_eval_session_cec2022`, `sz_eval_session_f0`) with `$dim()`/`$bounds()`
+accessors on every session; and the pure-R algorithm-authoring surface
+(`sz_algorithm`/`sz_algo_solve`, base R only — closures and condition
+classes, no R6/S4) plus `sz_bias_structural_positions`, proven by ONE
+worked twin (`examples/r/oop/gwo.R`) reproducing `examples/r/gwo.R`'s
+`evals_used`/`best_f`/`gap` output STRING-EXACTLY at the same seed. See
+`docs/DECISIONS.md`'s "M3-5 completed" record for the full ruling list,
+every closed v1.0 item, and the new deferral (R callable-objective
+sessions). Next: v1.0 prep (see the checklist), or the next approved group
+of deferred milestones (CEC 2014/2017, MO remainder, mixed-type problems).
 
 M3-4 (Python algorithm authoring + OOP example twins) **complete** — the
 `sezgi.Algorithm` ABC (`py-sezgi/python/sezgi/algo.py`): a subclassable

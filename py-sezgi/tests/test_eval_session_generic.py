@@ -50,16 +50,34 @@ def test_for_problem_log_dir_requires_known_optimum(tmp_path):
         sezgi.EvalSession.for_problem(p, budget=10, log_dir=str(tmp_path))
 
 
-def test_for_problem_cec2022_log_dir_rejected(tmp_path):
-    """Final-review fix (narrowing scope ruling 3): a known optimum (which
-    cec2022(...) has) is necessary but no longer sufficient for log_dir --
-    IOH logging via for_problem is restricted to BBOB sessions only, since
-    the on-disk record key has no suite discriminator and a CEC 2022 run
-    would otherwise silently merge with a BBOB run at the same
-    (fid, dim, instance, seed, budget)."""
+def test_for_problem_cec2022_logging_roundtrip(tmp_path):
+    """M3-5 (scope ruling 2): T1's suite-aware record key (a "suite" field
+    on RunKey/the record dict) lets read_ioh_records/results_matrix tell a
+    CEC 2022 run apart from a BBOB run at the same (fid, dim, instance,
+    seed, budget), so the M3-4 final-review's collision concern no longer
+    applies -- log_dir on a for_problem(cec2022(...)) session now works,
+    widening the BBOB-only restriction to BBOB + CEC 2022."""
     p = sezgi.problems.cec2022(1, 10)
-    with pytest.raises(ValueError, match="BBOB"):
-        sezgi.EvalSession.for_problem(p, budget=10, log_dir=str(tmp_path))
+    s = sezgi.EvalSession.for_problem(p, budget=20, log_dir=str(tmp_path),
+                                      algo_name="probe", seed=7)
+    s.evaluate([[0.0] * 10] * 20)
+    s.finish()
+    recs = sezgi.read_ioh_records(str(tmp_path), [20])
+    assert len(recs) == 1
+    assert recs[0]["suite"] == "sezgi-cec2022"
+    assert recs[0]["f_opt"] == 300.0
+
+
+def test_for_problem_callable_and_f0_log_dir_still_rejected(tmp_path):
+    """Callable/F0 arms carry no fid/suite identity in their SessionMeta
+    (no on-disk IOH record can be built for them), so they keep the
+    rejection even after BBOB + CEC 2022 are both allowed to log."""
+    p = sezgi.from_callable(lambda x: x[0], 0.0, 1.0, 1, vectorized=False)
+    with pytest.raises(ValueError):
+        sezgi.EvalSession.for_problem(p, budget=5, log_dir=str(tmp_path))
+    with pytest.raises(ValueError):
+        sezgi.EvalSession.for_problem(sezgi.bias.f0(2, seed=0), budget=5,
+                                      log_dir=str(tmp_path))
 
 
 def test_for_problem_from_callable_vectorized_default_works_batch_style():
