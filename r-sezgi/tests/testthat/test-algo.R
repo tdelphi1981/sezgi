@@ -153,3 +153,48 @@ test_that("end-to-end bias scan of an R-authored algorithm on f0", {
   # landscape.
   expect_identical(out$verdict, "no_evidence")
 })
+
+# ---- M3-5 Task 7: R OOP twin parity (examples/r/oop/gwo.R) ------------
+
+#' Locates the repo root by walking up from `start` looking for
+#' `examples/r/gwo.R` -- avoids depending on exactly which working
+#' directory `testthat::test_local()`/`test_dir()`/`R CMD check` leaves the
+#' process in (they differ), mirroring what
+#' `py-sezgi/tests/test_examples_oop_parity.py` gets for free from
+#' `pathlib.Path(__file__).resolve().parents[2]` (R's `testthat::test_path()`
+#' is the closest analogue to `__file__`, used as the primary probe here).
+.gwo_repo_root <- function() {
+  start_points <- getwd()
+  test_path_dir <- tryCatch(dirname(testthat::test_path()), error = function(e) NA_character_)
+  if (!is.na(test_path_dir)) start_points <- c(test_path_dir, start_points)
+
+  for (start in start_points) {
+    dir <- normalizePath(start, mustWork = FALSE)
+    for (i in 0:6) {
+      if (file.exists(file.path(dir, "examples", "r", "gwo.R"))) {
+        return(dir)
+      }
+      parent <- dirname(dir)
+      if (identical(parent, dir)) break
+      dir <- parent
+    }
+  }
+  stop("could not locate repo root (examples/r/gwo.R not found walking up from getwd()/test_path())")
+}
+
+test_that("R OOP gwo twin matches the pure gwo.R script (subprocess, string-exact)", {
+  root <- .gwo_repo_root()
+
+  run_fields <- function(script) {
+    out <- system2("Rscript", args = script, stdout = TRUE, stderr = TRUE)
+    line <- grep("evals_used=", out, value = TRUE)
+    expect_length(line, 1)
+    m <- regmatches(line, regexec("evals_used=(\\S+) best_f=(\\S+) gap=(\\S+)", line))[[1]]
+    expect_length(m, 4)
+    m[2:4]
+  }
+
+  pure <- run_fields(file.path(root, "examples", "r", "gwo.R"))
+  oop <- run_fields(file.path(root, "examples", "r", "oop", "gwo.R"))
+  expect_identical(oop, pure)
+})

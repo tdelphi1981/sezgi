@@ -230,3 +230,62 @@ Live output (same scenario/seed as the pure script above it):
 
 which matches `./py-sezgi/.venv/bin/python examples/python/gwo.py`'s own
 `gwo: evals_used=1980 best_f=-125.949 gap=0.000659831` field-for-field.
+
+## R authoring example (M3-5)
+
+`examples/r/oop/gwo.R` is the R-side counterpart to the Python OOP twins
+above — ONE worked twin (not a full 17-algorithm wave, per the M3-5 plan's
+own scope ruling: the 17 pure-R scripts under `examples/r/` already teach
+the algorithms; the pure-R authoring surface itself is what needed a
+worked proof), porting `examples/r/gwo.R` onto `sz_algorithm`/
+`sz_algo_solve` (r-sezgi's M3-5 pure-R mirror of `sezgi.Algorithm`,
+base-R closures/environments/condition classes only — see the main
+`README.md`'s "Write your own algorithm (R) (M3-5)" section for the
+authoring guide this twin demonstrates).
+
+**Bit-exact parity, achieved by draw-order identity, not restated
+statistical closeness.** `sz_algo_solve()` calls R's `set.seed(seed)`
+exactly once, up front, and R's global RNG is the ONE stream both
+`ctx$random_point()` and any direct `runif()` call inside `setup()`/
+`step()` draw from — the SAME stream and SAME per-call shape the pure
+`examples/r/gwo.R` script already uses. The twin's `setup()` reproduces the
+pure script's init draws verbatim (`ctx$random_point()` == `runif(dim, lo,
+hi)`, same `lapply` order); `step()` reproduces one generation's `for (i)
+for (d) runif(6)` nesting verbatim; `ctx$evaluate`'s `sz_budget_exhausted`
+condition reproduces the pure script's own `while used + pop_size <=
+budget` guard as a boundary condition instead of a loop precondition (see
+`examples/r/oop/gwo.R`'s own header comment for the one structural
+difference this introduces — a final, discarded burst of RNG draws on a
+generation whose batch never reaches the session — and why it provably
+does not change the printed output). Because of this, at the shared
+scenario (BBOB f1, dim 5, budget 2000, seed 42) the twin's printed
+`evals_used`/`best_f`/`gap` fields are STRING-IDENTICAL to the pure
+script's, verified live, not merely argued — gated by
+`r-sezgi/tests/testthat/test-algo.R`'s "R OOP gwo twin matches the pure
+gwo.R script" test, which runs both `examples/r/gwo.R` and
+`examples/r/oop/gwo.R` as `Rscript` subprocesses and compares their printed
+`evals_used=... best_f=... gap=...` fields for exact string equality
+(mirroring `py-sezgi/tests/test_examples_oop_parity.py`'s own subprocess/
+regex mechanics).
+
+**The pure script remains the pedagogical/provenance original** —
+`examples/r/gwo.R` was not touched by this port (verified empty `git diff`
+against it at this task's gate); it stays the primary teaching artifact the
+catalog table above describes. The twin is a SEPARATE, additional artifact
+demonstrating the `sz_algorithm` authoring surface on an already-understood
+algorithm, not a replacement for the pure script.
+
+Run:
+
+    Rscript examples/r/gwo.R
+    Rscript examples/r/oop/gwo.R
+
+Live output (same scenario/seed as the pure script, measured by running
+both from the repo root):
+
+    gwo: evals_used=1980 best_f=-125.949 gap=0.000431711
+    gwo (oop): evals_used=1980 best_f=-125.949 gap=0.000431711
+
+field-for-field identical (R's own RNG stream differs from Python's — the
+R pair's `best_f`/`gap` are not expected to match the Python pair's; only
+each language's pure/twin pair is compared).
