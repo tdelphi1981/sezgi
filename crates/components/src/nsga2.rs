@@ -18,12 +18,173 @@
 //! variation operators -- see its own "## NSGA-II main-loop runner" section
 //! for the main-loop provenance (initialization, tournament pairing/
 //! comparison, environmental selection, RNG derivation, budget-tail rule).
+//! M3-7 Task 1 adds the constraint channel beside the Task 4 pieces
+//! (`constraint_violation`, `dominates_constrained`,
+//! `fast_non_dominated_sort_constrained`, module doc's "## Constrained
+//! domination" section below) -- every constrained-aware function/argument
+//! added by that task takes the EXACT unconstrained old code path whenever
+//! a problem's `evaluate_constraints_batch` (`sezgi_core::mo::MoProblem`)
+//! returns `None`.
 //!
 //! ## Pareto dominance
 //! Pinned to the standard minimization definition, consistent with the
 //! paper's unglossed `p ≺ q` ("p dominates q") notation used throughout
 //! Section III-A below: `a` dominates `b` iff `a[i] <= b[i]` for every
 //! objective `i`, and `a[i] < b[i]` for at least one `i`.
+//!
+//! ## Constrained domination (M3-7 Task 1)
+//! The paper itself does not define a constrained variant of dominance (it
+//! is an unconstrained-optimization paper); this is pinned entirely to the
+//! KanGAL reference C, the SAME `darnir/nsga2` GitHub mirror T4/T5/T6
+//! already pinned (module doc above), re-fetched this task and verified via
+//! `git hash-object` against the GitHub API's own recorded git blob sha for
+//! each file (the M3-2 record did not carry a sha for these `.c` files --
+//! only the `raw.githubusercontent.com/darnir/nsga2/master/*.c` URL -- so
+//! this task's own fetch is the first sha-verified pin for them; see the
+//! task-1 report for the exact sha values). Two new files, not read during
+//! M3-2 (which only needed the unconstrained dominance branch):
+//! `dominance.c` (the constrained branches of `check_dominance` itself) and
+//! `eval.c` (`evaluate_ind`, where `constr_violation` is accumulated from
+//! the raw constraint row).
+//!
+//! **`check_dominance` (`dominance.c`), quoted verbatim in full (this is
+//! the WHOLE function -- the unconstrained tail, already quoted in the "###
+//! Tournament comparison" section below, is the `else` branch's innermost
+//! `else`):**
+//! ```text
+//! int check_dominance (individual *a, individual *b)
+//! {
+//!     int i;
+//!     int flag1;
+//!     int flag2;
+//!     flag1 = 0;
+//!     flag2 = 0;
+//!     if (a->constr_violation<0 && b->constr_violation<0)
+//!     {
+//!         if (a->constr_violation > b->constr_violation)
+//!         {
+//!             return (1);
+//!         }
+//!         else
+//!         {
+//!             if (a->constr_violation < b->constr_violation)
+//!             {
+//!                 return (-1);
+//!             }
+//!             else
+//!             {
+//!                 return (0);
+//!             }
+//!         }
+//!     }
+//!     else
+//!     {
+//!         if (a->constr_violation < 0 && b->constr_violation == 0)
+//!         {
+//!             return (-1);
+//!         }
+//!         else
+//!         {
+//!             if (a->constr_violation == 0 && b->constr_violation <0)
+//!             {
+//!                 return (1);
+//!             }
+//!             else
+//!             {
+//!                 for (i=0; i<nobj; i++)
+//!                 {
+//!                     if (a->obj[i] < b->obj[i]) { flag1 = 1; }
+//!                     else { if (a->obj[i] > b->obj[i]) { flag2 = 1; } }
+//!                 }
+//!                 if (flag1==1 && flag2==0) { return (1); }
+//!                 else { if (flag1==0 && flag2==1) { return (-1); }
+//!                        else { return (0); } }
+//!             }
+//!         }
+//!     }
+//! }
+//! ```
+//! Truth table (both `a`/`b` individuals): both `constr_violation<0`
+//! (BOTH infeasible) -> whichever has the LARGER `constr_violation`
+//! (closer to `0`, i.e. LESS violated) dominates; a tie (equal violation)
+//! -> neither dominates. One `<0` (infeasible), the other `==0` (feasible)
+//! -> the FEASIBLE one dominates unconditionally, objectives never
+//! consulted. Both `==0` (BOTH feasible) -> falls through to the exact same
+//! objective-comparison loop as the unconstrained branch (quoted in the
+//! "### Tournament comparison" section below) -- plain Pareto dominance.
+//! `constr_violation` is never positive in this C (see `eval.c` below), so
+//! these three cases are exhaustive; [`dominates_constrained`] below
+//! implements this exact truth table, returning `true` iff `a` dominates
+//! `b` (`check_dominance` returning `1`).
+//!
+//! **`evaluate_ind` (`eval.c`), quoted verbatim (the `constr_violation`
+//! accumulation; the `test_problem` call that fills `ind->obj`/`ind->constr`
+//! is the problem-specific part, out of scope here):**
+//! ```text
+//! void evaluate_ind (individual *ind)
+//! {
+//!     int j;
+//!     test_problem (ind->xreal, ind->xbin, ind->gene, ind->obj, ind->constr);
+//!     if (ncon==0)
+//!     {
+//!         ind->constr_violation = 0.0;
+//!     }
+//!     else
+//!     {
+//!         ind->constr_violation = 0.0;
+//!         for (j=0; j<ncon; j++)
+//!         {
+//!             if (ind->constr[j]<0.0)
+//!             {
+//!                 ind->constr_violation += ind->constr[j];
+//!             }
+//!         }
+//!     }
+//!     return;
+//! }
+//! ```
+//! I.e. `constr_violation` starts at `0.0` and accumulates `constr[j]`
+//! ITSELF (not `fabs(constr[j])`, not normalized by anything) for every `j`
+//! with `constr[j] < 0.0`; a satisfied constraint (`constr[j] >= 0.0`)
+//! contributes nothing. This is the source of the `g_j >= 0` FEASIBLE
+//! convention pinned on [`sezgi_core::mo::MoProblem::evaluate_constraints_batch`]
+//! (also the Deb/Thiele/Laumanns/Zitzler 2005 DTLZ book chapter's own
+//! convention -- the SAME sign both ways). [`constraint_violation`] below
+//! implements this exact accumulation.
+//!
+//! **Where constrained domination enters the algorithm.** Both
+//! `tourselect.c`'s `tournament()` (quoted in "### Tournament comparison"
+//! below) and `fillnds.c`'s `fill_nondominated_sort` (the C's
+//! non-dominated-sort/rank-assignment routine, linked-list based rather
+//! than this crate's array-based `fast_non_dominated_sort`) call
+//! `check_dominance` DIRECTLY -- there is no separate constrained code path
+//! in the C at the call-site level, because the constrained branches live
+//! INSIDE `check_dominance` itself. `nsga2_run` below mirrors this: no
+//! separate "constrained mode" flag threads through the algorithm shape,
+//! only the pairwise predicate changes ([`dominates`] -> `Some(violations)`
+//! selects [`dominates_constrained`] instead, `None` keeps [`dominates`]).
+//! **No RNG interaction:** `check_dominance` draws nothing (it is a pure
+//! function of `obj`/`constr_violation`), so adding the constrained
+//! branches changes NO draw count/order anywhere in the algorithm -- the
+//! frozen RNG-draw-structure findings from T4/T5/T6 (module doc above) are
+//! entirely unaffected by this task.
+//!
+//! **Not compiled/probed against the C's own driver for this task.**
+//! `check_dominance` takes no RNG input and produces a value purely as a
+//! function of its two individuals' `obj`/`constr_violation` fields --
+//! there is no seeded "tournament outcome" to reproduce beyond what direct
+//! source inspection (above, sha-verified) already pins exactly, and M3-2's
+//! own "RNG stream derivation" finding (module doc above) already
+//! established that `sezgi_core::rng::RngStream` is NOT a bit-reproduction
+//! target for the C's own `rand()`-based `randomperc()` (only DRAW
+//! STRUCTURE/COUNT is pinned) -- so a compiled-C probe of "seeded
+//! constrained-tournament outcomes" would not even be a meaningful
+//! cross-check target here (the draws would differ regardless of whether
+//! constraints are involved), on top of adding no confidence beyond the
+//! deterministic quoted source already gives. Hand-derivation (this
+//! module's own test fixtures, cross-checked against the quoted truth
+//! table above by hand) is the task-1 report's documented basis for this
+//! call.
 //!
 //! ## Fast non-dominated sort (paper, p. 184, `fast-non-dominated-sort(P)`)
 //! Quoted verbatim from the algorithm box (comments after `if`/assignment
@@ -567,11 +728,19 @@ pub fn dominates(a: &[f64], b: &[f64]) -> bool {
     strictly_better_somewhere
 }
 
-/// Fronts as index lists, front 0 = non-dominated set, per Deb et al. 2002
-/// (`fast-non-dominated-sort`, module doc). Ordering within and across
-/// fronts is pinned; see the module doc for the exact rule.
-pub fn fast_non_dominated_sort(objectives: &[Vec<f64>]) -> Vec<Vec<usize>> {
-    let n = objectives.len();
+/// Shared engine behind [`fast_non_dominated_sort`] and
+/// [`fast_non_dominated_sort_constrained`]: Deb et al. 2002's
+/// `fast-non-dominated-sort(P)` (module doc), parameterized over the
+/// pairwise domination predicate `dom(p, q)` = "does index `p` dominate
+/// index `q`". `n` is the population size. **sezgi decision:** extracted as
+/// a private generic core (introduced this task, M3-7) so the constrained
+/// variant does not hand-duplicate the sort algorithm -- purely a DRY
+/// refactor with NO behavioral change: [`fast_non_dominated_sort`] below
+/// calls this with EXACTLY the same predicate ([`dominates`]) and loop
+/// structure it always had, so its output is unchanged (frozen-path test,
+/// this task's own report, plus every pre-existing M3-2 golden/anchor
+/// passing unmodified is the acceptance evidence).
+fn fast_non_dominated_sort_core(n: usize, dom: impl Fn(usize, usize) -> bool) -> Vec<Vec<usize>> {
     let mut dominated_sets: Vec<Vec<usize>> = vec![Vec::new(); n]; // S_p
     let mut domination_count: Vec<usize> = vec![0; n]; // n_p
     let mut front0 = Vec::new();
@@ -581,9 +750,9 @@ pub fn fast_non_dominated_sort(objectives: &[Vec<f64>]) -> Vec<Vec<usize>> {
             if p == q {
                 continue;
             }
-            if dominates(&objectives[p], &objectives[q]) {
+            if dom(p, q) {
                 dominated_sets[p].push(q);
-            } else if dominates(&objectives[q], &objectives[p]) {
+            } else if dom(q, p) {
                 domination_count[p] += 1;
             }
         }
@@ -608,6 +777,66 @@ pub fn fast_non_dominated_sort(objectives: &[Vec<f64>]) -> Vec<Vec<usize>> {
         current = next;
     }
     fronts
+}
+
+/// Fronts as index lists, front 0 = non-dominated set, per Deb et al. 2002
+/// (`fast-non-dominated-sort`, module doc). Ordering within and across
+/// fronts is pinned; see the module doc for the exact rule.
+pub fn fast_non_dominated_sort(objectives: &[Vec<f64>]) -> Vec<Vec<usize>> {
+    fast_non_dominated_sort_core(objectives.len(), |p, q| dominates(&objectives[p], &objectives[q]))
+}
+
+/// Total constraint violation for one individual's raw constraint row `g`
+/// (`g_j >= 0` feasible, per [`sezgi_core::mo::MoProblem::evaluate_constraints_batch`]'s
+/// convention). Pinned to the KanGAL reference C's `eval.c`,
+/// `evaluate_ind` (quoted verbatim, module doc's "Constrained domination"
+/// section): starts at `0.0` and accumulates `constr[j]` ITSELF (not its
+/// absolute value) for every `j` with `constr[j] < 0.0`; satisfied rows
+/// (`>= 0.0`) contribute nothing. Always `<= 0.0`; `0.0` means fully
+/// feasible. `g.is_empty()` (the C's `ncon==0` branch) returns `0.0`
+/// trivially, matching the C's explicit special case.
+pub fn constraint_violation(g: &[f64]) -> f64 {
+    g.iter().filter(|&&gj| gj < 0.0).sum()
+}
+
+/// Constrained Pareto dominance: does `a` dominate `b`, per the KanGAL
+/// reference C's `dominance.c`, `check_dominance` (quoted verbatim, module
+/// doc's "Constrained domination" section)? `a_violation`/`b_violation` are
+/// each individual's [`constraint_violation`] (`<= 0.0`, `0.0` = feasible).
+/// Truth table (mirrors `check_dominance` returning `1`): both infeasible
+/// -> `a` wins iff LESS violated (`a_violation > b_violation`, i.e. closer
+/// to zero); one feasible one infeasible -> the feasible one always wins;
+/// both feasible -> plain [`dominates`] on `a`/`b`'s objectives.
+pub fn dominates_constrained(a: &[f64], a_violation: f64, b: &[f64], b_violation: f64) -> bool {
+    if a_violation < 0.0 && b_violation < 0.0 {
+        return a_violation > b_violation;
+    }
+    if a_violation < 0.0 && b_violation == 0.0 {
+        // a infeasible, b feasible: b dominates a, not the other way round.
+        return false;
+    }
+    if a_violation == 0.0 && b_violation < 0.0 {
+        // a feasible, b infeasible: a dominates b unconditionally.
+        return true;
+    }
+    // Both feasible (violation == 0.0 both -- constraint_violation never
+    // returns a positive value, so this is the only remaining case).
+    dominates(a, b)
+}
+
+/// Constrained sibling of [`fast_non_dominated_sort`]: identical algorithm
+/// (shares [`fast_non_dominated_sort_core`]), but the pairwise predicate is
+/// [`dominates_constrained`] instead of plain [`dominates`]. `violations[i]`
+/// is individual `i`'s [`constraint_violation`], parallel to `objectives`.
+pub fn fast_non_dominated_sort_constrained(
+    objectives: &[Vec<f64>],
+    violations: &[f64],
+) -> Vec<Vec<usize>> {
+    debug_assert_eq!(objectives.len(), violations.len(),
+        "fast_non_dominated_sort_constrained: objectives/violations length mismatch");
+    fast_non_dominated_sort_core(objectives.len(), |p, q| {
+        dominates_constrained(&objectives[p], violations[p], &objectives[q], violations[q])
+    })
 }
 
 /// Crowding distance for ONE front (indices into `objectives`); boundary
@@ -857,12 +1086,25 @@ pub struct MoRunResult {
     /// vector.
     pub objectives: Vec<Vec<f64>>,
     /// Indices (into `individuals`/`objectives`) of the final population's
-    /// non-dominated set (front 0 of `fast_non_dominated_sort` on the final
-    /// `objectives`).
+    /// non-dominated set (front 0 of `fast_non_dominated_sort`, or
+    /// `fast_non_dominated_sort_constrained` when `violations.is_some()`,
+    /// on the final `objectives`).
     pub front0: Vec<usize>,
     /// Total evaluations charged, read directly from
     /// [`MoEvaluator::used`].
     pub evals_used: u64,
+    /// Parallel to `individuals`/`objectives`: each entry is that
+    /// individual's [`constraint_violation`] (`<= 0.0`, `0.0` = feasible).
+    /// `sezgi decision:` (this task, M3-7) added alongside `objectives`
+    /// (mirroring its storage, per this task's own interface note) --
+    /// `Some` iff the problem's `evaluate_constraints_batch` returned
+    /// `Some` (a constrained problem), `None` for every unconstrained
+    /// problem (the byte-identical old path: every M3-2 `MoProblem` impl
+    /// leaves this `None`). Additive field; does not change any existing
+    /// `MoRunResult` field, so every prior consumer (both bindings access
+    /// fields by name, not by exhaustive destructure) keeps compiling
+    /// unmodified.
+    pub violations: Option<Vec<f64>>,
 }
 
 /// Errors from [`nsga2_run`]. See the module doc's "Validation" section for
@@ -1005,14 +1247,39 @@ fn shuffle_two_interleaved(n: usize, rng: &mut RngStream) -> (Vec<usize>, Vec<us
 }
 
 /// `tourselect.c`'s `tournament()`, verified faithful (module doc,
-/// "Tournament comparison"): raw pairwise dominance first (reusing
-/// [`dominates`] directly), then crowding distance, then a single coin-flip
-/// draw on a full tie. Returns the winner's index (`i` or `j`).
-fn tournament(objectives: &[Vec<f64>], crowd: &[f64], i: usize, j: usize, rng: &mut RngStream) -> usize {
-    if dominates(&objectives[i], &objectives[j]) {
+/// "Tournament comparison"): raw pairwise dominance first, then crowding
+/// distance, then a single coin-flip draw on a full tie. Returns the
+/// winner's index (`i` or `j`).
+///
+/// `violations`: `None` (the unconstrained problem, byte-identical old
+/// path) uses [`dominates`] directly, exactly as before this task; `Some`
+/// (a constrained problem) uses [`dominates_constrained`] instead --
+/// `tourselect.c`'s own `tournament()` calls the SAME `check_dominance`
+/// either way (module doc's "Constrained domination" section: the
+/// constrained branches live INSIDE `check_dominance` itself, so the C's
+/// `tournament()` needed no separate constrained code path -- neither does
+/// this one). Consumes the SAME RNG draws in the SAME order regardless
+/// (`check_dominance`/`dominates_constrained` draws nothing; only the
+/// downstream coin-flip tiebreak, unaffected here, draws).
+fn tournament(
+    objectives: &[Vec<f64>],
+    crowd: &[f64],
+    i: usize,
+    j: usize,
+    rng: &mut RngStream,
+    violations: Option<&[f64]>,
+) -> usize {
+    let (i_dominates_j, j_dominates_i) = match violations {
+        None => (dominates(&objectives[i], &objectives[j]), dominates(&objectives[j], &objectives[i])),
+        Some(v) => (
+            dominates_constrained(&objectives[i], v[i], &objectives[j], v[j]),
+            dominates_constrained(&objectives[j], v[j], &objectives[i], v[i]),
+        ),
+    };
+    if i_dominates_j {
         return i;
     }
-    if dominates(&objectives[j], &objectives[i]) {
+    if j_dominates_i {
         return j;
     }
     if crowd[i] > crowd[j] {
@@ -1028,9 +1295,17 @@ fn tournament(objectives: &[Vec<f64>], crowd: &[f64], i: usize, j: usize, rng: &
 /// truncation): every front is complete, so every individual gets a
 /// `crowd_dist` from [`crowding_distance`] directly. Mirrors `rank.c`'s
 /// `assign_rank_and_crowding_distance`, called once on the initial
-/// population before the generation loop (module doc).
-fn crowd_dist_full(objectives: &[Vec<f64>]) -> Vec<f64> {
-    let fronts = fast_non_dominated_sort(objectives);
+/// population before the generation loop (module doc). `violations: None`
+/// takes the byte-identical old [`fast_non_dominated_sort`] path;
+/// `Some` sorts via [`fast_non_dominated_sort_constrained`] instead --
+/// crowding distance ITSELF never depends on violation (`crowddist.c` has
+/// no `constr_violation` reference at all -- purely objective-space,
+/// computed identically either way once front membership is settled).
+fn crowd_dist_full(objectives: &[Vec<f64>], violations: Option<&[f64]>) -> Vec<f64> {
+    let fronts = match violations {
+        None => fast_non_dominated_sort(objectives),
+        Some(v) => fast_non_dominated_sort_constrained(objectives, v),
+    };
     let mut out = vec![0.0f64; objectives.len()];
     for front in &fronts {
         let d = crowding_distance(front, objectives);
@@ -1045,12 +1320,16 @@ fn crowd_dist_full(objectives: &[Vec<f64>]) -> Vec<f64> {
 /// tournament pairing + `sbx_pair` crossover (block-of-4 loop), followed by
 /// a SEPARATE full `polynomial_mutation` pass over every child in order
 /// (module doc, "Tournament pairing" -- the two-phase structure is pinned,
-/// not interleaved).
+/// not interleaved). `violations` (`None`/`Some`, parallel to `objectives`)
+/// is threaded through to every [`tournament`] call only -- crossover and
+/// mutation never depend on constraints in the C (`crossover.c`/
+/// `mutation.c` never reference `constr`/`constr_violation`).
 #[allow(clippy::too_many_arguments)]
 fn generate_offspring(
     genos: &[Genotype],
     objectives: &[Vec<f64>],
     crowd: &[f64],
+    violations: Option<&[f64]>,
     lo: &[f64],
     hi: &[f64],
     block_lens: &[usize],
@@ -1065,14 +1344,14 @@ fn generate_offspring(
 
     let mut i = 0;
     while i < n {
-        let p1 = tournament(objectives, crowd, a1[i], a1[i + 1], rng);
-        let p2 = tournament(objectives, crowd, a1[i + 2], a1[i + 3], rng);
+        let p1 = tournament(objectives, crowd, a1[i], a1[i + 1], rng, violations);
+        let p2 = tournament(objectives, crowd, a1[i + 2], a1[i + 3], rng, violations);
         let (c1, c2) = sbx_pair(&flat[p1], &flat[p2], lo, hi, cfg.eta_c, cfg.p_c, rng);
         children[i] = c1;
         children[i + 1] = c2;
 
-        let p3 = tournament(objectives, crowd, a2[i], a2[i + 1], rng);
-        let p4 = tournament(objectives, crowd, a2[i + 2], a2[i + 3], rng);
+        let p3 = tournament(objectives, crowd, a2[i], a2[i + 1], rng, violations);
+        let p4 = tournament(objectives, crowd, a2[i + 2], a2[i + 3], rng, violations);
         let (c3, c4) = sbx_pair(&flat[p3], &flat[p4], lo, hi, cfg.eta_c, cfg.p_c, rng);
         children[i + 2] = c3;
         children[i + 3] = c4;
@@ -1087,25 +1366,52 @@ fn generate_offspring(
     children.iter().map(|f| to_genotype(f, block_lens)).collect()
 }
 
+/// The new population's `(individuals, objectives, crowd_dist, violations)`
+/// -- [`environmental_selection`]'s return shape, all parallel and of
+/// length `n`. Named to keep clippy's `type_complexity` quiet (mirrors
+/// [`FloatBounds`]'s existing tuple-alias convention in this module).
+type SelectedPopulation = (Vec<Genotype>, Vec<Vec<f64>>, Vec<f64>, Option<Vec<f64>>);
+
 /// `(μ+λ)` environmental selection: combine parent + offspring, sort into
 /// fronts, fill whole fronts, and truncate the first non-fitting front by
 /// descending crowding distance (ascending-index tie-break, deterministic
 /// -- module doc, "Environmental selection"). Returns the new population's
-/// `(individuals, objectives, crowd_dist)`, all parallel and of length `n`.
+/// `(individuals, objectives, crowd_dist, violations)`, all parallel and of
+/// length `n` ([`SelectedPopulation`]).
+///
+/// `violations`/`off_violations`: **invariant, always both `None` or both
+/// `Some` together** -- both come from the SAME fixed `problem` within one
+/// `nsga2_run` call (either it always returns `Some` from
+/// `evaluate_constraints_batch`, or it always returns `None`; `nsga2_run`
+/// never mixes the two across generations). `None` takes the
+/// byte-identical old [`fast_non_dominated_sort`] path with no violation
+/// bookkeeping at all -- exactly the pre-task code.
+#[allow(clippy::too_many_arguments)]
 fn environmental_selection(
     mut genos: Vec<Genotype>,
     mut objectives: Vec<Vec<f64>>,
+    violations: Option<Vec<f64>>,
     off_genos: Vec<Genotype>,
     off_objectives: Vec<Vec<f64>>,
+    off_violations: Option<Vec<f64>>,
     n: usize,
-) -> (Vec<Genotype>, Vec<Vec<f64>>, Vec<f64>) {
+) -> SelectedPopulation {
     genos.extend(off_genos);
     objectives.extend(off_objectives);
-    let fronts = fast_non_dominated_sort(&objectives);
+    let mut violations = violations;
+    if let (Some(v), Some(ov)) = (violations.as_mut(), off_violations) {
+        v.extend(ov);
+    }
+
+    let fronts = match &violations {
+        None => fast_non_dominated_sort(&objectives),
+        Some(v) => fast_non_dominated_sort_constrained(&objectives, v),
+    };
 
     let mut new_genos = Vec::with_capacity(n);
     let mut new_objectives = Vec::with_capacity(n);
     let mut new_crowd = Vec::with_capacity(n);
+    let mut new_violations: Option<Vec<f64>> = violations.as_ref().map(|_| Vec::with_capacity(n));
 
     for front in &fronts {
         if new_genos.len() >= n {
@@ -1117,6 +1423,9 @@ fn environmental_selection(
                 new_genos.push(genos[idx].clone());
                 new_objectives.push(objectives[idx].clone());
                 new_crowd.push(d[k]);
+                if let (Some(nv), Some(v)) = (new_violations.as_mut(), &violations) {
+                    nv.push(v[idx]);
+                }
             }
         } else {
             let need = n - new_genos.len();
@@ -1130,17 +1439,49 @@ fn environmental_selection(
                 new_genos.push(genos[idx].clone());
                 new_objectives.push(objectives[idx].clone());
                 new_crowd.push(d[k]);
+                if let (Some(nv), Some(v)) = (new_violations.as_mut(), &violations) {
+                    nv.push(v[idx]);
+                }
             }
             break;
         }
     }
-    (new_genos, new_objectives, new_crowd)
+    (new_genos, new_objectives, new_crowd, new_violations)
+}
+
+/// Evaluates constraints for `pop` via `problem`'s own
+/// `evaluate_constraints_batch` and reduces each individual's raw
+/// constraint row to a single [`constraint_violation`] scalar, parallel to
+/// `pop`. Returns `None` iff the problem itself returns `None`
+/// (unconstrained -- the byte-identical old path).
+///
+/// **sezgi decision:** deliberately NOT charged against
+/// `MoEvaluator`'s evaluation budget -- mirrors the KanGAL C's
+/// `evaluate_ind` (`eval.c`, quoted in the module doc), which computes
+/// `obj` AND `constr` in ONE `test_problem` call, a single evaluation, not
+/// two. Called directly on `problem` (bypassing `MoEvaluator`) for exactly
+/// this reason. The length-contract assertion below mirrors
+/// `MoEvaluator::evaluate`'s own `evaluate_batch` length assert
+/// (`sezgi_core::mo`) -- placed here rather than inside `MoEvaluator`
+/// itself since `evaluate_constraints_batch` deliberately bypasses it.
+fn evaluate_violations(problem: &dyn MoProblem, pop: &[Genotype]) -> Option<Vec<f64>> {
+    let cons = problem.evaluate_constraints_batch(pop)?;
+    assert_eq!(cons.len(), pop.len(),
+        "MoProblem::evaluate_constraints_batch returned wrong length: {} != {}", cons.len(), pop.len());
+    Some(cons.iter().map(|g| constraint_violation(g)).collect())
 }
 
 /// NSGA-II reference runner. See the module doc's "## NSGA-II main-loop
 /// runner" section for the full provenance (initialization, tournament
 /// pairing/comparison, environmental selection, RNG derivation, budget-tail
-/// rule, defaults).
+/// rule, defaults) and this task's own "Constrained domination" section for
+/// the constraint channel (M3-7): `problem.evaluate_constraints_batch`
+/// returning `None` (every M3-2 `MoProblem` impl, and any problem that
+/// simply never overrides the trait default) takes the EXACT unconstrained
+/// code path this function always had -- `violations` stays `None`
+/// throughout, so `crowd_dist_full`/`generate_offspring`/
+/// `environmental_selection` all take their own `None` branches, which are
+/// textually the pre-task code.
 pub fn nsga2_run(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunResult, Nsga2Error> {
     validate_config(cfg)?;
     let (lo, hi, block_lens) = float_bounds(problem.space())?;
@@ -1159,28 +1500,36 @@ pub fn nsga2_run(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunResu
         pop_size: cfg.pop_size,
         budget: cfg.budget,
     })?;
-    let mut crowd = crowd_dist_full(&objectives);
+    let mut violations = evaluate_violations(problem, &genos);
+    let mut crowd = crowd_dist_full(&objectives, violations.as_deref());
 
     loop {
         // Budget-tail rule (module doc): generate speculatively, evaluate,
         // and break WITHOUT mutating the population on Err -- mirrors the
         // scalar engine's `Err(_) => break 'outer` exactly.
-        let offspring =
-            generate_offspring(&genos, &objectives, &crowd, &lo, &hi, &block_lens, cfg, p_m, &mut var_rng);
+        let offspring = generate_offspring(
+            &genos, &objectives, &crowd, violations.as_deref(), &lo, &hi, &block_lens, cfg, p_m, &mut var_rng,
+        );
         let off_objectives = match eval.evaluate(&offspring) {
             Ok(o) => o,
             Err(_) => break,
         };
-        let (new_genos, new_objectives, new_crowd) =
-            environmental_selection(genos, objectives, offspring, off_objectives, cfg.pop_size);
+        let off_violations = evaluate_violations(problem, &offspring);
+        let (new_genos, new_objectives, new_crowd, new_violations) = environmental_selection(
+            genos, objectives, violations, offspring, off_objectives, off_violations, cfg.pop_size,
+        );
         genos = new_genos;
         objectives = new_objectives;
         crowd = new_crowd;
+        violations = new_violations;
     }
 
-    let front0 = fast_non_dominated_sort(&objectives).into_iter().next().unwrap_or_default();
+    let front0 = match &violations {
+        None => fast_non_dominated_sort(&objectives).into_iter().next().unwrap_or_default(),
+        Some(v) => fast_non_dominated_sort_constrained(&objectives, v).into_iter().next().unwrap_or_default(),
+    };
 
-    Ok(MoRunResult { individuals: genos, objectives, front0, evals_used: eval.used() })
+    Ok(MoRunResult { individuals: genos, objectives, front0, evals_used: eval.used(), violations })
 }
 
 #[cfg(test)]
@@ -1219,6 +1568,132 @@ mod tests {
         let b = [1.0, 2.0, 4.0];
         assert!(dominates(&a, &b));
         assert!(!dominates(&b, &a));
+    }
+
+    // ---- constraint_violation: KanGAL eval.c accumulation -----------------
+    //
+    // eval.c's evaluate_ind (quoted in the module doc): constr_violation
+    // starts at 0.0 and accumulates constr[j] itself (NOT its absolute
+    // value) for every j with constr[j] < 0.0; constr[j] >= 0.0 rows
+    // contribute nothing. Result is always <= 0.0, 0.0 meaning fully
+    // feasible.
+
+    #[test]
+    fn constraint_violation_all_satisfied_is_zero() {
+        assert_eq!(constraint_violation(&[0.0, 1.0, 5.0]), 0.0);
+    }
+
+    #[test]
+    fn constraint_violation_no_constraints_is_zero() {
+        // ncon==0 in the C: constr_violation = 0.0 unconditionally.
+        assert_eq!(constraint_violation(&[]), 0.0);
+    }
+
+    #[test]
+    fn constraint_violation_sums_only_negative_rows() {
+        // g = [-1.0, 3.0, -2.5]: only the two negative entries accumulate,
+        // the satisfied g1=3.0 contributes nothing.
+        assert_eq!(constraint_violation(&[-1.0, 3.0, -2.5]), -3.5);
+    }
+
+    #[test]
+    fn constraint_violation_boundary_zero_is_satisfied_not_violated() {
+        // g_j == 0.0 is NOT < 0.0 in the C's own test -- satisfied, not
+        // accumulated.
+        assert_eq!(constraint_violation(&[0.0]), 0.0);
+    }
+
+    // ---- dominates_constrained: the three KanGAL check_dominance regimes --
+    //
+    // dominance.c's check_dominance (quoted in the module doc): both
+    // infeasible -> smaller violation magnitude (larger, i.e. closer-to-zero,
+    // constr_violation) wins regardless of objectives; feasible beats
+    // infeasible regardless of objectives; both feasible -> plain
+    // objective dominance.
+
+    #[test]
+    fn dominates_constrained_feasible_beats_infeasible_regardless_of_objectives() {
+        // a is feasible but objectively WORSE in both objectives than b,
+        // which is infeasible -- a must still dominate b.
+        let a = [5.0, 5.0];
+        let a_v = 0.0; // feasible
+        let b = [1.0, 1.0];
+        let b_v = -2.0; // infeasible
+        assert!(dominates_constrained(&a, a_v, &b, b_v));
+        assert!(!dominates_constrained(&b, b_v, &a, a_v));
+    }
+
+    #[test]
+    fn dominates_constrained_both_infeasible_smaller_violation_wins_regardless_of_objectives() {
+        // a is LESS violated (-1.0 > -3.0) but objectively WORSE in both
+        // objectives than b -- a must still dominate b.
+        let a = [5.0, 5.0];
+        let a_v = -1.0;
+        let b = [1.0, 1.0];
+        let b_v = -3.0;
+        assert!(dominates_constrained(&a, a_v, &b, b_v));
+        assert!(!dominates_constrained(&b, b_v, &a, a_v));
+    }
+
+    #[test]
+    fn dominates_constrained_both_infeasible_equal_violation_neither_dominates() {
+        let a = [1.0, 5.0];
+        let b = [5.0, 1.0];
+        assert!(!dominates_constrained(&a, -2.0, &b, -2.0));
+        assert!(!dominates_constrained(&b, -2.0, &a, -2.0));
+    }
+
+    #[test]
+    fn dominates_constrained_both_feasible_falls_back_to_plain_dominance() {
+        let a = [1.0, 2.0];
+        let b = [2.0, 3.0];
+        assert!(dominates_constrained(&a, 0.0, &b, 0.0));
+        assert!(!dominates_constrained(&b, 0.0, &a, 0.0));
+        assert_eq!(dominates_constrained(&a, 0.0, &b, 0.0), dominates(&a, &b));
+    }
+
+    #[test]
+    fn dominates_constrained_both_feasible_mixed_objectives_neither_dominates() {
+        let a = [1.0, 3.0];
+        let b = [2.0, 2.0];
+        assert!(!dominates_constrained(&a, 0.0, &b, 0.0));
+        assert!(!dominates_constrained(&b, 0.0, &a, 0.0));
+    }
+
+    // ---- fast_non_dominated_sort_constrained: hand fixture -----------------
+    //
+    // 4 points, 2 objectives (minimize both), violations in parens:
+    //   P0=(1,5) v=0   P1=(5,1) v=0   P2=(0,0) v=-1   P3=(10,10) v=-5
+    //
+    // P0/P1 (both feasible) are objectively mixed (incomparable) -> front 0.
+    // P0 dominates P2 and P3 (feasible beats infeasible, regardless that
+    // P2/P3 are objectively better); same for P1. P2 dominates P3 (both
+    // infeasible, -1.0 > -5.0 -- P2 less violated). Domination counts:
+    // P0=0, P1=0, P2=2 (by P0,P1), P3=3 (by P0,P1,P2).
+    // front0=[P0,P1] (index order); removing it drops P2's count to 0 ->
+    // front1=[P2]; removing P2 drops P3's count to 0 -> front2=[P3].
+    #[test]
+    fn fast_non_dominated_sort_constrained_hand_fixture() {
+        let objectives = vec![
+            vec![1.0, 5.0],
+            vec![5.0, 1.0],
+            vec![0.0, 0.0],
+            vec![10.0, 10.0],
+        ];
+        let violations = vec![0.0, 0.0, -1.0, -5.0];
+        let fronts = fast_non_dominated_sort_constrained(&objectives, &violations);
+        assert_eq!(fronts, vec![vec![0, 1], vec![2], vec![3]]);
+    }
+
+    #[test]
+    fn fast_non_dominated_sort_constrained_all_feasible_matches_plain_sort() {
+        // All-zero violations must reproduce fast_non_dominated_sort exactly
+        // (the "both feasible" branch falls back to plain dominance).
+        let objectives = six_point_fixture();
+        let violations = vec![0.0; objectives.len()];
+        let fronts_constrained = fast_non_dominated_sort_constrained(&objectives, &violations);
+        let fronts_plain = fast_non_dominated_sort(&objectives);
+        assert_eq!(fronts_constrained, fronts_plain);
     }
 
     // ---- fast_non_dominated_sort: hand fixture ----------------------
@@ -1960,5 +2435,125 @@ mod tests {
         let reference = problem.pareto_front(200).unwrap();
         let value = igd(&front0_objectives, &reference).unwrap();
         assert!(value < 0.05, "measured IGD {value} exceeds the anchored threshold 0.05");
+    }
+
+    // ---- frozen-path: unconstrained result bit-identical to a BASE golden ----
+    //
+    // Task 1 (M3-7)'s own acceptance gate, distinct from the M3-2
+    // `nsga2_run_determinism_golden_zdt1`/`nsga2_run_same_seed_twice_bit_identical`
+    // tests above (those must also keep passing UNMODIFIED -- this is an
+    // EXTRA, dedicated frozen-path anchor for the constraint-channel work).
+    // ZDT1, dim=6, pop=8, budget=240 (8 + 29*8), seed=99: every one of the 8
+    // final objective rows was captured ONCE from this implementation
+    // BEFORE the constraint-channel change (a temporary `#[ignore]`d probe
+    // test, `println!`-dumped via `cargo test --release -p sezgi-components
+    // --lib zzz_probe_dump_frozen_path_golden -- --ignored --nocapture`, see
+    // the task-1 report), then hardcoded below and replayed AFTER the
+    // change with exact `==` (not a tolerance) -- Rust's `{:?}` float
+    // formatting round-trips to the identical bit pattern, so `==` here is
+    // a true bit-identity check, not merely a close-enough one. This
+    // problem has no constraints (`Zdt` never overrides
+    // `evaluate_constraints_batch`, so it inherits the trait's `None`
+    // default) -- `nsga2_run` must take the exact old unconstrained code
+    // path, unaffected by the new constrained branches added elsewhere in
+    // this module.
+    #[test]
+    fn nsga2_run_frozen_path_unconstrained_bit_identical_to_base_golden() {
+        let problem = Zdt::new(1, 6).unwrap();
+        let cfg = Nsga2Config { pop_size: 8, budget: 240, seed: 99, eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None };
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(result.evals_used, 240);
+        assert_eq!(result.front0, vec![0, 1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(result.violations, None, "an unconstrained problem's result must carry no violations");
+        let expect: [[f64; 2]; 8] = [
+            [0.00011787908056256485, 2.199223923449777],
+            [0.9469380539088896, 0.698594878831741],
+            [0.08915998148372956, 1.4848387055180894],
+            [0.5004246462632003, 1.0738158299010316],
+            [0.9363895329040919, 0.7989749371549623],
+            [0.5212389240466422, 1.002944808087309],
+            [0.07038801267527484, 1.709359380258352],
+            [0.024404567739246597, 1.8526636805977041],
+        ];
+        for (i, (row, e)) in result.objectives.iter().zip(expect.iter()).enumerate() {
+            assert_eq!(row[0], e[0], "row {i} obj0: bit-identity broken vs the BASE golden");
+            assert_eq!(row[1], e[1], "row {i} obj1: bit-identity broken vs the BASE golden");
+        }
+    }
+
+    // ---- nsga2_run: end-to-end constrained integration --------------------
+    //
+    // Toy problem: f1 = x0, f2 = x1 (both minimized), x0, x1 in [-5, 5], ONE
+    // constraint g0 = x0 + x1 - 1 (feasible region x0+x1 >= 1, per the g_j
+    // >= 0 convention). The feasible Pareto-optimal set is exactly the line
+    // x0+x1=1 (any point strictly inside the feasible half-plane is
+    // dominated by some point ON the boundary line that is <= it in both
+    // f1=x0 and f2=x1 while still satisfying the constraint) -- moving
+    // further into the feasible region past the boundary can only increase
+    // x0 or x1 for a fixed sum, so the boundary is where both objectives are
+    // jointly minimized subject to the constraint.
+    struct LineConstraint { space: SearchSpace }
+    impl LineConstraint {
+        fn new() -> Self {
+            let space = SearchSpace::new(vec![Block::Float { lo: -5.0, hi: 5.0, n: 2 }]).unwrap();
+            Self { space }
+        }
+    }
+    impl MoProblem for LineConstraint {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|g| {
+                let BlockValues::Float(xs) = &g.blocks[0] else { return vec![f64::INFINITY; 2] };
+                vec![xs[0], xs[1]]
+            }).collect()
+        }
+        fn evaluate_constraints_batch(&self, pop: &[Genotype]) -> Option<Vec<Vec<f64>>> {
+            Some(pop.iter().map(|g| {
+                let BlockValues::Float(xs) = &g.blocks[0] else { return vec![f64::NEG_INFINITY] };
+                vec![xs[0] + xs[1] - 1.0]
+            }).collect())
+        }
+    }
+
+    #[test]
+    fn nsga2_run_constrained_front0_is_fully_feasible() {
+        let problem = LineConstraint::new();
+        let cfg = Nsga2Config {
+            pop_size: 40, budget: 4000, seed: 3,
+            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None,
+        };
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        let violations = result.violations.as_ref().expect("a constrained problem's result must carry Some(violations)");
+        assert_eq!(violations.len(), result.objectives.len());
+        assert!(!result.front0.is_empty());
+
+        // Feasible dominates infeasible unconditionally (dominance.c) -- as
+        // long as the merged population ever contains a feasible point
+        // (near-certain here: the feasible half-plane covers roughly half
+        // the [-5,5]^2 initial-sampling square), front0 can only contain
+        // infeasible points if NO feasible point exists anywhere, which
+        // would make every front0 member infeasible together. Assert the
+        // stronger, actually-expected outcome: every front0 member is
+        // feasible (violation exactly 0.0 -- g0 = x0+x1-1 >= 0).
+        for &i in &result.front0 {
+            assert_eq!(violations[i], 0.0,
+                "front0 member {i} has violation {} (x0+x1={}), expected fully feasible",
+                violations[i], result.objectives[i][0] + result.objectives[i][1]);
+        }
+
+        // Pareto-optimality check: every front0 member should sit
+        // reasonably close to the feasible boundary x0+x1=1 (the true
+        // optimal set). This test was first written with a tight
+        // placeholder anchor (0.1), run, and observed failing -- the
+        // assertion message reported a true measured max slack of
+        // 0.3548008033434038 at seed=3, pop=40, budget=4000. Anchor below
+        // is rounded up from that measurement to 0.5 (~40% headroom), per
+        // this task's TDD convention: measure, then anchor with headroom.
+        let max_slack = result.front0.iter()
+            .map(|&i| result.objectives[i][0] + result.objectives[i][1] - 1.0)
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!(max_slack < 0.5,
+            "front0's worst slack from the optimal boundary (x0+x1=1) is {max_slack}, exceeds the anchored threshold 0.5");
     }
 }

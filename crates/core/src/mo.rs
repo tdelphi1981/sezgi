@@ -29,6 +29,27 @@ pub trait MoProblem: Send + Sync {
     /// A deterministic n-point sample of the analytic Pareto front in
     /// OBJECTIVE space, if known. Used by IGD and tests.
     fn pareto_front(&self, n: usize) -> Option<Vec<Vec<f64>>> { let _ = n; None }
+
+    /// Optional per-individual inequality-constraint values: one inner
+    /// `Vec` per individual in `pop` (rows, same order/length as `pop`),
+    /// each of length equal to the problem's own constraint count `ncon`
+    /// (cols = `g_1..g_ncon`). **Convention: `g_j >= 0` means constraint
+    /// `j` is SATISFIED** -- the Deb/Thiele/Laumanns/Zitzler 2005 DTLZ book
+    /// chapter's own convention (`docs/DECISIONS.md`'s M3-7 record), also
+    /// the convention `sezgi_components::nsga2`'s constrained-domination
+    /// support is pinned against (see that module's doc for the KanGAL
+    /// `nsga2r.c` provenance: `constr[j] < 0.0` is the C's own violated-row
+    /// test, i.e. the SAME sign convention, `g_j >= 0` feasible).
+    ///
+    /// Default `None`: an unconstrained problem (the overwhelming
+    /// majority -- every M3-2 `MoProblem` impl, `Zdt`/`Dtlz` 1-7, is
+    /// unconstrained) never overrides this method, and every constrained
+    /// consumer (`nsga2_run`) takes the byte-identical unconstrained code
+    /// path whenever it returns `None`.
+    fn evaluate_constraints_batch(&self, pop: &[Genotype]) -> Option<Vec<Vec<f64>>> {
+        let _ = pop;
+        None
+    }
 }
 
 /// A population paired with its multi-objective evaluations.
@@ -36,10 +57,22 @@ pub trait MoProblem: Send + Sync {
 /// **PINNED once merged**: `individuals` and `objectives` are always the
 /// same length; each inner `objectives` vector has length equal to the
 /// producing [`MoProblem`]'s [`MoProblem::n_objectives`].
+///
+/// `constraints`/`violations` mirror how `objectives` is stored, added for
+/// the constraint channel (see [`MoProblem::evaluate_constraints_batch`]):
+/// both are `Some` together and `None` together, never mixed -- `Some` iff
+/// the producing problem's `evaluate_constraints_batch` returned `Some`.
+/// When `Some`, `constraints` is one row per individual (same convention as
+/// `evaluate_constraints_batch`: `g_j >= 0` feasible) and `violations` is
+/// one scalar per individual, `<= 0.0` (`0.0` = fully feasible) -- see
+/// `sezgi_components::nsga2`'s module doc for the exact accumulation
+/// formula this crate's consumers pin (KanGAL `eval.c`).
 #[derive(Debug, Clone, Default)]
 pub struct MoPopulation {
     pub individuals: Vec<Genotype>,
     pub objectives: Vec<Vec<f64>>,
+    pub constraints: Option<Vec<Vec<f64>>>,
+    pub violations: Option<Vec<f64>>,
 }
 
 impl MoPopulation {
@@ -125,6 +158,75 @@ mod tests {
         assert_eq!(p.evaluate_batch(&[g(&[0.0])]), vec![vec![0.0, 4.0]]);
         assert_eq!(p.evaluate_batch(&[g(&[2.0])]), vec![vec![4.0, 0.0]]);
         assert_eq!(p.n_objectives(), 2);
+    }
+
+    // ---- evaluate_constraints_batch: default None -----------------------
+
+    #[test]
+    fn evaluate_constraints_batch_default_is_none() {
+        // TwoObj never overrides evaluate_constraints_batch -- must inherit
+        // the trait default (None), the unconstrained-problem byte-identical
+        // path every M3-2 MoProblem impl (Zdt, Dtlz) relies on.
+        let p = TwoObj::new();
+        assert_eq!(p.evaluate_constraints_batch(&[g(&[0.0]), g(&[1.0])]), None);
+    }
+
+    // ---- evaluate_constraints_batch: an overriding constrained problem ---
+
+    /// f1 = x0, f2 = -x0 (both minimized) on [-5, 5], ONE constraint
+    /// g0 = x0 - 1 (feasible region x0 >= 1, per the g_j >= 0 convention).
+    struct OneConstraint { space: SearchSpace }
+    impl OneConstraint {
+        fn new() -> Self {
+            let space = SearchSpace::new(vec![Block::Float { lo: -5.0, hi: 5.0, n: 1 }]).unwrap();
+            Self { space }
+        }
+    }
+    impl MoProblem for OneConstraint {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|g| {
+                let BlockValues::Float(xs) = &g.blocks[0] else { return vec![f64::INFINITY; 2] };
+                vec![xs[0], -xs[0]]
+            }).collect()
+        }
+        fn evaluate_constraints_batch(&self, pop: &[Genotype]) -> Option<Vec<Vec<f64>>> {
+            Some(pop.iter().map(|g| {
+                let BlockValues::Float(xs) = &g.blocks[0] else { return vec![f64::NEG_INFINITY] };
+                vec![xs[0] - 1.0]
+            }).collect())
+        }
+    }
+
+    #[test]
+    fn evaluate_constraints_batch_override_returns_rows_matching_pop() {
+        let p = OneConstraint::new();
+        let rows = p.evaluate_constraints_batch(&[g(&[0.0]), g(&[1.0]), g(&[3.0])]).unwrap();
+        assert_eq!(rows, vec![vec![-1.0], vec![0.0], vec![2.0]]);
+    }
+
+    // ---- MoPopulation: constraints/violations fields ---------------------
+
+    #[test]
+    fn mo_population_default_has_no_constraints_or_violations() {
+        let pop = MoPopulation::default();
+        assert_eq!(pop.constraints, None);
+        assert_eq!(pop.violations, None);
+        assert!(pop.is_empty());
+    }
+
+    #[test]
+    fn mo_population_carries_constraints_and_violations_alongside_objectives() {
+        let pop = MoPopulation {
+            individuals: vec![g(&[0.0]), g(&[1.0])],
+            objectives: vec![vec![0.0, 0.0], vec![1.0, -1.0]],
+            constraints: Some(vec![vec![-1.0], vec![0.0]]),
+            violations: Some(vec![-1.0, 0.0]),
+        };
+        assert_eq!(pop.len(), 2);
+        assert_eq!(pop.constraints, Some(vec![vec![-1.0], vec![0.0]]));
+        assert_eq!(pop.violations, Some(vec![-1.0, 0.0]));
     }
 
     #[test]
