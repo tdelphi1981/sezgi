@@ -115,13 +115,17 @@ def test_bbob_records_shape_and_mixing():
                                    instances=[1], seeds=[0, 1], budget=50)
     assert len(recs) == 4  # 2 fids x 1 dim x 1 instance x 2 seeds
     for r in recs:
-        # sezgi decision (M3-5 Task 1 scope): `bbob_records` is a pure-Python,
-        # BBOB-only helper (python/sezgi/algo.py) outside this task's file
-        # list -- it does not gain a "suite" key here. Its dicts still flow
-        # through `results_matrix`/`per_budget_packages` unchanged: a missing
-        # "suite" key defaults to SUITE_BBOB (see `records_from_pylist`).
+        # M3-5 final review N1 fix: `bbob_records` carries an explicit
+        # "suite" key (always "sezgi-bbob", since this helper is BBOB-only
+        # by construction) so its dict shape genuinely matches
+        # run_experiment/read_ioh_records, per this function's own
+        # docstring claim. Records without the key (e.g. from an older
+        # caller) still flow through results_matrix/per_budget_packages
+        # unchanged -- a missing "suite" key defaults to SUITE_BBOB (see
+        # `records_from_pylist`).
         assert set(r) == {"algo", "fid", "dim", "instance", "seed", "budget",
-                          "best_f", "f_opt", "gap", "evals_used", "wall_secs"}
+                          "suite", "best_f", "f_opt", "gap", "evals_used", "wall_secs"}
+        assert r["suite"] == "sezgi-bbob"
         assert r["gap"] == r["best_f"] - r["f_opt"]
         assert r["wall_secs"] >= 0.0
     # mixes with run_experiment records in one stats call: same problem set,

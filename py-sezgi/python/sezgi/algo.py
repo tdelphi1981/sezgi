@@ -174,8 +174,8 @@ def bbob_records(factory, fids, dims, instances, seeds, budget, log_dir=None):
         mirroring `run_experiment`'s contract exactly.
 
     Returns: list[dict], one record per (fid, dim, instance, seed) run,
-        with keys exactly {algo, fid, dim, instance, seed, budget, best_f,
-        f_opt, gap, evals_used, wall_secs}.
+        with keys exactly {algo, fid, dim, instance, seed, budget, suite,
+        best_f, f_opt, gap, evals_used, wall_secs}.
     """
     records = []
     for fid in fids:
@@ -195,6 +195,14 @@ def bbob_records(factory, fids, dims, instances, seeds, budget, log_dir=None):
                         "instance": instance,
                         "seed": seed,
                         "budget": result.budget,
+                        # M3-5 final review N1: this helper is BBOB-only by
+                        # construction (sezgi.bbob(...) above), so the
+                        # suite is always the BBOB constant -- matching
+                        # what run_experiment/read_ioh_records records
+                        # carry (py-sezgi/src/lib.rs's `record_to_dict`)
+                        # keeps this dict's shape genuinely interchangeable
+                        # with theirs, per this docstring's own claim.
+                        "suite": "sezgi-bbob",
                         "best_f": result.best_f,
                         "f_opt": result.f_opt,
                         "gap": result.gap,

@@ -536,7 +536,7 @@ the base-R mirror of `sezgi.Algorithm` above — same driver semantics
 expressed as two plain closures instead of a subclass, since this project
 stays base-R only (no R6/S4 — see the scope ruling below). `ctx` is an
 `environment` of callables (`ctx$dim()`, `ctx$bounds()`,
-`ctx$random_point()`, `ctx$evaluate(points)`, `ctx$best()`,
+`ctx$random_point()`, `ctx$evaluate(points)`, `ctx$best()`, `ctx$f_opt()`,
 `ctx$evals_used()`, `ctx$budget()`, `ctx$remaining()`) — every member is a
 function, not a field, since R has no property/descriptor syntax to keep
 `dim`/`bounds` and `evaluate`/`best` uniform otherwise.

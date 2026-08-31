@@ -42,7 +42,10 @@ fn ecdf_curve_to_list(curve: &EcdfCurve) -> savvy::Result<OwnedListSexp> {
 /// @param per_algo `TRUE` returns a named list, one `list(evals=,
 ///   proportion=)` entry per distinct algo in the archive, named by algo
 ///   (first-appearance order); `FALSE` returns a single pooled
-///   `list(evals=, proportion=)` over every scenario.
+///   `list(evals=, proportion=)` over every scenario. Grouping (in both
+///   modes) is by algo only, not `(algo, suite)`: a mixed-suite tree pools
+///   both suites' runs into one algo's curve -- read a per-suite tree or
+///   filter `scenarios` by suite first for a suite-specific curve.
 /// @param targets Optional numeric vector of precision targets; `NULL`
 ///   uses `sezgi_bench::default_targets` (the COCO-convention 51-value
 ///   set).
@@ -72,6 +75,12 @@ fn sz_ecdf_raw(log_root: &str, per_algo: bool, targets: Option<RealSexp>) -> sav
 /// Exports the IOH archive at `log_root` as a COCO/BBOB "old format"
 /// archive rooted at `out_dir` -- see `sezgi_bench::coco_export`. Returns
 /// the list of written file paths (as strings), sorted for determinism.
+///
+/// BBOB-only: COCO's "old format" IS the BBOB archive format and has no
+/// CEC counterpart, so this errors (naming the offending suite) if
+/// `log_root` holds any non-BBOB scenario, rather than silently merging it
+/// into a `bbob`-labeled archive. A mixed BBOB+CEC tree must be filtered
+/// to its BBOB records before exporting.
 ///
 /// @param log_root Path to the IOH archive directory (as passed to
 ///   `sz_run_experiment(..., log_dir = ...)`).

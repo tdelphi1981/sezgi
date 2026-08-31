@@ -152,6 +152,14 @@ pub fn ecdf(scenarios: &[IohScenario], targets: &[f64]) -> Result<EcdfCurve, Exp
 /// just that group, groups returned in FIRST-APPEARANCE order in
 /// `scenarios` (stable, pinned — not sorted; matches the convention used
 /// elsewhere in this crate, e.g. `reporting::results_matrix`).
+///
+/// Grouping is by `algo` only, not `(algo, suite)`: a mixed-suite tree
+/// (e.g. BBOB and CEC 2022 runs logged for the same algo — a documented,
+/// tested pattern since M3-5) pools BOTH suites' runs into that one algo's
+/// curve. This is defensible (gap-target pooling already spans BBOB fids)
+/// but means a per-algo curve from a mixed tree is not suite-specific;
+/// read a per-suite tree, or filter `scenarios` by [`IohScenario::suite`]
+/// first, for a curve that is.
 pub fn ecdf_per_algo(
     scenarios: &[IohScenario],
     targets: &[f64],

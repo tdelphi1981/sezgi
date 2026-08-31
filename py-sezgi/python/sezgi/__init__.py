@@ -119,6 +119,10 @@ def ecdf(log_root, targets=None, per_algo=True):
     per_algo: if True (default), returns a list of `(algo, curve)` pairs,
         one per distinct algorithm in the archive, in first-appearance
         order; if False, returns a single pooled curve over every scenario.
+        Grouping is by algo only, not (algo, suite): a mixed-suite tree
+        (BBOB and CEC 2022 runs for the same algo) pools both suites' runs
+        into that one algo's curve, so read a per-suite tree or filter
+        records by suite first for a curve that is suite-specific.
 
     Each curve is a dict `{"evals": [...], "proportion": [...]}`: `evals`
     ascending, `proportion` in [0, 1] and monotonically nondecreasing.
@@ -131,6 +135,12 @@ def coco_export(log_root, out_dir):
     format" archive rooted at `out_dir`, so it can be post-processed with
     `cocopp`. Returns the list of written file paths (as strings), sorted
     for determinism.
+
+    BBOB-only: COCO's "old format" IS the BBOB archive format and has no
+    CEC counterpart, so this raises `ValueError` if `log_root` holds any
+    non-BBOB scenario (naming the offending suite), rather than silently
+    merging it into a `bbob`-labeled archive. A mixed BBOB+CEC tree must be
+    filtered to its BBOB records before exporting.
     """
     return _sezgi.coco_export(log_root, out_dir)
 

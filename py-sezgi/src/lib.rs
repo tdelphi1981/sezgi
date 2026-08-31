@@ -893,7 +893,9 @@ fn ecdf_curve_to_dict<'py>(py: Python<'py>, curve: &EcdfCurve) -> PyResult<Bound
 /// `per_algo`: `True` (default) returns a list of `(algo, curve_dict)` pairs
 /// (first-appearance order, one curve per distinct algo in the archive);
 /// `False` returns a single pooled `curve_dict` over every scenario.
-/// Each `curve_dict` is `{"evals": [...], "proportion": [...]}`.
+/// Each `curve_dict` is `{"evals": [...], "proportion": [...]}`. Grouping
+/// (in both modes) is by algo only, not `(algo, suite)` -- see
+/// [`sezgi_bench::ecdf_per_algo`]'s doc.
 #[pyfunction]
 #[pyo3(signature = (log_root, targets=None, per_algo=true))]
 fn ecdf(py: Python<'_>, log_root: &str, targets: Option<Vec<f64>>, per_algo: bool) -> PyResult<Py<PyAny>> {
@@ -922,6 +924,8 @@ fn ecdf(py: Python<'_>, log_root: &str, targets: Option<Vec<f64>>, per_algo: boo
 /// Exports the IOH archive at `log_root` as a COCO/BBOB "old format"
 /// archive rooted at `out_dir` — see [`sezgi_bench::coco_export`]. Returns
 /// the list of written file paths (as strings), sorted for determinism.
+/// BBOB-only: raises `ValueError` (naming the offending suite) if the tree
+/// holds any non-BBOB scenario — see `coco_export`'s doc.
 #[pyfunction]
 fn coco_export(py: Python<'_>, log_root: &str, out_dir: &str) -> PyResult<Py<PyList>> {
     let scenarios =
