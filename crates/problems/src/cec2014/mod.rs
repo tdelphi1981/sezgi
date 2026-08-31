@@ -1,11 +1,12 @@
 //! The CEC 2014 Special Session and Competition benchmark suite: fid 1-16
-//! (unimodal F1-F3, simple multimodal F4-F16) are implemented (M3-6 T2).
-//! `Cec2014::new` accepts fid `1..=16` this task; fid 17-22 (hybrid) and
-//! 23-30 (composition) are vendored as DATA now (module doc's "Vendoring
-//! scope" section below) but not yet wired into `evaluate` -- a later
-//! milestone task extends the accepted range, mirroring `cec2022`'s own
-//! T5(fid 1-5) -> T6(fid 6-8) -> T7(fid 9-12) staging (`cec2022/mod.rs`'s
-//! module doc has that precedent in full).
+//! (unimodal F1-F3, simple multimodal F4-F16, M3-6 T2) and fid 17-22 (hybrid
+//! functions 1-6, M3-6 T3, this task's addendum, module doc section below)
+//! are implemented. `Cec2014::new` accepts fid `1..=22`; fid 23-30
+//! (composition) are vendored as DATA now (module doc's "Vendoring scope"
+//! section below) but not yet wired into `evaluate` -- a later milestone
+//! task extends the accepted range, mirroring `cec2022`'s own T5(fid 1-5) ->
+//! T6(fid 6-8) -> T7(fid 9-12) staging (`cec2022/mod.rs`'s module doc has
+//! that precedent in full).
 //!
 //! Source (PROVENANCE, fetched and read directly, not from memory): J. J.
 //! Liang, B. Y. Qu, P. N. Suganthan, "Problem Definitions and Evaluation
@@ -380,19 +381,337 @@
 //! [`Cec2014::space`] is one [`Block::Float`] of `dim` variables, bounds
 //! `[-100.0, 100.0]` (module doc, "Search range" quote above) -- same shape
 //! as `cec2022`'s own single-block encoding.
+//!
+//! ## M3-6 T3: Hybrid Functions (fid 17-22)
+//!
+//! Source (PROVENANCE, re-verified this task, not reused from memory): the
+//! SAME two artifacts T2 fetched (module doc's opening PROVENANCE section,
+//! SHA-256 `a506b9b2...` for the report PDF and `1a210560...` for
+//! `cec14-c-code.zip`, both re-checked this task with `shasum -a 256`
+//! against the scratchpad copy T2's report already pinned -- unchanged).
+//! The vendored C was again COMPILED (`g++ -O2`, the SAME two portability
+//! edits T2's module doc already records -- re-verified present, not
+//! re-applied, since T2's edited `.cpp` was reused directly from the
+//! scratchpad) and RUN through the unmodified `cec14_test_func()` entry
+//! point for every `x=o` pin and random-point fixture below (a purpose-built
+//! probe driver, `argv: fid dim x0 x1 ...` -> `%.20f`-printed `f(x)`, the
+//! SAME `probe.cpp` T2's report already describes -- reused unmodified).
+//!
+//! ### Dispatch: which C function each fid actually calls (quoted, `switch`
+//! block immediately following fid 1-16's, module doc's dispatch section
+//! above)
+//!
+//! ```text
+//! case 17: hf01(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=1700.0; break;
+//! case 18: hf02(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=1800.0; break;
+//! case 19: hf03(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=1900.0; break;
+//! case 20: hf04(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=2000.0; break;
+//! case 21: hf05(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=2100.0; break;
+//! case 22: hf06(&x[i*nx],&f[i],nx,OShift,M,SS,1,1); f[i]+=2200.0; break;
+//! ```
+//! UNLIKE `cec2022`'s hybrid dispatch (whose internal `hf02`/`hf06`/`hf10`
+//! names don't track the report's "Hybrid Function 1/2/3" numbering at all,
+//! `cec2022/mod.rs`'s module doc's naming curiosity note), CEC 2014's
+//! dispatch is a CLEAN 1:1 mapping -- fid 17 calls `hf01` ("Hybrid Function
+//! 1"), fid 18 calls `hf02`, ..., fid 22 calls `hf06`, no naming mismatch to
+//! record here. `Fi* = 1700..2200` for fid 17-22 continues the SAME
+//! `100*fid` closed form fid 1-16 already established (module doc's section
+//! 1.2 note) -- [`Cec2014::f_star`]'s existing `100.0 * fid` formula needs no
+//! per-fid override for this task's fids either.
+//!
+//! ### `sr_func`, `G_nx`/`G` segmentation, and the shuffle read -- IDENTICAL
+//! shape to `cec2022`'s own hybrids (quoted for this suite's own
+//! independent provenance trail; `hf01`'s exact body shown, all six `hf0N`
+//! share this identical structure -- verified by reading all six, not just
+//! `hf01`)
+//!
+//! ```text
+//! void hf01 (double *x, double *f, int nx, double *Os,double *Mr,int *S,int s_flag,int r_flag)
+//! {
+//!     int i,tmp,cf_num=3;
+//!     double fit[3];
+//!     int G[3],G_nx[3];
+//!     double Gp[3]={0.3,0.3,0.4};
+//!     tmp=0;
+//!     for (i=0; i<cf_num-1; i++) { G_nx[i] = ceil(Gp[i]*nx); tmp += G_nx[i]; }
+//!     G_nx[cf_num-1]=nx-tmp;
+//!     G[0]=0;
+//!     for (i=1; i<cf_num; i++) { G[i] = G[i-1]+G_nx[i-1]; }
+//!     sr_func (x, z, nx, Os, Mr, 1.0, s_flag, r_flag); /* shift and rotate */
+//!     for (i=0; i<nx; i++) { y[i]=z[S[i]-1]; }
+//!     i=0; schwefel_func(&y[G[i]],&fit[i],G_nx[i],Os,Mr,0,0);
+//!     i=1; rastrigin_func(&y[G[i]],&fit[i],G_nx[i],Os,Mr,0,0);
+//!     i=2; ellips_func(&y[G[i]],&fit[i],G_nx[i],Os,Mr,0,0);
+//!     f[0]=0.0;
+//!     for(i=0;i<cf_num;i++) { f[0] += fit[i]; }
+//! }
+//! ```
+//! Byte-identical `ceil`-based `G_nx`/`G` arithmetic to `cec2022`'s own
+//! `hf02`/`hf06`/`hf10` (`cec2022/mod.rs`'s module doc, Eq (21) section,
+//! quoted there) -- [`crate::cec_basics::segment_sizes`]/
+//! [`crate::cec_basics::segment_starts`] (already suite-agnostic, extracted
+//! there in M3-6 T1) are reused AS-IS, no new segmentation arithmetic this
+//! task. The outer `sr_func` call is ALWAYS `sh_rate=1.0` (full shift+rotate
+//! of the WHOLE `nx`-length vector, once, before shuffling -- same "ONE
+//! shared rotation, not one per component" shape `cec2022/mod.rs`'s module
+//! doc already documents for that suite's hybrids, re-verified here by
+//! reading all six `hf0N` bodies directly: every one's own `sr_func` call is
+//! `sh_rate=1.0`). The shuffle read `y[i]=z[S[i]-1]` is BYTE-IDENTICAL
+//! syntax to `cec2022`'s `hf02` (`cec2022/mod.rs`'s module doc, "Shuffle"
+//! section, quoted there) -- 1-based `S` converted to 0-based ON LOAD by
+//! [`data::shuffle_indices`] (`data.rs`'s module doc), so
+//! [`Cec2014::eval_one`]'s hybrid arm builds `y` the same way `cec2022`
+//! does: `y[i] = z[self.shuffle[i]]`.
+//!
+//! ### Per-component evaluation: NO shift, NO rotation, ONLY the
+//! component's own inner `sh_rate` -- IDENTICAL branch to `cec2022`'s own
+//! (module doc's dispatch section above already quotes `sr_func`'s
+//! `s_flag==0` branch in full; every `hf0N` component call passes literal
+//! `0,0` for `(s_flag,r_flag)`, e.g. `schwefel_func(&y[G[i]],&fit[i],G_nx[i],Os,Mr,0,0)`)
+//!
+//! **No fid-7-shaped bug found here** -- UNLIKE `cec2022`'s fid 7
+//! (`SchafferF7Buggy`, `cec2022/mod.rs`'s module doc, whose component reads
+//! the GLOBAL `y` from index `0` instead of its assigned pointer offset
+//! `&y[G[5]]`), every `hf0N` component call here correctly passes
+//! `&y[G[i]]` (this component's OWN pointer-offset segment) and every base
+//! function it calls (`schwefel_func`, `rastrigin_func`, `ellips_func`,
+//! `bent_cigar_func`, `hgbat_func`, `griewank_func`, `weierstrass_func`,
+//! `rosenbrock_func`, `escaffer6_func`, `discus_func`, `grie_rosen_func`,
+//! `katsuura_func`, `happycat_func`, `ackley_func`) reads its OWN `x`
+//! parameter inside its own `sr_func` call, not a raw global buffer --
+//! VERIFIED by reading each function's own body directly (module doc's
+//! "Basic-function reuse" section above already quotes/cross-checks every
+//! one of these fourteen for fid 1-16's own standalone dispatch; none of
+//! them is `schaffer_F7_func`, the ONLY function `cec2022/mod.rs`'s module
+//! doc identifies as having this bug, and `schaffer_F7_func` is never called
+//! by any `hf0N` here -- confirmed by grepping every call site in the
+//! vendored source). Each component's own `sh_rate` constant (module doc's
+//! "Basic-function reuse" table above, re-confirmed directly against every
+//! `sr_func` call inside `ellips_func`/`bent_cigar_func`/.../`hgbat_func`'s
+//! bodies this task, `awk`-mapped call-site transcript in this task's
+//! report) is IDENTICAL to the constant that same function uses standalone
+//! for fid 1-16 -- [`HybridComponent::sh_rate`] below reuses those same
+//! sixteen literals.
+//!
+//! ### Hybrid composition tables -- quoted from BOTH the C (`Gp` arrays +
+//! component call order, all six `hf0N`) AND the report (section "C. Hybrid
+//! Functions"), CROSS-CHECKED: NO discrepancy found for ANY of the six
+//! (unlike `cec2022`'s fid 7, whose printed `p` array had one too many
+//! entries) -- every `p_i` value and every component NAME/ORDER matches
+//! digit-for-digit and word-for-word between the two sources
+//!
+//! Report (PDF `pdftotext -layout`, section "C. Hybrid Functions",
+//! transcribed verbatim):
+//! ```text
+//! 17) Hybrid Function 1        N=3   p=[0.3,0.3,0.4]
+//!     g1: Modified Schwefel's Function f9   g2: Rastrigin's Function f8   g3: High Conditioned Elliptic Function f1
+//! 18) Hybrid Function 2        N=3   p=[0.3,0.3,0.4]
+//!     g1: Bent Cigar Function f2   g2: HGBat Function f12   g3: Rastrigin's Function f8
+//! 19) Hybrid Function 3        N=4   p=[0.2,0.2,0.3,0.3]
+//!     g1: Griewank's Function f7   g2: Weierstrass Function f6   g3: Rosenbrock's Function f4   g4: Scaffer's F6 Function f14
+//! 20) Hybrid Function 4        N=4   p=[0.2,0.2,0.3,0.3]
+//!     g1: HGBat Function f12   g2: Discus Function f3   g3: Expanded Griewank's plus Rosenbrock's Function f13   g4: Rastrigin's Function f8
+//! 21) Hybrid Function 5        N=5   p=[0.1,0.2,0.2,0.2,0.3]
+//!     g1: Scaffer's F6 Function f14   g2: HGBat Function f12   g3: Rosenbrock's Function f4   g4: Modified Schwefel's Function f9   g5: High Conditioned Elliptic Function f1
+//! 22) Hybrid Function 6        N=5   p=[0.1,0.2,0.2,0.2,0.3]
+//!     g1: Katsuura Function f10   g2: HappyCat Function f11   g3: Expanded Griewank's plus Rosenbrock's Function f13   g4: Modified Schwefel's Function f9   g5: Ackley's Function f5
+//! ```
+//! C (`Gp` arrays + component call order, transcribed from all six `hf0N`
+//! bodies directly, this task's report has the full six-function
+//! transcript):
+//!
+//! | fid | `hf0N` | `Gp` (C) | Component call order (C) |
+//! |---|---|---|---|
+//! | 17 | `hf01` | `{0.3,0.3,0.4}` | `schwefel_func, rastrigin_func, ellips_func` |
+//! | 18 | `hf02` | `{0.3,0.3,0.4}` | `bent_cigar_func, hgbat_func, rastrigin_func` |
+//! | 19 | `hf03` | `{0.2,0.2,0.3,0.3}` | `griewank_func, weierstrass_func, rosenbrock_func, escaffer6_func` |
+//! | 20 | `hf04` | `{0.2,0.2,0.3,0.3}` | `hgbat_func, discus_func, grie_rosen_func, rastrigin_func` |
+//! | 21 | `hf05` | `{0.1,0.2,0.2,0.2,0.3}` | `escaffer6_func, hgbat_func, rosenbrock_func, schwefel_func, ellips_func` |
+//! | 22 | `hf06` | `{0.1,0.2,0.2,0.2,0.3}` | `katsuura_func, happycat_func, grie_rosen_func, schwefel_func, ackley_func` |
+//!
+//! Every row matches its report counterpart exactly: `p` values identical,
+//! `g1..gN` names/order identical (`escaffer6_func` is this suite's
+//! "Scaffer's F6"/eq (30) function, module doc's fid-16 discrepancy note
+//! above already establishes `escaffer6_func` as the C's actual Scaffer's F6
+//! dispatch target; `grie_rosen_func` is "Expanded Griewank's plus
+//! Rosenbrock's"; `ellips_func` is "High Conditioned Elliptic", matching
+//! fid 1's own name). [`Cec2014::hybrid_spec`] transcribes all six rows
+//! verbatim from this table.
+//!
+//! ### New component enum ([`HybridComponent`]) -- every base function ALREADY
+//! exists in `crate::cec_basics` (all sixteen: `ellips_base`,
+//! `bent_cigar_base`, `discus_base`, `f2_base` (Rosenbrock, `+1`'d
+//! externally, same convention fid 4's own dispatch arm above uses),
+//! `ackley_base`, `weierstrass_base`, `griewank_base` (standalone, NOT
+//! `grie_rosen_base`), `f4_base` (Rastrigin), `schwefel_base`,
+//! `katsuura_base`, `happycat_base`, `hgbat_base`, `grie_rosen_base`
+//! (handles its own `+1` internally), `escaffer6_base`) -- NO new base
+//! function needed this task (unlike T2's Weierstrass, which was genuinely
+//! new to `cec_basics` at the time)
+//!
+//! ### `x = o` pin (Step 2) for fid 17-22: why `F_i(o_i) == F_i*` EXACTLY,
+//! dim=10 AND dim=30 -- derived per-component (generalizing fid 1-16's own
+//! zero-argument derivation, module doc above, to an ARBITRARY segment
+//! length `n` instead of the full `dim`), then VERIFIED against the
+//! compiled reference for all twelve `(fid,dim)` pairs
+//!
+//! At `x=o`: the outer `sr_func` gives `z=M*(x-o)*1.0=M*0=0` (IDENTICAL
+//! all-zero argument to fid 1-16's own pin, module doc above) -- shuffling
+//! an all-zero vector yields an all-zero vector regardless of the
+//! permutation (`y[i]=z[S[i]-1]=0` for every `i`), so EVERY segment
+//! `y[G[j]..G[j]+G_nx[j]]` is all-zero, for every hybrid, every dim, every
+//! shuffle. Each component then reads its all-zero segment through its own
+//! `s_flag=0,r_flag=0` branch of `sr_func` (`sr_x[i]=x[i]*sh_rate`) -- `0 *
+//! sh_rate = 0` exactly regardless of WHICH `sh_rate` constant or HOW LONG
+//! the segment is, so every component's own base-function argument is an
+//! all-zero vector of length `G_nx[j]` (not necessarily `dim` -- the
+//! generalization fid 1-16's pin didn't need). Per base function, at an
+//! ALL-ZERO argument of ARBITRARY length `n>=1` (re-derived here since fid
+//! 1-16's pin only needed `n=dim`):
+//! - **Elliptic, Bent Cigar, Discus, Rastrigin, Griewank (standalone),
+//!   Expanded Scaffer's F6**: each is a pure elementwise sum/product of
+//!   `zi=0` terms (module doc's fid 1-16 pin section already derives each of
+//!   these `=0` termwise; the derivation is per-ELEMENT, so it holds for ANY
+//!   `n`, not just `n=dim`) -- **0 exactly for any `n>=1`.**
+//! - **Rosenbrock (`+1`'d to all-ones)**: `f2_base(1,1,...,1) =
+//!   sum_{i=0}^{n-2}(100*(1-1)^2+(1-1)^2) = 0` for any `n>=1` (empty sum when
+//!   `n=1`) -- **0 exactly.**
+//! - **Griewank-Rosenbrock (`grie_rosen_base`, internal `+1` to all-ones)**:
+//!   every cyclic pair (including the `n=1` self-pair `z1[0],z1[0]`) gives
+//!   `tmp1=1-1=0,tmp2=0,temp=0`, `temp^2/4000-cos(0)+1=0-1+1=0` -- **0
+//!   exactly for any `n>=1`.**
+//! - **Weierstrass**: fid 1-16's own pin note (module doc above) establishes
+//!   the inner-sum-vs-`sum2` cancellation is bit-exact PER INDEX `i`,
+//!   independent of `n` -- **0 exactly for any `n>=1`.**
+//! - **HGBat, HappyCat**: shift-to-origin gives `zs_i=-1` for `n` elements;
+//!   `r2=n, sum_z=-n` (both exact integer-valued `f64`, any `n`); HGBat's
+//!   `r2^2-sum_z^2=n^2-n^2=0` bit-exact (same `pow(x,2.0)` magnitude);
+//!   HappyCat's `|r2-n|=|n-n|=0` exact; both then reduce to remainder
+//!   `(0.5n+(-n))/n=-0.5` (exact for any `n!=0`) plus the fixed `+0.5` ->
+//!   **0 exactly for any `n>=1`.**
+//! - **Katsuura**: `floor(0+0.5)=floor(0.5)=0` exact per `(i,j)` term,
+//!   independent of `n` (module doc's fid 1-16 pin note, same reasoning) --
+//!   **0 exactly for any `n>=1`.**
+//! - **Ackley's**: `sum1=0`; `sum2=sum(cos(0))=n`; `sum1'=-0.2*sqrt(0/n)=0`;
+//!   `sum2'=n/n=1` exact for any `n!=0`; `f=E-20*exp(0)-exp(1)+20=E-exp(1.0)`
+//!   -- independent of `n` entirely (the `n` cancels via `sum2/n`) --
+//!   VERIFIED empirically (same argument fid 1-16's own Ackley pin note
+//!   makes, not re-claimed as a from-scratch identity) that
+//!   `std::f64::consts::E - 1f64.exp() == 0.0` bit-exact on this platform.
+//! - **Modified Schwefel's**: NOT an algebraic identity (module doc's fid
+//!   1-16 pin note, same caveat) -- but VERIFIED EMPIRICALLY, and *stronger*
+//!   here: `python3` (`term = -zi*sin(sqrt(zi))` at
+//!   `zi=4.209687462275036e+02`, `c=4.189828872724338e+02`) confirms
+//!   `term+c==0.0` bit-exact PER-ELEMENT (not merely "the `dim`-length sum
+//!   happens to cancel") -- so `n*term+c*n = n*(term+c) = n*0.0 = 0.0`
+//!   exactly for ANY segment length `n`, including the shorter hybrid
+//!   segments this task introduces (fid 1-16's own pin only exercised
+//!   `n=dim`; this task's report has the transcript proving the per-element
+//!   cancellation directly, closing that generalization gap).
+//!
+//! Summing three, four, or five exact `0.0` components (fid 17/18: 3 each;
+//! fid 19/20: 4 each; fid 21/22: 5 each) gives `F_i(o_i) = 0 + F_i* = F_i*`
+//! EXACTLY -- confirmed by BOTH the per-component algebraic derivation above
+//! AND the compiled C reference (`%.20f`-format, all twelve `(fid,dim)`
+//! pairs in `{17..=22} x {10,30}` print the exact integer `100*fid`, zero
+//! fractional residue, this task's report has the transcript) AND this
+//! module's own `fid_17_to_22_x_eq_o_is_exactly_f_star_dim10_and_dim30`
+//! test.
 
 mod data;
 
 use sezgi_core::problem::Problem;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 
+/// One hybrid function's (fid 17-22) sub-component (module doc's T3
+/// section): pairs the base function with the `sh_rate` constant the C
+/// reference's OWN per-component `sr_func` call uses (`s_flag=0,r_flag=0`
+/// branch -- pure scale, no shift, no rotate; module doc's "Per-component
+/// evaluation" section). Unlike `cec2022::HybridComponent`, no buggy variant
+/// is needed here -- module doc's T3 section verifies every component
+/// correctly reads its own pointer-offset segment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HybridComponent {
+    Ellips,
+    BentCigar,
+    Discus,
+    Rosenbrock,
+    Ackley,
+    Weierstrass,
+    Griewank,
+    Rastrigin,
+    Schwefel,
+    Katsuura,
+    HappyCat,
+    HGBat,
+    GrieRosen,
+    EScaffer6,
+}
+
+impl HybridComponent {
+    /// This component's own inner scale constant -- module doc's T3
+    /// "Per-component evaluation" section, the SAME constant this base
+    /// function uses in its fid-1-16 standalone dispatch (module doc's
+    /// "Basic-function reuse" table above).
+    fn sh_rate(self) -> f64 {
+        match self {
+            Self::Ellips => 1.0,
+            Self::BentCigar => 1.0,
+            Self::Discus => 1.0,
+            Self::Rosenbrock => 2.048 / 100.0,
+            Self::Ackley => 1.0,
+            Self::Weierstrass => 0.5 / 100.0,
+            Self::Griewank => 600.0 / 100.0,
+            Self::Rastrigin => 5.12 / 100.0,
+            Self::Schwefel => 1000.0 / 100.0,
+            Self::Katsuura => 5.0 / 100.0,
+            Self::HappyCat => 5.0 / 100.0,
+            Self::HGBat => 5.0 / 100.0,
+            Self::GrieRosen => 5.0 / 100.0,
+            Self::EScaffer6 => 1.0,
+        }
+    }
+
+    /// Evaluate this component's base function on an ALREADY-scaled segment
+    /// (caller applies `sh_rate`, module doc's T3 section -- same pattern
+    /// `cec2022::HybridComponent::eval` uses).
+    fn eval(self, seg: &[f64]) -> f64 {
+        use crate::cec_basics as cb;
+        match self {
+            Self::Ellips => cb::ellips_base(seg),
+            Self::BentCigar => cb::bent_cigar_base(seg),
+            Self::Discus => cb::discus_base(seg),
+            Self::Rosenbrock => {
+                // `rosenbrock_func`'s own "+1, shift to origin" convention
+                // (module doc's fid-4 note above) -- reuses `f2_base`, which
+                // expects the array already `+1`'d.
+                let shifted: Vec<f64> = seg.iter().map(|&zi| zi + 1.0).collect();
+                cb::f2_base(&shifted)
+            }
+            Self::Ackley => cb::ackley_base(seg),
+            Self::Weierstrass => cb::weierstrass_base(seg),
+            Self::Griewank => cb::griewank_base(seg),
+            Self::Rastrigin => cb::f4_base(seg),
+            Self::Schwefel => cb::schwefel_base(seg),
+            Self::Katsuura => cb::katsuura_base(seg),
+            Self::HappyCat => cb::happycat_base(seg),
+            Self::HGBat => cb::hgbat_base(seg),
+            // `grie_rosen_base` handles its own `+1` internally (module
+            // doc's fid-15 note above).
+            Self::GrieRosen => cb::grie_rosen_base(seg),
+            Self::EScaffer6 => cb::escaffer6_base(seg),
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Cec2014Error {
     #[error(
-        "fid must be in 1..=16 in this build (the CEC 2014 unimodal + simple-multimodal \
-         functions -- fid 17..=22 hybrid and 23..=30 composition are vendored as data \
-         (input_data D10/D30 for all 30 fids) but not yet wired into evaluate; a later \
-         milestone task extends this range, mirroring cec2022's T5->T6->T7 staging), got {0}"
+        "fid must be in 1..=22 in this build (the CEC 2014 unimodal + simple-multimodal \
+         functions (1-16) and hybrid functions (17-22) -- fid 23..=30 composition is \
+         vendored as data (input_data D10/D30 for all 30 fids) but not yet wired into \
+         evaluate; a later milestone task extends this range, mirroring cec2022's \
+         T5->T6->T7 staging), got {0}"
     )]
     UnknownFid(u32),
     #[error(
@@ -414,16 +733,20 @@ pub struct Cec2014 {
     dim: usize,
     o: Vec<f64>,
     m: Vec<Vec<f64>>,
+    /// fid 17-22 only (module doc's T3 section): 0-based shuffle permutation
+    /// applied to the shift-rotated vector before segmenting into hybrid
+    /// components. Empty for fid 1-16.
+    shuffle: Vec<usize>,
     space: SearchSpace,
 }
 
 impl Cec2014 {
-    /// `fid` in `1..=16` (module doc's staging note: `Cec2014Error::UnknownFid`
-    /// otherwise, including `0`, `17..=30`, and anything `>30`), `dim` in
+    /// `fid` in `1..=22` (module doc's staging note: `Cec2014Error::UnknownFid`
+    /// otherwise, including `0`, `23..=30`, and anything `>30`), `dim` in
     /// `{10,30}` (module doc's "Vendoring scope" section: the two dims this
     /// task vendored; `Cec2014Error::BadDim` otherwise).
     pub fn new(fid: u32, dim: usize) -> Result<Cec2014, Cec2014Error> {
-        if !(1..=16).contains(&fid) {
+        if !(1..=22).contains(&fid) {
             return Err(Cec2014Error::UnknownFid(fid));
         }
         if !matches!(dim, 10 | 30) {
@@ -431,9 +754,10 @@ impl Cec2014 {
         }
         let o = data::shift_vector(fid, dim);
         let m = data::rotation_matrix(fid, dim);
+        let shuffle = if (17..=22).contains(&fid) { data::shuffle_indices(fid, dim) } else { Vec::new() };
         let space = SearchSpace::new(vec![Block::Float { lo: -100.0, hi: 100.0, n: dim }])
             .expect("CEC 2014 bounds (-100 < 100) are always valid");
-        Ok(Self { fid, dim, o, m, space })
+        Ok(Self { fid, dim, o, m, shuffle, space })
     }
 
     pub fn fid(&self) -> u32 { self.fid }
@@ -449,6 +773,57 @@ impl Cec2014 {
     /// the SAME shared helper, no new shift/rotate arithmetic this task).
     fn shift_scale_rotate(&self, xs: &[f64], sr: f64, rotate: bool) -> Vec<f64> {
         crate::cec_basics::shift_scale_rotate(xs, &self.o, &self.m, sr, rotate)
+    }
+
+    /// `fid`'s (`17..=22`) proportions `p` and component list, in call order
+    /// (module doc's T3 "Hybrid composition tables" section, transcribed
+    /// verbatim from the cross-checked C/report table there -- no
+    /// discrepancy found for any of the six, unlike `cec2022`'s fid 7).
+    fn hybrid_spec(fid: u32) -> (&'static [f64], &'static [HybridComponent]) {
+        use HybridComponent::*;
+        match fid {
+            17 => (&[0.3, 0.3, 0.4], &[Schwefel, Rastrigin, Ellips]),
+            18 => (&[0.3, 0.3, 0.4], &[BentCigar, HGBat, Rastrigin]),
+            19 => (&[0.2, 0.2, 0.3, 0.3], &[Griewank, Weierstrass, Rosenbrock, EScaffer6]),
+            20 => (&[0.2, 0.2, 0.3, 0.3], &[HGBat, Discus, GrieRosen, Rastrigin]),
+            21 => (&[0.1, 0.2, 0.2, 0.2, 0.3], &[EScaffer6, HGBat, Rosenbrock, Schwefel, Ellips]),
+            22 => (&[0.1, 0.2, 0.2, 0.2, 0.3], &[Katsuura, HappyCat, GrieRosen, Schwefel, Ackley]),
+            other => unreachable!("hybrid_spec called with unsupported fid {other}"),
+        }
+    }
+
+    /// One hybrid function's component-sum (BEFORE `F_i*`), given the
+    /// already shift-rotate-shuffled `y` (module doc's T3 section: `y[i] =
+    /// z[S[i]-1]`, `z` from [`Self::shift_scale_rotate`]). A separate method
+    /// (not inlined into [`Self::eval_one`]) so the segmentation/shuffle
+    /// logic can be probed directly on a hand-built `y`, independent of the
+    /// shift/rotate/embedded-data plumbing -- mirrors
+    /// `cec2022::Cec2022::hybrid_fitness`'s own separation.
+    // sezgi decision (M3-6 T3): calls `crate::cec_basics::segment_sizes`/
+    // `segment_starts` directly instead of adding `Cec2014::segment_sizes`/
+    // `segment_starts` thin-wrapper methods the way `cec2022::Cec2022` keeps
+    // (`cec2022/mod.rs`'s own "M3-6 T1" decision note on those methods: kept
+    // there ONLY because pre-existing test call sites referenced
+    // `Cec2022::segment_sizes` directly before the T1 extraction). No such
+    // call site exists in this fresh `cec2014` addition, so the wrapper
+    // would add a layer with no consumer -- calling the shared
+    // `crate::cec_basics` functions directly here is the simpler choice,
+    // same underlying arithmetic either way.
+    fn hybrid_fitness(fid: u32, dim: usize, y: &[f64]) -> f64 {
+        let (gp, comps) = Self::hybrid_spec(fid);
+        let sizes = crate::cec_basics::segment_sizes(gp, dim);
+        let starts = crate::cec_basics::segment_starts(&sizes);
+        comps
+            .iter()
+            .enumerate()
+            .map(|(idx, &comp)| {
+                let start = starts[idx];
+                let len = sizes[idx];
+                let seg: Vec<f64> =
+                    y[start..start + len].iter().map(|&yi| yi * comp.sh_rate()).collect();
+                comp.eval(&seg)
+            })
+            .sum()
     }
 
     /// The full pipeline (shift/scale/rotate + base function + `F_i*` bias)
@@ -484,7 +859,16 @@ impl Cec2014 {
             // No `+1` offset -- module doc's verified F16 discrepancy note
             // (the printed report's eq (30) shows one; the code does not).
             16 => cb::escaffer6_base(&self.shift_scale_rotate(xs, 1.0, true)),
-            other => unreachable!("Cec2014::new rejects fid outside 1..=16, got {other}"),
+            17..=22 => {
+                // Full shift+rotate ONCE (module doc's T3 section: the outer
+                // sr_func is always sh_rate=1.0, shared by every component),
+                // then shuffle, then segment + per-component scale-only
+                // evaluation (module doc's T3 section).
+                let z = self.shift_scale_rotate(xs, 1.0, true);
+                let y: Vec<f64> = (0..self.dim).map(|i| z[self.shuffle[i]]).collect();
+                Self::hybrid_fitness(self.fid, self.dim, &y)
+            }
+            other => unreachable!("Cec2014::new rejects fid outside 1..=22, got {other}"),
         };
         value + self.f_star()
     }
@@ -514,8 +898,8 @@ mod tests {
     // ---- construction / errors ----
 
     #[test]
-    fn fid_0_17_and_31_are_unknown() {
-        for fid in [0u32, 17, 22, 23, 30, 31, 100] {
+    fn fid_0_23_and_31_are_unknown() {
+        for fid in [0u32, 23, 29, 30, 31, 100] {
             assert!(
                 matches!(Cec2014::new(fid, 10), Err(Cec2014Error::UnknownFid(f)) if f == fid),
                 "fid={fid}"
@@ -524,8 +908,8 @@ mod tests {
     }
 
     #[test]
-    fn fid_1_to_16_all_construct_at_dim_10_and_30() {
-        for fid in 1u32..=16 {
+    fn fid_1_to_22_all_construct_at_dim_10_and_30() {
+        for fid in 1u32..=22 {
             for &dim in &[10usize, 30] {
                 assert!(Cec2014::new(fid, dim).is_ok(), "fid={fid} dim={dim}");
             }
@@ -534,7 +918,7 @@ mod tests {
 
     #[test]
     fn unsupported_dims_are_bad_dim_for_every_fid() {
-        for fid in 1u32..=16 {
+        for fid in 1u32..=22 {
             for &dim in &[2usize, 5, 20, 50, 100] {
                 assert!(
                     matches!(Cec2014::new(fid, dim), Err(Cec2014Error::BadDim(d)) if d == dim),
@@ -546,7 +930,7 @@ mod tests {
 
     #[test]
     fn space_is_single_float_block_pm100() {
-        for fid in 1u32..=16 {
+        for fid in 1u32..=22 {
             for &dim in &[10usize, 30] {
                 let p = Cec2014::new(fid, dim).unwrap();
                 assert_eq!(
@@ -563,7 +947,9 @@ mod tests {
     fn f_star_matches_report_table() {
         // Module doc's 1.2 summary table, spot-checked directly against the
         // literal numbers (independent re-assertion of the `100*fid`
-        // formula `Cec2014::f_star` actually implements).
+        // formula `Cec2014::f_star` actually implements) -- extended this
+        // task to include fid 17-22's own `F*` column (module doc's T3
+        // dispatch section quote: `f[i]+=1700.0` .. `f[i]+=2200.0`).
         let expect = [
             (1u32, 100.0),
             (2, 200.0),
@@ -581,6 +967,12 @@ mod tests {
             (14, 1400.0),
             (15, 1500.0),
             (16, 1600.0),
+            (17, 1700.0),
+            (18, 1800.0),
+            (19, 1900.0),
+            (20, 2000.0),
+            (21, 2100.0),
+            (22, 2200.0),
         ];
         for (fid, fstar) in expect {
             assert_eq!(Cec2014::new(fid, 10).unwrap().f_star(), fstar, "fid={fid}");
@@ -590,8 +982,8 @@ mod tests {
     // ---- x = o pin: F_i(o_i) == F_i* exactly (module doc's derivation) ----
 
     #[test]
-    fn fid_1_to_16_x_eq_o_is_exactly_f_star_dim10_and_dim30() {
-        for fid in 1u32..=16 {
+    fn fid_1_to_22_x_eq_o_is_exactly_f_star_dim10_and_dim30() {
+        for fid in 1u32..=22 {
             for &dim in &[10usize, 30] {
                 let p = Cec2014::new(fid, dim).unwrap();
                 let out = p.evaluate_batch(&[g(p.o.clone())])[0];
@@ -606,12 +998,33 @@ mod tests {
 
     #[test]
     fn constructed_o_and_m_have_the_right_shape_for_every_fid() {
-        for fid in 1u32..=16 {
+        for fid in 1u32..=22 {
             for &dim in &[10usize, 30] {
                 let p = Cec2014::new(fid, dim).unwrap();
                 assert_eq!(p.o.len(), dim, "fid={fid} dim={dim}");
                 assert_eq!(p.m.len(), dim, "fid={fid} dim={dim}");
                 assert!(p.m.iter().all(|row| row.len() == dim), "fid={fid} dim={dim}");
+            }
+        }
+    }
+
+    #[test]
+    fn shuffle_is_populated_only_for_fid_17_to_22() {
+        for fid in 1u32..=16 {
+            let p = Cec2014::new(fid, 10).unwrap();
+            assert!(p.shuffle.is_empty(), "fid={fid} should have no shuffle");
+        }
+        for fid in 17u32..=22 {
+            for &dim in &[10usize, 30] {
+                let p = Cec2014::new(fid, dim).unwrap();
+                assert_eq!(p.shuffle.len(), dim, "fid={fid} dim={dim}");
+                // Module doc's file-grammar note (data.rs): every
+                // shuffle_data_<fid>_D<dim>.txt is a 1-based permutation of
+                // 1..=dim -- assert the 0-based result is a permutation of
+                // 0..dim.
+                let mut sorted = p.shuffle.clone();
+                sorted.sort_unstable();
+                assert_eq!(sorted, (0..dim).collect::<Vec<_>>(), "fid={fid} dim={dim}");
             }
         }
     }
@@ -725,6 +1138,55 @@ mod tests {
         assert_close(16, 30, &[-13.856681264772163, -80.31236148331706, -67.25473828754367, 13.076529418370725, -80.27064155592497, -80.44143911324262, 31.741558119411422, -66.97715691110488, 5.836257118945433, 62.78584808228203, -5.082542866069652, 29.774068300345455, -102.03244516697265, -63.496707940558395, -84.1803604353351, -94.38521088317606, -107.84978612452696, -44.733317817675655, -47.35775439150855, -51.733067755274895, -99.04312105175654, -19.36413674810143, 3.68952244753757, 85.99791585419263, 31.00614815267018, -0.7861043347106076, 24.651618849189646, 3.8805055153506274, 3.0967488149392253, -30.484676526968464], 1615.4431966124566);
     }
 
+    // ---- T3: fid 17-22 random-point cross-checks vs. the compiled C
+    // reference (this task's report has the full driver transcript; one
+    // random point per fid at dim=10 AND dim=30, `x = o + U(-50,50)^dim`,
+    // seeded `Random(20260831)` in the probe script -- SAME seed T2 used,
+    // continuing the SAME rng stream fid-by-fid, `assert_close`'s 1e-9
+    // relative tolerance re-used unchanged; measured max actual relative
+    // deviation across all twelve points (temporary `eprintln!` during this
+    // task, removed before commit, same convention T2's own report
+    // describes): `2.80011838053369e-16`, essentially f64 machine epsilon
+    // (`2.22e-16`) -- same class of agreement T2 measured for fid 1-16
+    // (`5.64e-16`), most of the twelve points landing EXACTLY `0.0` relative
+    // deviation).
+
+    #[test]
+    fn fid17_random_points_match_compiled_c_reference() {
+        assert_close(17, 10, &[-2.500432146803348, -42.10542185405995, 32.427815356380044, -43.439583970833226, -120.62069986262385, 11.381038642469363, -6.525569334176311, 89.56608526645344, 71.6018621713246, -26.389252385517295], 88032153.08330923);
+        assert_close(17, 30, &[52.994716489496994, -52.44621975855776, 61.372365864003115, -6.028186954213496, -55.61955895632137, 23.71581159015618, -53.57748286593011, 44.20159351319494, 113.40196675626089, -40.92079984333431, -62.77150367221094, -7.211325319114245, 77.91146350607748, 63.357050255012076, -107.97203947008211, 23.74067576711245, -14.384997469215126, 62.172732129026485, 78.90118062528931, 32.09409101304847, 84.80039725307468, 6.811187743771605, 62.59976976838179, -30.500099741701632, -87.79352120474037, 72.31525042351609, -44.18148842762021, 39.918772478187336, 53.91965513246884, -46.662168041576415], 4393491922.808026);
+    }
+
+    #[test]
+    fn fid18_random_points_match_compiled_c_reference() {
+        assert_close(18, 10, &[48.57900652406255, -15.740731776652844, 64.61564148080105, -87.93912224770192, 59.056656665724816, -60.182717119092295, 64.63854085407802, -54.84590887610544, -32.4359428574019, 27.625708233298525], 464235024.95850646);
+        assert_close(18, 30, &[17.8383205696353, 55.65668664793827, 111.26263253738114, -111.66130812139467, -33.773099294732546, -51.20568818637151, 42.203100660263246, -84.05953276788065, -7.842230437444478, 23.609131018038738, 67.91506350526612, -3.0762169144285636, -41.47475926652625, -74.75639435199719, -8.792845006163788, 29.481247128411297, 51.92925722524386, -60.955705786262776, -69.0302805952785, 6.527900454067584, 48.707703299076776, 0.760957836770956, -52.80721610715284, -68.18732711920838, 71.72339969031093, 12.4764246717328, 1.0482019156936815, 48.176437173782176, -10.841222729801196, 42.2115981837716], 3405835706.9335184);
+    }
+
+    #[test]
+    fn fid19_random_points_match_compiled_c_reference() {
+        assert_close(19, 10, &[-95.8229706450162, -86.35184346377949, 3.3564136742132007, 58.56559723986315, 35.87974029659887, -39.50086031322412, -40.745311200012154, 100.585265192923, 16.732556371558303, 38.98221228705884], 2190.0811301908507);
+        assert_close(19, 30, &[-90.32965801530905, -17.32048867992087, -66.04260399514229, 59.428659947282235, -2.942050940408251, 27.824999804949343, -94.44320225529552, 44.157954450923654, -28.342304301493535, 37.3795977752537, 39.232476792045574, 19.603338782983826, 17.822103272166565, 53.038344123058565, 43.250339701216674, 54.366576084603956, 92.13325109826314, 23.80311300489457, -47.279307909163926, -5.790176136402071, 58.48821645908325, 27.268512975323233, 30.025979292284404, 25.632164343873697, 101.33602339637324, -20.31253850817324, -3.279309509610215, 15.602283795414635, -43.22119054919473, -64.72389735383906], 3692.8401848672056);
+    }
+
+    #[test]
+    fn fid20_random_points_match_compiled_c_reference() {
+        assert_close(20, 10, &[-51.22774168755064, 29.031784032627478, 9.601073756812696, -61.95342595399873, -17.27930096507798, 3.7984127133462096, 14.244203577947047, 48.78646952427393, 26.41795928294591, -49.49308600530463], 1770859962.9428875);
+        assert_close(20, 30, &[-27.4933935582077, 54.75795251940757, -57.662878878706664, -37.39136286370544, -41.82919746512113, 99.86652044365077, -20.30313578080991, 44.96212191730231, 91.559029225204, -103.64062397325714, 113.23160740231616, 33.81229332666926, 29.134494761505195, 50.138896477722206, 44.129608203107374, -83.13257470797365, 26.939353265625243, 42.463299906659486, 40.37465334145587, 97.53279497085643, 62.73465165066144, -8.947641716894989, 9.495017887025043, 21.880848512272934, -63.83603207925365, 50.49261641386282, -29.599979004140863, -60.58583358359554, 8.150786277027379, -72.6930081343279], 5615721303.685283);
+    }
+
+    #[test]
+    fn fid21_random_points_match_compiled_c_reference() {
+        assert_close(21, 10, &[9.362161551834731, 91.95182868406012, 5.941812949278692, -22.92858081427154, -23.149685029374332, -31.365157602254868, -69.50855649088732, 27.73788201820996, -108.81693717517614, -12.960629897344536], 2215422879.1351266);
+        assert_close(21, 30, &[18.320221883732266, 60.773588615216454, -68.14602589699216, -52.602914264163324, -57.45633172251882, 17.735328911465473, -3.41384990432735, 94.22542295636434, -110.30611998812464, -2.3632541642189224, -44.87356956767915, 88.52342855341588, -36.86377598396542, 6.367142111397349, 92.83593328984574, 7.375245721791529, -102.30297539422241, -89.91493069923021, -26.8648141734544, -24.598775743161895, 0.004873590229173885, 44.366880253096724, 21.80216668355375, 102.1585656910766, 40.063871730637445, 110.65009741437572, -118.51396777807592, -20.925138289978094, 87.88000096441706, -55.51507089717613], 121034139.02812998);
+    }
+
+    #[test]
+    fn fid22_random_points_match_compiled_c_reference() {
+        assert_close(22, 10, &[126.36857972718498, 1.6562349756550532, 101.27514160148674, 65.65380564926998, -49.04946920520006, -24.781105314595095, 101.63963797829702, -81.02091115498885, 30.277705314249445, 73.20044018682117], 199188.80366484044);
+        assert_close(22, 30, &[65.12002080520298, -16.9396791376041, 20.78186353435987, 83.82754404834698, -12.7098201658129, 12.976341888481059, 62.30784113903372, -3.2047962456268877, -30.635345463816336, 35.202314899015654, 21.81745946326599, 32.1147598562277, 37.12062109921547, 125.19628096458891, -11.331209962229664, -68.17446886010657, -91.38573304526764, 31.612153071081124, -36.375606379543946, 29.172723174476047, 45.11418484102837, -3.681043764402485, -7.806933301035222, -15.515668157850904, 98.69224727389152, 49.649112388737976, -33.62177762414724, 52.7900271084531, -12.707344505620043, -22.138791070516277], 74345.95791923154);
+    }
+
     // ---- Evaluator integration + budget counting ----
 
     #[test]
@@ -741,7 +1203,7 @@ mod tests {
 
     #[test]
     fn optimum_maps_to_f_star() {
-        for fid in 1u32..=16 {
+        for fid in 1u32..=22 {
             let p = Cec2014::new(fid, 10).unwrap();
             assert_eq!(Problem::optimum(&p), Some(p.f_star()), "fid={fid}");
         }
