@@ -1,12 +1,14 @@
 //! The CEC 2017 Special Session and Competition benchmark suite: fid 1
 //! (Bent Cigar), fid 3-10 (Zakharov, Rosenbrock, Rastrigin, Schaffer's F7,
 //! Lunacek bi-Rastrigin, Non-Continuous Rastrigin, Levy, Modified Schwefel
-//! -- M3-6 T6, this task). Fid 2 is PERMANENTLY WITHDRAWN (module doc's "F2
-//! ruling" section below); `Cec2017::new(2, _)` returns a dedicated
+//! -- M3-6 T6), fid 11-20 (hybrid functions -- M3-6 T7), and fid 21-30
+//! (composition functions -- M3-6 T8, THIS TASK: the suite's own `cf01`
+//! .."cf10"). Fid 2 is PERMANENTLY WITHDRAWN (module doc's "F2 ruling"
+//! section below); `Cec2017::new(2, _)` returns a dedicated
 //! [`Cec2017Error::Withdrawn`] error, distinct from
-//! [`Cec2017Error::UnknownFid`]. Fid 11-20 (hybrid functions) and fid 21-30
-//! (composition functions) are staged for later tasks (T7, T8 -- mirrors
-//! `cec2014`'s own T2 -> T3 -> T4 staging).
+//! [`Cec2017Error::UnknownFid`]. `Cec2017::new` now covers the suite's FULL
+//! usable range, `fid` in `{1} ∪ {3..=30}` (mirrors `cec2014`'s own
+//! T2 -> T3 -> T4 staging, now complete for this suite too).
 //!
 //! Source (PROVENANCE, fetched and read directly, not from memory): N. H.
 //! Awad, M. Z. Ali, P. N. Suganthan, J. J. Liang, B. Y. Qu, "Problem
@@ -494,16 +496,345 @@
 //! [`tests::assert_close`] tolerance the fid-1-10 tests already use,
 //! comfortably above both measured figures.
 //!
+//! ## M3-6 T8: Composition Functions (fid 21-30)
+//!
+//! Source (PROVENANCE, re-verified this task): the SAME two artifacts T6/T7
+//! fetched (module doc's opening PROVENANCE section), re-hashed this task
+//! against the scratchpad build (`shasum -a 256`, `cec17_test_func.cpp` at
+//! `scratchpad/t6_build/src/cec17_test_func.cpp`,
+//! SHA-256 `63dd4b36a33ca5cb2c5debd94dbbae4cc702609468552b47821e57328d461516`
+//! -- IDENTICAL to T6/T7's own pinned copy, no re-fetch needed). Re-used the
+//! SAME compiled `probe` binary T6/T7 already built (`g++ -O2`, unmodified
+//! `probe.cpp`, dispatches through the unmodified `cec17_test_func()` entry
+//! point for ANY `fid`, so fid 21-30 needed no probe-side change). All
+//! `input_data/` for fid 21-30 was ALREADY vendored in
+//! `crates/problems/data/cec2017/` from T6's full-suite vendoring pass
+//! (module doc's "Vendoring scope" section, `{1,3..=30}`) -- confirmed
+//! present, byte-identical to the scratchpad probe's own copy (`M_<fid>_D
+//! <dim>.txt`/`shift_data_<fid>.txt`/`shuffle_data_{29,30}_D<dim>.txt`), no
+//! re-vendoring this task.
+//!
+//! ### Dispatch (`cec17_test_func.cpp`'s switch, `case 21..30`, quoted
+//! VERBATIM -- a CLEAN 1:1 mapping, fid 21 calls `cf01` ("Composition
+//! Function 1"), fid 22 calls `cf02`, ..., fid 30 calls `cf10`, TEN
+//! composition functions -- unlike `cec2014`'s own suite, which only has
+//! EIGHT (`cf01..cf08`, fid 23-30 there))
+//! ```text
+//! case 21:  cf01(&x[i*nx],&f[i],nx,OShift,M,1); f[i]+=2100.0; break;
+//! case 22:  cf02(&x[i*nx],&f[i],nx,OShift,M,1); f[i]+=2200.0; break;
+//! case 23:  cf03(&x[i*nx],&f[i],nx,OShift,M,1); f[i]+=2300.0; break;
+//! case 24:  cf04(&x[i*nx],&f[i],nx,OShift,M,1); f[i]+=2400.0; break;
+//! case 25:  cf05(&x[i*nx],&f[i],nx,OShift,M,1); f[i]+=2500.0; break;
+//! case 26:  cf06(&x[i*nx],&f[i],nx,OShift,M,1); f[i]+=2600.0; break;
+//! case 27:  cf07(&x[i*nx],&f[i],nx,OShift,M,1); f[i]+=2700.0; break;
+//! case 28:  cf08(&x[i*nx],&f[i],nx,OShift,M,1); f[i]+=2800.0; break;
+//! case 29:  cf09(&x[i*nx],&f[i],nx,OShift,M,SS,1); f[i]+=2900.0; break;
+//! case 30:  cf10(&x[i*nx],&f[i],nx,OShift,M,SS,1); f[i]+=3000.0; break;
+//! ```
+//! `Fi* = 2100..3000` continues the SAME `100*fid` closed form fid 1-20
+//! already established -- `Cec2017::f_star`'s existing formula needs no
+//! per-fid override for fid 21-30 either. The outer `r_flag` literal passed
+//! to every `cf0N` call is always `1` (never `0`) -- and UNLIKE
+//! `cec2014`'s own `cf01`/`cf02` (which each hardcode ONE component's
+//! `r_flag` to a literal `0`, module doc's `cec2014` sibling note), every
+//! single component call in ALL TEN of `cf01`..`cf10` here passes the
+//! `r_flag` PARAMETER through unmodified (verified by reading all ten
+//! bodies directly, quoted in full below) -- so EVERY composition component
+//! in this suite is rotated, no hardcoded-unrotated exception exists here.
+//!
+//! ### The `cf_num=10`-hardcoded data-loading quirk (SAME shape
+//! `cec2014/mod.rs`'s own T4 section documents, DIFFERENT threshold: this
+//! suite's loader branches on `func_num<20`, not `cec2014`'s `func_num<23`
+//! -- verified directly, not assumed from the brief)
+//!
+//! `cec17_test_func`'s initializer declares `int cf_num=10` as a LOCAL at
+//! the very top of the function (quoted in full in this module's "Data-
+//! loading excerpt" section above, T6), and its `M`/`OShift`/`SS` loading
+//! branches on `func_num<20` (not `<23`) -- so EVERY `func_num>=20`,
+//! INCLUDING fid 20 itself (`hf10`, a hybrid, T7's own scope) as well as fid
+//! 21-30 (this task), loads `M`/`OShift` as `cf_num`=10 blocks (T7's own
+//! module doc already establishes this is harmless for fid 20, since `hf10`
+//! only ever reads block 0). For fid 21-30, every one of the ten
+//! composition functions' OWN `cf_num` local (3 for `cf01`/`cf02`/`cf09`/
+//! `cf10`, 4 for `cf03`/`cf04`, 5 for `cf05`/`cf06`, 6 for `cf07`/`cf08`,
+//! quoted per-fid below) is `<=6`, always LESS than the loader's hardcoded
+//! `10` -- confirmed: every vendored `shift_data_<fid>.txt` (fid 21-30)
+//! carries exactly 10 rows (`wc -l`), every `M_<fid>_D<dim>.txt` carries
+//! exactly `10*dim*dim` values (`wc -w`: `1000`/`9000` at dim 10/30), and
+//! `shuffle_data_{29,30}_D<dim>.txt` carries exactly `10*dim` ints (`wc -w`:
+//! `100`/`300`). [`data::composition_shift_blocks`] /
+//! [`data::composition_rotation_blocks`] / [`data::composition_shuffle_blocks`]
+//! (data.rs's own doc comments) take the CALLER's actual `cf_num` and parse
+//! only that many rows/blocks, byte-identical shape to
+//! `cec2014::data`'s own composition parsers (just a different loader
+//! threshold, `>=20` vs `>=23`).
+//!
+//! ### cf01-cf08 tables (base-function compositions) -- quoted from the C
+//! (`cf01`..`cf08` bodies, `cf_num`/`delta`/`bias`/component-call-order/
+//! post-eval-rescale) AND CROSS-CHECKED against the report (section "D.
+//! Composition Functions", `pdftotext -layout`)
+//!
+//! ```text
+//! void cf01 (...) { cf_num=3; delta={10,20,30}; bias={0,100,200};
+//!     i=0; rosenbrock_func(x,&fit[i],nx,&Os[i*nx],&Mr[i*nx*nx],1,r_flag);
+//!     i=1; ellips_func(x,&fit[i],nx,&Os[i*nx],&Mr[i*nx*nx],1,r_flag); fit[i]=10000*fit[i]/1e+10;
+//!     i=2; rastrigin_func(x,&fit[i],nx,&Os[i*nx],&Mr[i*nx*nx],1,r_flag);
+//!     cf_cal(x, f, nx, Os, delta,bias,fit,cf_num); }
+//! void cf02 (...) { cf_num=3; delta={10,20,30}; bias={0,100,200};
+//!     i=0; rastrigin_func(...,r_flag);
+//!     i=1; griewank_func(...,r_flag);  fit[i]=1000*fit[i]/100;
+//!     i=2; schwefel_func(...,r_flag);
+//!     cf_cal(...); }
+//! void cf03 (...) { cf_num=4; delta={10,20,30,40}; bias={0,100,200,300};
+//!     i=0; rosenbrock_func(...,r_flag);
+//!     i=1; ackley_func(...,r_flag);    fit[i]=1000*fit[i]/100;
+//!     i=2; schwefel_func(...,r_flag);
+//!     i=3; rastrigin_func(...,r_flag);
+//!     cf_cal(...); }
+//! void cf04 (...) { cf_num=4; delta={10,20,30,40}; bias={0,100,200,300};
+//!     i=0; ackley_func(...,r_flag);    fit[i]=1000*fit[i]/100;
+//!     i=1; ellips_func(...,r_flag);    fit[i]=10000*fit[i]/1e+10;
+//!     i=2; griewank_func(...,r_flag);  fit[i]=1000*fit[i]/100;
+//!     i=3; rastrigin_func(...,r_flag);
+//!     cf_cal(...); }
+//! void cf05 (...) { cf_num=5; delta={10,20,30,40,50}; bias={0,100,200,300,400};
+//!     i=0; rastrigin_func(...,r_flag);  fit[i]=10000*fit[i]/1e+3;
+//!     i=1; happycat_func(...,r_flag);   fit[i]=1000*fit[i]/1e+3;
+//!     i=2; ackley_func(...,r_flag);     fit[i]=1000*fit[i]/100;
+//!     i=3; discus_func(...,r_flag);     fit[i]=10000*fit[i]/1e+10;
+//!     i=4; rosenbrock_func(...,r_flag);
+//!     cf_cal(...); }
+//! void cf06 (...) { cf_num=5; delta={10,20,20,30,40}; bias={0,100,200,300,400};
+//!     i=0; escaffer6_func(...,r_flag);  fit[i]=10000*fit[i]/2e+7;
+//!     i=1; schwefel_func(...,r_flag);
+//!     i=2; griewank_func(...,r_flag);   fit[i]=1000*fit[i]/100;
+//!     i=3; rosenbrock_func(...,r_flag);
+//!     i=4; rastrigin_func(...,r_flag);  fit[i]=10000*fit[i]/1e+3;
+//!     cf_cal(...); }
+//! void cf07 (...) { cf_num=6; delta={10,20,30,40,50,60}; bias={0,100,200,300,400,500};
+//!     i=0; hgbat_func(...,r_flag);      fit[i]=10000*fit[i]/1000;
+//!     i=1; rastrigin_func(...,r_flag);  fit[i]=10000*fit[i]/1e+3;
+//!     i=2; schwefel_func(...,r_flag);   fit[i]=10000*fit[i]/4e+3;
+//!     i=3; bent_cigar_func(...,r_flag); fit[i]=10000*fit[i]/1e+30;
+//!     i=4; ellips_func(...,r_flag);     fit[i]=10000*fit[i]/1e+10;
+//!     i=5; escaffer6_func(...,r_flag);  fit[i]=10000*fit[i]/2e+7;
+//!     cf_cal(...); }
+//! void cf08 (...) { cf_num=6; delta={10,20,30,40,50,60}; bias={0,100,200,300,400,500};
+//!     i=0; ackley_func(...,r_flag);     fit[i]=1000*fit[i]/100;
+//!     i=1; griewank_func(...,r_flag);   fit[i]=1000*fit[i]/100;
+//!     i=2; discus_func(...,r_flag);     fit[i]=10000*fit[i]/1e+10;
+//!     i=3; rosenbrock_func(...,r_flag);
+//!     i=4; happycat_func(...,r_flag);   fit[i]=1000*fit[i]/1e+3;
+//!     i=5; escaffer6_func(...,r_flag);  fit[i]=10000*fit[i]/2e+7;
+//!     cf_cal(...); }
+//! ```
+//! (`...` elides the repeated `x,&fit[i],nx,&Os[i*nx],&Mr[i*nx*nx]`
+//! parameter prefix each call shares, for readability -- every ellided call
+//! passes the SAME arguments the fully-spelled-out `cf01`/`i=0` line above
+//! shows, confirmed by reading each body directly, this task's report has
+//! the byte-for-byte full transcript of all ten functions.)
+//!
+//! | fid | `cf0N` | `cf_num` | `delta` | `bias` | components `(fn, rescale)` (rotate ALWAYS true) |
+//! |---|---|---|---|---|---|
+//! | 21 | `cf01` | 3 | `[10,20,30]` | `[0,100,200]` | `(Rosenbrock,1.0)`, `(Ellips,1e-6)`, `(Rastrigin,1.0)` |
+//! | 22 | `cf02` | 3 | `[10,20,30]` | `[0,100,200]` | `(Rastrigin,1.0)`, `(Griewank,10.0)`, `(Schwefel,1.0)` |
+//! | 23 | `cf03` | 4 | `[10,20,30,40]` | `[0,100,200,300]` | `(Rosenbrock,1.0)`, `(Ackley,10.0)`, `(Schwefel,1.0)`, `(Rastrigin,1.0)` |
+//! | 24 | `cf04` | 4 | `[10,20,30,40]` | `[0,100,200,300]` | `(Ackley,10.0)`, `(Ellips,1e-6)`, `(Griewank,10.0)`, `(Rastrigin,1.0)` |
+//! | 25 | `cf05` | 5 | `[10,20,30,40,50]` | `[0,100,200,300,400]` | `(Rastrigin,10.0)`, `(HappyCat,1.0)`, `(Ackley,10.0)`, `(Discus,1e-6)`, `(Rosenbrock,1.0)` |
+//! | 26 | `cf06` | 5 | `[10,20,20,30,40]` | `[0,100,200,300,400]` | `(EScaffer6,5e-4)`, `(Schwefel,1.0)`, `(Griewank,10.0)`, `(Rosenbrock,1.0)`, `(Rastrigin,10.0)` |
+//! | 27 | `cf07` | 6 | `[10,20,30,40,50,60]` | `[0,100,200,300,400,500]` | `(HGBat,10.0)`, `(Rastrigin,10.0)`, `(Schwefel,2.5)`, `(BentCigar,1e-26)`, `(Ellips,1e-6)`, `(EScaffer6,5e-4)` |
+//! | 28 | `cf08` | 6 | `[10,20,30,40,50,60]` | `[0,100,200,300,400,500]` | `(Ackley,10.0)`, `(Griewank,10.0)`, `(Discus,1e-6)`, `(Rosenbrock,1.0)`, `(HappyCat,1.0)`, `(EScaffer6,5e-4)` |
+//!
+//! Every `delta`/`bias`/component-name/component-order/rescale value above
+//! was independently re-derived from the C's own `fit[i]=K*fit[i]/D` lines
+//! (e.g. `10000/1e10=1e-6`, `10000/1e30=1e-26`, `1000/100=10.0`) -- NOT
+//! copied from the report's own printed lambda arrays, because two of the
+//! report's own composition-function entries are independently VERIFIED
+//! WRONG (below); the C is authoritative throughout (standing
+//! PROVENANCE-FIRST ruling).
+//!
+//! Report (PDF `pdftotext -layout`, section "D. Composition Functions",
+//! this section's OWN item numbers `20)`.."29)" use the SAME CONTIGUOUS,
+//! no-F2-gap numbering Table I uses -- NOT section 1.3's gapped
+//! code-`func_num` numbering (module doc's "Report-table vs. code
+//! `func_num` numbering" section above already establishes this split for
+//! fid 1-10; it recurs here identically: report item `20)` = code
+//! `func_num` 21, ..., item `29)` = code `func_num` 30):
+//! ```text
+//! 20) Composition Function 1: N=3, sigma=[10,20,30], lambda=[1,1e-6,1], bias=[0,100,200]
+//!     g1: Rosenbrock's Function F4'  g2: High Conditioned Elliptic Function F1'  g3 Rastrigin's Function F4'
+//! 21) Composition Function 2: N=3, sigma=[10,20,30], lambda=[1,10,1], bias=[0,100,200]
+//!     g1: Rastrigin's Function F5'  g2: Griewank's Function F15'  g3 Modifed Schwefel's Function F10'
+//! 22) Composition Function 3: N=4, sigma=[10,20,30,40], lambda=[1,10,1,1], bias=[0,100,200,300]
+//!     g1: Rosenbrock's Function F4'  g2: Ackley's Function F13'  g3: Modified Schwefel's Function F10'  g4: Rastrigin's Function F5'
+//! 23) Composition Function 4: N=4, sigma=[10,20,30,40], lambda=[10,1e-6,10,1], bias=[0,100,200,300]
+//!     g1: Ackley's Function F13'  g2: High Conditioned Elliptic Function F11'  g3: Girewank Function F15'  g4: Rastrigin's Function F5'
+//! 24) Composition Function 5: N=5, sigma=[10,20,30,40,50], lambda=[10,1,10,1e-6,1], bias=[0,100,200,300,400]
+//!     g1: Rastrigin's Function F5'  g2: Happycat Function F17'  g3: Ackley Function F13'  g4: Discus Function F12'  g5: Rosenbrock's Function F4'
+//! 25) Composition Function 6: N=5, sigma=[10,20,20,30,40], lambda=[1e-26,10,1e-6,10,5e-4], bias=[0,100,200,300,400]
+//!     g1: Expanded Scaffer's F6 Function F6'  g2: Modified Schwefel's Function F10'  g3: Griewank's Function F15'  g4: Rosenbrock's Function F4'  g5: Rastrigin's Function F5'
+//! 26) Composition Function 7: N=6, sigma=[10,20,30,40,50,60], lambda=[10,10,2.5,1e-26,1e-6,5e-4], bias=[0,100,200,300,400,500]
+//!     g1: HGBat Function F18'  g2: Rastrigin's Function F5'  g3: Modified Schwefel's Function F10'  g4: Bent-Cigar Function F11'  g4(sic): High Conditioned Elliptic Function F11'  g5(sic): Expanded Scaffer's F6 Function F6'
+//! 27) Composition Function 8: N=6, sigma=[10,20,30,40,50,60], lambda=[10,10,1e-6,1,1,5e-4], bias=[0,100,200,300,400,500]
+//!     g1: Ackley's Function F13'  g2: Griewank's Function F15'  g3: Discus Function F12'  g4: Rosenbrock's Function F4'  g4(sic): HappyCat Function F17'  g5(sic): Expanded Scaffer's F6 Function F6'
+//! 28) Composition Function 10 (SIC -- swapped title, see VERIFIED DISCREPANCY below): N=3, sigma=[10,30,50], lambda=[1,1,1], bias=[0,100,200]
+//!     g1: Hybrid Function 5 F5'  g2: Hybrid Function 6 F6'  g3: Hybrid Function 7 F7'
+//! 29) Composition Function 9 (SIC -- swapped title, see VERIFIED DISCREPANCY below): N=3, sigma=[10,30,50], lambda=[1,1,1], bias=[0,100,200]
+//!     g1: Hybrid Function 5 F5'  g2: Hybrid Function 8 F8'  g3: Hybrid Function 9 F9'
+//! ```
+//!
+//! ### VERIFIED DISCREPANCY 1: item `25)`'s (fid 26, `cf06`) printed `lambda`
+//! array does not match its own printed component order, or the C, at all
+//! (found via cross-check, not merely transcribed) -- `sigma`/`bias`/
+//! component ORDER are all correct, only `lambda` is wrong
+//!
+//! Item `25)`'s own component list (`g1..g5`: EScaffer6, Schwefel,
+//! Griewank, Rosenbrock, Rastrigin) matches `cf06`'s C call order EXACTLY
+//! (quoted above). But the report prints `lambda=[1e-26, 10, 1e-6, 10,
+//! 5e-4]` for that SAME order -- the C's own `fit[i]=K*fit[i]/D` lines for
+//! THOSE FIVE components (in that order) compute `[5e-4, 1.0, 10.0, 1.0,
+//! 10.0]` (escaffer6: `10000/2e7=5e-4`; schwefel: no rescale line, `1.0`;
+//! griewank: `1000/100=10.0`; rosenbrock: no rescale line, `1.0`;
+//! rastrigin: `10000/1e3=10.0`) -- NONE of the report's five printed values
+//! match the C-derived ones in ANY permutation of this component list
+//! (`1e-26` and `1e-6` appear nowhere in `cf06`'s own rescale lines at all;
+//! those two exponents only appear in `cf07`'s own lambda, `bent_cigar`
+//! `1e-26` and `ellips` `1e-6` -- plausibly a PDF table-row bleed from the
+//! adjacent item, though this task does not need to diagnose the printing
+//! mechanism to apply the standing ruling). `sezgi` follows the C-derived
+//! `[5e-4, 1.0, 10.0, 1.0, 10.0]` (this module doc's fid-26/`cf06` table row
+//! above), confirmed correct by this task's OWN `x=comp_shift[0]` pin and
+//! random-point probes (below) both matching the compiled C.
+//!
+//! ### VERIFIED DISCREPANCY 2: items `28)`/`29)`'s titles are SWAPPED
+//! relative to Table I's own naming (and relative to the C's own `cf09`/
+//! `cf10` function names) -- their CONTENT (component lists) is correct and
+//! unambiguous, only the two-word title text is wrong
+//!
+//! Table I (module doc's numbering section above) names row 28 (code
+//! `func_num` 29) "Composition Function 9" and row 29 (code `func_num` 30)
+//! "Composition Function 10" -- consistent with the C's own function names
+//! (`cf09` is dispatched at `case 29`, `cf10` at `case 30`, quoted in this
+//! section's dispatch block above). But section D's OWN item `28)` (SAME
+//! position, `func_num` 29) is titled "Composition Function **10**", and
+//! item `29)` (`func_num` 30) is titled "Composition Function **9**" -- the
+//! two titles are swapped relative to Table I and the C's own naming.
+//! Despite the swapped TITLES, each item's CONTENT is unambiguous and
+//! matches the C's actual component list AT THAT SEQUENTIAL POSITION
+//! exactly: item `28)` (func_num 29) lists `g1..g3` = Hybrid Function
+//! 5/6/7, which matches `cf09`'s C body (`hf05, hf06, hf07`, quoted below)
+//! bit-for-bit; item `29)` (func_num 30) lists Hybrid Function 5/8/9, which
+//! matches `cf10`'s C body (`hf05, hf08, hf09`) bit-for-bit. `sezgi` follows
+//! the C's function-name-to-`func_num` mapping (`cf09`->fid 29, `cf10`->fid
+//! 30) throughout this module (`Cec2017::composition_hybrid_spec`'s own doc
+//! and code), never the report's swapped title text -- this is purely a
+//! documentation-quality finding (the CONTENT was never ambiguous), noted
+//! here per this task's PROVENANCE-FIRST reporting requirement.
+//!
+//! ### cf09/cf10 -- hybrid-in-composition (the report's own note, quoted
+//! above the per-fid list in T6's/`cec2014`'s own precedent: "In CEC'14,
+//! the hybrid functions are also used as the basic functions for
+//! composition functions") -- quoted from the C, CROSS-CHECKED against the
+//! report (content, not the swapped titles above)
+//!
+//! ```text
+//! void cf09 (double *x,double *f,int nx,double *Os,double *Mr,int *SS,int r_flag) {
+//!     cf_num=3; delta={10,30,50}; bias={0,100,200};
+//!     i=0; hf05(x,&fit[i],nx,&Os[i*nx],&Mr[i*nx*nx],&SS[i*nx],1,r_flag);
+//!     i=1; hf06(x,&fit[i],nx,&Os[i*nx],&Mr[i*nx*nx],&SS[i*nx],1,r_flag);
+//!     i=2; hf07(x,&fit[i],nx,&Os[i*nx],&Mr[i*nx*nx],&SS[i*nx],1,r_flag);
+//!     cf_cal(x, f, nx, Os, delta,bias,fit,cf_num); }
+//! void cf10 (double *x,double *f,int nx,double *Os,double *Mr,int *SS,int r_flag) {
+//!     cf_num=3; delta={10,30,50}; bias={0,100,200};
+//!     i=0; hf05(x,&fit[i],nx,&Os[i*nx],&Mr[i*nx*nx],&SS[i*nx],1,r_flag);
+//!     i=1; hf08(x,&fit[i],nx,&Os[i*nx],&Mr[i*nx*nx],&SS[i*nx],1,r_flag);
+//!     i=2; hf09(x,&fit[i],nx,&Os[i*nx],&Mr[i*nx*nx],&SS[i*nx],1,r_flag);
+//!     cf_cal(x, f, nx, Os, delta,bias,fit,cf_num); }
+//! ```
+//! `lambda=[1,1,1]` for both (report, unaffected by the title-swap bug
+//! above -- content matches C exactly) confirms NEITHER `cf09` NOR `cf10`
+//! post-scales any `fit[i]` (unlike `cf01`-`cf08`'s `fit[i]=K*fit[i]/D`
+//! lines) -- `cf_cal` adds `bias[i]` only. `Os[i*nx]`/`Mr[i*nx*nx]`/
+//! `SS[i*nx]` give EACH hybrid component its OWN FULL shift+rotate+shuffle
+//! (a DIFFERENT `(o,M,S)` triple per component `i`), exactly the same shape
+//! `cec2014`'s own `cf07`/`cf08` already established --
+//! [`Cec2017::composition_hybrid_fitness`] threads this through explicitly,
+//! reusing [`Cec2017::hybrid_fitness`] (T7's helper, unmodified) at the
+//! matching `hf0N`<->fid mapping T7's own dispatch section already
+//! establishes: `hf05`->fid 15, `hf06`->fid 16, `hf07`->fid 17 (`cf09`);
+//! `hf05`->fid 15, `hf08`->fid 18, `hf09`->fid 19 (`cf10`). Neither `hf05`,
+//! `hf06`, `hf07`, `hf08`, nor `hf09` includes either of T7's two
+//! VERIFIED-BUGGY components (`SchafferF7Buggy` is only in `hf04`/fid 14 and
+//! `hf10`/fid 20; `BiRastriginBuggy` is only in `hf03`/fid 13) -- confirmed
+//! by re-reading T7's own `hybrid_spec` table (module doc above): NONE of
+//! `cf09`/`cf10`'s five component hybrids (`hf05..hf09`) are among fid
+//! `{13,14,20}`, so this task's composition-of-hybrids wiring inherits
+//! NEITHER T7 bug, unlike a hypothetical composition that reused `hf03`,
+//! `hf04`, or `hf10`.
+//!
+//! ### `cf_cal` weight formula -- SAME shared [`crate::cec_basics::composition_weights`]
+//! function T6's/`cec2014`'s own T4 section already verifies BIT-FOR-BIT
+//! identical to this suite's own `cf_cal` (re-diffed this task against the
+//! quoted body in `cec17_test_func.cpp` line 1604 -- zero difference from
+//! `cec2014`'s copy, same `#define INF 1.0e99` sentinel) -- no new
+//! weight-formula code this task, [`Cec2017::composition_fitness`] and
+//! [`Cec2017::composition_hybrid_fitness`] both call
+//! [`crate::cec_basics::composition_weights`] directly.
+//!
+//! ### New component variants ([`HybridComponent::Griewank`],
+//! [`HybridComponent::HappyCat`]) -- the only two base functions this
+//! suite's fid 1-20 (T6/T7) never needed, both ALREADY exist in
+//! `crate::cec_basics` (`griewank_base`/`happycat_base`, extracted for
+//! `cec2014`'s own T2/T4) -- probe-verified against `griewank_func`
+//! (`sh_rate=600.0/100.0`) and `happycat_func` (`sh_rate=5.0/100.0`, its own
+//! internal `z[i]-=1.0` "shift to origin" already baked into
+//! `cec_basics::happycat_base`, same convention `HybridComponent::HappyCat`
+//! already uses for `cec2014`) reading the C bodies directly (this module's
+//! own T8 dispatch quote above). Every OTHER component `cf01`-`cf10` needs
+//! (`Rosenbrock`, `Ellips`, `Rastrigin`, `Schwefel`, `Ackley`, `Discus`,
+//! `BentCigar`, `HGBat`, `EScaffer6`) already exists as a
+//! [`HybridComponent`] variant from T7 -- no other new variant needed.
+//!
+//! ### `x = comp_shift[0]` pin (Step 2) for fid 21-30: SAME "INF-sentinel
+//! absorption" argument `cec2014/mod.rs`'s own T4 section already makes
+//! (re-derived here for this suite's own ten tables, VERIFIED against the
+//! compiled C for every fid 21-30 x every dim in {10,30}, this task's own
+//! probe: `t8_xo1_pin.py`)
+//!
+//! At `x = comp_shift[0]`: component 1's raw squared distance `D_0 = 0`
+//! exactly, so `cf_cal`'s `w_0 = INF = 1e99` absorbs `w_sum`, making
+//! `w_0/w_sum` round to EXACTLY `1.0`; component 1's own shift-rotated
+//! argument is the all-zero vector, so its base evaluation is EXACTLY `0`
+//! (every `cf0N`'s FIRST component here -- Rosenbrock/Rastrigin x2/Ackley/
+//! Rastrigin/EScaffer6/HGBat/Ackley/`hf05`(x2) -- is one of the bases this
+//! module doc's earlier pin sections, or T7's hybrid pin section, already
+//! prove `=0` at an all-zero argument), and `bias[0]==0` for EVERY ONE of
+//! the ten tables above -- so component 1's raw contribution is `0*1.0=0`
+//! exactly, and the other components' contributions are picoscopically
+//! small (SAME caveat as every earlier composition pin in this crate) but
+//! empirically absorbed by `F_i*`'s ULP. Measured (compiled C, `x=
+//! comp_shift[0]`, `%.20f`): all TWENTY `(fid,dim)` pairs in `{21..=30} x
+//! {10,30}` print the exact integer `100*fid`, zero fractional residue
+//! (this task's report has the transcript) -- confirmed by
+//! `fid_21_to_30_x_eq_comp_shift0_is_exactly_f_star_dim10_and_dim30` below.
+//!
+//! ### Measured deviations (this task)
+//!
+//! 20-point `x=comp_shift[0]` pin probe (above): EXACT (`0` residue) at
+//! every point, both dims. 60-probe random-point cross-check (`composition_
+//! random_probe_*` tests below, seed `20170721`, this task's report has the
+//! full transcript): same `1e-9` [`tests::assert_close`] relative tolerance
+//! reused from every earlier section of this module; every probe passed.
+//!
 //! ## Struct/impl notes
 //!
 //! [`Cec2017::new`] rejects `dim` outside `{10,30}` (vendoring scope) and
-//! `fid` outside `{1,3..=20}` (T6+T7's combined functional scope: unimodal/
-//! simple-multimodal F1/F3-F10, hybrid F11-F20 -- `fid==2` gets its own
-//! dedicated [`Cec2017Error::Withdrawn`], everything else outside
-//! `{1,3..=20}` gets [`Cec2017Error::UnknownFid`], INCLUDING `fid` in
-//! `21..=30` even though those are legitimate C `func_num`s not yet wired
-//! here -- T8's own concern, mirrors `cec2014/mod.rs`'s own T2->T3->T4
-//! `UnknownFid` scoping to whatever it had wired at the time).
+//! `fid` outside `{1} ∪ {3..=30}` (T6+T7+T8's combined, now COMPLETE
+//! functional scope: unimodal/simple-multimodal F1/F3-F10, hybrid F11-F20,
+//! composition F21-F30 -- `fid==2` gets its own dedicated
+//! [`Cec2017Error::Withdrawn`], everything else outside `{1,3..=30}` (`0`,
+//! `31` and up) gets [`Cec2017Error::UnknownFid`], mirrors
+//! `cec2014/mod.rs`'s own now-complete T2->T3->T4 `UnknownFid` scoping).
 
 use sezgi_core::problem::Problem;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
@@ -513,9 +844,9 @@ mod data;
 #[derive(Debug, thiserror::Error)]
 pub enum Cec2017Error {
     #[error(
-        "fid must be 1 or in 3..=20 (T6+T7's combined functional scope of the CEC 2017 suite: \
-         unimodal F1/F3, simple-multimodal F4-F10, hybrid F11-F20; fid 21-30 are staged for a \
-         later task), got {0}"
+        "fid must be 1 or in 3..=30 (T6+T7+T8's combined, now complete functional scope of the \
+         CEC 2017 suite: unimodal F1/F3, simple-multimodal F4-F10, hybrid F11-F20, composition \
+         F21-F30), got {0}"
     )]
     UnknownFid(u32),
     #[error(
@@ -547,13 +878,29 @@ pub struct Cec2017 {
     /// fid 11-20 only (M3-6 T7): 0-based shuffle permutation applied to the
     /// shift-rotated vector before segmenting into hybrid components
     /// (module doc's T7 section: `y[i] = z[shuffle[i]]`). Empty for fid 1,
-    /// 3-10.
+    /// 3-10 and fid 21-30 (fid 29-30 use [`Self::comp_shuffle`] instead, one
+    /// permutation PER component).
     shuffle: Vec<usize>,
+    /// fid 21-30 only (M3-6 T8): each component's OWN shift row
+    /// (`comp_shift[idx]`, `cf_num` rows total -- 3, 4, 5, or 6). Empty for
+    /// fid 1, 3-20. `o` mirrors `comp_shift[0]` for API uniformity with the
+    /// `x = o` pin tests (same `cec2014::Cec2014`'s own fid-23-30 struct doc
+    /// decision, quoted there).
+    comp_shift: Vec<Vec<f64>>,
+    /// fid 21-30 only: each component's OWN `dim`x`dim` rotation matrix,
+    /// parallel to [`Self::comp_shift`]. Empty for fid 1, 3-20.
+    comp_rotation: Vec<Vec<Vec<f64>>>,
+    /// fid 29-30 only (M3-6 T8, `cf09`/`cf10`'s hybrid-in-composition
+    /// wiring): each of the 3 hybrid components' OWN 0-based shuffle
+    /// permutation, parallel to [`Self::comp_shift`]. Empty for every other
+    /// fid (including fid 21-28, whose components are plain base functions
+    /// with no shuffle at all).
+    comp_shuffle: Vec<Vec<usize>>,
     space: SearchSpace,
 }
 
 impl Cec2017 {
-    /// `fid` must be `1` or in `3..=20` ([`Cec2017Error::UnknownFid`]
+    /// `fid` must be `1` or in `3..=30` ([`Cec2017Error::UnknownFid`]
     /// otherwise); `fid==2` specifically returns
     /// [`Cec2017Error::Withdrawn`] (module doc's F2 ruling). `dim` must be
     /// one of `{10,30}` ([`Cec2017Error::BadDim`] otherwise, module doc's
@@ -562,19 +909,52 @@ impl Cec2017 {
         if fid == 2 {
             return Err(Cec2017Error::Withdrawn);
         }
-        if !(fid == 1 || (3..=20).contains(&fid)) {
+        if !(fid == 1 || (3..=30).contains(&fid)) {
             return Err(Cec2017Error::UnknownFid(fid));
         }
         if !matches!(dim, 10 | 30) {
             return Err(Cec2017Error::BadDim(dim));
         }
-        let o = data::shift_vector(fid, dim);
-        let m = data::rotation_matrix(fid, dim);
-        let shuffle =
-            if (11..=20).contains(&fid) { data::shuffle_indices(fid, dim) } else { Vec::new() };
+        let (o, m, shuffle, comp_shift, comp_rotation, comp_shuffle) = if (21..=30).contains(&fid) {
+            let cf_num = Self::composition_cf_num(fid);
+            let comp_shift = data::composition_shift_blocks(fid, dim, cf_num);
+            let comp_rotation = data::composition_rotation_blocks(fid, dim, cf_num);
+            let comp_shuffle = if (29..=30).contains(&fid) {
+                data::composition_shuffle_blocks(fid, dim, cf_num)
+            } else {
+                Vec::new()
+            };
+            // `o` mirrors component 1's own shift (struct doc, same
+            // `cec2014::Cec2014` decision for its own fid 23-30) so the
+            // `x = o` pin tests can stay uniform across the whole `{1,
+            // 3..=30}` range.
+            let o = comp_shift[0].clone();
+            (o, Vec::new(), Vec::new(), comp_shift, comp_rotation, comp_shuffle)
+        } else {
+            let o = data::shift_vector(fid, dim);
+            let m = data::rotation_matrix(fid, dim);
+            let shuffle =
+                if (11..=20).contains(&fid) { data::shuffle_indices(fid, dim) } else { Vec::new() };
+            (o, m, shuffle, Vec::new(), Vec::new(), Vec::new())
+        };
         let space = SearchSpace::new(vec![Block::Float { lo: -100.0, hi: 100.0, n: dim }])
             .expect("CEC 2017 bounds (-100 < 100) are always valid");
-        Ok(Self { fid, dim, o, m, shuffle, space })
+        Ok(Self { fid, dim, o, m, shuffle, comp_shift, comp_rotation, comp_shuffle, space })
+    }
+
+    /// This composition fid's own `cf_num` (module doc's T8 cf01-cf10
+    /// table, transcribed from each `cf0N`'s own local `cf_num` -- NOT the
+    /// loader's unrelated hardcoded `cf_num=10`, module doc's dedicated note
+    /// on that distinction). `fid` must be `21..=30` (caller's
+    /// responsibility).
+    fn composition_cf_num(fid: u32) -> usize {
+        match fid {
+            21 | 22 | 29 | 30 => 3,
+            23 | 24 => 4,
+            25 | 26 => 5,
+            27 | 28 => 6,
+            other => unreachable!("composition_cf_num called with unsupported fid {other}"),
+        }
     }
 
     pub fn fid(&self) -> u32 { self.fid }
@@ -650,7 +1030,9 @@ impl Cec2017 {
                 let y: Vec<f64> = (0..self.dim).map(|i| z[self.shuffle[i]]).collect();
                 Self::hybrid_fitness(self.fid, self.dim, &y, &self.o)
             }
-            other => unreachable!("Cec2017::new rejects fid outside {{1,3..=20}}, got {other}"),
+            21..=28 => self.composition_fitness(xs),
+            29 | 30 => self.composition_hybrid_fitness(xs),
+            other => unreachable!("Cec2017::new rejects fid outside {{1,3..=30}}, got {other}"),
         };
         value + self.f_star()
     }
@@ -727,6 +1109,164 @@ impl Cec2017 {
             other => unreachable!("hybrid_spec called with unsupported fid {other}"),
         }
     }
+
+    /// One composition function's (fid 21-28, [`Self::composition_spec`])
+    /// `(delta, bias, components)` triple -- `components[i]` is `(base
+    /// function, this component's own post-eval rescale)`. Unlike
+    /// `cec2014::Cec2014::composition_spec`, no per-component `rotate: bool`
+    /// field is needed here: module doc's T8 dispatch note verifies EVERY
+    /// component in ALL TEN `cf01`..`cf10` passes the `r_flag` PARAMETER
+    /// through unmodified (no hardcoded-`0` site exists in this suite's own
+    /// composition functions, unlike `cec2014`'s `cf01`/`cf02`) -- so every
+    /// component here is always rotated, and [`Self::composition_fitness`]
+    /// hardcodes `rotate=true` for all of them.
+    // sezgi decision (M3-6 T8): named to keep the signature readable
+    // (clippy's `type_complexity`), same shape `cec2014::Cec2014`'s own
+    // `composition_spec` alias uses (minus the unneeded `rotate` bool,
+    // above).
+    #[allow(clippy::type_complexity)]
+    fn composition_spec(fid: u32) -> (&'static [f64], &'static [f64], &'static [(HybridComponent, f64)]) {
+        use HybridComponent::*;
+        match fid {
+            21 => (
+                &[10.0, 20.0, 30.0],
+                &[0.0, 100.0, 200.0],
+                &[(Rosenbrock, 1.0), (Ellips, 1.0e-6), (Rastrigin, 1.0)],
+            ),
+            22 => (
+                &[10.0, 20.0, 30.0],
+                &[0.0, 100.0, 200.0],
+                &[(Rastrigin, 1.0), (Griewank, 10.0), (Schwefel, 1.0)],
+            ),
+            23 => (
+                &[10.0, 20.0, 30.0, 40.0],
+                &[0.0, 100.0, 200.0, 300.0],
+                &[(Rosenbrock, 1.0), (Ackley, 10.0), (Schwefel, 1.0), (Rastrigin, 1.0)],
+            ),
+            24 => (
+                &[10.0, 20.0, 30.0, 40.0],
+                &[0.0, 100.0, 200.0, 300.0],
+                &[(Ackley, 10.0), (Ellips, 1.0e-6), (Griewank, 10.0), (Rastrigin, 1.0)],
+            ),
+            25 => (
+                &[10.0, 20.0, 30.0, 40.0, 50.0],
+                &[0.0, 100.0, 200.0, 300.0, 400.0],
+                &[(Rastrigin, 10.0), (HappyCat, 1.0), (Ackley, 10.0), (Discus, 1.0e-6), (Rosenbrock, 1.0)],
+            ),
+            26 => (
+                &[10.0, 20.0, 20.0, 30.0, 40.0],
+                &[0.0, 100.0, 200.0, 300.0, 400.0],
+                // Module doc's VERIFIED DISCREPANCY 1: the report's own
+                // printed `lambda` for this fid does not match its own
+                // component order or the C at all -- these five rescale
+                // factors are derived DIRECTLY from `cf06`'s C body
+                // (`fit[i]=K*fit[i]/D` lines), not transcribed from the
+                // report.
+                &[(EScaffer6, 5.0e-4), (Schwefel, 1.0), (Griewank, 10.0), (Rosenbrock, 1.0), (Rastrigin, 10.0)],
+            ),
+            27 => (
+                &[10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+                &[0.0, 100.0, 200.0, 300.0, 400.0, 500.0],
+                &[
+                    (HGBat, 10.0),
+                    (Rastrigin, 10.0),
+                    (Schwefel, 2.5),
+                    (BentCigar, 1.0e-26),
+                    (Ellips, 1.0e-6),
+                    (EScaffer6, 5.0e-4),
+                ],
+            ),
+            28 => (
+                &[10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+                &[0.0, 100.0, 200.0, 300.0, 400.0, 500.0],
+                &[
+                    (Ackley, 10.0),
+                    (Griewank, 10.0),
+                    (Discus, 1.0e-6),
+                    (Rosenbrock, 1.0),
+                    (HappyCat, 1.0),
+                    (EScaffer6, 5.0e-4),
+                ],
+            ),
+            other => unreachable!("composition_spec called with unsupported fid {other}"),
+        }
+    }
+
+    /// One composition function's total (BEFORE `F_i*`), fid 21-28: each
+    /// component's own FULL shift-rotate pipeline (module doc's T8 section:
+    /// unlike the hybrids' single shared shift+rotate, EVERY composition
+    /// component gets its OWN `(comp_shift[idx], comp_rotation[idx])`) +
+    /// base function + its post-eval rescale + its `bias`, weighted by
+    /// [`crate::cec_basics::composition_weights`] and summed (`cf_cal`'s own
+    /// final loop, module doc's T8 `cf_cal` note).
+    fn composition_fitness(&self, xs: &[f64]) -> f64 {
+        let (delta, bias, comps) = Self::composition_spec(self.fid);
+        let fit: Vec<f64> = comps
+            .iter()
+            .enumerate()
+            .map(|(idx, &(comp, rescale))| {
+                let z = crate::cec_basics::shift_scale_rotate(
+                    xs,
+                    &self.comp_shift[idx],
+                    &self.comp_rotation[idx],
+                    comp.sh_rate(),
+                    true, // every cf01-cf10 component is rotated (module doc's T8 dispatch note).
+                );
+                comp.eval(&z) * rescale + bias[idx]
+            })
+            .collect();
+        let w = crate::cec_basics::composition_weights(xs, &self.comp_shift, delta);
+        fit.iter().zip(&w).map(|(&f, &wi)| f * wi).sum()
+    }
+
+    /// `cf09`/`cf10`'s `(delta, bias, hybrid fids)` triple (module doc's T8
+    /// "cf09/cf10 -- hybrid-in-composition" section): `hybrid_fids[i]` is
+    /// the fid [`Self::hybrid_fitness`] should evaluate component `i` at
+    /// (`15,16,17` for `cf09`/fid29; `15,18,19` for `cf10`/fid30, the SAME
+    /// `hf0N`<->fid mapping T7's own dispatch section already establishes).
+    fn composition_hybrid_spec(fid: u32) -> (&'static [f64], &'static [f64], &'static [u32]) {
+        match fid {
+            29 => (&[10.0, 30.0, 50.0], &[0.0, 100.0, 200.0], &[15, 16, 17]),
+            30 => (&[10.0, 30.0, 50.0], &[0.0, 100.0, 200.0], &[15, 18, 19]),
+            other => unreachable!("composition_hybrid_spec called with unsupported fid {other}"),
+        }
+    }
+
+    /// One composition function's total (BEFORE `F_i*`), fid 29-30
+    /// (`cf09`/`cf10`, module doc's T8 "hybrid-in-composition" section):
+    /// each component gets its OWN full shift+rotate+shuffle
+    /// (`comp_shift[idx]`/`comp_rotation[idx]`/`comp_shuffle[idx]`, ALL
+    /// THREE per-component, unlike fid 11-20's single shared triple), then
+    /// [`Self::hybrid_fitness`] (T7's helper, reused unmodified) evaluates
+    /// that component's own hybrid at the matching hybrid fid. `cf09`/
+    /// `cf10` apply NO post-eval rescale (module doc: neither one has a
+    /// `fit[i]=K*fit[i]/D` line, unlike `cf01`-`cf08`) -- only `bias[idx]`,
+    /// then the SAME shared [`crate::cec_basics::composition_weights`]
+    /// weighting. `o` passed to [`Self::hybrid_fitness`] is each
+    /// component's own `comp_shift[idx]` -- unused in practice (module
+    /// doc's T8 section: none of `hf05..hf09` is `BiRastriginBuggy`, the
+    /// only arm that reads it), but kept for signature uniformity with the
+    /// fid-11-20 call site.
+    fn composition_hybrid_fitness(&self, xs: &[f64]) -> f64 {
+        let (delta, bias, hybrid_fids) = Self::composition_hybrid_spec(self.fid);
+        let fit: Vec<f64> = hybrid_fids
+            .iter()
+            .enumerate()
+            .map(|(idx, &hfid)| {
+                let z = crate::cec_basics::shift_scale_rotate(
+                    xs,
+                    &self.comp_shift[idx],
+                    &self.comp_rotation[idx],
+                    1.0,
+                    true,
+                );
+                let y: Vec<f64> = (0..self.dim).map(|i| z[self.comp_shuffle[idx][i]]).collect();
+                Self::hybrid_fitness(hfid, self.dim, &y, &self.comp_shift[idx]) + bias[idx]
+            })
+            .collect();
+        let w = crate::cec_basics::composition_weights(xs, &self.comp_shift, delta);
+        fit.iter().zip(&w).map(|(&f, &wi)| f * wi).sum()
+    }
 }
 
 /// One hybrid function's (fid 11-20) sub-component (module doc's T7
@@ -762,6 +1302,12 @@ enum HybridComponent {
     Discus,
     SchafferF7Buggy,
     BiRastriginBuggy,
+    /// M3-6 T8, new: `griewank_func`, needed only by `cf02`/`cf04`/`cf06`/
+    /// `cf08` (module doc's T8 section) -- fid 1-20 never used it.
+    Griewank,
+    /// M3-6 T8, new: `happycat_func`, needed only by `cf05`/`cf08` (module
+    /// doc's T8 section) -- fid 1-20 never used it.
+    HappyCat,
 }
 
 impl HybridComponent {
@@ -789,6 +1335,11 @@ impl HybridComponent {
             Self::Weierstrass => 0.5 / 100.0,
             Self::Discus => 1.0,
             Self::SchafferF7Buggy | Self::BiRastriginBuggy => 1.0,
+            // M3-6 T8, new: `griewank_func`'s own `sr_func` call uses
+            // `600.0/100.0` (module doc's T8 section, `griewank_func`
+            // quoted in full there); `happycat_func` uses `5.0/100.0`.
+            Self::Griewank => 600.0 / 100.0,
+            Self::HappyCat => 5.0 / 100.0,
         }
     }
 
@@ -823,6 +1374,10 @@ impl HybridComponent {
             Self::SchafferF7Buggy | Self::BiRastriginBuggy => unreachable!(
                 "SchafferF7Buggy/BiRastriginBuggy are handled directly in Cec2017::hybrid_fitness"
             ),
+            // M3-6 T8, new -- both already exist in `cec_basics` (extracted
+            // for `cec2014`'s own T2/T4), no new base-function code needed.
+            Self::Griewank => cb::griewank_base(seg),
+            Self::HappyCat => cb::happycat_base(seg),
         }
     }
 }
@@ -998,6 +1553,14 @@ mod tests {
         assert!(rel < 1e-9, "{ctx}: got {got}, want {want}, rel_diff {rel}");
     }
 
+    /// Every usable fid this module now covers ({1} ∪ {3..=30}, M3-6 T8):
+    /// re-used across the construction/space/f_star/data-integrity tests
+    /// below so extending the suite's range only requires editing here.
+    const ALL_FIDS: [u32; 29] = [
+        1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+        27, 28, 29, 30,
+    ];
+
     // ---- construction / errors ----
 
     #[test]
@@ -1007,11 +1570,11 @@ mod tests {
     }
 
     #[test]
-    fn fid_0_2_and_21_upward_are_unknown_or_withdrawn() {
-        // fid 11 and 20 (this task's own range) are now VALID -- the
-        // previous T6-era test's boundary (11 was "upward" back then) moved
-        // to 21, module doc's "Struct/impl notes" section.
-        for fid in [0u32, 21, 25, 30, 31, 100] {
+    fn fid_0_2_and_31_upward_are_unknown_or_withdrawn() {
+        // fid 21-30 (this task's own range) are now VALID -- the previous
+        // T7-era test's boundary (21 was "upward" back then) moved to 31,
+        // module doc's "Struct/impl notes" section.
+        for fid in [0u32, 31, 35, 40, 100] {
             assert!(
                 matches!(Cec2017::new(fid, 10), Err(Cec2017Error::UnknownFid(f)) if f == fid),
                 "fid={fid}"
@@ -1020,8 +1583,8 @@ mod tests {
     }
 
     #[test]
-    fn fid_1_and_3_to_20_all_construct_at_dim_10_and_30() {
-        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] {
+    fn fid_1_and_3_to_30_all_construct_at_dim_10_and_30() {
+        for fid in ALL_FIDS {
             for &dim in &[10usize, 30] {
                 assert!(Cec2017::new(fid, dim).is_ok(), "fid={fid} dim={dim}");
             }
@@ -1030,7 +1593,7 @@ mod tests {
 
     #[test]
     fn unsupported_dims_are_bad_dim_for_every_fid() {
-        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] {
+        for fid in ALL_FIDS {
             for &dim in &[2usize, 5, 20, 50, 100] {
                 assert!(
                     matches!(Cec2017::new(fid, dim), Err(Cec2017Error::BadDim(d)) if d == dim),
@@ -1042,7 +1605,7 @@ mod tests {
 
     #[test]
     fn space_is_single_float_block_pm100() {
-        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] {
+        for fid in ALL_FIDS {
             for &dim in &[10usize, 30] {
                 let p = Cec2017::new(fid, dim).unwrap();
                 assert_eq!(
@@ -1057,29 +1620,9 @@ mod tests {
 
     #[test]
     fn f_star_matches_dispatch_bias() {
-        let expect = [
-            (1u32, 100.0),
-            (3, 300.0),
-            (4, 400.0),
-            (5, 500.0),
-            (6, 600.0),
-            (7, 700.0),
-            (8, 800.0),
-            (9, 900.0),
-            (10, 1000.0),
-            (11, 1100.0),
-            (12, 1200.0),
-            (13, 1300.0),
-            (14, 1400.0),
-            (15, 1500.0),
-            (16, 1600.0),
-            (17, 1700.0),
-            (18, 1800.0),
-            (19, 1900.0),
-            (20, 2000.0),
-        ];
-        for (fid, fstar) in expect {
-            assert_eq!(Cec2017::new(fid, 10).unwrap().f_star(), fstar, "fid={fid}");
+        for fid in ALL_FIDS {
+            let expect = 100.0 * f64::from(fid);
+            assert_eq!(Cec2017::new(fid, 10).unwrap().f_star(), expect, "fid={fid}");
         }
     }
 
@@ -1213,6 +1756,9 @@ mod tests {
 
     #[test]
     fn constructed_o_and_m_have_the_right_shape_for_every_fid() {
+        // Composition fids (21-30) have an EMPTY `m` -- `comp_rotation` is
+        // used instead (struct doc); their own shape is checked separately
+        // below.
         for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] {
             for &dim in &[10usize, 30] {
                 let p = Cec2017::new(fid, dim).unwrap();
@@ -1238,6 +1784,168 @@ mod tests {
                 assert_eq!(sorted, (0..dim).collect::<Vec<_>>(), "fid={fid} dim={dim}");
             }
         }
+        for fid in 21u32..=30 {
+            let p = Cec2017::new(fid, 10).unwrap();
+            assert!(p.shuffle.is_empty(), "fid={fid} (composition) should have no single shuffle field");
+        }
+    }
+
+    // ---- M3-6 T8: fid 21-30 (composition functions) ----
+
+    #[test]
+    fn composition_cf_num_matches_the_c_sources_local_cf_num() {
+        let table = [(21u32, 3usize), (22, 3), (23, 4), (24, 4), (25, 5), (26, 5), (27, 6), (28, 6), (29, 3), (30, 3)];
+        for (fid, n) in table {
+            assert_eq!(Cec2017::composition_cf_num(fid), n, "fid={fid}");
+        }
+    }
+
+    // ---- constant-table spot check (module doc's T8 cf01-cf08 table):
+    // confirms `composition_spec`'s transcription, INCLUDING the C-derived
+    // (not report-transcribed) fid-26/cf06 rescale factors (module doc's
+    // VERIFIED DISCREPANCY 1) ----
+
+    #[test]
+    fn composition_spec_matches_the_c_sources_constant_tables() {
+        use HybridComponent::*;
+        let (delta21, bias21, comps21) = Cec2017::composition_spec(21);
+        assert_eq!(delta21, &[10.0, 20.0, 30.0]);
+        assert_eq!(bias21, &[0.0, 100.0, 200.0]);
+        assert_eq!(comps21, &[(Rosenbrock, 1.0), (Ellips, 1.0e-6), (Rastrigin, 1.0)]);
+
+        let (delta26, bias26, comps26) = Cec2017::composition_spec(26);
+        assert_eq!(delta26, &[10.0, 20.0, 20.0, 30.0, 40.0]);
+        assert_eq!(bias26, &[0.0, 100.0, 200.0, 300.0, 400.0]);
+        assert_eq!(
+            comps26,
+            &[
+                (EScaffer6, 5.0e-4),
+                (Schwefel, 1.0),
+                (Griewank, 10.0),
+                (Rosenbrock, 1.0),
+                (Rastrigin, 10.0),
+            ]
+        );
+
+        let (delta28, bias28, comps28) = Cec2017::composition_spec(28);
+        assert_eq!(delta28, &[10.0, 20.0, 30.0, 40.0, 50.0, 60.0]);
+        assert_eq!(bias28, &[0.0, 100.0, 200.0, 300.0, 400.0, 500.0]);
+        assert_eq!(
+            comps28,
+            &[
+                (Ackley, 10.0),
+                (Griewank, 10.0),
+                (Discus, 1.0e-6),
+                (Rosenbrock, 1.0),
+                (HappyCat, 1.0),
+                (EScaffer6, 5.0e-4),
+            ]
+        );
+
+        // Every composition's bias[0] is 0 (module doc's x=comp_shift[0]
+        // pin derivation relies on this for every fid 21-30).
+        for fid in 21u32..=28 {
+            let (_, bias, _) = Cec2017::composition_spec(fid);
+            assert_eq!(bias[0], 0.0, "fid={fid}: bias[0] must be 0");
+        }
+        for fid in [29u32, 30] {
+            let (_, bias, _) = Cec2017::composition_hybrid_spec(fid);
+            assert_eq!(bias[0], 0.0, "fid={fid}: bias[0] must be 0");
+        }
+    }
+
+    #[test]
+    fn composition_hybrid_spec_maps_cf09_cf10_to_the_right_hf0n_fids() {
+        // Module doc's T8 "cf09/cf10" section: `hf05`->fid15, `hf06`->fid16,
+        // `hf07`->fid17 for cf09/fid29; `hf05`->fid15, `hf08`->fid18,
+        // `hf09`->fid19 for cf10/fid30.
+        let (delta29, bias29, hybrids29) = Cec2017::composition_hybrid_spec(29);
+        assert_eq!(delta29, &[10.0, 30.0, 50.0]);
+        assert_eq!(bias29, &[0.0, 100.0, 200.0]);
+        assert_eq!(hybrids29, &[15, 16, 17]);
+
+        let (delta30, bias30, hybrids30) = Cec2017::composition_hybrid_spec(30);
+        assert_eq!(delta30, &[10.0, 30.0, 50.0]);
+        assert_eq!(bias30, &[0.0, 100.0, 200.0]);
+        assert_eq!(hybrids30, &[15, 18, 19]);
+    }
+
+    #[test]
+    fn constructed_comp_shift_and_rotation_have_cf_num_entries_for_every_fid() {
+        for fid in 21u32..=30 {
+            let n = Cec2017::composition_cf_num(fid);
+            for &dim in &[10usize, 30] {
+                let p = Cec2017::new(fid, dim).unwrap();
+                assert_eq!(p.comp_shift.len(), n, "fid={fid} dim={dim}: comp_shift row count");
+                assert!(
+                    p.comp_shift.iter().all(|row| row.len() == dim),
+                    "fid={fid} dim={dim}: comp_shift row width"
+                );
+                assert_eq!(p.comp_rotation.len(), n, "fid={fid} dim={dim}: comp_rotation block count");
+                assert!(
+                    p.comp_rotation.iter().all(|m| m.len() == dim && m.iter().all(|row| row.len() == dim)),
+                    "fid={fid} dim={dim}: comp_rotation block shape"
+                );
+                // `o` mirrors comp_shift[0] exactly (struct doc).
+                assert_eq!(p.o, p.comp_shift[0], "fid={fid} dim={dim}: o must equal comp_shift[0]");
+                // `m` (the single-matrix field, fid 1-20's own) stays empty
+                // for every composition fid -- comp_rotation is used
+                // instead.
+                assert!(p.m.is_empty(), "fid={fid} dim={dim}: m must be empty for composition fids");
+            }
+        }
+    }
+
+    #[test]
+    fn composition_comp_shift_rows_are_genuinely_distinct_across_components() {
+        // Multi-row integrity: confirms `composition_shift_blocks` actually
+        // read DIFFERENT rows per component, not the same row `cf_num`
+        // times (which would silently pass the shape-only assert above).
+        for fid in 21u32..=30 {
+            let p = Cec2017::new(fid, 10).unwrap();
+            for i in 0..p.comp_shift.len() {
+                for j in (i + 1)..p.comp_shift.len() {
+                    assert_ne!(
+                        p.comp_shift[i], p.comp_shift[j],
+                        "fid={fid}: comp_shift rows {i} and {j} must differ"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn comp_shuffle_is_populated_only_for_fid_29_and_30() {
+        for fid in 21u32..=28 {
+            let p = Cec2017::new(fid, 10).unwrap();
+            assert!(p.comp_shuffle.is_empty(), "fid={fid} should have no comp_shuffle");
+        }
+        for fid in [29u32, 30] {
+            for &dim in &[10usize, 30] {
+                let p = Cec2017::new(fid, dim).unwrap();
+                assert_eq!(p.comp_shuffle.len(), 3, "fid={fid} dim={dim}: 3 hybrid components");
+                for block in &p.comp_shuffle {
+                    assert_eq!(block.len(), dim, "fid={fid} dim={dim}");
+                    let mut sorted = block.clone();
+                    sorted.sort_unstable();
+                    assert_eq!(sorted, (0..dim).collect::<Vec<_>>(), "fid={fid} dim={dim}: not a permutation of 0..{dim}");
+                }
+            }
+        }
+    }
+
+    // ---- x = comp_shift[0] pin: F_i(comp_shift[0]) == F_i* exactly, fid
+    // 21-30 (module doc's "INF-sentinel absorption" derivation) ----
+
+    #[test]
+    fn fid_21_to_30_x_eq_comp_shift0_is_exactly_f_star_dim10_and_dim30() {
+        for fid in 21u32..=30 {
+            for &dim in &[10usize, 30] {
+                let p = Cec2017::new(fid, dim).unwrap();
+                let out = p.evaluate_batch(&[g(p.o.clone())])[0];
+                assert_eq!(out, p.f_star(), "fid={fid} dim={dim}");
+            }
+        }
     }
 
     // ---- random-point probes vs compiled C reference (fid 1,3-10) ----
@@ -1246,6 +1954,10 @@ mod tests {
     // ---- random-point probes vs compiled C reference (fid 11-20 hybrids,
     // M3-6 T7) ----
     include!("hybrid_random_probe_tests.rs.fragment");
+
+    // ---- random-point probes vs compiled C reference (fid 21-30
+    // compositions, M3-6 T8) ----
+    include!("composition_random_probe_tests.rs.fragment");
 
     // ---- Evaluator integration + budget counting ----
 
@@ -1263,7 +1975,7 @@ mod tests {
 
     #[test]
     fn optimum_maps_to_f_star() {
-        for fid in [1u32, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] {
+        for fid in ALL_FIDS {
             let p = Cec2017::new(fid, 10).unwrap();
             assert_eq!(Problem::optimum(&p), Some(p.f_star()), "fid={fid}");
         }
