@@ -35,6 +35,7 @@ pub mod perm;
 pub mod bin_ops;
 pub mod int_ops;
 pub mod cat_ops;
+pub mod compound;
 
 use sezgi_core::component::Registry;
 
@@ -73,4 +74,5 @@ pub fn register_builtins(reg: &mut Registry) {
     bin_ops::register(reg);
     int_ops::register(reg);
     cat_ops::register(reg);
+    compound::register(reg);
 }
