@@ -188,14 +188,17 @@
 //!
 //! - Points that do not strictly dominate `ref_point` contribute nothing:
 //!   filtered out before `hv_recursive` runs (extending [`hypervolume_2d`]'s
-//!   own pinned convention, module doc above, to general M). (b)'s
-//!   reference C does **not** do this: `inclhv`/`exclhv` use `fabs` on every
+//!   own pinned convention, module doc above, to general M). Neither source
+//!   does this: the absolute-value convention is baked into the paper's OWN
+//!   Fig. 5 pseudocode (`inclhv(p)` takes `|p[j] - refPoint[j]|` -- review
+//!   finding, transcribed from the rendered figure), and (b)'s reference C
+//!   carries it through: `inclhv`/`exclhv` use `fabs` on every
 //!   `ref[j] - p[j]` difference unconditionally, silently "reflecting" a
 //!   would-be-negative excess back to positive if a point does not actually
-//!   dominate `ref_point` in some coordinate -- i.e., the reference
-//!   implementation assumes the precondition holds and gives a
-//!   wrong-but-plausible-looking number if it is violated, rather than
-//!   erroring or clamping to zero. This module makes the stronger,
+//!   dominate `ref_point` in some coordinate -- i.e., both assume the
+//!   precondition holds and give a wrong-but-plausible-looking number if it
+//!   is violated, rather than erroring or clamping to zero. This module
+//!   makes the stronger,
 //!   well-defined choice instead (explicit pre-filter, matching
 //!   `hypervolume_2d`'s own established convention exactly), rather than
 //!   reproducing an unvalidated-precondition behavior.
