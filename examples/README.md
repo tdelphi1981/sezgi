@@ -339,3 +339,69 @@ different default precision (R's `cat`/`sprintf("%s", .)` shows ~15
 significant digits, Python's `repr` shows the shortest round-tripping
 representation); a `writeBin`/`struct.pack` byte comparison confirms
 bit-identical bytes (`4066875c33a1c67b` on both sides).
+
+## WFG4 + sezgi-moa quickstart (M3-7)
+
+`python/wfg4_nsga2.py` / `r/wfg4_nsga2.R` — a matched Python/R PAIR for
+the M3-7 multi-objective remainders (no `specs/wfg4_nsga2.toml`, same
+reasoning as `nsga2_zdt1`'s own pair above: NSGA-II is a self-contained
+Rust runner, not a composable component graph), calling
+`sezgi.mo.nsga2()` / `sz_nsga2()` directly rather than through
+`sezgi.solve()`. Runs NSGA-II on WFG4 (Huband, Barone, While & Hingston,
+EMO 2005; later Huband, Hingston, Barone & While, IEEE TEC 2006), `m=2`,
+`k`/`l` omitted so they resolve to the toolkit's own recommended defaults
+(`k=4`, `l=20`, `dim=24`), with `log_dir`/`label` set so the run streams
+to a sezgi-moa v1 archive file — read back via `mo.read_moa()` /
+`sz_mo_read_moa()` and reported through the general-`M` `mo.hypervolume()`
+/ `sz_mo_hypervolume()` (not the frozen 2-objective
+`hypervolume_2d`/`hypervolume_2d`, deliberately, to exercise the new
+entry point). Reference point: the WFG4/`m=2` analytic front's nadir
+`(2.0, 4.0)` scaled by `1.1` — `(2.2, 4.4)` — per
+`crates/stats/src/moo_indicators.rs`'s own reference-point convention
+(see that script's own header comment for the full derivation). See
+`README.md`'s "Multi-objective optimization (M3-2, extended M3-7)"
+section for the full binding surface and `docs/DECISIONS.md`'s M3-7
+record for every provenance/divergence finding.
+
+**Bit-identical between languages**, verified via the same
+`writeBin`/`struct.pack` byte comparison the other pairs above use, not a
+decimal-literal eyeball match (`r-sezgi/tests/testthat/test-mo.R`'s "R
+wfg4_nsga2 example scenario is bit-identical to the Python/Rust golden"
+test, anchored on this pair's own live scenario).
+
+Run:
+
+    ./py-sezgi/.venv/bin/python examples/python/wfg4_nsga2.py
+    Rscript examples/r/wfg4_nsga2.R
+
+Live output (measured by running both scripts from the repo root;
+`problem=wfg4`, `m=2`, `pop_size=40`, `budget=4000`, `seed=20260830`):
+
+    problem: wfg4  m=2  k=4 l=20 (toolkit defaults, dim=24)  pop_size=40  budget=4000  seed=20260830
+    evals_used: 4000
+    archive size: 217
+    hypervolume (ref_point=[2.2, 4.4]): 3.0620256270488344
+    front0 points (f1, f2), sorted by f1, first 5 (plot-ready -- x=f1, y=f2):
+      0.095382  4.046673
+      0.162711  4.039493
+      0.243813  4.032702
+      0.327011  3.995469
+      0.498196  3.950213
+
+    problem: wfg4  m=2  k=4 l=20 (toolkit defaults, dim=24)  pop_size=40  budget=4000  seed=20260830
+    evals_used: 4000
+    archive size: 217
+    hypervolume (ref_point=[2.2,4.4]): 3.06202562704883
+    front0 points (f1, f2), sorted by f1, first 5 (plot-ready -- x=f1, y=f2):
+      0.095382  4.046673
+      0.162711  4.039493
+      0.243813  4.032702
+      0.327011  3.995469
+      0.498196  3.950213
+
+The R run prints `hypervolume ... : 3.06202562704883` against Python's
+`3.0620256270488344` — the SAME IEEE-754 double, just printed with
+different default precision (same R-vs-Python printing gap as the CEC
+pairs above); a `writeBin`/`struct.pack` byte comparison confirms
+bit-identical bytes (`40087f074abd8254` on both sides), and `archive
+size`/`evals_used` (plain integers) print identically in both languages.

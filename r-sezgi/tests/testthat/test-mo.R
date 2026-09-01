@@ -706,3 +706,39 @@ test_that("sz_nsga2 log_dir run is byte-identical to the Python-produced .moa fi
   expect_identical(unname(tools::md5sum(path)), "5517be3bcb8095ca64a2083872d6e850")
   expect_equal(file.info(path)$size, 2883)
 })
+
+# ---- examples/{python,r}/wfg4_nsga2.R parity anchor (M3-7 Task 12) --------
+#
+# The example pair's OWN live scenario (problem="wfg4", m=2, k/l omitted ->
+# toolkit defaults k=4/l=20/dim=24, pop_size=40, budget=4000, seed=20260830,
+# log_dir/label="wfg4demo" -- examples/python/wfg4_nsga2.py and
+# examples/r/wfg4_nsga2.R), not the wfg4/zdt5 anchors above (which use
+# different pop_size/budget/seed and, for wfg4, an explicit non-default
+# l=4). Golden hex from
+# `./py-sezgi/.venv/bin/python examples/python/wfg4_nsga2.py`
+# (archive size = 217, evals_used = 4000, hypervolume =
+# 3.0620256270488344 against ref_point=[2.2, 4.4] -- the WFG4/m=2 analytic
+# front's nadir (2.0, 4.0) x 1.1, see that script's own module docstring
+# for the derivation), byte-compared, not a decimal-literal eyeball match.
+test_that("R wfg4_nsga2 example scenario is bit-identical to the Python/Rust golden (archive size, evals_used, hypervolume)", {
+  problem <- "wfg4"
+  m <- 2
+  pop_size <- 40
+  budget <- 4000
+  seed <- 20260830
+  label <- "wfg4demo"
+  ref_point <- c(2.2, 4.4)
+
+  log_dir <- tempfile("sezgi-moa-wfg4-anchor-")
+  dir.create(log_dir)
+  result <- sz_nsga2(problem, dim = NULL, m = m, pop_size = pop_size, budget = budget, seed = seed,
+                      log_dir = log_dir, label = label)
+  archive_run <- sz_mo_read_moa(file.path(log_dir, sprintf("%s-s%d.moa", label, seed)))
+  archive_mat <- do.call(rbind, archive_run$archive)
+
+  expect_identical(result$evals_used, 4000)
+  expect_identical(nrow(archive_mat), 217L)
+
+  hv <- sz_mo_hypervolume(archive_mat, ref_point)
+  expect_identical(f64_bits_hex(hv), "40087f074abd8254")
+})
