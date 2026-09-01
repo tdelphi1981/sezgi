@@ -22,7 +22,8 @@ use sezgi_core::component::Registry;
 use sezgi_core::dist::Distribution;
 use sezgi_core::engine::{Engine, RunConfig};
 use sezgi_core::mo::MoProblem;
-use sezgi_core::problem::Problem;
+use sezgi_core::problem::{Evaluator, Problem};
+use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 use sezgi_core::spec::AlgorithmSpec;
 use sezgi_problems::{BbobProblem, Cec2014, Cec2017, Cec2022, Dtlz, Tsp, TspError, Wfg, Zdt};
@@ -567,16 +568,171 @@ fn session_finished_err() -> PyErr {
     PyValueError::new_err("session finished")
 }
 
-/// Python binding for [`sezgi_bench::EvalSession`] — the ask/tell core
+/// Path tag folded into [`PermSession`]'s [`RngStream`] (see
+/// [`RngStream::from_master`]) -- an arbitrary but FIXED value distinguishing
+/// this stream from any other stream this crate might ever derive from the
+/// same `seed`. Pinned as of `random_permutation()`'s introduction (M3-8
+/// Task 7); changing it would silently change every future draw sequence.
+const PERM_SESSION_RNG_TAG: u64 = 0x5045524D; // "PERM", arbitrary ASCII-hex mnemonic
+
+/// Task 7 (M3-8): ask/tell session over a PERMUTATION-typed (e.g. TSP)
+/// [`Problem`] handle -- the typed counterpart [`PyEvalSession::for_problem`]
+/// now builds for `sezgi.problems.tsp(...)` instead of rejecting it (the
+/// rejection this replaces used to live right where [`Self::new`] is called
+/// from `for_problem` below).
+///
+/// Lives entirely in THIS crate (not `crates/bench`), deliberately: this
+/// task's change surface is `py-sezgi/src/lib.rs` only (the
+/// `cargo test --workspace` gate must report the same PASS/FAIL numbers as
+/// before this task -- per the M3-8 Task 7 approved scope ruling).
+/// [`sezgi_bench::EvalSession`] itself is not reused because its own
+/// `evaluate` is hard-coded to `Vec<Vec<f64>>` rows / `BlockValues::Float`
+/// genotypes (`crates/bench/src/session.rs`) -- widening THAT signature
+/// would touch a workspace crate outside py-sezgi. Instead this struct is
+/// built directly on [`sezgi_core::problem::Evaluator`] -- the SAME
+/// tamper-proof budget-check/counting primitive `EvalSession` itself is
+/// built on (see that module's own doc for the reuse rationale) -- so the
+/// budget/counting/best-tracking behavior is the identical primitive, not a
+/// re-implementation of it, even though the two session types don't share a
+/// common Rust struct.
+///
+/// Unlike `EvalSession` (which owns no RNG of its own: candidate points are
+/// entirely caller-supplied, and a Float-typed `Algorithm` draws from
+/// `AlgoContext.rng`, a plain Python `random.Random(seed)`), this session
+/// owns a seeded [`RngStream`] for [`Self::random_permutation`] -- a
+/// permutation-typed algorithm has no Python-side equivalent of
+/// `random_point()` to draw a candidate from, so the shuffle itself must
+/// come from somewhere deterministic. It draws from THIS session's own
+/// house `RngStream` (seeded from the same `seed` `for_problem` was built
+/// with, folded through [`PERM_SESSION_RNG_TAG`]) rather than Python's
+/// `random` module, so a run is reproducible the same way every other
+/// seeded draw in this codebase is (`crates/core/src/rng.rs`).
+struct PermSession {
+    problem: Box<dyn Problem>,
+    n: usize,
+    budget: u64,
+    used: u64,
+    best: Option<(Vec<u32>, f64)>,
+    rng: RngStream,
+}
+
+impl PermSession {
+    fn new(problem: Box<dyn Problem>, seed: u64, budget: u64) -> Self {
+        let n = problem.space().dim(); // Block::Permutation { n }.dim() == n
+        let rng = RngStream::from_master(seed, &[PERM_SESSION_RNG_TAG]);
+        Self { problem, n, budget, used: 0, best: None, rng }
+    }
+
+    /// A uniformly random permutation of `0..n` (a 0-based tour, per this
+    /// task's Python-side convention -- R's Task 8 twin is 1-based), drawn
+    /// from this session's own [`RngStream`]. Fisher-Yates/Durstenfeld
+    /// shuffle: for `i` from `n-1` down to `1`, swap `v[i]` with `v[j]` for a
+    /// uniformly random `j` in `0..=i`, via [`RngStream::next_below`]
+    /// (rejection sampling -- no modulo bias). Each call advances the
+    /// stream, so successive calls draw DIFFERENT permutations; the same
+    /// `seed` and call sequence reproduce the same permutations every time.
+    fn random_permutation(&mut self) -> Vec<u32> {
+        let mut v: Vec<u32> = (0..self.n as u32).collect();
+        for i in (1..v.len()).rev() {
+            let j = self.rng.next_below((i + 1) as u64) as usize;
+            v.swap(i, j);
+        }
+        v
+    }
+
+    /// Batch-evaluates `tours` (0-based; each must be a permutation of
+    /// `0..n`). All-or-nothing, mirroring `EvalSession::evaluate`'s own
+    /// error semantics (`crates/bench/src/session.rs`'s module doc): every
+    /// row is validated BEFORE the counter moves, so a rejected batch (any
+    /// row the wrong length, containing an out-of-range city, or containing
+    /// a repeated city) leaves `used` untouched and evaluates nothing --
+    /// same all-or-nothing contract as the Float path's dimension/
+    /// non-finite pre-pass, plus the budget check itself (via
+    /// [`Evaluator::evaluate`], the same primitive `EvalSession` is built
+    /// on).
+    fn evaluate(&mut self, tours: &[Vec<i64>]) -> PyResult<Vec<f64>> {
+        for (row, t) in tours.iter().enumerate() {
+            if t.len() != self.n {
+                return Err(PyValueError::new_err(format!(
+                    "PermSession::evaluate: row {row} has {got} entries, expected {n} \
+                     (one per city)", got = t.len(), n = self.n)));
+            }
+            let mut seen = vec![false; self.n];
+            for &c in t {
+                if c < 0 || c as usize >= self.n {
+                    return Err(PyValueError::new_err(format!(
+                        "PermSession::evaluate: row {row} has out-of-range entry {c} \
+                         (expected 0..{n})", n = self.n)));
+                }
+                let ci = c as usize;
+                if seen[ci] {
+                    return Err(PyValueError::new_err(format!(
+                        "PermSession::evaluate: row {row} has a repeated city {ci}; \
+                         not a valid permutation")));
+                }
+                seen[ci] = true;
+            }
+        }
+
+        let pop: Vec<Genotype> = tours.iter()
+            .map(|t| Genotype {
+                blocks: vec![BlockValues::Perm(t.iter().map(|&c| c as u32).collect())],
+            })
+            .collect();
+
+        // Short-lived Evaluator sized to the remaining budget -- same reuse
+        // pattern as EvalSession::evaluate (crates/bench/src/session.rs):
+        // its own all-or-nothing check IS this session's check.
+        let remaining = self.budget - self.used;
+        let mut ev = Evaluator::new(&*self.problem, remaining);
+        let fs = ev.evaluate(&pop).map_err(|e| PyValueError::new_err(format!(
+            "PermSession::evaluate: budget exceeded ({used}/{budget} used, \
+             {requested} requested)", used = self.used, budget = self.budget,
+            requested = e.requested)))?;
+
+        for (t, &f) in tours.iter().zip(&fs) {
+            self.used += 1;
+            // Same tie rule as Evaluator::evaluate / EvalSession::evaluate:
+            // update only on strict improvement, ties keep the earlier tour.
+            let improved = !matches!(&self.best, Some((_, b)) if *b <= f);
+            if improved {
+                self.best = Some((t.iter().map(|&c| c as u32).collect(), f));
+            }
+        }
+        Ok(fs)
+    }
+
+    fn evals_used(&self) -> u64 { self.used }
+    fn budget(&self) -> u64 { self.budget }
+    fn best(&self) -> Option<(Vec<u32>, f64)> { self.best.clone() }
+    /// The problem's known optimum, or `None` if it has none. A vendored TSP
+    /// instance (`sezgi.problems.tsp(...)`) returns `Some` for all three
+    /// (`berlin52`/`eil51`/`st70`, `tsp.rs`'s pinned published optima).
+    fn f_opt(&self) -> Option<f64> { self.problem.optimum() }
+}
+
+/// One [`PyEvalSession`]'s underlying Rust session -- `Float` for every
+/// continuous problem handle (BBOB, CEC 2022/2014/2017, `from_callable`,
+/// `bias.f0`), `Perm` for a permutation-typed one (`sezgi.problems.tsp`,
+/// Task 7). `PyEvalSession::kind()` surfaces which one a given session is
+/// (`"float"`/`"permutation"`) to Python, driving `AlgoContext.kind`/
+/// `AlgoContext.n`/`AlgoContext.bounds` in `py-sezgi/python/sezgi/algo.py`.
+enum SessionKind {
+    Float(EvalSession),
+    Perm(PermSession),
+}
+
+/// Python binding for [`sezgi_bench::EvalSession`] (Float path) / the
+/// crate-local [`PermSession`] (permutation path) — the ask/tell core
 /// behind the spec's engine-inside-out promise: an external (here, pure
 /// Python) algorithm generates candidate points and this session stays the
-/// sole keeper of evaluation, tamper-proof counting, best-tracking and IOH
-/// logging.
+/// sole keeper of evaluation, tamper-proof counting, best-tracking and (for
+/// the Float path) IOH logging.
 ///
 /// `finish()` consumes the underlying Rust session (matching its own
 /// consuming signature); since `#[pymethods]` cannot take `self` by value
 /// through a Python handle, the consuming step is modeled with an
-/// `Option<EvalSession>` inner slot that `finish` takes, leaving `None`
+/// `Option<SessionKind>` inner slot that `finish` takes, leaving `None`
 /// behind. Every method (including a second `finish()`) then raises
 /// `ValueError("session finished")` if called afterward.
 ///
@@ -587,7 +743,7 @@ fn session_finished_err() -> PyErr {
 /// Rust-level invariant, not a case Python callers can trigger.
 #[pyclass(name = "EvalSession")]
 struct PyEvalSession {
-    inner: Option<EvalSession>,
+    inner: Option<SessionKind>,
 }
 
 #[pymethods]
@@ -611,21 +767,31 @@ impl PyEvalSession {
                 .with_log(Path::new(dir), algo_name, seed)
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
         }
-        Ok(Self { inner: Some(session) })
+        Ok(Self { inner: Some(SessionKind::Float(session)) })
     }
 
-    /// Builds a session over any continuous [`PyProblem`] handle —
-    /// `sezgi.bbob(...)`, `sezgi.problems.cec2022(...)`,
-    /// `sezgi.from_callable(...)`, or `sezgi.bias.f0(...)`. See
-    /// [`sezgi_bench::EvalSession::new_owned`] for the generalization this
-    /// delegates to; each `Inner` arm below builds its own [`SessionMeta`]
+    /// Builds a session over any [`PyProblem`] handle -- continuous
+    /// (`sezgi.bbob(...)`, `sezgi.problems.cec2022(...)`,
+    /// `sezgi.from_callable(...)`, `sezgi.bias.f0(...)`) OR, as of Task 7
+    /// (M3-8), permutation-typed (`sezgi.problems.tsp(...)`). A
+    /// permutation-typed handle builds a crate-local [`PermSession`]
+    /// instead (see its own doc) -- `PyEvalSession::kind()` tells the two
+    /// apart from Python. See [`sezgi_bench::EvalSession::new_owned`] for
+    /// the continuous-path generalization the Float branch below delegates
+    /// to; each of ITS `Inner` arms builds its own [`SessionMeta`]
     /// (suite/fid/name/instance/f_opt), so adding a new continuous-problem
-    /// arm elsewhere in this crate is a self-contained extension of this
+    /// arm elsewhere in this crate is a self-contained extension of that
     /// match.
     ///
     /// # Errors
-    /// - `ValueError` for `sezgi.problems.tsp(...)`: its permutation space
-    ///   is not a continuous problem `EvalSession` can evaluate.
+    /// - `ValueError` if `tour` validation would ever be needed here (it
+    ///   isn't -- `tour` validation happens per-batch in
+    ///   [`PermSession::evaluate`], not at session-construction time).
+    /// - `ValueError` if `log_dir` is given for `sezgi.problems.tsp(...)`:
+    ///   IOH logging is not currently wired up for permutation-typed
+    ///   sessions (no suite/fid identity exists for a TSP run to log
+    ///   against, and this task's scope is the minimal ask/tell surface,
+    ///   not IOH support).
     /// - `ValueError` if `log_dir` is given for `sezgi.from_callable(...)` or
     ///   `sezgi.bias.f0(...)`: IOH logging is restricted to problems with a
     ///   real fid identity and a known optimum (BBOB, CEC 2022, CEC 2014, and
@@ -644,6 +810,26 @@ impl PyEvalSession {
         algo_name: &str,
         seed: u64,
     ) -> PyResult<Self> {
+        // Permutation path (Task 7): handled up front, entirely separately
+        // from the continuous match below -- PermSession is a different
+        // Rust type with no SessionMeta/EvalSession::new_owned involvement.
+        if let Inner::Tsp(p) = &problem.inner {
+            if log_dir.is_some() {
+                return Err(PyValueError::new_err(
+                    "IOH logging is not currently supported for permutation-typed \
+                     (e.g. TSP) problems"));
+            }
+            // Fresh instance rebuilt from the stored vendored name: same
+            // "rebuild fresh" pattern every continuous arm below uses,
+            // though Tsp itself holds no RNG state to reseed (unlike
+            // BbobProblem) -- Tsp::vendored is a pure function of its name,
+            // so this is bit-identical to `p` regardless.
+            let fresh = Tsp::vendored(p.name())
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            let session = PermSession::new(Box::new(fresh), seed, budget);
+            return Ok(Self { inner: Some(SessionKind::Perm(session)) });
+        }
+
         let (boxed, meta): (Box<dyn Problem>, SessionMeta) = match &problem.inner {
             Inner::Bbob(p) => {
                 // Fresh instance from the same (fid, dim, instance): matches
@@ -735,8 +921,9 @@ impl PyEvalSession {
                 };
                 (Box::new(fresh), meta)
             }
-            Inner::Tsp(_) => return Err(PyValueError::new_err(
-                "EvalSession supports continuous (float) problems only")),
+            // Handled and returned above -- this match is unreachable for
+            // Inner::Tsp, but the match must still be exhaustive.
+            Inner::Tsp(_) => unreachable!("Inner::Tsp is handled and returned before this match"),
         };
 
         // sezgi decision (M3-5 scope ruling 2, widened again by M3-6 Task 9):
@@ -772,46 +959,115 @@ impl PyEvalSession {
                 .with_log(Path::new(dir), algo_name, seed)
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
         }
-        Ok(Self { inner: Some(session) })
+        Ok(Self { inner: Some(SessionKind::Float(session)) })
     }
 
-    /// Batch-evaluates `xs` (a list of rows, each a list of `dim` floats).
-    /// All-or-nothing: on any error (dimension mismatch, a non-finite
-    /// coordinate, or budget overrun) nothing is counted.
-    fn evaluate(&mut self, xs: Vec<Vec<f64>>) -> PyResult<Vec<f64>> {
+    /// Batch-evaluates `xs`: a list of rows, each a list of `dim` floats
+    /// for a Float-typed session, or each a length-`n` 0-based tour (a
+    /// permutation of `0..n`) for a permutation-typed one (`kind() ==
+    /// "permutation"`) -- dispatched on this session's own [`SessionKind`],
+    /// not on `xs`'s shape. All-or-nothing either way: on any error
+    /// (dimension mismatch / an invalid tour, a non-finite coordinate, or
+    /// budget overrun) nothing is counted. The Float path is BYTE-IDENTICAL
+    /// to before Task 7 (same extraction, same error mapping); see
+    /// [`PermSession::evaluate`] for the permutation path's own validation.
+    fn evaluate(&mut self, xs: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
         let session = self.inner.as_mut().ok_or_else(session_finished_err)?;
-        session.evaluate(&xs).map_err(|e| PyValueError::new_err(e.to_string()))
+        match session {
+            SessionKind::Float(s) => {
+                let rows: Vec<Vec<f64>> = xs.extract()?;
+                s.evaluate(&rows).map_err(|e| PyValueError::new_err(e.to_string()))
+            }
+            SessionKind::Perm(s) => {
+                let rows: Vec<Vec<i64>> = xs.extract()?;
+                s.evaluate(&rows)
+            }
+        }
     }
 
     fn evals_used(&self) -> PyResult<u64> {
-        Ok(self.inner.as_ref().ok_or_else(session_finished_err)?.evals_used())
+        Ok(match self.inner.as_ref().ok_or_else(session_finished_err)? {
+            SessionKind::Float(s) => s.evals_used(),
+            SessionKind::Perm(s) => s.evals_used(),
+        })
     }
 
     fn budget(&self) -> PyResult<u64> {
-        Ok(self.inner.as_ref().ok_or_else(session_finished_err)?.budget())
+        Ok(match self.inner.as_ref().ok_or_else(session_finished_err)? {
+            SessionKind::Float(s) => s.budget(),
+            SessionKind::Perm(s) => s.budget(),
+        })
     }
 
     /// `(x, f)` of the best evaluation seen so far, or `None` if nothing has
-    /// been evaluated yet.
-    fn best(&self) -> PyResult<Option<(Vec<f64>, f64)>> {
+    /// been evaluated yet. `x` is a list of floats for a Float-typed
+    /// session, a list of ints (a 0-based tour) for a permutation-typed one.
+    fn best(&self, py: Python<'_>) -> PyResult<Option<(Py<PyList>, f64)>> {
         let session = self.inner.as_ref().ok_or_else(session_finished_err)?;
-        Ok(session.best().map(|(x, f)| (x.to_vec(), f)))
+        match session {
+            SessionKind::Float(s) => match s.best() {
+                None => Ok(None),
+                Some((x, f)) => Ok(Some((PyList::new(py, x)?.unbind(), f))),
+            },
+            SessionKind::Perm(s) => match s.best() {
+                None => Ok(None),
+                Some((x, f)) => Ok(Some((PyList::new(py, &x)?.unbind(), f))),
+            },
+        }
     }
 
     /// The problem's known optimum, or `None` if it has none (e.g. a
     /// `for_problem`-built session over a `from_callable` handle). A
     /// session built via the `EvalSession(...)` (BBOB) constructor always
-    /// returns a `float`.
+    /// returns a `float`; a permutation-typed session returns `Some` for
+    /// every vendored TSP instance (`tsp.rs`'s pinned published optima).
     fn f_opt(&self) -> PyResult<Option<f64>> {
-        Ok(self.inner.as_ref().ok_or_else(session_finished_err)?.f_opt())
+        Ok(match self.inner.as_ref().ok_or_else(session_finished_err)? {
+            SessionKind::Float(s) => s.f_opt(),
+            SessionKind::Perm(s) => s.f_opt(),
+        })
+    }
+
+    /// This session's kind: `"float"` for every continuous problem handle,
+    /// `"permutation"` for `sezgi.problems.tsp(...)` (Task 7, M3-8). Drives
+    /// `AlgoContext.kind`/`AlgoContext.bounds` in
+    /// `py-sezgi/python/sezgi/algo.py`.
+    fn kind(&self) -> PyResult<&'static str> {
+        Ok(match self.inner.as_ref().ok_or_else(session_finished_err)? {
+            SessionKind::Float(_) => "float",
+            SessionKind::Perm(_) => "permutation",
+        })
+    }
+
+    /// A uniformly random permutation of `0..n` (a 0-based tour), drawn from
+    /// this PERMUTATION-typed session's own seeded [`RngStream`] -- see
+    /// [`PermSession::random_permutation`]'s own doc for the shuffle
+    /// algorithm and determinism contract. Does not count against the
+    /// evaluation budget (drawing a candidate is not evaluating one).
+    ///
+    /// # Errors
+    /// `ValueError` if this session's `kind()` is `"float"` -- there is no
+    /// RNG stream to draw a permutation from on a continuous session.
+    fn random_permutation(&mut self) -> PyResult<Vec<u32>> {
+        match self.inner.as_mut().ok_or_else(session_finished_err)? {
+            SessionKind::Perm(s) => Ok(s.random_permutation()),
+            SessionKind::Float(_) => Err(PyValueError::new_err(
+                "random_permutation() is only available for permutation-typed \
+                 sessions (this session's kind is \"float\")")),
+        }
     }
 
     /// Flushes the IOH log (if logging was enabled) and consumes the
     /// session. Any method call afterward, including a second `finish()`,
-    /// raises `ValueError("session finished")`.
+    /// raises `ValueError("session finished")`. A permutation-typed session
+    /// never has a log to flush (`for_problem` rejects `log_dir` for
+    /// `sezgi.problems.tsp(...)`, see its own doc), so `finish()` is a no-op
+    /// for it beyond consuming the session.
     fn finish(&mut self) -> PyResult<()> {
-        let session = self.inner.take().ok_or_else(session_finished_err)?;
-        session.finish().map_err(|e| PyValueError::new_err(e.to_string()))
+        match self.inner.take().ok_or_else(session_finished_err)? {
+            SessionKind::Float(s) => s.finish().map_err(|e| PyValueError::new_err(e.to_string())),
+            SessionKind::Perm(_) => Ok(()),
+        }
     }
 }
 

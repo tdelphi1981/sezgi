@@ -13,32 +13,55 @@ from sezgi import _sezgi
 #   seed=0) -- the original, frozen BBOB constructor: unchanged.
 #
 # EvalSession.for_problem(problem, budget, log_dir=None, algo_name="custom",
-#   seed=0) -- staticmethod building a session over any continuous (float)
-#   Problem handle: bbob(...), problems.cec2022(...), problems.cec2014(...),
-#   problems.cec2017(...), from_callable(...), or bias.f0(...). Raises
-#   ValueError for problems.tsp(...) (a permutation space, not continuous)
-#   and for log_dir on a from_callable(...)/bias.f0(...) problem: IOH logging
-#   is supported for BBOB, CEC 2022, CEC 2014, and CEC 2017 problems only
-#   (M3-5 widened this from BBOB-only to include CEC 2022, now that the
-#   on-disk IOH record key carries a "suite" discriminator -- see
+#   seed=0) -- staticmethod building a session over any Problem handle:
+#   continuous (bbob(...), problems.cec2022(...), problems.cec2014(...),
+#   problems.cec2017(...), from_callable(...), bias.f0(...)) OR, as of M3-8
+#   Task 7, permutation-typed (problems.tsp(...)). Raises ValueError for
+#   log_dir on a from_callable(...)/bias.f0(...)/problems.tsp(...) problem:
+#   IOH logging is supported for BBOB, CEC 2022, CEC 2014, and CEC 2017
+#   problems only (M3-5 widened this from BBOB-only to include CEC 2022, now
+#   that the on-disk IOH record key carries a "suite" discriminator -- see
 #   read_ioh_records/results_matrix -- so a non-BBOB run no longer silently
 #   merges with a BBOB run at the same (fid, dim, instance, seed, budget);
 #   M3-6 widened it again to CEC 2014/CEC 2017, riding the same suite-aware
-#   machinery). Callable/F0 have no fid identity or known optimum to log
-#   against, so they still raise.
+#   machinery). Callable/F0/Tsp have no fid identity or known optimum to log
+#   against (Tsp has a known optimum but no suite/fid identity), so they
+#   still raise.
+#
+# EvalSession.kind() -> str: "float" for a continuous-problem session,
+#   "permutation" for a problems.tsp(...) session (M3-8 Task 7).
+#
+# EvalSession.random_permutation() -> list[int]: a uniformly random 0-based
+#   tour (a permutation of range(n)), drawn from THIS session's own seeded
+#   RNG stream -- deterministic under the session's `seed`, a fresh draw on
+#   each call. ValueError if kind() == "float" (M3-8 Task 7).
+#
+# evaluate(xs) accepts either shape now: a list of length-dim float rows for
+#   a "float" session, or a list of 0-based tours (permutations of range(n))
+#   for a "permutation" session -- ValueError naming the defect (wrong
+#   length, out-of-range city, repeated city) for an invalid tour.
 #
 # f_opt() now returns float | None (was always float, since only BBOB
 #   existed): None for a problem with no analytically known optimum (e.g.
 #   from_callable(...)); a session built via the BBOB constructor above
-#   always returns a float, unchanged.
+#   always returns a float, unchanged. A problems.tsp(...) session returns
+#   the vendored instance's published optimum.
 #
 # Problem handle accessors, usable on any handle above:
-#   p.dim() -> int: the search space's dimensionality.
+#   p.dim() -> int: the search space's dimensionality (for problems.tsp(...),
+#     the number of cities).
 #   p.bounds() -> (float, float): the uniform (lo, hi) bounds of a
 #     continuous (float) space. ValueError for a non-continuous space (e.g.
 #     problems.tsp(...)'s permutation space).
 #   p.optimum() -> float | None: the problem's known optimum, or None (a
 #     from_callable(...) handle always returns None).
+#
+# sezgi.Algorithm/AlgoContext (py-sezgi/python/sezgi/algo.py, M3-8 Task 7):
+#   AlgoContext now also works over a problems.tsp(...) problem -- ctx.kind
+#   ("float"/"permutation"), ctx.n (same value as ctx.dim, a kind-neutral
+#   name), ctx.random_permutation(), ctx.two_opt(tour, i, j). ctx.bounds is
+#   None and ctx.random_point() raises for a permutation-typed context; see
+#   algo.py's own module/class docstrings for the exact contract.
 #
 # from_callable(f, lo, hi, dim, vectorized=True) -- vectorized fixes f's
 #   calling convention for EVERY consumer of the returned handle (solve()

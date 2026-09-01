@@ -39,9 +39,16 @@ def test_for_problem_from_callable_f_opt_none():
     assert s.best()[1] == 14.0
 
 
-def test_for_problem_tsp_rejected():
-    with pytest.raises(ValueError):
-        sezgi.EvalSession.for_problem(sezgi.problems.tsp("berlin52"), budget=10)
+def test_for_problem_tsp_builds_a_permutation_typed_session():
+    """M3-8 Task 7: for_problem no longer rejects sezgi.problems.tsp(...) --
+    it builds a permutation-typed session instead (kind() == "permutation"),
+    replacing the ValueError this test used to assert pre-Task-7. See
+    py-sezgi/tests/test_tsp_algo.py for the rest of the permutation-session
+    surface (evaluate/random_permutation/two_opt/invalid-tour rejection)."""
+    s = sezgi.EvalSession.for_problem(sezgi.problems.tsp("berlin52"), budget=10)
+    assert s.kind() == "permutation"
+    assert s.evals_used() == 0 and s.budget() == 10
+    s.finish()
 
 
 def test_for_problem_log_dir_requires_known_optimum(tmp_path):
