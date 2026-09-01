@@ -2016,6 +2016,38 @@ fn evaluate_violations(problem: &dyn MoProblem, pop: &[Genotype]) -> Option<Vec<
     Some(cons.iter().map(|g| constraint_violation(g)).collect())
 }
 
+/// Per-evaluation-batch observer hook for archive-first MO run logging
+/// (M3-7 Task 9, `sezgi_bench::mo_archive`). Called exactly once per
+/// successful [`MoEvaluator::evaluate`] batch -- the initial population,
+/// then each completed generation's offspring (a budget-tail break, module
+/// doc's "Budget-tail rule", never fires the hook for the doomed final
+/// attempt, mirroring `MoRunResult` itself never reflecting it) -- in
+/// evaluation order, with:
+/// - `first_eval_index`: the 1-based eval index of this batch's FIRST row
+///   (matching `crates/bench/src/ioh.rs`'s `IohRunObserver::on_eval`'s own
+///   1-based `eval_index` convention, so a downstream consumer needs no
+///   second indexing convention to learn);
+/// - the batch's genotypes and objectives, already computed (same slices
+///   `nsga2_run`'s own loop already holds -- no recomputation, no extra
+///   evaluations);
+/// - the batch's constraint violations, `Some` parallel slice iff the
+///   problem is constrained ([`evaluate_violations`]'s own `None`/`Some`
+///   contract, unchanged) -- feasibility gating is entirely the CALLER's
+///   concern (`sezgi_bench::mo_archive`'s `// sezgi decision:` on this),
+///   not this module's; the hook is handed every evaluated individual,
+///   feasible or not.
+///
+/// **sezgi decision:** threaded as a plain `Option<&mut MoBatchObserver>`
+/// parameter on a new `_impl` function (below) rather than a new
+/// [`Nsga2Config`] field -- a closure cannot be `Debug`/`Clone`, both of
+/// which `Nsga2Config` derives, and a config field would force every
+/// existing construction site (every test in this module, every M3-2/M3-7
+/// caller) to grow a new field. [`nsga2_run`] itself keeps calling the
+/// `_impl` functions with `None`, so its body -- and every one of its
+/// pre-task callers -- is untouched byte-for-byte; only [`nsga2_run_observed`]
+/// (new, below) ever passes `Some`.
+pub type MoBatchObserver<'o> = dyn FnMut(u64, &[Genotype], &[Vec<f64>], Option<&[f64]>) + 'o;
+
 /// NSGA-II reference runner. See the module doc's "## NSGA-II main-loop
 /// runner" section for the full provenance (initialization, tournament
 /// pairing/comparison, environmental selection, RNG derivation, budget-tail
@@ -2025,19 +2057,36 @@ fn evaluate_violations(problem: &dyn MoProblem, pop: &[Genotype]) -> Option<Vec<
 ///
 /// **Dispatch (M3-7 Task 3).** `problem.space()` is classified by
 /// [`classify_space`] FIRST: an all-`Block::Float` space calls
-/// [`nsga2_run_float`], whose body is the EXACT pre-task `nsga2_run` (this
-/// task's own acceptance gate: every pre-task golden must pass UNMODIFIED,
-/// so that body is untouched, merely extracted under a new name); an
-/// all-`Block::Binary` space calls the new [`nsga2_run_binary`] instead.
-/// `validate_config` runs ONCE here, before classification, so its error
-/// precedence over space-classification errors matches the pre-task
-/// ordering exactly (`validate_config(cfg)?` was always the first
-/// statement in `nsga2_run`'s body).
+/// [`nsga2_run_float_impl`], whose body is the EXACT pre-task `nsga2_run`
+/// (this task's own acceptance gate: every pre-task golden must pass
+/// UNMODIFIED, so that body is untouched, merely extracted under a new
+/// name); an all-`Block::Binary` space calls the new
+/// [`nsga2_run_binary_impl`] instead. `validate_config` runs ONCE here,
+/// before classification, so its error precedence over space-classification
+/// errors matches the pre-task ordering exactly (`validate_config(cfg)?`
+/// was always the first statement in `nsga2_run`'s body).
+///
+/// **M3-7 Task 9:** `nsga2_run` always passes `None` for the batch observer
+/// -- see [`nsga2_run_observed`] for the `Some` sibling entry point.
 pub fn nsga2_run(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunResult, Nsga2Error> {
     validate_config(cfg)?;
     match classify_space(problem.space())? {
-        SpaceKind::AllFloat => nsga2_run_float(problem, cfg),
-        SpaceKind::AllBinary => nsga2_run_binary(problem, cfg),
+        SpaceKind::AllFloat => nsga2_run_float_impl(problem, cfg, None),
+        SpaceKind::AllBinary => nsga2_run_binary_impl(problem, cfg, None),
+    }
+}
+
+/// [`nsga2_run`]'s observed sibling (M3-7 Task 9): identical dispatch and
+/// identical algorithm, but `observer` is called once per evaluated batch
+/// (see [`MoBatchObserver`]'s doc for the exact contract). This is the
+/// entry point `sezgi_bench::mo_archive::nsga2_run_logged` builds on.
+pub fn nsga2_run_observed(
+    problem: &dyn MoProblem, cfg: &Nsga2Config, observer: &mut MoBatchObserver,
+) -> Result<MoRunResult, Nsga2Error> {
+    validate_config(cfg)?;
+    match classify_space(problem.space())? {
+        SpaceKind::AllFloat => nsga2_run_float_impl(problem, cfg, Some(observer)),
+        SpaceKind::AllBinary => nsga2_run_binary_impl(problem, cfg, Some(observer)),
     }
 }
 
@@ -2056,7 +2105,17 @@ pub fn nsga2_run(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunResu
 /// of the pre-task `nsga2_run`, rather than trimming the "redundant" call
 /// and risking an accidental behavioral edit to frozen code; the second
 /// call is provably a no-op (same `cfg`, same `Ok(())`/`Err` outcome).
-fn nsga2_run_float(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunResult, Nsga2Error> {
+///
+/// **M3-7 Task 9:** renamed from `nsga2_run_float` and given the
+/// `observer` parameter (see [`MoBatchObserver`]'s doc); every call site
+/// through [`nsga2_run`] passes `None`, so with `observer = None` this
+/// function's control flow and every value it computes are BYTE-IDENTICAL
+/// to the pre-task body -- the two `if let Some(obs) = &mut observer { .. }`
+/// sites below are the ONLY lines added, and they are no-ops when
+/// `observer` is `None`.
+fn nsga2_run_float_impl(
+    problem: &dyn MoProblem, cfg: &Nsga2Config, mut observer: Option<&mut MoBatchObserver>,
+) -> Result<MoRunResult, Nsga2Error> {
     validate_config(cfg)?;
     let (lo, hi, block_lens) = float_bounds(problem.space())?;
     let dim = lo.len();
@@ -2075,6 +2134,7 @@ fn nsga2_run_float(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunRe
         budget: cfg.budget,
     })?;
     let mut violations = evaluate_violations(problem, &genos);
+    if let Some(obs) = &mut observer { obs(1, &genos, &objectives, violations.as_deref()); }
     let mut crowd = crowd_dist_full(&objectives, violations.as_deref());
 
     loop {
@@ -2084,11 +2144,13 @@ fn nsga2_run_float(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunRe
         let offspring = generate_offspring(
             &genos, &objectives, &crowd, violations.as_deref(), &lo, &hi, &block_lens, cfg, p_m, &mut var_rng,
         );
+        let before = eval.used();
         let off_objectives = match eval.evaluate(&offspring) {
             Ok(o) => o,
             Err(_) => break,
         };
         let off_violations = evaluate_violations(problem, &offspring);
+        if let Some(obs) = &mut observer { obs(before + 1, &offspring, &off_objectives, off_violations.as_deref()); }
         let (new_genos, new_objectives, new_crowd, new_violations) = environmental_selection(
             genos, objectives, violations, offspring, off_objectives, off_violations, cfg.pop_size,
         );
@@ -2106,7 +2168,8 @@ fn nsga2_run_float(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunRe
     Ok(MoRunResult { individuals: genos, objectives, front0, evals_used: eval.used(), violations })
 }
 
-/// The all-Binary sibling of [`nsga2_run_float`] (M3-7 Task 3): SAME
+/// The all-Binary sibling of [`nsga2_run_float_impl`] (M3-7 Task 3; renamed
+/// from `nsga2_run_float` by M3-7 Task 9, see that function's own doc): SAME
 /// algorithm shape (init -> evaluate -> environmental-selection loop with
 /// the SAME budget-tail rule, SAME RNG-stream derivation), but drives the
 /// binary-genotype operators ([`generate_offspring_binary`],
@@ -2121,7 +2184,14 @@ fn nsga2_run_float(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunRe
 /// resolves `None` to `1 / l` (`l` = `problem.space().dim()`, the total
 /// flattened bit count -- the paper's own binary default, module doc's
 /// "Defaults" section).
-fn nsga2_run_binary(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunResult, Nsga2Error> {
+///
+/// **M3-7 Task 9:** renamed from `nsga2_run_binary` and given the same
+/// `observer` parameter as [`nsga2_run_float_impl`] (see [`MoBatchObserver`]'s
+/// doc); `observer = None` is byte-identical to the pre-task body, same
+/// reasoning as that function's own doc.
+fn nsga2_run_binary_impl(
+    problem: &dyn MoProblem, cfg: &Nsga2Config, mut observer: Option<&mut MoBatchObserver>,
+) -> Result<MoRunResult, Nsga2Error> {
     let l = problem.space().dim();
     let p_m_bin = cfg.p_m_bin.unwrap_or(1.0 / l as f64);
 
@@ -2138,6 +2208,7 @@ fn nsga2_run_binary(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunR
         budget: cfg.budget,
     })?;
     let mut violations = evaluate_violations(problem, &genos);
+    if let Some(obs) = &mut observer { obs(1, &genos, &objectives, violations.as_deref()); }
     let mut crowd = crowd_dist_full(&objectives, violations.as_deref());
 
     loop {
@@ -2145,11 +2216,13 @@ fn nsga2_run_binary(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunR
         let offspring = generate_offspring_binary(
             &genos, &objectives, &crowd, violations.as_deref(), cfg, p_m_bin, &mut var_rng,
         );
+        let before = eval.used();
         let off_objectives = match eval.evaluate(&offspring) {
             Ok(o) => o,
             Err(_) => break,
         };
         let off_violations = evaluate_violations(problem, &offspring);
+        if let Some(obs) = &mut observer { obs(before + 1, &offspring, &off_objectives, off_violations.as_deref()); }
         let (new_genos, new_objectives, new_crowd, new_violations) = environmental_selection(
             genos, objectives, violations, offspring, off_objectives, off_violations, cfg.pop_size,
         );
