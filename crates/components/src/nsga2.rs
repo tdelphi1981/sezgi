@@ -30,6 +30,11 @@
 //! `classify_space` -- module doc's "## Binary genotype path" section
 //! below) -- every existing all-Float call takes the EXACT byte-identical
 //! old code path (now named `nsga2_run_float`), untouched by this task.
+//! M3-8 Task 1 unifies the two runners' near-verbatim main-loop bodies (the
+//! former `nsga2_run_float_impl`/`nsga2_run_binary_impl`) into one shared
+//! core (`nsga2_run_core`, right above the two thin wrappers), parameterized
+//! over a `Representation` enum -- pure DRY refactor, RNG draw order and
+//! every computed value unchanged (see `nsga2_run_core`'s own doc).
 //!
 //! ## Pareto dominance
 //! Pinned to the standard minimization definition, consistent with the
@@ -2090,45 +2095,64 @@ pub fn nsga2_run_observed(
     }
 }
 
-/// The real-coded runner (M3-2/T4-T6's original `nsga2_run` body, M3-7
-/// Task 1's constraint channel already folded in -- unchanged by this
-/// task): `problem.evaluate_constraints_batch` returning `None` (every
-/// M3-2 `MoProblem` impl, and any problem that simply never overrides the
-/// trait default) takes the EXACT unconstrained code path this function
-/// always had -- `violations` stays `None` throughout, so
-/// `crowd_dist_full`/`generate_offspring`/`environmental_selection` all
-/// take their own `None` branches, which are textually the pre-task code.
-/// **sezgi decision (M3-7 Task 3):** `validate_config(cfg)` is called again
-/// here (redundant with the dispatcher's own call above, since
-/// [`nsga2_run`] already validated `cfg` before ever reaching this
-/// function) -- kept so this function's body stays a byte-identical copy
-/// of the pre-task `nsga2_run`, rather than trimming the "redundant" call
-/// and risking an accidental behavioral edit to frozen code; the second
-/// call is provably a no-op (same `cfg`, same `Ok(())`/`Err` outcome).
-///
-/// **M3-7 Task 9:** renamed from `nsga2_run_float` and given the
-/// `observer` parameter (see [`MoBatchObserver`]'s doc); every call site
-/// through [`nsga2_run`] passes `None`, so with `observer = None` this
-/// function's control flow and every value it computes are BYTE-IDENTICAL
-/// to the pre-task body -- the two `if let Some(obs) = &mut observer { .. }`
-/// sites below are the ONLY lines added, and they are no-ops when
-/// `observer` is `None`.
-fn nsga2_run_float_impl(
-    problem: &dyn MoProblem, cfg: &Nsga2Config, mut observer: Option<&mut MoBatchObserver>,
-) -> Result<MoRunResult, Nsga2Error> {
-    validate_config(cfg)?;
-    let (lo, hi, block_lens) = float_bounds(problem.space())?;
-    let dim = lo.len();
-    let p_m = cfg.p_m.unwrap_or(1.0 / dim as f64);
+/// What differs between the real-coded and all-Binary main loops (M3-8 T1
+/// unification of the former `nsga2_run_float_impl`/`nsga2_run_binary_impl`
+/// near-verbatim pair): everything each variant needs to (a) sample its own
+/// initial population and (b) generate one generation's offspring, per
+/// [`nsga2_run_core`]'s two `match &repr` sites below. Built once by each
+/// thin wrapper ([`nsga2_run_float_impl`]/[`nsga2_run_binary_impl`]) from
+/// that wrapper's own space-specific setup (`float_bounds`/mutation-rate
+/// default), then borrowed for the whole run -- everything else (RNG/
+/// evaluator setup, init+evaluate+observe, the budget-tail loop, sort,
+/// crowding, environmental selection, front-0 extraction, observer calls)
+/// is the shared skeleton in [`nsga2_run_core`], unchanged in shape or RNG
+/// draw order from the pre-unification bodies (this task's own acceptance
+/// gate: every pre-task nsga2 golden passes UNMODIFIED).
+enum Representation<'a> {
+    Float { lo: &'a [f64], hi: &'a [f64], block_lens: &'a [usize], p_m: f64 },
+    Binary { p_m_bin: f64 },
+}
 
+/// Shared engine behind [`nsga2_run_float_impl`] and
+/// [`nsga2_run_binary_impl`] (M3-8 T1 DRY refactor, following
+/// [`fast_non_dominated_sort_core`]'s own extraction precedent: a private
+/// core parameterized over what differs, thin public-facing wrappers keep
+/// their exact pre-task bodies for setup/dispatch). `repr` ([`Representation`])
+/// carries the ONLY two things that differed between the former
+/// `nsga2_run_float_impl`/`nsga2_run_binary_impl` bodies: how the initial
+/// population is sampled, and how one generation's offspring are generated
+/// (`init_population`+`to_genotype` / [`generate_offspring`] for Float vs
+/// `crate::init::sample_uniform` / [`generate_offspring_binary`] for
+/// Binary) -- every other statement below, in the SAME order, is textually
+/// what both pre-task bodies already shared byte-for-byte: RNG-stream
+/// derivation (`master`/`init_rng`/`var_rng`, identical formula and draw
+/// order for both, so this extraction changes NEITHER seeding NOR which
+/// RNG call happens when -- the bit-identity constraint this task's own
+/// acceptance gate re-proves), evaluator setup, init+evaluate+observe, the
+/// budget-tail loop (generate offspring, evaluate, break WITHOUT mutating
+/// state on `Err` -- module doc's "Budget-tail rule"), environmental
+/// selection, and front-0 extraction.
+fn nsga2_run_core(
+    problem: &dyn MoProblem,
+    cfg: &Nsga2Config,
+    repr: Representation<'_>,
+    mut observer: Option<&mut MoBatchObserver>,
+) -> Result<MoRunResult, Nsga2Error> {
     let master = NSGA2_SEED_BASE.wrapping_add(cfg.seed);
     let mut init_rng = RngStream::from_master(master, &[1]);
     let mut var_rng = RngStream::from_master(master, &[2]);
 
     let mut eval = MoEvaluator::new(problem, cfg.budget);
 
-    let init_flat = init_population(cfg.pop_size, &lo, &hi, &mut init_rng);
-    let mut genos: Vec<Genotype> = init_flat.iter().map(|f| to_genotype(f, &block_lens)).collect();
+    let mut genos: Vec<Genotype> = match &repr {
+        Representation::Float { lo, hi, block_lens, .. } => {
+            let init_flat = init_population(cfg.pop_size, lo, hi, &mut init_rng);
+            init_flat.iter().map(|f| to_genotype(f, block_lens)).collect()
+        }
+        Representation::Binary { .. } => {
+            (0..cfg.pop_size).map(|_| crate::init::sample_uniform(problem.space(), &mut init_rng)).collect()
+        }
+    };
     let mut objectives = eval.evaluate(&genos).map_err(|_| Nsga2Error::BudgetTooSmallForInit {
         pop_size: cfg.pop_size,
         budget: cfg.budget,
@@ -2141,9 +2165,14 @@ fn nsga2_run_float_impl(
         // Budget-tail rule (module doc): generate speculatively, evaluate,
         // and break WITHOUT mutating the population on Err -- mirrors the
         // scalar engine's `Err(_) => break 'outer` exactly.
-        let offspring = generate_offspring(
-            &genos, &objectives, &crowd, violations.as_deref(), &lo, &hi, &block_lens, cfg, p_m, &mut var_rng,
-        );
+        let offspring = match &repr {
+            Representation::Float { lo, hi, block_lens, p_m } => generate_offspring(
+                &genos, &objectives, &crowd, violations.as_deref(), lo, hi, block_lens, cfg, *p_m, &mut var_rng,
+            ),
+            Representation::Binary { p_m_bin } => generate_offspring_binary(
+                &genos, &objectives, &crowd, violations.as_deref(), cfg, *p_m_bin, &mut var_rng,
+            ),
+        };
         let before = eval.used();
         let off_objectives = match eval.evaluate(&offspring) {
             Ok(o) => o,
@@ -2168,76 +2197,77 @@ fn nsga2_run_float_impl(
     Ok(MoRunResult { individuals: genos, objectives, front0, evals_used: eval.used(), violations })
 }
 
-/// The all-Binary sibling of [`nsga2_run_float_impl`] (M3-7 Task 3; renamed
-/// from `nsga2_run_float` by M3-7 Task 9, see that function's own doc): SAME
-/// algorithm shape (init -> evaluate -> environmental-selection loop with
-/// the SAME budget-tail rule, SAME RNG-stream derivation), but drives the
-/// binary-genotype operators ([`generate_offspring_binary`],
-/// [`bin_cross_genome`], [`bin_mutate_genome`]) and reuses
-/// `crate::init::sample_uniform`'s existing `Block::Binary` sampling for
-/// initialization (module doc's "Binary genotype path" section: "reuse
-/// init's binary sampling, don't duplicate" -- one `next_f64()` draw per
-/// bit, individual-major/block-major/bit-minor, matching `initialize_ind`'s
-/// own nested-loop STRUCTURE even though the exact `< 0.5`-vs-C's-`<=0.5`
-/// bit mapping differs, per this module's established "draw STRUCTURE is
-/// pinned, not bit-identical values against the C" convention). `p_m_bin`
-/// resolves `None` to `1 / l` (`l` = `problem.space().dim()`, the total
-/// flattened bit count -- the paper's own binary default, module doc's
-/// "Defaults" section).
+/// The real-coded runner (M3-2/T4-T6's original `nsga2_run` body, M3-7
+/// Task 1's constraint channel already folded in): sets up the Float-space
+/// bounds/mutation-rate `repr` and delegates the whole run to
+/// [`nsga2_run_core`]. `problem.evaluate_constraints_batch` returning `None`
+/// (every M3-2 `MoProblem` impl, and any problem that simply never
+/// overrides the trait default) takes the EXACT unconstrained code path
+/// this function always had -- `violations` stays `None` throughout, so
+/// `crowd_dist_full`/`generate_offspring`/`environmental_selection` all
+/// take their own `None` branches, which are textually the pre-task code.
+/// **sezgi decision (M3-7 Task 3):** `validate_config(cfg)` is called again
+/// here (redundant with the dispatcher's own call above, since
+/// [`nsga2_run`] already validated `cfg` before ever reaching this
+/// function) -- kept so this function stays behaviorally identical to the
+/// pre-task `nsga2_run`, rather than trimming the "redundant" call and
+/// risking an accidental behavioral edit to frozen code; the second call is
+/// provably a no-op (same `cfg`, same `Ok(())`/`Err` outcome).
 ///
-/// **M3-7 Task 9:** renamed from `nsga2_run_binary` and given the same
-/// `observer` parameter as [`nsga2_run_float_impl`] (see [`MoBatchObserver`]'s
-/// doc); `observer = None` is byte-identical to the pre-task body, same
-/// reasoning as that function's own doc.
+/// **M3-7 Task 9:** renamed from `nsga2_run_float` and given the
+/// `observer` parameter (see [`MoBatchObserver`]'s doc); every call site
+/// through [`nsga2_run`] passes `None`, so with `observer = None` this
+/// function's control flow and every value it computes are BYTE-IDENTICAL
+/// to the pre-task body.
+///
+/// **M3-8 Task 1:** the loop body itself moved into [`nsga2_run_core`]
+/// (this function now only resolves the Float-specific `repr` and
+/// delegates); `observer = None` is still byte-identical to the pre-task
+/// body, since [`nsga2_run_core`]'s Float branch is a verbatim relocation
+/// of what used to live here directly.
+fn nsga2_run_float_impl(
+    problem: &dyn MoProblem, cfg: &Nsga2Config, observer: Option<&mut MoBatchObserver>,
+) -> Result<MoRunResult, Nsga2Error> {
+    validate_config(cfg)?;
+    let (lo, hi, block_lens) = float_bounds(problem.space())?;
+    let dim = lo.len();
+    let p_m = cfg.p_m.unwrap_or(1.0 / dim as f64);
+    let repr = Representation::Float { lo: &lo, hi: &hi, block_lens: &block_lens, p_m };
+    nsga2_run_core(problem, cfg, repr, observer)
+}
+
+/// The all-Binary sibling of [`nsga2_run_float_impl`] (M3-7 Task 3; renamed
+/// from `nsga2_run_binary` by M3-7 Task 9): resolves the Binary-specific
+/// `repr` (mutation-rate default) and delegates the whole run to
+/// [`nsga2_run_core`], which drives the binary-genotype operators
+/// ([`generate_offspring_binary`], [`bin_cross_genome`],
+/// [`bin_mutate_genome`]) and reuses `crate::init::sample_uniform`'s
+/// existing `Block::Binary` sampling for initialization (module doc's
+/// "Binary genotype path" section: "reuse init's binary sampling, don't
+/// duplicate" -- one `next_f64()` draw per bit, individual-major/
+/// block-major/bit-minor, matching `initialize_ind`'s own nested-loop
+/// STRUCTURE even though the exact `< 0.5`-vs-C's-`<=0.5` bit mapping
+/// differs, per this module's established "draw STRUCTURE is pinned, not
+/// bit-identical values against the C" convention). `p_m_bin` resolves
+/// `None` to `1 / l` (`l` = `problem.space().dim()`, the total flattened
+/// bit count -- the paper's own binary default, module doc's "Defaults"
+/// section).
+///
+/// **M3-7 Task 9:** given the same `observer` parameter as
+/// [`nsga2_run_float_impl`] (see [`MoBatchObserver`]'s doc).
+///
+/// **M3-8 Task 1:** the loop body moved into [`nsga2_run_core`] (shared
+/// with the Float wrapper above); unlike [`nsga2_run_float_impl`], this
+/// function does NOT re-call `validate_config` -- it never did before this
+/// task either, so that asymmetry is preserved exactly as it always was.
+/// `observer = None` is byte-identical to the pre-task body.
 fn nsga2_run_binary_impl(
-    problem: &dyn MoProblem, cfg: &Nsga2Config, mut observer: Option<&mut MoBatchObserver>,
+    problem: &dyn MoProblem, cfg: &Nsga2Config, observer: Option<&mut MoBatchObserver>,
 ) -> Result<MoRunResult, Nsga2Error> {
     let l = problem.space().dim();
     let p_m_bin = cfg.p_m_bin.unwrap_or(1.0 / l as f64);
-
-    let master = NSGA2_SEED_BASE.wrapping_add(cfg.seed);
-    let mut init_rng = RngStream::from_master(master, &[1]);
-    let mut var_rng = RngStream::from_master(master, &[2]);
-
-    let mut eval = MoEvaluator::new(problem, cfg.budget);
-
-    let mut genos: Vec<Genotype> =
-        (0..cfg.pop_size).map(|_| crate::init::sample_uniform(problem.space(), &mut init_rng)).collect();
-    let mut objectives = eval.evaluate(&genos).map_err(|_| Nsga2Error::BudgetTooSmallForInit {
-        pop_size: cfg.pop_size,
-        budget: cfg.budget,
-    })?;
-    let mut violations = evaluate_violations(problem, &genos);
-    if let Some(obs) = &mut observer { obs(1, &genos, &objectives, violations.as_deref()); }
-    let mut crowd = crowd_dist_full(&objectives, violations.as_deref());
-
-    loop {
-        // Budget-tail rule: identical to `nsga2_run_float`'s (module doc).
-        let offspring = generate_offspring_binary(
-            &genos, &objectives, &crowd, violations.as_deref(), cfg, p_m_bin, &mut var_rng,
-        );
-        let before = eval.used();
-        let off_objectives = match eval.evaluate(&offspring) {
-            Ok(o) => o,
-            Err(_) => break,
-        };
-        let off_violations = evaluate_violations(problem, &offspring);
-        if let Some(obs) = &mut observer { obs(before + 1, &offspring, &off_objectives, off_violations.as_deref()); }
-        let (new_genos, new_objectives, new_crowd, new_violations) = environmental_selection(
-            genos, objectives, violations, offspring, off_objectives, off_violations, cfg.pop_size,
-        );
-        genos = new_genos;
-        objectives = new_objectives;
-        crowd = new_crowd;
-        violations = new_violations;
-    }
-
-    let front0 = match &violations {
-        None => fast_non_dominated_sort(&objectives).into_iter().next().unwrap_or_default(),
-        Some(v) => fast_non_dominated_sort_constrained(&objectives, v).into_iter().next().unwrap_or_default(),
-    };
-
-    Ok(MoRunResult { individuals: genos, objectives, front0, evals_used: eval.used(), violations })
+    let repr = Representation::Binary { p_m_bin };
+    nsga2_run_core(problem, cfg, repr, observer)
 }
 
 #[cfg(test)]
@@ -3694,5 +3724,128 @@ mod tests {
             "population failed to diversify toward the all-zero extreme: min unitation {min_ones} (n={n})");
         assert!(max_ones >= n as f64 - 2.0,
             "population failed to diversify toward the all-one extreme: max unitation {max_ones} (n={n})");
+    }
+
+    // ---- nsga2_run: binary + constrained end-to-end regression (M3-8 T1) --
+    //
+    // No existing test covers the constrained-domination code path
+    // (`dominates_constrained` via `evaluate_constraints_batch`) together
+    // with the all-Binary genotype path: `nsga2_run_constrained_front0_is_fully_feasible`
+    // above exercises constraints only on the Float path,
+    // `nsga2_run_binary_unitation_tradeoff_...` above exercises Binary only
+    // unconstrained. This closes that gap.
+    //
+    // Constrained unitation toy: SAME unitation trade-off objectives as
+    // `UnitationTradeoff` above (f1 = ones count, f2 = zeros count, so
+    // f1+f2 == n for EVERY genotype, feasible or not -- no genotype can
+    // ever dominate another on OBJECTIVES ALONE, same argument as that
+    // test), plus ONE constraint g0 = ones - k (feasible, g0 >= 0, iff
+    // ones >= k; `constraint_violation` reduces an infeasible row to
+    // `ones - k`, always < 0.0 when infeasible).
+    //
+    // Hand-derived domination expectation (KanGAL `check_dominance`,
+    // `dominates_constrained` above): since f1+f2 == n always, no pair of
+    // FEASIBLE individuals can dominate each other on objectives (plain
+    // `dominates` is always false both ways -- `UnitationTradeoff`'s own
+    // argument, unchanged by adding a constraint since `dominates_constrained`
+    // falls back to plain `dominates` whenever both sides are feasible). A
+    // feasible individual can also never be dominated by an infeasible one
+    // (`dominates_constrained`'s feasible-vs-infeasible branch always
+    // favors the feasible side) -- so every feasible individual
+    // unconditionally has `domination_count == 0` and lands in front0.
+    // Conversely, every infeasible individual IS dominated by every
+    // feasible individual present in the same generation's merged
+    // population, so an infeasible individual can only survive into front0
+    // if the entire population were infeasible. Net expectation, checked
+    // against the ACTUAL final population below: as long as at least one
+    // feasible individual survives (asserted), front0 is EXACTLY the set
+    // of feasible individuals (`violation == 0.0`) -- no more, no less.
+    struct ConstrainedUnitation { space: SearchSpace, k: usize }
+    impl ConstrainedUnitation {
+        fn new(n: usize, k: usize) -> Self {
+            let space = SearchSpace::new(vec![Block::Binary { n }]).unwrap();
+            Self { space, k }
+        }
+    }
+    impl MoProblem for ConstrainedUnitation {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|g| {
+                let BlockValues::Bin(bits) = &g.blocks[0] else { return vec![f64::INFINITY; 2] };
+                let ones = bits.iter().filter(|&&b| b).count() as f64;
+                let zeros = bits.len() as f64 - ones;
+                vec![ones, zeros]
+            }).collect()
+        }
+        fn evaluate_constraints_batch(&self, pop: &[Genotype]) -> Option<Vec<Vec<f64>>> {
+            Some(pop.iter().map(|g| {
+                let BlockValues::Bin(bits) = &g.blocks[0] else { return vec![f64::NEG_INFINITY] };
+                let ones = bits.iter().filter(|&&b| b).count() as f64;
+                vec![ones - self.k as f64]
+            }).collect())
+        }
+    }
+
+    #[test]
+    fn nsga2_run_binary_constrained_front0_is_exactly_the_feasible_set() {
+        // n=24, k=22, pop_size=40, budget=440 (10 generations past init),
+        // seed=13: measured (this task's own TDD run) to leave a genuine
+        // feasible/infeasible MIX in the final population (17 feasible, 23
+        // infeasible) rather than converging to all-feasible -- deliberately
+        // NOT the more lenient k (n/2-ish) that this task's own sweep found
+        // converges to all-feasible within a handful of generations; k this
+        // close to n makes the feasible region rare enough that some
+        // infeasible individuals are still present at this budget, so the
+        // test below also exercises the infeasible-vs-infeasible
+        // `dominates_constrained` regime, not just feasible-beats-infeasible.
+        let n = 24;
+        let k = 22;
+        let problem = ConstrainedUnitation::new(n, k);
+        let cfg = Nsga2Config {
+            pop_size: 40, budget: 440, seed: 13,
+            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None,
+        };
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        let violations = result.violations.as_ref()
+            .expect("a constrained problem's result must carry Some(violations)");
+        assert_eq!(violations.len(), result.objectives.len());
+
+        // Structural sanity check for the unitation invariant this test's
+        // hand-derivation depends on.
+        for row in &result.objectives {
+            assert_eq!(row[0] + row[1], n as f64, "f1+f2 must equal n for every genotype on this problem");
+        }
+
+        let expected_front0: Vec<usize> = (0..violations.len()).filter(|&i| violations[i] == 0.0).collect();
+        let infeasible_count = violations.len() - expected_front0.len();
+        assert!(!expected_front0.is_empty(),
+            "test is only meaningful if at least one feasible individual survives into the final population");
+        assert!(infeasible_count > 0,
+            "test is only meaningful if the final population is a genuine feasible/infeasible MIX, not all-feasible");
+        assert_eq!(result.front0, expected_front0,
+            "front0 must be EXACTLY the feasible individuals: KanGAL's constrained dominance makes every \
+             feasible individual dominate every infeasible one unconditionally, and (since f1+f2==n is \
+             constant here) no feasible individual dominates another");
+
+        // Exercise the infeasible-vs-infeasible regime too, on whatever
+        // infeasible individuals happen to remain: `dominates_constrained`
+        // says the LESS violated one (larger, closer-to-zero
+        // `constraint_violation`) always wins a head-to-head against a MORE
+        // violated one -- so a more-violated individual can never dominate
+        // a less-violated one.
+        for i in 0..violations.len() {
+            for j in 0..violations.len() {
+                if violations[i] == 0.0 || violations[j] == 0.0 || violations[i] >= violations[j] {
+                    continue;
+                }
+                // i strictly more violated than j (violations[i] < violations[j], both < 0.0).
+                assert!(
+                    !dominates_constrained(&result.objectives[i], violations[i], &result.objectives[j], violations[j]),
+                    "individual {i} (violation {}) must not dominate less-violated individual {j} (violation {})",
+                    violations[i], violations[j]
+                );
+            }
+        }
     }
 }

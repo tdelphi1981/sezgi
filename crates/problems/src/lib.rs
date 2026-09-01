@@ -4,6 +4,7 @@ pub mod cec2014;
 pub mod cec2017;
 pub mod cec2022;
 pub mod dtlz;
+pub(crate) mod front_lattice;
 pub mod tsp;
 pub mod wfg;
 pub mod zdt;
