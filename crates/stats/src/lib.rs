@@ -23,7 +23,7 @@ pub use bayesian::{
     bayesian_plackett_luce, bayesian_signed_rank, plackett_luce, BayesPlackettLuceResult,
     BayesSignedRankResult, PlackettLuceResult,
 };
-pub use moo_indicators::{hypervolume_2d, igd};
+pub use moo_indicators::{hypervolume, hypervolume_2d, igd};
 pub use pairwise::{
     cliffs_delta, cliffs_magnitude, wilcoxon_signed_rank, WilcoxonMethod, WilcoxonResult,
 };
