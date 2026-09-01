@@ -1,6 +1,7 @@
 //! The WFG (Walking Fish Group) scalable multi-objective test-problem
-//! toolkit: WFG1-WFG3 (this task; WFG4-WFG9 extend `Wfg::new`'s `which`
-//! range in place, a later task, per the module's own construction below).
+//! toolkit: WFG1-WFG9, the full suite (WFG1-WFG3 landed first, commit
+//! `a180ed1`; this task extends `Wfg::new`'s `which` range to WFG4-WFG9,
+//! the final range, in place).
 //!
 //! ## Provenance (PROVENANCE-FIRST battle plan)
 //!
@@ -62,7 +63,12 @@
 //! `WINDOWS.H`/`malloc.h`-style includes present at all in this version).
 //! A small out-of-tree CLI probe driver (`probe.cpp`, calling the toolkit's
 //! own public headers unmodified) was written in the scratchpad to extract
-//! reference values; it never enters this repo.
+//! reference values; it never enters this repo. This task re-verified the
+//! pinned PDF sha256 and the toolkit clone's commit hash (both matched
+//! exactly) and extended `probe.cpp`'s own `wfg1|wfg2|wfg3` dispatch to also
+//! cover `wfg4`..`wfg9` (same unmodified `Problems::WFG4`..`Problems::WFG9`
+//! calls as the existing three), recompiling with the same
+//! `g++ -std=c++11 -O2` flags -- again zero errors, zero warnings.
 //!
 //! **Toolkit-vs-paper divergence found (D scaling constant; toolkit
 //! governs, no behavioral change here).** The compiled `CHANGE_LOG.txt`:
@@ -179,13 +185,56 @@
 //! WFG3  Shape:  hm=1:M = linearm (degenerate)
 //!   t1:3  As t1:3 from WFG2. (Linear shift, non-separable reduction, and
 //!         weighted sum reduction.)
+//!
+//! WFG4  Shape:  hm=1:M = concavem
+//!   t1  t1_i=1:n = s_multi(yi, 30, 10, 0.35)
+//!   t2  t2_i=1:M-1 = r_sum({y_{(i-1)k/(M-1)+1},...,y_{ik/(M-1)}}, {1,...,1})
+//!       t2_M = r_sum({y_{k+1},...,y_n}, {1,...,1})
+//!
+//! WFG5  Shape:  hm=1:M = concavem
+//!   t1  t1_i=1:n = s_decept(yi, 0.35, 0.001, 0.05)
+//!   t2  As t2 from WFG4. (Weighted sum reduction.)
+//!
+//! WFG6  Shape:  hm=1:M = concavem
+//!   t1  As t1 from WFG1. (Linear shift.)
+//!   t2  t2_i=1:M-1 = r_nonsep({y_{(i-1)k/(M-1)+1},...,y_{ik/(M-1)}}, k/(M-1))
+//!       t2_M = r_nonsep({y_{k+1},...,y_n}, l)
+//!
+//! WFG7  Shape:  hm=1:M = concavem
+//!   t1  t1_i=1:k = b_param(yi, r_sum({y_{i+1},...,y_n}, {1,...,1}), 0.98/49.98, 0.02, 50)
+//!       t1_i=k+1:n = yi
+//!   t2  As t1 from WFG1. (Linear shift.)
+//!   t3  As t2 from WFG4. (Weighted sum reduction.)
+//!
+//! WFG8  Shape:  hm=1:M = concavem
+//!   t1  t1_i=1:k = yi
+//!       t1_i=k+1:n = b_param(yi, r_sum({y_1,...,y_{i-1}}, {1,...,1}), 0.98/49.98, 0.02, 50)
+//!   t2  As t1 from WFG1. (Linear shift.)
+//!   t3  As t2 from WFG4. (Weighted sum reduction.)
+//!
+//! WFG9  "As the example in Section 5" (Table 6's own text; Section 5's
+//! worked example IS WFG9, independently confirmed by the compiled
+//! toolkit's `ExampleProblems.cpp` `Problems::WFG9`, which calls exactly
+//! `WFG9_t1`/`WFG9_t2`/`WFG6_t2` below -- toolkit-over-paper, quoted from
+//! `ExampleTransitions.cpp` since Table 6 declines to spell WFG9 out
+//! directly):
+//!   Shape:  hm=1:M = concavem
+//!   t1  t1_i=1:n-1 = b_param(yi, r_sum({y_{i+1},...,y_n}, {1,...,1}), 0.98/49.98, 0.02, 50)
+//!       t1_n = yn
+//!   t2  t2_i=1:k = s_decept(yi, 0.35, 0.001, 0.05)
+//!       t2_i=k+1:n = s_multi(yi, 30, 95, 0.35)
+//!   t3  As t2 from WFG6. (Non-separable reduction.)
 //! ```
 //!
 //! "For WFG1-WFG7, a solution is Pareto optimal iff all `zi=k+1:n = 2i *
 //! 0.35`, noting WFG2 is disconnected." -- the pinned-x boundary fixtures
 //! below use this exact value to construct known-Pareto-optimal test
 //! points (cross-checked against the compiled toolkit, not merely against
-//! this module's own formulas).
+//! this module's own formulas). WFG8 and WFG9 have their own, more
+//! elaborate optimality conditions (quoted in the `pareto_front` decisions
+//! section below) that this module's fixtures do not need, since
+//! `pareto_front`'s closed form (below) is independent of `which` beyond
+//! `m`.
 //!
 //! ## Recommended `k`/`l` defaults (NOT a paper quote -- the EMO2005 paper
 //! pinned above states no explicit default; per this task's own provenance
@@ -263,6 +312,77 @@
 //! compiled toolkit's `WFG3(z,k,M)` output matches this module's closed
 //! form to the toolkit's own double precision at every probed `x1` (module
 //! tests, `wfg3_pareto_front_matches_toolkit_engineered_z`).
+//!
+//! **WFG4-WFG9: `Some`, closed form (the scaled unit hypersphere).** All six
+//! share `hm=1:M = concavem` (quoted above) and the SAME non-degenerate
+//! `A1:M-1 = 1` (module doc's "All Constants" quote), so at any
+//! Pareto-optimal point `tpM = 0` (the distance parameter reduces to zero;
+//! see below), giving `x_i = max(0,1)*(tpi-0.5)+0.5 = tpi` for `i<M`
+//! directly (identical algebra to WFG3's `x_i=tpi` step above, just without
+//! the degeneracy). `concave`'s own formula (Table 1) is the textbook
+//! hyperspherical parametrization (`concave1 = prod sin(xi*pi/2)`,
+//! `concaveM = cos(x1*pi/2)`, etc.) -- `sin^2+cos^2=1` telescopes across the
+//! product exactly as it does for `crate::dtlz`'s own DTLZ2/3/4
+//! `cosine_cascade` sphere front (same identity, sin/cos roles swapped), so
+//! `sum_{m=1}^{M} concave_m(x)^2 = 1` for ANY `x1,...,xM-1 in [0,1]^{M-1}`.
+//! With `Sm=2m` and (at the optimum) the additive distance term `xM=0`
+//! dropping out of `calculate_f`'s `fm = xM + Sm*hm`, this gives `fm =
+//! 2m*concave_m(x)` exactly, so `sum_m (fm/(2m))^2 = 1` -- the scaled unit
+//! hypersphere the brief names, VERIFIED (not assumed) by this derivation
+//! from Table 1's own quoted formula plus the shared `A/S` constants, not
+//! merely asserted.
+//!
+//! `// sezgi decision:` **whether `x1,...,xM-1` genuinely range over the
+//! FULL box `[0,1]^{M-1}` (not merely a sub-manifold) for all six problems,
+//! not only whether the shape formula is a sphere.** For WFG1-WFG7 the
+//! Pareto-optimality condition (quoted above, `zi=k+1:n=2i*0.35`) fixes
+//! ONLY the distance-related `z`; every position-related `zi=1:k` is
+//! unconstrained. The EMO2005 paper's OWN worked example (Section 5, which
+//! Table 6 says WFG9 in particular follows verbatim) states this
+//! explicitly: "Once the optimal values for `zk+1:n` are determined, the
+//! position-related parameters can be varied arbitrarily to obtain
+//! different Pareto optimal solutions" -- i.e. the position parameters are
+//! a genuine FREE `(M-1)`-dimensional degree of freedom for the whole
+//! suite, by the formalism's own construction (section 4: "x1,...,xM-1 are
+//! underlying position parameters"), not a claim specific to WFG9. Table 7
+//! lists plain "concave" geometry for WFG4-WFG9 (no "disconnected" flag
+//! like WFG2, no "mixed" flag like WFG1), so -- unlike WFG1/WFG2 above --
+//! there is no non-monotonic or disconnected-manifold caveat to rule out
+//! any region of the sphere. `pareto_front` therefore returns `Some` for
+//! ALL SIX (`which` 4..=9), sharing one closed-form point function
+//! (`wfg_concave_front_point`) with `which` NOT even an input to it (the
+//! front depends only on `m` and the swept `x_pos`, never on which of the
+//! six transition stacks produced `tpM=0` -- module code).
+//!
+//! **Toolkit-anchoring scope** (`// sezgi decision:`, honestly bounded).
+//! `wfg_concave_front_point` was cross-checked against the compiled toolkit
+//! via engineered `z` for WFG4, WFG5, and WFG6 specifically (module tests
+//! `wfg{4,5,6}_pareto_front_matches_toolkit_engineered_z`): each problem's
+//! position-related transition stack (WFG4/WFG5: elementwise `s_multi`/
+//! `s_decept` then an UNWEIGHTED `r_sum` group reduction; WFG6: `r_nonsep`
+//! group reduction) preserves a per-group CONSTANT input exactly through
+//! the reduction (an unweighted average, or a non-separable reduction, of
+//! `c` repeated `c` times is `c`-derived by a closed, already
+//! toolkit-probed formula -- `r_sum`/`r_nonsep`'s OWN fixtures above), so a
+//! `z` with each position GROUP set to one shared fraction lets each
+//! `x_pos` coordinate be swept independently and compared against the
+//! toolkit's real `WFG4`/`WFG5`/`WFG6` output at that engineered `z`.
+//! WFG7/WFG8/WFG9 were NOT independently swept this same way: their
+//! position transforms (`b_param`, quoted above) make a position slot's
+//! output depend on OTHER slots' raw values (Table 7: "position-related
+//! parameters ... dependent on ... distance-related parameters (and other
+//! position-related parameters)"), so a per-group-constant `z` does not
+//! collapse to a simple, independently-verifiable closed form the way it
+//! does for WFG4-WFG6. Since `wfg_concave_front_point` is the EXACT SAME
+//! function for all six (previous paragraph), the WFG4-WFG6 toolkit
+//! cross-check already exercises the shared front-point code; what is NOT
+//! independently confirmed for WFG7-WFG9 specifically is that their OWN
+//! transition stacks actually reach `tpM=0` with `tp1,...,tpM-1` covering
+//! the full free box (rather than some narrower reachable subset) -- this
+//! module relies on the paper's own general "varied arbitrarily" text
+//! (quoted above) for that claim, for WFG7-WFG9, rather than an
+//! independent per-problem toolkit sweep. Recorded as a known scope
+//! boundary, not silently assumed.
 
 use std::f64::consts::PI;
 
@@ -271,10 +391,7 @@ use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 
 #[derive(Debug, thiserror::Error)]
 pub enum WfgError {
-    #[error(
-        "which must be one of 1..=3 (WFG1-WFG3 this task; WFG4-WFG9 land in a later task \
-         extending this same constructor), got {0}"
-    )]
+    #[error("which must be one of 1..=9 (WFG1-WFG9, the full suite), got {0}")]
     UnknownWhich(u32),
     #[error("m (number of objectives) must be >= 2, got {0}")]
     BadM(usize),
@@ -293,8 +410,7 @@ pub enum WfgError {
 }
 
 /// One instance of the WFG scalable multi-objective suite, `which` in
-/// `1..=3` (WFG1-WFG3; see the module doc for the provenance and the
-/// planned WFG4-WFG9 extension).
+/// `1..=9` (WFG1-WFG9, the full suite; see the module doc for provenance).
 pub struct Wfg {
     which: u32,
     m: usize,
@@ -305,13 +421,17 @@ pub struct Wfg {
 }
 
 impl Wfg {
-    /// `which` in `1..=3`; `m >= 2`; `k > 0` and `k % (m-1) == 0` (Table 6);
+    /// `which` in `1..=9`; `m >= 2`; `k > 0` and `k % (m-1) == 0` (Table 6);
     /// `l > 0`, additionally EVEN for WFG2/WFG3 (Table 6's own non-separable
     /// reduction requirement, independently confirmed by the toolkit's own
-    /// `assert`, module doc). Domain: `zi in [0, 2i]` for `i = 1,...,n`
-    /// (`n = k+l`), the paper's own `zi,max = 2i` (Table 6).
+    /// `assert`, module doc; WFG6/WFG9 also use a non-separable reduction,
+    /// but their own `A` parameter always equals the FULL group/tail length
+    /// -- `r_nonsep`'s own `|y| mod A == 0` restriction is then trivially
+    /// satisfied for ANY `l`, module doc's `r_nonsep` quote -- so no extra
+    /// parity restriction applies to them). Domain: `zi in [0, 2i]` for `i =
+    /// 1,...,n` (`n = k+l`), the paper's own `zi,max = 2i` (Table 6).
     pub fn new(which: u32, m: usize, k: usize, l: usize) -> Result<Self, WfgError> {
-        if !matches!(which, 1..=3) {
+        if !matches!(which, 1..=9) {
             return Err(WfgError::UnknownWhich(which));
         }
         if m < 2 {
@@ -364,7 +484,7 @@ impl Wfg {
         Self::correct_to_01(a + tmp1 - tmp2)
     }
 
-    #[allow(dead_code)] // WFG7/WFG8/WFG9 (a later task); transcribed now alongside the rest of Table 2
+    /// Used by WFG7/WFG8/WFG9 (this task).
     fn b_param(y: f64, u: f64, a: f64, b: f64, c: f64) -> f64 {
         let v = a - (1.0 - 2.0 * u) * ((0.5 - u).floor() + a).abs();
         Self::correct_to_01(y.powf(b + (c - b) * v))
@@ -374,14 +494,14 @@ impl Wfg {
         Self::correct_to_01((y - a).abs() / ((a - y).floor() + a).abs())
     }
 
-    #[allow(dead_code)] // WFG5/WFG9 (a later task); transcribed now alongside the rest of Table 2
+    /// Used by WFG5/WFG9 (this task).
     fn s_decept(y: f64, a: f64, b: f64, c: f64) -> f64 {
         let tmp1 = (y - a + b).floor() * (1.0 - c + (a - b) / b) / (a - b);
         let tmp2 = (a + b - y).floor() * (1.0 - c + (1.0 - a - b) / b) / (1.0 - a - b);
         Self::correct_to_01(1.0 + ((y - a).abs() - b) * (tmp1 + tmp2 + 1.0 / b))
     }
 
-    #[allow(dead_code)] // WFG4/WFG9 (a later task); transcribed now alongside the rest of Table 2
+    /// Used by WFG4/WFG9 (this task).
     fn s_multi(y: f64, a: i64, b: f64, c: f64) -> f64 {
         let tmp1 = (y - c).abs() / (2.0 * ((c - y).floor() + c));
         let tmp2 = (4.0 * a as f64 + 2.0) * PI * (0.5 - tmp1);
@@ -445,7 +565,7 @@ impl Wfg {
         Self::correct_to_01(result)
     }
 
-    #[allow(dead_code)] // WFG4-WFG9 (a later task); transcribed now alongside the rest of Table 1
+    /// Used by WFG4-WFG9 (this task).
     fn shape_concave(x: &[f64], m: usize) -> f64 {
         let big_m = x.len();
         let mut result = 1.0;
@@ -566,6 +686,91 @@ impl Wfg {
         t
     }
 
+    /// `WFG4_t1`/`WFG5_t1`-style elementwise transform, applied to EVERY
+    /// `y_i` (both position and distance, module doc's Table 6 quote: `t1
+    /// i=1:n`) -- shared code, parameterized by the closure so WFG4's
+    /// `s_multi(yi,30,10,0.35)` and WFG5's `s_decept(yi,0.35,0.001,0.05)`
+    /// reuse the same loop.
+    fn elementwise(y: &[f64], f: impl Fn(f64) -> f64) -> Vec<f64> { y.iter().map(|&yi| f(yi)).collect() }
+
+    fn wfg4_t1(y: &[f64]) -> Vec<f64> { Self::elementwise(y, |yi| Self::s_multi(yi, 30, 10.0, 0.35)) }
+
+    fn wfg5_t1(y: &[f64]) -> Vec<f64> { Self::elementwise(y, |yi| Self::s_decept(yi, 0.35, 0.001, 0.05)) }
+
+    /// `WFG6_t2`: `r_nonsep` groups (position groups of `k/(M-1)`, one
+    /// distance group over the whole tail `l`) -- shared by WFG6 and WFG9
+    /// (module doc's Table 6 quote: "As t2 from WFG6").
+    fn wfg6_t2(y: &[f64], k: usize, m: usize) -> Vec<f64> {
+        let n = y.len();
+        let mut t = Vec::with_capacity(m);
+        for i in 1..=(m - 1) {
+            let head = (i - 1) * k / (m - 1);
+            let tail = i * k / (m - 1);
+            t.push(Self::r_nonsep(&y[head..tail], k / (m - 1)));
+        }
+        t.push(Self::r_nonsep(&y[k..n], n - k));
+        t
+    }
+
+    /// `WFG7_t1`: position slots (`i<k`) get `b_param` biased by the
+    /// weighted sum of every LATER `y` (position and distance); distance
+    /// slots (`i>=k`) pass through unchanged.
+    fn wfg7_t1(y: &[f64], k: usize) -> Vec<f64> {
+        let n = y.len();
+        let w = vec![1.0; n];
+        let mut t = Vec::with_capacity(n);
+        for i in 0..k {
+            let u = Self::r_sum(&y[i + 1..n], &w[i + 1..n]);
+            t.push(Self::b_param(y[i], u, 0.98 / 49.98, 0.02, 50.0));
+        }
+        t.extend_from_slice(&y[k..n]);
+        t
+    }
+
+    /// `WFG8_t1`: position slots (`i<k`) pass through unchanged; distance
+    /// slots (`i>=k`) get `b_param` biased by the weighted sum of every
+    /// EARLIER `y` (position and any earlier distance).
+    fn wfg8_t1(y: &[f64], k: usize) -> Vec<f64> {
+        let n = y.len();
+        let w = vec![1.0; n];
+        let mut t = y[..k].to_vec();
+        for i in k..n {
+            let u = Self::r_sum(&y[..i], &w[..i]);
+            t.push(Self::b_param(y[i], u, 0.98 / 49.98, 0.02, 50.0));
+        }
+        t
+    }
+
+    /// `WFG9_t1` (== `I2_t1`): every `y_i` except the last gets `b_param`
+    /// biased by the weighted sum of every LATER `y`; the last `y` passes
+    /// through unchanged.
+    fn wfg9_t1(y: &[f64]) -> Vec<f64> {
+        let n = y.len();
+        let w = vec![1.0; n];
+        let mut t = Vec::with_capacity(n);
+        for i in 0..n - 1 {
+            let u = Self::r_sum(&y[i + 1..n], &w[i + 1..n]);
+            t.push(Self::b_param(y[i], u, 0.98 / 49.98, 0.02, 50.0));
+        }
+        t.push(y[n - 1]);
+        t
+    }
+
+    /// `WFG9_t2`: `s_decept` on position slots (`i<k`), `s_multi` on
+    /// distance slots (`i>=k`), NOTE the different `B` constant (95, not
+    /// 10) from WFG4's own `s_multi` call (module doc's Table 6 quote).
+    fn wfg9_t2(y: &[f64], k: usize) -> Vec<f64> {
+        let n = y.len();
+        let mut t = Vec::with_capacity(n);
+        for &yi in &y[..k] {
+            t.push(Self::s_decept(yi, 0.35, 0.001, 0.05));
+        }
+        for &yi in &y[k..n] {
+            t.push(Self::s_multi(yi, 30, 95.0, 0.35));
+        }
+        t
+    }
+
     // ---- per-problem evaluation (ExampleProblems.cpp / ExampleShapes.cpp) ----
 
     fn eval_wfg1(&self, z: &[f64]) -> Vec<f64> {
@@ -613,6 +818,68 @@ impl Wfg {
         Self::calculate_f(&x, &h, &Self::s_vec(m))
     }
 
+    /// Shared by WFG4-WFG9: all six use `hm=1:M = concavem` (module doc's
+    /// Table 6 quote) over the non-degenerate `A1:M-1=1` framework, so once
+    /// `t_p` (`tp`) is computed only the shape function and its non-`Wfg1`
+    /// degeneracy vector differ from `eval_wfg1`'s own pattern.
+    fn eval_concave(t_p: &[f64], m: usize) -> Vec<f64> {
+        let a = Self::wfg_create_a(m, false);
+        let x = Self::calculate_x(t_p, &a);
+        let h: Vec<f64> = (1..=m).map(|mm| Self::shape_concave(&x, mm)).collect();
+        Self::calculate_f(&x, &h, &Self::s_vec(m))
+    }
+
+    fn eval_wfg4(&self, z: &[f64]) -> Vec<f64> {
+        let (k, m) = (self.k, self.m);
+        let y = Self::wfg_normalise_z(z);
+        let y = Self::wfg4_t1(&y);
+        let t_p = Self::wfg2_t3(&y, k, m);
+        Self::eval_concave(&t_p, m)
+    }
+
+    fn eval_wfg5(&self, z: &[f64]) -> Vec<f64> {
+        let (k, m) = (self.k, self.m);
+        let y = Self::wfg_normalise_z(z);
+        let y = Self::wfg5_t1(&y);
+        let t_p = Self::wfg2_t3(&y, k, m);
+        Self::eval_concave(&t_p, m)
+    }
+
+    fn eval_wfg6(&self, z: &[f64]) -> Vec<f64> {
+        let (k, m) = (self.k, self.m);
+        let y = Self::wfg_normalise_z(z);
+        let y = Self::wfg1_t1(&y, k);
+        let t_p = Self::wfg6_t2(&y, k, m);
+        Self::eval_concave(&t_p, m)
+    }
+
+    fn eval_wfg7(&self, z: &[f64]) -> Vec<f64> {
+        let (k, m) = (self.k, self.m);
+        let y = Self::wfg_normalise_z(z);
+        let y = Self::wfg7_t1(&y, k);
+        let y = Self::wfg1_t1(&y, k);
+        let t_p = Self::wfg2_t3(&y, k, m);
+        Self::eval_concave(&t_p, m)
+    }
+
+    fn eval_wfg8(&self, z: &[f64]) -> Vec<f64> {
+        let (k, m) = (self.k, self.m);
+        let y = Self::wfg_normalise_z(z);
+        let y = Self::wfg8_t1(&y, k);
+        let y = Self::wfg1_t1(&y, k);
+        let t_p = Self::wfg2_t3(&y, k, m);
+        Self::eval_concave(&t_p, m)
+    }
+
+    fn eval_wfg9(&self, z: &[f64]) -> Vec<f64> {
+        let (k, m) = (self.k, self.m);
+        let y = Self::wfg_normalise_z(z);
+        let y = Self::wfg9_t1(&y);
+        let y = Self::wfg9_t2(&y, k);
+        let t_p = Self::wfg6_t2(&y, k, m);
+        Self::eval_concave(&t_p, m)
+    }
+
     /// WFG3's closed-form Pareto-front point at free parameter `x1 in
     /// [0,1]` (module doc's `pareto_front` decision): `x = [x1, 0.5,
     /// ..., 0.5, 0.0]` (length `m`; the trailing `0.0` is the `xM` slot,
@@ -624,6 +891,51 @@ impl Wfg {
         x.push(0.0); // xM slot; unread by shape_linear, kept for x.len() == M
         let s = Self::s_vec(m);
         (1..=m).map(|mm| s[mm - 1] * Self::shape_linear(&x, mm)).collect()
+    }
+
+    /// WFG4-WFG9's shared closed-form Pareto-front point (module doc's
+    /// `pareto_front` decision, "the scaled unit hypersphere"): `x_pos`
+    /// (length `m-1`, each in `[0,1]`) plays the free position parameters
+    /// directly (`x_i = tp_i` at the optimum, module doc derivation); `x =
+    /// [x_pos, 0.0]` (the trailing `0.0` is the `xM` slot, unread by
+    /// `shape_concave`, kept for `x.len() == M` as `wfg3_front_point` does);
+    /// `fm = Sm * shape_concave(x, m)`. Deliberately takes NO `which`
+    /// parameter -- the same function serves all six problems (module doc's
+    /// `// sezgi decision:`).
+    fn wfg_concave_front_point(m: usize, x_pos: &[f64]) -> Vec<f64> {
+        debug_assert_eq!(x_pos.len(), m - 1);
+        let mut x = x_pos.to_vec();
+        x.push(0.0); // xM slot; unread by shape_concave, kept for x.len() == M
+        let s = Self::s_vec(m);
+        (1..=m).map(|mm| s[mm - 1] * Self::shape_concave(&x, mm)).collect()
+    }
+
+    // ---- pareto_front lattice sampling (WFG4-WFG9), mirrors
+    // `crate::dtlz`'s own `axis_grid`/`grid_r`/`cartesian_product` helpers
+    // (same names, same construction) ----
+
+    fn axis_grid(r: usize) -> Vec<f64> {
+        if r <= 1 { vec![0.0] } else { (0..r).map(|i| i as f64 / (r - 1) as f64).collect() }
+    }
+
+    fn grid_r(n: usize, dim_free: usize) -> usize {
+        ((n.max(1) as f64).powf(1.0 / dim_free as f64)).ceil().max(1.0) as usize
+    }
+
+    fn cartesian_product(axis: &[f64], dim: usize) -> Vec<Vec<f64>> {
+        let mut out = vec![Vec::new()];
+        for _ in 0..dim {
+            let mut next = Vec::with_capacity(out.len() * axis.len());
+            for combo in &out {
+                for &v in axis {
+                    let mut c = combo.clone();
+                    c.push(v);
+                    next.push(c);
+                }
+            }
+            out = next;
+        }
+        out
     }
 }
 
@@ -648,7 +960,13 @@ impl MoProblem for Wfg {
                     1 => self.eval_wfg1(&z),
                     2 => self.eval_wfg2(&z),
                     3 => self.eval_wfg3(&z),
-                    _ => unreachable!("Wfg::new rejects which outside 1..=3"),
+                    4 => self.eval_wfg4(&z),
+                    5 => self.eval_wfg5(&z),
+                    6 => self.eval_wfg6(&z),
+                    7 => self.eval_wfg7(&z),
+                    8 => self.eval_wfg8(&z),
+                    9 => self.eval_wfg9(&z),
+                    _ => unreachable!("Wfg::new rejects which outside 1..=9"),
                 }
             })
             .collect()
@@ -657,17 +975,35 @@ impl MoProblem for Wfg {
     /// See the module doc's `pareto_front` decisions section: `None` for
     /// WFG1/WFG2 (non-monotonic/disconnected shape, no defensible
     /// dominance-filtered closed form); WFG3's one-dimensional degenerate
-    /// curve for `which == 3`.
+    /// curve for `which == 3`; WFG4-WFG9's shared scaled-unit-hypersphere
+    /// closed form (an `(m-1)`-dimensional lattice over the free position
+    /// parameters, `r = ceil(n^(1/(m-1)))` evenly spaced values per axis,
+    /// mirroring `crate::dtlz`'s own DTLZ2/3/4 sphere-front lattice
+    /// sampling -- `// sezgi decision:` same "approximately `n`" tradeoff
+    /// DTLZ2 already documents: exact when `n` is a perfect `(m-1)`-th
+    /// power, always exact for `m=2`).
     fn pareto_front(&self, n: usize) -> Option<Vec<Vec<f64>>> {
         if n == 0 {
             return Some(Vec::new());
         }
-        if self.which != 3 {
-            return None;
+        match self.which {
+            3 => {
+                let axis: Vec<f64> = if n == 1 {
+                    vec![0.0]
+                } else {
+                    (0..n).map(|i| i as f64 / (n - 1) as f64).collect()
+                };
+                Some(axis.iter().map(|&x1| Self::wfg3_front_point(self.m, x1)).collect())
+            }
+            4..=9 => {
+                let dim_free = self.m - 1;
+                let r = Self::grid_r(n, dim_free);
+                let axis = Self::axis_grid(r);
+                let combos = Self::cartesian_product(&axis, dim_free);
+                Some(combos.iter().map(|c| Self::wfg_concave_front_point(self.m, c)).collect())
+            }
+            _ => None,
         }
-        let axis: Vec<f64> =
-            if n == 1 { vec![0.0] } else { (0..n).map(|i| i as f64 / (n - 1) as f64).collect() };
-        Some(axis.iter().map(|&x1| Self::wfg3_front_point(self.m, x1)).collect())
     }
 }
 
@@ -680,8 +1016,12 @@ mod tests {
     #[test]
     fn new_rejects_unknown_which() {
         assert!(matches!(Wfg::new(0, 2, 4, 4), Err(WfgError::UnknownWhich(0))));
-        assert!(matches!(Wfg::new(4, 2, 4, 4), Err(WfgError::UnknownWhich(4))));
-        assert!(matches!(Wfg::new(9, 2, 4, 4), Err(WfgError::UnknownWhich(9))));
+        assert!(matches!(Wfg::new(10, 2, 4, 4), Err(WfgError::UnknownWhich(10))));
+        assert!(matches!(Wfg::new(100, 2, 4, 4), Err(WfgError::UnknownWhich(100))));
+        // which=4..=9 (this task's own extension) are now valid, not errors.
+        for which in 4u32..=9 {
+            assert!(Wfg::new(which, 2, 4, 4).is_ok(), "which={which}");
+        }
     }
 
     #[test]
@@ -714,6 +1054,14 @@ mod tests {
         // Even l is fine for WFG2/WFG3.
         assert!(Wfg::new(2, 2, 4, 4).is_ok());
         assert!(Wfg::new(3, 2, 4, 4).is_ok());
+        // WFG4-WFG9 have NO such restriction either -- their own
+        // non-separable reductions (WFG6/WFG9's `r_nonsep`) always use
+        // `A == |y|` (module doc's `Wfg::new` comment), trivially satisfying
+        // `r_nonsep`'s `|y| mod A == 0`, unlike WFG2/WFG3's fixed pair size
+        // `A=2`.
+        for which in 4u32..=9 {
+            assert!(Wfg::new(which, 2, 4, 5).is_ok(), "which={which}");
+        }
     }
 
     #[test]
@@ -898,14 +1246,19 @@ mod tests {
     // `%.17g`), across (m,k,l) configs incl. m=2 and m=3, boundary (z=0,
     // z=2i) and a generic interior point ====
 
-    fn wfg_close(got: &[f64], want: &[f64]) {
+    fn wfg_close(got: &[f64], want: &[f64]) { wfg_close_tol(got, want, 1e-13) }
+
+    /// `wfg_close` with an explicit relative tolerance -- used by WFG5's
+    /// own engineered-z pareto-front test (module doc note below) where the
+    /// default `1e-13` is too tight for an INTRINSIC (not a bug) reason.
+    fn wfg_close_tol(got: &[f64], want: &[f64], tol: f64) {
         assert_eq!(got.len(), want.len());
         let mut max_rel = 0.0f64;
         for (g, w) in got.iter().zip(want.iter()) {
             let rel = if w.abs() > 1e-12 { (g - w).abs() / w.abs() } else { (g - w).abs() };
             max_rel = max_rel.max(rel);
         }
-        assert!(max_rel < 1e-13, "got={got:?} want={want:?} max_rel={max_rel}");
+        assert!(max_rel < tol, "got={got:?} want={want:?} max_rel={max_rel} tol={tol}");
     }
 
     fn eval_z(which: u32, m: usize, k: usize, l: usize, z: &[f64]) -> Vec<f64> {
@@ -914,6 +1267,12 @@ mod tests {
             1 => p.eval_wfg1(z),
             2 => p.eval_wfg2(z),
             3 => p.eval_wfg3(z),
+            4 => p.eval_wfg4(z),
+            5 => p.eval_wfg5(z),
+            6 => p.eval_wfg6(z),
+            7 => p.eval_wfg7(z),
+            8 => p.eval_wfg8(z),
+            9 => p.eval_wfg9(z),
             _ => unreachable!(),
         }
     }
@@ -1035,6 +1394,177 @@ mod tests {
         );
     }
 
+    #[test]
+    fn wfg4_matches_toolkit_all_configs() {
+        wfg_close(&eval_z(4, 2, 4, 4, &[0.0; 8]), &[3.0, 1.0000000000000002]);
+        wfg_close(
+            &eval_z(4, 2, 4, 4, &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]),
+            &[3.0, 1.0000000000000002],
+        );
+        wfg_close(&eval_z(4, 2, 4, 4, &generic_z(8)), &[1.275106902131418, 3.7043553279145627]);
+        wfg_close(
+            &eval_z(4, 2, 4, 20, &generic_z(24)),
+            &[1.307201355011113, 3.7364497807942576],
+        );
+        wfg_close(
+            &eval_z(4, 3, 4, 4, &[0.0; 8]),
+            &[3.0, 1.0000000000000002, 1.0000000000000004],
+        );
+        wfg_close(
+            &eval_z(4, 3, 4, 4, &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]),
+            &[3.0, 1.0000000000000002, 1.0000000000000004],
+        );
+        wfg_close(
+            &eval_z(4, 3, 4, 4, &generic_z(8)),
+            &[0.5234027613452319, 3.336416632547231, 4.009046367876935],
+        );
+        wfg_close(
+            &eval_z(4, 3, 6, 20, &generic_z(26)),
+            &[0.7643216027529967, 2.386370750591389, 5.28199452671207],
+        );
+    }
+
+    #[test]
+    fn wfg5_matches_toolkit_all_configs() {
+        wfg_close(&eval_z(5, 2, 4, 4, &[0.0; 8]), &[0.20691819145581142, 4.037669334932526]);
+        wfg_close(
+            &eval_z(5, 2, 4, 4, &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]),
+            &[0.2069181914555187, 4.037669334932491],
+        );
+        wfg_close(&eval_z(5, 2, 4, 4, &generic_z(8)), &[1.472382748286957, 4.192843843592891]);
+        wfg_close(
+            &eval_z(5, 2, 4, 20, &generic_z(24)),
+            &[1.3491260959984441, 4.069587191304379],
+        );
+        wfg_close(
+            &eval_z(5, 3, 4, 4, &[0.0; 8]),
+            &[0.06231165940490613, 0.36286893008067367, 6.0315040023987745],
+        );
+        wfg_close(
+            &eval_z(5, 3, 4, 4, &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]),
+            &[0.0623116594048005, 0.3628689300801632, 6.031504002398758],
+        );
+        wfg_close(
+            &eval_z(5, 3, 4, 4, &generic_z(8)),
+            &[0.9758919594206503, 1.9878648923615367, 6.105838909417616],
+        );
+        wfg_close(
+            &eval_z(5, 3, 6, 20, &generic_z(26)),
+            &[0.8729891665309172, 1.0807685300864873, 6.222185423789944],
+        );
+    }
+
+    #[test]
+    fn wfg6_matches_toolkit_all_configs() {
+        wfg_close(&eval_z(6, 2, 4, 4, &[0.0; 8]), &[0.4, 4.4]);
+        wfg_close(
+            &eval_z(6, 2, 4, 4, &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]),
+            &[1.5755705045849462, 3.6360679774997897],
+        );
+        wfg_close(&eval_z(6, 2, 4, 4, &generic_z(8)), &[2.2745281058919207, 2.132880708391472]);
+        wfg_close(
+            &eval_z(6, 2, 4, 20, &generic_z(24)),
+            &[2.389441763662721, 2.2477943661622724],
+        );
+        wfg_close(&eval_z(6, 3, 4, 4, &[0.0; 8]), &[0.4, 0.4, 6.4]);
+        wfg_close(
+            &eval_z(6, 3, 4, 4, &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]),
+            &[1.9, 2.1320508075688775, 3.400000000000001],
+        );
+        wfg_close(
+            &eval_z(6, 3, 4, 4, &generic_z(8)),
+            &[1.8048665115797227, 3.296334560799609, 1.7057119031483137],
+        );
+        wfg_close(
+            &eval_z(6, 3, 6, 20, &generic_z(26)),
+            &[2.1124215637699324, 2.7933383676134986, 2.8329207632065847],
+        );
+    }
+
+    #[test]
+    fn wfg7_matches_toolkit_all_configs() {
+        wfg_close(&eval_z(7, 2, 4, 4, &[0.0; 8]), &[1.0, 5.0]);
+        wfg_close(
+            &eval_z(7, 2, 4, 4, &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]),
+            &[3.0, 1.0000000000000002],
+        );
+        wfg_close(&eval_z(7, 2, 4, 4, &generic_z(8)), &[1.8704337648781033, 3.1921236066258687]);
+        wfg_close(
+            &eval_z(7, 2, 4, 20, &generic_z(24)),
+            &[1.8920739277801475, 3.2215863954181456],
+        );
+        wfg_close(&eval_z(7, 3, 4, 4, &[0.0; 8]), &[1.0, 1.0, 7.0]);
+        wfg_close(
+            &eval_z(7, 3, 4, 4, &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]),
+            &[3.0, 1.0000000000000002, 1.0000000000000004],
+        );
+        wfg_close(
+            &eval_z(7, 3, 4, 4, &generic_z(8)),
+            &[1.468987858956224, 2.376210579221865, 4.626689532627775],
+        );
+        wfg_close(
+            &eval_z(7, 3, 6, 20, &generic_z(26)),
+            &[1.523215178535634, 2.189788550131792, 4.9221296628998905],
+        );
+    }
+
+    #[test]
+    fn wfg8_matches_toolkit_all_configs() {
+        wfg_close(&eval_z(8, 2, 4, 4, &[0.0; 8]), &[1.0, 5.0]);
+        wfg_close(
+            &eval_z(8, 2, 4, 4, &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]),
+            &[3.0, 1.0000000000000002],
+        );
+        wfg_close(&eval_z(8, 2, 4, 4, &generic_z(8)), &[1.8150614671080652, 3.3123011288284694]);
+        wfg_close(
+            &eval_z(8, 2, 4, 20, &generic_z(24)),
+            &[1.8348896485538708, 3.3321293102742753],
+        );
+        wfg_close(&eval_z(8, 3, 4, 4, &[0.0; 8]), &[1.0, 1.0, 7.0]);
+        wfg_close(
+            &eval_z(8, 3, 4, 4, &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]),
+            &[3.0, 1.0000000000000002, 1.0000000000000004],
+        );
+        wfg_close(
+            &eval_z(8, 3, 4, 4, &generic_z(8)),
+            &[1.388855962498448, 2.5058644460163766, 4.671527429136079],
+        );
+        wfg_close(
+            &eval_z(8, 3, 6, 20, &generic_z(26)),
+            &[1.4435032614621215, 2.2164976139071957, 5.040671141996371],
+        );
+    }
+
+    #[test]
+    fn wfg9_matches_toolkit_all_configs() {
+        wfg_close(&eval_z(9, 2, 4, 4, &[0.0; 8]), &[0.46282151815629363, 4.398026241462924]);
+        wfg_close(
+            &eval_z(9, 2, 4, 4, &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]),
+            &[0.46282151815620454, 4.398026241462929],
+        );
+        wfg_close(&eval_z(9, 2, 4, 4, &generic_z(8)), &[2.2590142706731453, 2.240874474702232]);
+        wfg_close(
+            &eval_z(9, 2, 4, 20, &generic_z(24)),
+            &[2.3180548204442535, 2.284362054788964],
+        );
+        wfg_close(
+            &eval_z(9, 3, 4, 4, &[0.0; 8]),
+            &[0.4054781046317331, 0.6090569265354293, 6.391777208527434],
+        );
+        wfg_close(
+            &eval_z(9, 3, 4, 4, &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]),
+            &[0.40547810463171763, 0.6090569265351345, 6.391777208527458],
+        );
+        wfg_close(
+            &eval_z(9, 3, 4, 4, &generic_z(8)),
+            &[1.2130772647553276, 1.0552152617621613, 5.9624118310784535],
+        );
+        wfg_close(
+            &eval_z(9, 3, 6, 20, &generic_z(26)),
+            &[2.0962690522820666, 2.8626099745147995, 2.8048817550270218],
+        );
+    }
+
     // ==== WFG3 Pareto-front closed form, cross-checked against the
     // compiled toolkit via an engineered z (module doc's `pareto_front`
     // decision section) ====
@@ -1087,7 +1617,182 @@ mod tests {
         );
     }
 
-    // ==== pareto_front API: None for WFG1/WFG2, Some for WFG3, n=0 always Some(empty) ====
+    // ==== WFG4-WFG9 Pareto-front closed form (the scaled unit hypersphere),
+    // cross-checked against the compiled toolkit via an engineered z for
+    // WFG4/WFG5/WFG6 (module doc's "toolkit-anchoring scope" decision) ====
+
+    /// Engineers `z` so every position GROUP `g` shares one fraction
+    /// `group_ps[g]` (so a group's post-transform values are uniform --
+    /// `r_sum`/`r_nonsep` of a constant reduce to a closed, already
+    /// toolkit-probed formula, module doc) and every distance parameter
+    /// sits at the Pareto-optimal `2i*0.35` (module doc's Table 6 quote,
+    /// "For WFG1-WFG7..."). Shared by WFG4/WFG5/WFG6's own engineered-z
+    /// tests below (only the position TRANSFORM differs between them, not
+    /// this z-construction scheme).
+    fn wfg469_engineered_z(m: usize, k: usize, l: usize, group_ps: &[f64]) -> Vec<f64> {
+        assert_eq!(group_ps.len(), m - 1);
+        let n = k + l;
+        (1..=n)
+            .map(|i| {
+                if i <= k {
+                    let g = (i - 1) * (m - 1) / k;
+                    group_ps[g] * 2.0 * i as f64
+                } else {
+                    0.35 * 2.0 * i as f64
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn wfg4_pareto_front_matches_toolkit_engineered_z() {
+        for &p in &[0.0, 0.25, 0.5, 0.75, 1.0] {
+            let z = wfg469_engineered_z(2, 4, 4, &[p]);
+            let x1 = Wfg::s_multi(p, 30, 10.0, 0.35);
+            let want = Wfg::wfg_concave_front_point(2, &[x1]);
+            wfg_close(&eval_z(4, 2, 4, 4, &z), &want);
+        }
+        for &(p1, p2) in &[(0.0, 0.0), (0.25, 0.75), (0.5, 0.5), (0.75, 0.25), (1.0, 1.0)] {
+            let z = wfg469_engineered_z(3, 4, 4, &[p1, p2]);
+            let x1 = Wfg::s_multi(p1, 30, 10.0, 0.35);
+            let x2 = Wfg::s_multi(p2, 30, 10.0, 0.35);
+            let want = Wfg::wfg_concave_front_point(3, &[x1, x2]);
+            wfg_close(&eval_z(4, 3, 4, 4, &z), &want);
+        }
+    }
+
+    #[test]
+    fn wfg4_pareto_front_matches_toolkit_probe_values() {
+        // probe wfg4 4 2 <engineered z, p=0.25>
+        wfg_close(
+            &eval_z(4, 2, 4, 4, &wfg469_engineered_z(2, 4, 4, &[0.25])),
+            &[0.5274550550545022, 3.8583888683736647],
+        );
+        // probe wfg4 4 3 <engineered z, (p1,p2)=(0.25,0.75)>
+        wfg_close(
+            &eval_z(4, 3, 4, 4, &wfg469_engineered_z(3, 4, 4, &[0.25, 0.75])),
+            &[0.30252328595989214, 0.8641492846830975, 5.787583302560497],
+        );
+    }
+
+    #[test]
+    fn wfg5_pareto_front_matches_toolkit_engineered_z() {
+        // `// sezgi decision:` looser tolerance here, not elsewhere, for a
+        // documented reason specific to WFG5: `wfg469_engineered_z`'s
+        // distance slots are `0.35*2i` normalized back by `/(2i)` inside
+        // `eval_wfg5` -- for `i` where `2i` is not a power of two (e.g.
+        // `i=6`), that round trip does not recover the exact same `f64` as
+        // the literal `0.35` this test's own `want` uses, leaving a ~1 ULP
+        // input difference at ONE distance slot. WFG5's `t1` applies
+        // `s_decept(...,B=0.001,...)` to that slot directly (module doc's
+        // Table 6 quote: "t1_i=1:n", both position AND distance) --
+        // `s_decept`'s `1/B` term (already visible in its own quoted
+        // formula) amplifies that 1-ULP difference by ~1000x into a ~5e-14
+        // absolute deviation in `tp_M`, which -- since `correct_to_01` only
+        // snaps NEGATIVE near-zero values to `0.0` (module doc's own
+        // asymmetric-clamp comment on `correct_to_01`), not small POSITIVE
+        // ones -- survives as a small uniform ADDITIVE offset on every `fm`
+        // (`calculate_f`'s `fm = xM + Sm*hm`), large only in RELATIVE terms
+        // for the smallest-magnitude `f` coordinate. Measured: ~1.13e-12
+        // relative at worst, so `1e-11` here (vs. the module's usual
+        // `1e-13`) is a comfortably-bounded, understood tolerance, not an
+        // unexplained loosening -- an intrinsic property of WFG5's own
+        // small-`B` bias transform, not an implementation bug (mirrors T5's
+        // documented `b_poly` small-exponent sensitivity, module doc's
+        // `generic_z` comment).
+        for &p in &[0.0, 0.25, 0.5, 0.75, 1.0] {
+            let z = wfg469_engineered_z(2, 4, 4, &[p]);
+            let x1 = Wfg::s_decept(p, 0.35, 0.001, 0.05);
+            let want = Wfg::wfg_concave_front_point(2, &[x1]);
+            wfg_close_tol(&eval_z(5, 2, 4, 4, &z), &want, 1e-11);
+        }
+        for &(p1, p2) in &[(0.0, 0.0), (0.25, 0.75), (0.5, 0.5), (0.75, 0.25), (1.0, 1.0)] {
+            let z = wfg469_engineered_z(3, 4, 4, &[p1, p2]);
+            let x1 = Wfg::s_decept(p1, 0.35, 0.001, 0.05);
+            let x2 = Wfg::s_decept(p2, 0.35, 0.001, 0.05);
+            let want = Wfg::wfg_concave_front_point(3, &[x1, x2]);
+            wfg_close_tol(&eval_z(5, 3, 4, 4, &z), &want, 1e-11);
+        }
+    }
+
+    #[test]
+    fn wfg5_pareto_front_matches_toolkit_probe_values() {
+        // probe wfg5 4 2 <engineered z, p=0.25>
+        wfg_close(
+            &eval_z(5, 2, 4, 4, &wfg469_engineered_z(2, 4, 4, &[0.25])),
+            &[1.823472734047781, 1.6431033907631893],
+        );
+        // probe wfg5 4 3 <engineered z, (p1,p2)=(0.25,0.75)>
+        wfg_close(
+            &eval_z(5, 3, 4, 4, &wfg469_engineered_z(3, 4, 4, &[0.25, 0.75])),
+            &[1.1084251752694765, 2.8958221234354298, 2.464655086144777],
+        );
+    }
+
+    #[test]
+    fn wfg6_pareto_front_matches_toolkit_engineered_z() {
+        for &p in &[0.0, 0.25, 0.5, 0.75, 1.0] {
+            let z = wfg469_engineered_z(2, 4, 4, &[p]);
+            let x1 = Wfg::r_nonsep(&[p; 4], 4);
+            let want = Wfg::wfg_concave_front_point(2, &[x1]);
+            wfg_close(&eval_z(6, 2, 4, 4, &z), &want);
+        }
+        for &(p1, p2) in &[(0.0, 0.0), (0.25, 0.75), (0.5, 0.5), (0.75, 0.25), (1.0, 1.0)] {
+            let z = wfg469_engineered_z(3, 4, 4, &[p1, p2]);
+            let x1 = Wfg::r_nonsep(&[p1; 2], 2);
+            let x2 = Wfg::r_nonsep(&[p2; 2], 2);
+            let want = Wfg::wfg_concave_front_point(3, &[x1, x2]);
+            wfg_close(&eval_z(6, 3, 4, 4, &z), &want);
+        }
+    }
+
+    #[test]
+    fn wfg6_pareto_front_matches_toolkit_probe_values() {
+        // probe wfg6 4 2 <engineered z, p=1.0>
+        wfg_close(
+            &eval_z(6, 2, 4, 4, &wfg469_engineered_z(2, 4, 4, &[1.0])),
+            &[1.1755705045849463, 3.23606797749979],
+        );
+        // probe wfg6 4 3 <engineered z, (p1,p2)=(0.5,0.5)>
+        wfg_close(
+            &eval_z(6, 3, 4, 4, &wfg469_engineered_z(3, 4, 4, &[0.5, 0.5])),
+            &[0.5, 1.7320508075688772, 5.196152422706632],
+        );
+    }
+
+    #[test]
+    fn wfg49_pareto_front_rows_on_scaled_unit_hypersphere() {
+        for which in 4u32..=9 {
+            for &m in &[2usize, 3] {
+                let p = Wfg::new(which, m, 2 * (m - 1), 4).unwrap();
+                let front = p.pareto_front(64).unwrap();
+                assert!(!front.is_empty(), "which={which} m={m}");
+                for row in &front {
+                    assert_eq!(row.len(), m);
+                    let sum_sq: f64 =
+                        row.iter().enumerate().map(|(i0, &f)| (f / (2.0 * (i0 + 1) as f64)).powi(2)).sum();
+                    assert!(
+                        (sum_sq - 1.0).abs() < 1e-9,
+                        "which={which} m={m} row={row:?} sum_sq={sum_sq}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn wfg49_pareto_front_deterministic_and_exact_n_for_m2() {
+        for which in 4u32..=9 {
+            let p = Wfg::new(which, 2, 4, 4).unwrap();
+            let a = p.pareto_front(30).unwrap();
+            let b = p.pareto_front(30).unwrap();
+            assert_eq!(a, b, "which={which}: pareto_front must be bit-identical across calls");
+            assert_eq!(a.len(), 30, "which={which}: m=2 lattice is exact (r=n)");
+        }
+    }
+
+    // ==== pareto_front API: None for WFG1/WFG2, Some for WFG3/WFG4-WFG9,
+    // n=0 always Some(empty) ====
 
     #[test]
     fn pareto_front_none_for_wfg1_wfg2() {
@@ -1097,7 +1802,7 @@ mod tests {
 
     #[test]
     fn pareto_front_zero_n_always_some_empty() {
-        for which in 1u32..=3 {
+        for which in 1u32..=9 {
             let p = Wfg::new(which, 3, 6, 4).unwrap();
             assert_eq!(p.pareto_front(0), Some(Vec::new()), "which={which}");
         }
@@ -1126,7 +1831,7 @@ mod tests {
 
     #[test]
     fn evaluate_batch_boundary_zero_and_max_all_which() {
-        for which in 1u32..=3 {
+        for which in 1u32..=9 {
             let p = Wfg::new(which, 2, 4, 4).unwrap();
             let z0 = genotype_1d_blocks(&[0.0; 8]);
             let zmax = genotype_1d_blocks(&[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]);
