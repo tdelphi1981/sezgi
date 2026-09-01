@@ -17,6 +17,7 @@ use sezgi_bias::{
     StructuralBiasConfig, StructuralBiasResult,
 };
 use sezgi_components::nsga2::{nsga2_run, Nsga2Config};
+use sezgi_components::perm::fisher_yates_shuffle;
 use sezgi_components::{presets, register_builtins};
 use sezgi_core::component::Registry;
 use sezgi_core::dist::Distribution;
@@ -625,19 +626,20 @@ impl PermSession {
 
     /// A uniformly random permutation of `0..n` (a 0-based tour, per this
     /// task's Python-side convention -- R's Task 8 twin is 1-based), drawn
-    /// from this session's own [`RngStream`]. Fisher-Yates/Durstenfeld
-    /// shuffle: for `i` from `n-1` down to `1`, swap `v[i]` with `v[j]` for a
-    /// uniformly random `j` in `0..=i`, via [`RngStream::next_below`]
-    /// (rejection sampling -- no modulo bias). Each call advances the
-    /// stream, so successive calls draw DIFFERENT permutations; the same
-    /// `seed` and call sequence reproduce the same permutations every time.
+    /// from this session's own [`RngStream`]. Delegates to
+    /// [`sezgi_components::perm::fisher_yates_shuffle`] -- the SAME
+    /// Fisher-Yates/Durstenfeld shuffle (for `i` from `n-1` down to `1`,
+    /// swap `v[i]` with `v[j]` for a uniformly random `j` in `0..=i`, via
+    /// `RngStream::next_below`'s rejection sampling, no modulo bias) that
+    /// `gen/perm-swap`/`gen/ox`'s own init path already uses (`perm.rs`'s
+    /// module doc), reused here rather than re-implemented inline (fix
+    /// round 1 review) -- bit-identical draws, same struct field, same
+    /// `RngStream`, just called through the shared, already-tested core.
+    /// Each call advances the stream, so successive calls draw DIFFERENT
+    /// permutations; the same `seed` and call sequence reproduce the same
+    /// permutations every time.
     fn random_permutation(&mut self) -> Vec<u32> {
-        let mut v: Vec<u32> = (0..self.n as u32).collect();
-        for i in (1..v.len()).rev() {
-            let j = self.rng.next_below((i + 1) as u64) as usize;
-            v.swap(i, j);
-        }
-        v
+        fisher_yates_shuffle(self.n, &mut self.rng)
     }
 
     /// Batch-evaluates `tours` (0-based; each must be a permutation of
