@@ -1735,26 +1735,28 @@ fn bias_report(
 }
 
 // ---------------------------------------------------------------------
-// Multi-objective bindings (sezgi.mo) -- M3-2 Task 9.
+// Multi-objective bindings (sezgi.mo) -- M3-2 Task 9, extended in M3-7.
 //
-// Binds T6's NSGA-II runner (`sezgi_components::nsga2::nsga2_run`), the
-// ZDT/DTLZ benchmark suites (`sezgi_problems::{Zdt, Dtlz}`), and the exact
-// 2-objective hypervolume / IGD indicators (`sezgi_stats::{hypervolume_2d,
-// igd}`). Every scalar/vector f64 is passed through EXACTLY as the Rust
-// core computed it -- no rounding/formatting anywhere in this section (T10's
-// R bindings assert bit-equality against these same values).
+// Binds the NSGA-II runner (`sezgi_components::nsga2::nsga2_run`, incl. the
+// M3-7 constrained and binary paths), the ZDT/DTLZ/WFG benchmark suites
+// (`sezgi_problems::{Zdt, Zdt5, Dtlz, Wfg}`), the exact hypervolume / IGD
+// indicators (`sezgi_stats::{hypervolume_2d, hypervolume, igd}`), and the
+// sezgi-moa v1 archive logging (`sezgi_bench::mo_archive`). Every
+// scalar/vector f64 is passed through EXACTLY as the Rust core computed it
+// -- no rounding/formatting anywhere in this section (the R bindings assert
+// bit-equality against these same values).
 //
 // Problem-string mapping (shared by `mo_nsga2` and `mo_pareto_front`, via
-// `mo_problem_from_str`): `"zdt1"`, `"zdt2"`, `"zdt3"`, `"zdt4"`, `"zdt6"`
-// (ZDT5 is a binary-coded problem, out of scope -- see
-// `sezgi_problems::zdt`'s module doc; `"zdt5"` is rejected the same way any
-// other unrecognized ZDT number is, via `Zdt::new`'s own `UnknownWhich`
-// error) and `"dtlz1"`..`"dtlz7"`. **`m` (number of objectives) is DTLZ-only
-// and REQUIRED there** (`Dtlz::new` has no default `m` to fall back to);
-// **passing `m` for a `zdt*` problem is a `ValueError`** (zdt problems are
-// always 2-objective by construction, so a caller-supplied `m` could never
-// be honored silently -- rejecting it outright surfaces the mistake instead
-// of quietly ignoring the argument).
+// `mo_problem_from_str`): `"zdt1"`..`"zdt4"`, `"zdt6"` (real-coded);
+// `"zdt5"` (the binary-coded T5, its own `Zdt5` type -- fixed 80-bit
+// layout, so `dim` is rejected for it); `"dtlz1"`..`"dtlz9"` (`m` REQUIRED;
+// 8/9 are the constrained pair and surface `violations`); `"wfg1"`..
+// `"wfg9"` (`m` required, optional `k`/`l` with the toolkit-recommended
+// defaults). **Passing `m` for a `zdt*` problem is a `ValueError`** (zdt
+// problems are always 2-objective by construction, so a caller-supplied
+// `m` could never be honored silently -- rejecting it outright surfaces
+// the mistake instead of quietly ignoring the argument); `k`/`l` are
+// likewise WFG-only.
 // ---------------------------------------------------------------------
 
 /// WFG's own recommended `k` default (module doc's "Recommended `k`/`l`
