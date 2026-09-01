@@ -199,6 +199,46 @@ pub fn ga_int(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Categorical GA (M3-8 Task 4) -- mirrors `ga_int`'s/`ga_bin`'s/`ga_perm`'s
+/// own preset structure exactly (`init` + `boundary` + one `[[stages]]`
+/// entry pairing a fused crossover+mutation `Generator` with
+/// `replace/mu-plus-lambda`), swapped to the Categorical representation:
+/// `init/uniform` (its own `Block::Categorical` branch already samples
+/// `rng.next_below(k)`, per `boundary.rs`'s own `sample_uniform`, so there is
+/// no dedicated `init/cat-random` the way there is `init/perm-random` --
+/// nothing would differ) and `gen/ga-cat` ([`crate::cat_ops::GaCatGenerator`]
+/// -- the FUSED uniform-crossover + random-reset-mutation generator, per
+/// pymoo 0.6.2's `Choice` wiring, see `cat_ops.rs`'s module doc) instead of
+/// `gen/ga-int`/`gen/ga-bin`/`gen/ga-perm`, and `replace/mu-plus-lambda`
+/// reused as-is (same elitist merge-sort-truncate replacer every other `ga_*`
+/// preset uses -- `SupportedBlocks::All`). `boundary/clamp` is likewise
+/// reused as-is: its `Block::Categorical` branch is a documented no-op
+/// (structurally cannot go out of bounds -- `gen/ga-cat`'s own cores only
+/// ever copy existing valid category indices or resample fresh ones via
+/// `rng.next_below(k)`, per `cat_ops.rs`'s "PROVENANCE" doc), included purely
+/// for spec-shape uniformity with every other preset in this crate. `p_c`/
+/// `p_m` are left at `gen/ga-cat`'s own verified pymoo defaults (`0.9`/
+/// `1/n`, omitted here for the same reason `ga_bin`'s own preset omits them
+/// -- they resolve identically whether stated or not). `pop_size` is the
+/// caller's choice (no canonical value from a single source, same as
+/// `ga_real`/`ga_perm`/`ga_bin`/`ga_int`). `min_pop = 2` (tournament
+/// selection needs a population of at least 2), enforced via
+/// `AlgorithmSpec::validate`.
+pub fn ga_cat(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "ga-cat".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/ga-cat", serde_json::json!({"tournament_k": 2})),
+            replacer: comp("replace/mu-plus-lambda", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn pso(pop_size: usize, budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "pso/clerc-kennedy".into(), pop_size,
