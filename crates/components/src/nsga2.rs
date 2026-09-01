@@ -958,7 +958,24 @@
 //! (crossover+mutation) are representation-specific, hence the
 //! `nsga2_run_float`/`nsga2_run_binary` split and the
 //! `generate_offspring`/`generate_offspring_binary` split.
+//!
+//! ## M3-8 Task 2: the binary pure cores moved to `bin_ops.rs`
+//!
+//! [`bin_cross_pair`]/[`bin_flip_mutation`]/`rnd` (this module's own copies)
+//! RELOCATED to `crate::bin_ops` verbatim -- byte-identical logic, same
+//! draw order, same numeric outputs for the same seed -- so that
+//! `gen/bin-2pt`/`gen/bit-flip`/`gen/ga-bin` (the new single-objective
+//! registry components `bin_ops.rs` adds) can reuse them without
+//! duplication. This module now re-imports them (`use crate::bin_ops::{...}`
+//! below) rather than defining them; `bin_cross_genome`/`bin_mutate_genome`
+//! (the multi-block MO-specific wrappers) and `shuffle_two_interleaved`
+//! (which also calls `rnd`) are UNCHANGED, now calling the relocated copies.
+//! See `bin_ops.rs`'s own module doc, "The seam" section, for the full
+//! rationale. Every frozen test in this module's own `mod tests` (including
+//! its hand-traced `bin_cross_pair`/`bin_flip_mutation` fixtures) passes
+//! UNMODIFIED after this move -- the acceptance evidence for the relocation.
 
+use crate::bin_ops::{bin_cross_pair, bin_flip_mutation, rnd};
 use sezgi_core::mo::{MoEvaluator, MoProblem};
 use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
@@ -1597,62 +1614,9 @@ fn to_genotype_binary(blocks: Vec<Vec<bool>>) -> Genotype {
     Genotype { blocks: blocks.into_iter().map(BlockValues::Bin).collect() }
 }
 
-/// KanGAL reference C's `crossover.c`, `bincross`, on ONE binary block
-/// (`sezgi`'s per-block mirror of the C's per-`nbin`-variable `nbits[i]`-
-/// bit `gene[i]` row) -- see the module doc's "Binary genotype path"
-/// section for the verified quote, the sha check, and the "two-point, not
-/// one-point" correction to the task brief's assumption. `p1`/`p2` must be
-/// the same length (`nbits`). Returns `(child1, child2)`.
-///
-/// **Pinned draw structure** (module doc): ONE draw, the per-BLOCK gate
-/// (`rand = randomperc(); if (rand <= pcross_bin)`) -- unlike `sbx_pair`'s
-/// single gate covering the WHOLE real-coded pair at once, `bincross`
-/// gates EACH binary block independently (the C's own `for (i=0; i<nbin;
-/// i++)` outer loop encloses the gate itself, not just the crossover math
-/// -- see the quote). On failure, copy both parents verbatim for this
-/// block -- no further draws for it. On success: TWO more draws, `site1 =
-/// rnd(0,nbits[i]-1)` then `site2 = rnd(0,nbits[i]-1)` (via [`rnd`], SAME
-/// helper the tournament-pairing shuffle uses -- no draw at all when
-/// `nbits <= 1`, since `rnd(0,0)` hits the `low>=high` no-draw branch
-/// twice), THEN sorted ascending with NO further draw (a plain compare-and-
-/// swap, not a third draw) -- verified: the C computes `site1`/`site2`
-/// unconditionally THEN swaps them if `site1 > site2`, it does not re-draw.
-/// The genome is then partitioned into three (possibly-empty) segments by
-/// `[site1, site2)`: `[0,site1)` and `[site2,nbits)` come from each child's
-/// OWN parent (child1<-parent1, child2<-parent2), the MIDDLE segment
-/// `[site1,site2)` is SWAPPED (child1<-parent2, child2<-parent1) -- a
-/// classic two-point crossover, no draws.
-pub fn bin_cross_pair(p1: &[bool], p2: &[bool], p_c_bin: f64, rng: &mut RngStream) -> (Vec<bool>, Vec<bool>) {
-    debug_assert_eq!(p1.len(), p2.len(), "bin_cross_pair: parent bit vectors must have equal length");
-    let n = p1.len();
-
-    // Per-block gate: ONE draw.
-    if rng.next_f64() > p_c_bin {
-        return (p1.to_vec(), p2.to_vec());
-    }
-
-    let hi = n.saturating_sub(1);
-    let mut site1 = rnd(0, hi, rng);
-    let mut site2 = rnd(0, hi, rng);
-    if site1 > site2 {
-        std::mem::swap(&mut site1, &mut site2);
-    }
-
-    let mut c1 = Vec::with_capacity(n);
-    let mut c2 = Vec::with_capacity(n);
-    for j in 0..n {
-        if j < site1 || j >= site2 {
-            c1.push(p1[j]);
-            c2.push(p2[j]);
-        } else {
-            c1.push(p2[j]);
-            c2.push(p1[j]);
-        }
-    }
-    (c1, c2)
-}
-
-/// Whole-genome [`bin_cross_pair`]: mirrors `bincross`'s own outer
+/// Whole-genome [`bin_cross_pair`] (relocated to `crate::bin_ops`, M3-8 Task
+/// 2 -- see this module's doc, "M3-8 Task 2" section): mirrors `bincross`'s
+/// own outer
 /// `for (i=0; i<nbin; i++)` loop -- EACH binary block gets its OWN
 /// independent [`bin_cross_pair`] call (own gate, own draws), in block
 /// order.
@@ -1672,24 +1636,9 @@ fn bin_cross_genome(
     (c1, c2)
 }
 
-/// KanGAL reference C's `mutation.c`, `bin_mutate_ind`, on ONE binary
-/// block, in place. See the module doc's "Binary genotype path" section
-/// for the verified quote.
-///
-/// **Pinned draw structure:** per bit, in order, ONE draw
-/// (`prob = randomperc(); if (prob <= pmut_bin)`); on success, flip the
-/// bit (`0<->1`); on failure, leave it unchanged. No second draw per bit
-/// (unlike [`polynomial_mutation`]'s gate-then-`rnd` two-draw shape --
-/// bit-flip needs no magnitude draw, only the gate).
-pub fn bin_flip_mutation(x: &mut [bool], p_m_bin: f64, rng: &mut RngStream) {
-    for bit in x.iter_mut() {
-        if rng.next_f64() <= p_m_bin {
-            *bit = !*bit;
-        }
-    }
-}
-
-/// Whole-genome [`bin_flip_mutation`]: mirrors `bin_mutate_ind`'s own
+/// Whole-genome [`bin_flip_mutation`] (relocated to `crate::bin_ops`, M3-8
+/// Task 2 -- see this module's doc, "M3-8 Task 2" section): mirrors
+/// `bin_mutate_ind`'s own
 /// nested `for (j=0; j<nbin; j++) for (k=0; k<nbits[j]; k++)` loop --
 /// block-major, bit-minor, in place.
 fn bin_mutate_genome(x: &mut [Vec<bool>], p_m_bin: f64, rng: &mut RngStream) {
@@ -1705,22 +1654,6 @@ fn init_population(n: usize, lo: &[f64], hi: &[f64], rng: &mut RngStream) -> Vec
     (0..n)
         .map(|_| (0..lo.len()).map(|j| lo[j] + (hi[j] - lo[j]) * rng.next_f64()).collect())
         .collect()
-}
-
-/// `rand.c`'s `rnd(low, high)`: a uniform integer in `[low, high]`
-/// inclusive, via `low + floor(U(0,1) * (high-low+1))` clamped down to
-/// `high`. Pinned quirk (module doc, "Tournament pairing"): **no draw at
-/// all** when `low >= high`.
-fn rnd(low: usize, high: usize, rng: &mut RngStream) -> usize {
-    if low >= high {
-        return low;
-    }
-    let width = (high - low + 1) as f64;
-    let mut res = low + (rng.next_f64() * width).floor() as usize;
-    if res > high {
-        res = high;
-    }
-    res
 }
 
 /// The `tourselect.c` `selection()` double-permutation shuffle, draws

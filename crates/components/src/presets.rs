@@ -123,6 +123,40 @@ pub fn ga_perm(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Binary GA (M3-8 Task 2) -- mirrors `ga_perm`'s own preset structure
+/// exactly (`init` + `boundary` + one `[[stages]]` entry pairing a fused
+/// crossover+mutation `Generator` with `replace/mu-plus-lambda`), swapped to
+/// the Binary representation: `init/uniform` (its own `Block::Binary`
+/// branch already samples one fair coin flip per bit, per `init.rs`'s own
+/// doc, so there is no dedicated `init/bin-random` the way there is
+/// `init/perm-random` -- nothing would differ) instead of `init/perm-random`,
+/// `gen/ga-bin` ([`crate::bin_ops::GaBinGenerator`] -- the FUSED two-point-
+/// crossover + bit-flip-mutation generator, per `bin_ops.rs`'s module doc)
+/// instead of `gen/ga-perm`, and `replace/mu-plus-lambda` reused as-is (same
+/// elitist merge-sort-truncate replacer `ga_real`/`ga_perm` both use --
+/// `SupportedBlocks::All`). `boundary/clamp` is likewise reused as-is: its
+/// `Block::Binary` branch is a documented no-op (structurally cannot go out
+/// of bounds), included purely for spec-shape uniformity with every other
+/// preset in this crate. `pop_size` is the caller's choice (no canonical
+/// value from a single source, same as `ga_real`/`ga_perm`). `min_pop = 2`
+/// (tournament selection needs a population of at least 2), enforced via
+/// `AlgorithmSpec::validate`.
+pub fn ga_bin(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "ga-bin".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/ga-bin", serde_json::json!(
+                {"tournament_k": 2, "p_c": 0.9})),
+            replacer: comp("replace/mu-plus-lambda", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn pso(pop_size: usize, budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "pso/clerc-kennedy".into(), pop_size,
