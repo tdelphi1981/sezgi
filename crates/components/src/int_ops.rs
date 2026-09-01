@@ -81,7 +81,7 @@ use crate::nsga2::{polynomial_mutation, sbx_pair};
 ///   return Q
 ///   ```
 ///   `pymoo/operators/repair/bounds_repair.py`, `repair_clamp`, quoted
-///   verbatim:
+///   with docstring and lint comments elided (code lines verbatim):
 ///   ```python
 ///   def repair_clamp(Xp, xl, xu):
 ///       XL, XU = repeat_bounds(xl, xu, len(Xp))
