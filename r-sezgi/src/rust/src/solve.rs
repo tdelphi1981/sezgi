@@ -1,12 +1,14 @@
-use savvy::{savvy, savvy_err, OwnedListSexp, OwnedRealSexp, Sexp};
+use savvy::{
+    savvy, savvy_err, OwnedIntegerSexp, OwnedListSexp, OwnedLogicalSexp, OwnedRealSexp, Sexp,
+};
 use sezgi_components::{presets, register_builtins};
 use sezgi_core::component::Registry;
 use sezgi_core::dist::Distribution;
 use sezgi_core::engine::{Engine, RunConfig};
 use sezgi_core::problem::Problem;
-use sezgi_core::space::BlockValues;
+use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 use sezgi_core::spec::AlgorithmSpec;
-use sezgi_problems::{BbobProblem, Cec2014, Cec2017, Cec2022, Tsp};
+use sezgi_problems::{BbobProblem, CatMatch, Cec2014, Cec2017, Cec2022, IntQuadratic, OneMax, Tsp};
 
 /// Casts a non-negative-checked, WHOLE-NUMBER-checked `f64` (as passed
 /// from R, which has no native unsigned integer type) to `u64`, rejecting
@@ -41,6 +43,30 @@ fn f64_to_u64(name: &str, x: f64) -> savvy::Result<u64> {
 /// `dim`-typed params, which are consumed as `usize` on the Rust side.
 fn f64_to_usize(name: &str, x: f64) -> savvy::Result<usize> {
     f64_to_u64(name, x).map(|v| v as usize)
+}
+
+/// Same contract as [`f64_to_u64`], returning `u32` -- for `k`-typed params
+/// (`sz_solve_cat_match`'s `k` / `sz_solve_mixed_diagnostic`'s `k_cat`).
+/// Duplicated from the identically-named private helper in `problems.rs`
+/// (M3-8 Task 10) -- same "no shared private cross-module import" rule that
+/// helper's own doc already documents.
+fn f64_to_u32(name: &str, x: f64) -> savvy::Result<u32> {
+    f64_to_u64(name, x).map(|v| v as u32)
+}
+
+/// Casts a WHOLE-NUMBER-checked `f64` to `i64`, rejecting non-finite or
+/// fractional values (UNLIKE [`f64_to_u64`], negative values are accepted --
+/// needed for `sz_solve_int_quadratic`'s `lo`/`hi`, which `IntQuadratic::new`
+/// takes as signed `i64` and which a diagnostic bowl commonly straddles
+/// zero, e.g. `lo = -10, hi = 10`). M3-8 Task 10.
+fn f64_to_i64(name: &str, x: f64) -> savvy::Result<i64> {
+    if !x.is_finite() {
+        return Err(savvy_err!("{} must be a finite number, got {}", name, x));
+    }
+    if x.fract() != 0.0 {
+        return Err(savvy_err!("{} expected a whole number, got {}", name, x));
+    }
+    Ok(x as i64)
 }
 
 /// Builds a DE/rand/1/bin algorithm spec (uniform init, clamp boundary,
@@ -516,6 +542,55 @@ fn sz_preset_ga_perm(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
     json.try_into()
 }
 
+/// Builds a Binary-space GA spec (tournament selection, uniform crossover,
+/// bit-flip mutation -- `gen/ga-bin` + `replace/mu-plus-lambda`) as JSON,
+/// ready to pass to `sz_solve_onemax()`. Binds
+/// [`sezgi_components::presets::ga_bin`] exactly -- M3-8 Task 10, mirroring
+/// py-sezgi's `sezgi.presets.ga_bin` (M3-8 Task 9).
+///
+/// @param pop_size Population size.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_ga_bin(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::ga_bin(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
+/// Builds an Int-space GA spec (tournament selection, SBX-style integer
+/// crossover, polynomial-style integer mutation -- `gen/ga-int` +
+/// `replace/mu-plus-lambda`) as JSON, ready to pass to
+/// `sz_solve_int_quadratic()`. Binds
+/// [`sezgi_components::presets::ga_int`] exactly -- M3-8 Task 10, mirroring
+/// py-sezgi's `sezgi.presets.ga_int` (M3-8 Task 9).
+///
+/// @param pop_size Population size.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_ga_int(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::ga_int(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
+/// Builds a Categorical-space GA spec (tournament selection, uniform
+/// crossover, random-reset mutation -- `gen/ga-cat` + `replace/mu-plus-lambda`)
+/// as JSON, ready to pass to `sz_solve_cat_match()`. Binds
+/// [`sezgi_components::presets::ga_cat`] exactly -- M3-8 Task 10, mirroring
+/// py-sezgi's `sezgi.presets.ga_cat` (M3-8 Task 9).
+///
+/// @param pop_size Population size.
+/// @param budget Evaluation budget.
+/// @returns A character scalar with the algorithm spec as JSON.
+/// @export
+#[savvy]
+fn sz_preset_ga_cat(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
+    let json = presets::ga_cat(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?).to_json();
+    json.try_into()
+}
+
 /// Parses the `dist` string + flattened distribution params accepted by
 /// `sz_preset_es_mu_plus_lambda_raw()` into a `Distribution`. Duplicated
 /// (rather than shared via a private cross-crate import) from py-sezgi's
@@ -585,6 +660,125 @@ fn sz_preset_es_mu_plus_lambda_raw(
         .map_err(|e| savvy_err!("{e}"))?;
     let json = presets::es_mu_plus_lambda(f64_to_usize("pop_size", pop_size)?, f64_to_u64("budget", budget)?, d).to_json();
     json.try_into()
+}
+
+/// Mixed Float+Int+Categorical+Binary scaffold problem (M3-8 Task 10),
+/// living only in this crate (not `crates/problems`) -- the R mirror of
+/// py-sezgi's identically-named, identically-shaped `MixedDiagnostic`
+/// (`py-sezgi/src/lib.rs`, M3-8 Task 9). It exists purely to give
+/// `sz_solve_mixed_diagnostic()` a target whose search space has one block
+/// of each non-Permutation kind, so a mixed-space TOML `AlgorithmSpec` using
+/// `gen/compound` (Task 5) can be run end to end through the NORMAL R solve
+/// path. Mirrors `crates/components/src/compound.rs`'s own test-local
+/// `MixedProblem` byte-for-byte: `Block::Float{-5,5,n_float}` +
+/// `Block::Int{-5,5,n_int}` + `Block::Categorical{k_cat,n_cat}` +
+/// `Block::Binary{n_bin}`, and `evaluate_batch` = (sum of the float block) +
+/// (sum of the int block) + (count of categorical genes != 0) + (count of
+/// `false` bits). Not a benchmark and not one of Task 5's brief-pinned
+/// diagnostics -- test scaffolding only; `optimum()` is not exposed by any
+/// `sz_solve_*` binding (this file's whole convention never surfaces
+/// `Problem::optimum()` -- see `sz_solve_bbob`'s own result shape), so no
+/// "no verified target" caveat is even reachable from R the way py-sezgi's
+/// `Inner::Mixed => None` is.
+struct MixedDiagnostic {
+    space: SearchSpace,
+}
+
+impl MixedDiagnostic {
+    fn new(n_float: usize, n_int: usize, k_cat: u32, n_cat: usize, n_bin: usize) -> Self {
+        let space = SearchSpace::new(vec![
+            Block::Float { lo: -5.0, hi: 5.0, n: n_float },
+            Block::Int { lo: -5, hi: 5, n: n_int },
+            Block::Categorical { k: k_cat, n: n_cat },
+            Block::Binary { n: n_bin },
+        ])
+        .expect("Float{-5,5,..}/Int{-5,5,..} bounds are fixed and valid (lo < hi); \
+                 Categorical/Binary have no bounds for SearchSpace::new to reject");
+        Self { space }
+    }
+}
+
+impl Problem for MixedDiagnostic {
+    fn space(&self) -> &SearchSpace { &self.space }
+
+    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
+        pop.iter()
+            .map(|g| {
+                g.blocks.iter().fold(0.0, |f, b| f + match b {
+                    BlockValues::Float(xs) => xs.iter().sum::<f64>(),
+                    BlockValues::Int(xs) => xs.iter().sum::<i64>() as f64,
+                    BlockValues::Cat(xs) => xs.iter().filter(|&&c| c != 0).count() as f64,
+                    BlockValues::Bin(xs) => xs.iter().filter(|&&b| !b).count() as f64,
+                    BlockValues::Perm(_) => 0.0,
+                })
+            })
+            .collect()
+    }
+}
+
+/// Converts one [`BlockValues`] block into its natural R `Sexp` type -- the R
+/// mirror of py-sezgi's `block_values_to_py` helper (`py-sezgi/src/lib.rs`,
+/// M3-8 Task 9's "typed result genotype" design decision; see this task's
+/// own report for the full mapping table). Used by `sz_solve_onemax` /
+/// `sz_solve_int_quadratic` / `sz_solve_cat_match` / `sz_solve_mixed_diagnostic`
+/// ONLY -- `sz_solve_bbob`/`sz_solve_cec2022`/`sz_solve_cec2014`/
+/// `sz_solve_cec2017` read `BlockValues::Float` directly (unchanged, still
+/// byte-identical), and `sz_solve_tsp` reads `BlockValues::Perm` directly
+/// with its own 1-based conversion (`problems.rs`'s module doc, "Index-
+/// convention decision") -- neither needs this generic dispatch.
+///
+/// - `Float` -> a numeric double vector (`OwnedRealSexp`) -- BYTE-IDENTICAL
+///   to `sz_solve_bbob`'s own `best_x` (no behavior change for existing
+///   callers of this crate's Float-space solves).
+/// - `Int` -> an integer vector (`OwnedIntegerSexp`), each `i64` gene cast to
+///   `i32` (R has no native 64-bit integer type; every value this crate's
+///   own `Int`-typed diagnostics/presets produce fits comfortably in `i32`).
+/// - `Cat` -> an integer vector (`OwnedIntegerSexp`) of category INDICES
+///   `0..k` (`u32` cast to `i32`), not labels -- `CatMatch`/`gen/ga-cat` have
+///   no label concept, same choice py-sezgi's `Cat -> list[int]` makes.
+/// - `Bin` -> a logical vector (`OwnedLogicalSexp`), R's native boolean, one
+///   per bit -- matching Rust's own `Vec<bool>` 1:1, and mirroring this same
+///   file's own `sz_mo_read_moa`'s `MoArchiveGenotype::Binary ->
+///   OwnedLogicalSexp` precedent (`mo.rs`) rather than a 0/1 numeric
+///   encoding.
+/// - `Perm` is unreachable from this helper's four callers (none of
+///   onemax/int_quadratic/cat_match/mixed_diagnostic ever build a
+///   Permutation block) -- `unreachable!()` rather than a silent, wrong
+///   conversion.
+fn block_values_to_r(bv: &BlockValues) -> savvy::Result<Sexp> {
+    Ok(match bv {
+        BlockValues::Float(xs) => OwnedRealSexp::try_from_slice(xs.as_slice())?.into(),
+        BlockValues::Int(xs) => {
+            OwnedIntegerSexp::try_from_iter(xs.iter().map(|&x| x as i32))?.into()
+        }
+        BlockValues::Cat(xs) => {
+            OwnedIntegerSexp::try_from_iter(xs.iter().map(|&x| x as i32))?.into()
+        }
+        BlockValues::Bin(xs) => OwnedLogicalSexp::try_from_slice(xs.as_slice())?.into(),
+        BlockValues::Perm(_) => unreachable!(
+            "block_values_to_r's four callers (onemax/int_quadratic/cat_match/mixed_diagnostic) \
+             never build a Permutation block -- sz_solve_tsp has its own dedicated conversion"
+        ),
+    })
+}
+
+/// Converts a full result genotype (`result.best_x`, possibly multi-block)
+/// into its R `Sexp` shape -- single block => a flat typed vector
+/// ([`block_values_to_r`] directly); multi-block (reachable only via
+/// `sz_solve_mixed_diagnostic`) => an unnamed list of per-block vectors, one
+/// per `SearchSpace::blocks()` entry in order. Mirrors py-sezgi's own
+/// single-block-vs-multi-block `best_x` dispatch in `solve()`
+/// (`py-sezgi/src/lib.rs`) exactly.
+fn genotype_to_r(blocks: &[BlockValues]) -> savvy::Result<Sexp> {
+    if blocks.len() == 1 {
+        block_values_to_r(&blocks[0])
+    } else {
+        let mut out = OwnedListSexp::new(blocks.len(), false)?;
+        for (i, b) in blocks.iter().enumerate() {
+            out.set_value(i, block_values_to_r(b)?)?;
+        }
+        Ok(out.into())
+    }
 }
 
 fn registry() -> Registry {
@@ -922,6 +1116,292 @@ fn sz_solve_tsp(spec_json: &str, name: &str, master_seed: f64, run_id: f64) -> s
         OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
     )?;
     out.set_name_and_value(2, "best_x", OwnedRealSexp::try_from_slice(best_x.as_slice())?)?;
+
+    Ok(out.into())
+}
+
+/// Runs an algorithm spec on [`OneMax`] (Goldberg 1989's classic
+/// Binary-block GA diagnostic; `sezgi_problems::diagnostics::OneMax`) and
+/// returns the result -- M3-8 Task 10, mirroring `sz_solve_tsp`/
+/// `sz_solve_cec2022` exactly (`Engine::from_spec` + `engine.run`), except
+/// `best_x` is now typed via [`genotype_to_r`] rather than assumed `Float`
+/// (see that helper's own doc for the full type-mapping table). Pairs with
+/// `sz_preset_ga_bin(...)`. Diagnostic only -- not a benchmark, see
+/// `OneMax`'s own module doc.
+///
+/// @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_ga_bin()`).
+/// @param n_bits Length of the single `Block::Binary` (double, cast to
+///   `usize`).
+/// @param master_seed Master RNG seed.
+/// @param run_id Run id (mixed into the seed for independent replicate streams).
+/// @returns A named list with `best_f` (double), `evals` (double), and
+///   `best_x` (a LOGICAL vector, one per bit -- see [`genotype_to_r`]'s doc).
+///
+/// # Errors
+/// A savvy error for any [`sezgi_core::spec`] parse error, or any
+/// [`sezgi_core::engine`] run error.
+/// @export
+#[savvy]
+fn sz_solve_onemax(spec_json: &str, n_bits: f64, master_seed: f64, run_id: f64) -> savvy::Result<Sexp> {
+    let spec = AlgorithmSpec::from_json(spec_json).map_err(|e| savvy_err!("{e}"))?;
+    let reg = registry();
+
+    let problem = OneMax::new(f64_to_usize("n_bits", n_bits)?);
+
+    let engine = Engine::from_spec(&spec, &reg, problem.space()).map_err(|e| savvy_err!("{e}"))?;
+    let result = engine
+        .run(
+            &problem,
+            RunConfig {
+                master_seed: f64_to_u64("master_seed", master_seed)?,
+                run_id: f64_to_u64("run_id", run_id)?,
+            },
+            None,
+        )
+        .map_err(|e| savvy_err!("{e}"))?;
+
+    let mut out = OwnedListSexp::new(3, true)?;
+    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name_and_value(
+        1,
+        "evals",
+        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
+    )?;
+    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+
+    Ok(out.into())
+}
+
+/// Runs an algorithm spec on [`IntQuadratic`] (an Int-block quadratic bowl
+/// around a fixed, deterministically-derived target;
+/// `sezgi_problems::diagnostics::IntQuadratic`) and returns the result --
+/// M3-8 Task 10, mirroring `sz_solve_onemax` exactly. Pairs with
+/// `sz_preset_ga_int(...)`. Diagnostic only, see `IntQuadratic`'s own module
+/// doc.
+///
+/// @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_ga_int()`).
+/// @param lo Inclusive lower bound of the single `Block::Int` (double, cast
+///   to `i64`; may be negative).
+/// @param hi Inclusive upper bound of the single `Block::Int` (double, cast
+///   to `i64`; may be negative). Must be `> lo`.
+/// @param n Length of the single `Block::Int` (double, cast to `usize`).
+/// @param master_seed Master RNG seed.
+/// @param run_id Run id (mixed into the seed for independent replicate streams).
+/// @returns A named list with `best_f` (double), `evals` (double), and
+///   `best_x` (an INTEGER vector -- see `genotype_to_r`'s doc).
+///
+/// # Errors
+/// A savvy error if `lo >= hi`, for any [`sezgi_core::spec`] parse error, or
+/// any [`sezgi_core::engine`] run error.
+/// @export
+#[savvy]
+fn sz_solve_int_quadratic(
+    spec_json: &str,
+    lo: f64,
+    hi: f64,
+    n: f64,
+    master_seed: f64,
+    run_id: f64,
+) -> savvy::Result<Sexp> {
+    let lo_i = f64_to_i64("lo", lo)?;
+    let hi_i = f64_to_i64("hi", hi)?;
+    if lo_i >= hi_i {
+        return Err(savvy_err!("lo ({}) must be < hi ({})", lo_i, hi_i));
+    }
+    let n_u = f64_to_usize("n", n)?;
+
+    let spec = AlgorithmSpec::from_json(spec_json).map_err(|e| savvy_err!("{e}"))?;
+    let reg = registry();
+
+    let problem = IntQuadratic::new(lo_i, hi_i, n_u);
+
+    let engine = Engine::from_spec(&spec, &reg, problem.space()).map_err(|e| savvy_err!("{e}"))?;
+    let result = engine
+        .run(
+            &problem,
+            RunConfig {
+                master_seed: f64_to_u64("master_seed", master_seed)?,
+                run_id: f64_to_u64("run_id", run_id)?,
+            },
+            None,
+        )
+        .map_err(|e| savvy_err!("{e}"))?;
+
+    let mut out = OwnedListSexp::new(3, true)?;
+    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name_and_value(
+        1,
+        "evals",
+        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
+    )?;
+    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+
+    Ok(out.into())
+}
+
+/// Runs an algorithm spec on [`CatMatch`] (a Categorical-block Hamming-
+/// distance-to-target matching problem; `sezgi_problems::diagnostics::CatMatch`)
+/// and returns the result -- M3-8 Task 10, mirroring `sz_solve_onemax`
+/// exactly. Pairs with `sz_preset_ga_cat(...)`. Diagnostic only, see
+/// `CatMatch`'s own module doc.
+///
+/// @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_ga_cat()`).
+/// @param k Category count per gene (double, cast to `u32`).
+/// @param n Length of the single `Block::Categorical` (double, cast to `usize`).
+/// @param seed Master seed the target category vector is drawn from (double,
+///   cast to `u64`) -- UNLIKE `sz_solve_int_quadratic`'s `lo`/`hi`, this is
+///   an explicit caller-supplied construction parameter, not derived.
+/// @param master_seed Master RNG seed for the solve itself.
+/// @param run_id Run id (mixed into the seed for independent replicate streams).
+/// @returns A named list with `best_f` (double), `evals` (double), and
+///   `best_x` (an INTEGER vector of category INDICES `0..k` -- see
+///   `genotype_to_r`'s doc).
+///
+/// # Errors
+/// A savvy error for any [`sezgi_core::spec`] parse error, or any
+/// [`sezgi_core::engine`] run error.
+/// @export
+#[savvy]
+fn sz_solve_cat_match(
+    spec_json: &str,
+    k: f64,
+    n: f64,
+    seed: f64,
+    master_seed: f64,
+    run_id: f64,
+) -> savvy::Result<Sexp> {
+    let spec = AlgorithmSpec::from_json(spec_json).map_err(|e| savvy_err!("{e}"))?;
+    let reg = registry();
+
+    let problem = CatMatch::new(
+        f64_to_u32("k", k)?,
+        f64_to_usize("n", n)?,
+        f64_to_u64("seed", seed)?,
+    );
+
+    let engine = Engine::from_spec(&spec, &reg, problem.space()).map_err(|e| savvy_err!("{e}"))?;
+    let result = engine
+        .run(
+            &problem,
+            RunConfig {
+                master_seed: f64_to_u64("master_seed", master_seed)?,
+                run_id: f64_to_u64("run_id", run_id)?,
+            },
+            None,
+        )
+        .map_err(|e| savvy_err!("{e}"))?;
+
+    let mut out = OwnedListSexp::new(3, true)?;
+    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name_and_value(
+        1,
+        "evals",
+        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
+    )?;
+    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+
+    Ok(out.into())
+}
+
+/// Runs an algorithm spec on [`MixedDiagnostic`] (this file's own
+/// Float+Int+Categorical+Binary mixed-space scaffold problem, see its own
+/// doc) and returns the result -- M3-8 Task 10. Added SOLELY so
+/// `gen/compound` (Task 5) is reachable end to end through the NORMAL R
+/// solve path, proven with a mixed-space `AlgorithmSpec` authored as TOML
+/// (this task's own test) -- UNLIKE its three siblings above (which take
+/// `spec_json`, pairing with `sz_preset_ga_bin/ga_int/ga_cat`'s own
+/// `.to_json()` presets), this function takes `spec_toml` directly and
+/// parses it via [`AlgorithmSpec::from_toml`], the SAME entry point
+/// `sz_run_experiment_raw`'s `ExperimentSpec::from_toml` already establishes
+/// the "hand a raw TOML document straight to the Rust core" convention for
+/// (`experiment.rs`) -- no R-side TOML library exists or is needed (r-sezgi
+/// has none in `DESCRIPTION`'s `Suggests`; unlike py-sezgi's test, which
+/// parses TOML with the stdlib's own `tomllib` into a dict before handing it
+/// to `solve()`, R has no such stdlib module, so parsing happens in Rust
+/// instead -- `AlgorithmSpec::from_toml`/`::from_json` are just two
+/// serializations of the identical schema, so this is not a private
+/// shortcut, only a different serialization entry point already used
+/// elsewhere in this same file's crate). Mirrors `sz_solve_onemax`
+/// otherwise, EXCEPT `run_id` is dropped (fixed to `0` internally) rather
+/// than taken as an explicit parameter -- with `spec_toml` this function
+/// already sits at 7 R-facing parameters; adding `run_id` would push it to 8
+/// and trip this workspace's `clippy::too_many_arguments` gate (threshold
+/// 7, this file's ONE pre-existing exception is
+/// `sz_preset_es_mu_plus_lambda_raw`, not to be joined by a second). `run_id
+/// = 0` matches how this scaffold is actually exercised (this task's own
+/// TOML test, mirroring py-sezgi's `test_gen_compound_mixed_space_toml_spec_
+/// solves_end_to_end`, calls `solve(spec, problem, master_seed=42)` with no
+/// `run_id` override either -- `solve()`'s own Python signature defaults
+/// `run_id=0`). Test scaffolding only -- NOT one of Task 5's brief-pinned
+/// diagnostics, and (unlike onemax/int_quadratic/cat_match) has no verified
+/// target: this file's own convention never surfaces `Problem::optimum()`
+/// in a result anyway (see `sz_solve_bbob`'s own `best_f`/`evals`/`best_x`
+/// shape), so that caveat needs no separate plumbing here.
+///
+/// @param spec_toml Algorithm spec as TOML text (e.g. a mixed-space
+///   `gen/compound` document).
+/// @param n_float Length of the `Block::Float{-5,5,..}` block (double, cast
+///   to `usize`).
+/// @param n_int Length of the `Block::Int{-5,5,..}` block (double, cast to
+///   `usize`).
+/// @param k_cat Category count per gene of the `Block::Categorical` block
+///   (double, cast to `u32`).
+/// @param n_cat Length of the `Block::Categorical` block (double, cast to
+///   `usize`).
+/// @param n_bin Length of the `Block::Binary` block (double, cast to `usize`).
+/// @param master_seed Master RNG seed. `run_id` is fixed to `0` (see this
+///   function's own doc for why it is not a parameter here).
+/// @returns A named list with `best_f` (double), `evals` (double), and
+///   `best_x` -- a MULTI-block genotype, surfaced as an unnamed list of 4
+///   per-block vectors in `SearchSpace::blocks()` order (Float numeric, Int
+///   integer, Categorical integer, Binary logical -- see `genotype_to_r`'s
+///   doc).
+///
+/// # Errors
+/// A savvy error for any [`sezgi_core::spec`] parse error, or any
+/// [`sezgi_core::engine`] run error.
+/// @export
+#[savvy]
+fn sz_solve_mixed_diagnostic(
+    spec_toml: &str,
+    n_float: f64,
+    n_int: f64,
+    k_cat: f64,
+    n_cat: f64,
+    n_bin: f64,
+    master_seed: f64,
+) -> savvy::Result<Sexp> {
+    let spec = AlgorithmSpec::from_toml(spec_toml).map_err(|e| savvy_err!("{e}"))?;
+    let reg = registry();
+
+    let problem = MixedDiagnostic::new(
+        f64_to_usize("n_float", n_float)?,
+        f64_to_usize("n_int", n_int)?,
+        f64_to_u32("k_cat", k_cat)?,
+        f64_to_usize("n_cat", n_cat)?,
+        f64_to_usize("n_bin", n_bin)?,
+    );
+
+    let engine = Engine::from_spec(&spec, &reg, problem.space()).map_err(|e| savvy_err!("{e}"))?;
+    let result = engine
+        .run(
+            &problem,
+            RunConfig {
+                master_seed: f64_to_u64("master_seed", master_seed)?,
+                run_id: 0,
+            },
+            None,
+        )
+        .map_err(|e| savvy_err!("{e}"))?;
+
+    let mut out = OwnedListSexp::new(3, true)?;
+    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name_and_value(
+        1,
+        "evals",
+        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
+    )?;
+    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
 
     Ok(out.into())
 }

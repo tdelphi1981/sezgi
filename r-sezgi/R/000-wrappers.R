@@ -860,6 +860,49 @@ NULL
   .Call(savvy_sz_preset_fpa__impl, `pop_size`, `budget`)
 }
 
+#' Builds a Binary-space GA spec (tournament selection, uniform crossover,
+#' bit-flip mutation -- `gen/ga-bin` + `replace/mu-plus-lambda`) as JSON,
+#' ready to pass to `sz_solve_onemax()`. Binds
+#' [`sezgi_components::presets::ga_bin`] exactly -- M3-8 Task 10, mirroring
+#' py-sezgi's `sezgi.presets.ga_bin` (M3-8 Task 9).
+#'
+#' @param pop_size Population size.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_ga_bin` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_ga_bin__impl, `pop_size`, `budget`)
+}
+
+#' Builds a Categorical-space GA spec (tournament selection, uniform
+#' crossover, random-reset mutation -- `gen/ga-cat` + `replace/mu-plus-lambda`)
+#' as JSON, ready to pass to `sz_solve_cat_match()`. Binds
+#' [`sezgi_components::presets::ga_cat`] exactly -- M3-8 Task 10, mirroring
+#' py-sezgi's `sezgi.presets.ga_cat` (M3-8 Task 9).
+#'
+#' @param pop_size Population size.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_ga_cat` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_ga_cat__impl, `pop_size`, `budget`)
+}
+
+#' Builds an Int-space GA spec (tournament selection, SBX-style integer
+#' crossover, polynomial-style integer mutation -- `gen/ga-int` +
+#' `replace/mu-plus-lambda`) as JSON, ready to pass to
+#' `sz_solve_int_quadratic()`. Binds
+#' [`sezgi_components::presets::ga_int`] exactly -- M3-8 Task 10, mirroring
+#' py-sezgi's `sezgi.presets.ga_int` (M3-8 Task 9).
+#'
+#' @param pop_size Population size.
+#' @param budget Evaluation budget.
+#' @returns A character scalar with the algorithm spec as JSON.
+#' @export
+`sz_preset_ga_int` <- function(`pop_size`, `budget`) {
+  .Call(savvy_sz_preset_ga_int__impl, `pop_size`, `budget`)
+}
+
 #' Builds a permutation-space GA spec (tournament selection, order
 #' crossover, swap mutation -- `gen/ga-perm` + `replace/mu-plus-lambda`) as
 #' JSON, ready to pass to `sz_solve_tsp()`. Binds
@@ -1234,6 +1277,32 @@ NULL
   .Call(savvy_sz_solve_bbob__impl, `spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`)
 }
 
+#' Runs an algorithm spec on [`CatMatch`] (a Categorical-block Hamming-
+#' distance-to-target matching problem; `sezgi_problems::diagnostics::CatMatch`)
+#' and returns the result -- M3-8 Task 10, mirroring `sz_solve_onemax`
+#' exactly. Pairs with `sz_preset_ga_cat(...)`. Diagnostic only, see
+#' `CatMatch`'s own module doc.
+#'
+#' @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_ga_cat()`).
+#' @param k Category count per gene (double, cast to `u32`).
+#' @param n Length of the single `Block::Categorical` (double, cast to `usize`).
+#' @param seed Master seed the target category vector is drawn from (double,
+#'   cast to `u64`) -- UNLIKE `sz_solve_int_quadratic`'s `lo`/`hi`, this is
+#'   an explicit caller-supplied construction parameter, not derived.
+#' @param master_seed Master RNG seed for the solve itself.
+#' @param run_id Run id (mixed into the seed for independent replicate streams).
+#' @returns A named list with `best_f` (double), `evals` (double), and
+#'   `best_x` (an INTEGER vector of category INDICES `0..k` -- see
+#'   `genotype_to_r`'s doc).
+#'
+#' # Errors
+#' A savvy error for any [`sezgi_core::spec`] parse error, or any
+#' [`sezgi_core::engine`] run error.
+#' @export
+`sz_solve_cat_match` <- function(`spec_json`, `k`, `n`, `seed`, `master_seed`, `run_id`) {
+  .Call(savvy_sz_solve_cat_match__impl, `spec_json`, `k`, `n`, `seed`, `master_seed`, `run_id`)
+}
+
 #' Runs an algorithm spec on a CEC 2014 (Liang, Qu & Suganthan 2013)
 #' function via [`Cec2014::new`] and returns the result -- M3-6 Task 10,
 #' mirroring `sz_solve_cec2022` exactly (`Engine::from_spec` + `engine.run`
@@ -1318,6 +1387,119 @@ NULL
 #' @export
 `sz_solve_cec2022` <- function(`spec_json`, `fid`, `dim`, `master_seed`, `run_id`) {
   .Call(savvy_sz_solve_cec2022__impl, `spec_json`, `fid`, `dim`, `master_seed`, `run_id`)
+}
+
+#' Runs an algorithm spec on [`IntQuadratic`] (an Int-block quadratic bowl
+#' around a fixed, deterministically-derived target;
+#' `sezgi_problems::diagnostics::IntQuadratic`) and returns the result --
+#' M3-8 Task 10, mirroring `sz_solve_onemax` exactly. Pairs with
+#' `sz_preset_ga_int(...)`. Diagnostic only, see `IntQuadratic`'s own module
+#' doc.
+#'
+#' @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_ga_int()`).
+#' @param lo Inclusive lower bound of the single `Block::Int` (double, cast
+#'   to `i64`; may be negative).
+#' @param hi Inclusive upper bound of the single `Block::Int` (double, cast
+#'   to `i64`; may be negative). Must be `> lo`.
+#' @param n Length of the single `Block::Int` (double, cast to `usize`).
+#' @param master_seed Master RNG seed.
+#' @param run_id Run id (mixed into the seed for independent replicate streams).
+#' @returns A named list with `best_f` (double), `evals` (double), and
+#'   `best_x` (an INTEGER vector -- see `genotype_to_r`'s doc).
+#'
+#' # Errors
+#' A savvy error if `lo >= hi`, for any [`sezgi_core::spec`] parse error, or
+#' any [`sezgi_core::engine`] run error.
+#' @export
+`sz_solve_int_quadratic` <- function(`spec_json`, `lo`, `hi`, `n`, `master_seed`, `run_id`) {
+  .Call(savvy_sz_solve_int_quadratic__impl, `spec_json`, `lo`, `hi`, `n`, `master_seed`, `run_id`)
+}
+
+#' Runs an algorithm spec on [`MixedDiagnostic`] (this file's own
+#' Float+Int+Categorical+Binary mixed-space scaffold problem, see its own
+#' doc) and returns the result -- M3-8 Task 10. Added SOLELY so
+#' `gen/compound` (Task 5) is reachable end to end through the NORMAL R
+#' solve path, proven with a mixed-space `AlgorithmSpec` authored as TOML
+#' (this task's own test) -- UNLIKE its three siblings above (which take
+#' `spec_json`, pairing with `sz_preset_ga_bin/ga_int/ga_cat`'s own
+#' `.to_json()` presets), this function takes `spec_toml` directly and
+#' parses it via [`AlgorithmSpec::from_toml`], the SAME entry point
+#' `sz_run_experiment_raw`'s `ExperimentSpec::from_toml` already establishes
+#' the "hand a raw TOML document straight to the Rust core" convention for
+#' (`experiment.rs`) -- no R-side TOML library exists or is needed (r-sezgi
+#' has none in `DESCRIPTION`'s `Suggests`; unlike py-sezgi's test, which
+#' parses TOML with the stdlib's own `tomllib` into a dict before handing it
+#' to `solve()`, R has no such stdlib module, so parsing happens in Rust
+#' instead -- `AlgorithmSpec::from_toml`/`::from_json` are just two
+#' serializations of the identical schema, so this is not a private
+#' shortcut, only a different serialization entry point already used
+#' elsewhere in this same file's crate). Mirrors `sz_solve_onemax`
+#' otherwise, EXCEPT `run_id` is dropped (fixed to `0` internally) rather
+#' than taken as an explicit parameter -- with `spec_toml` this function
+#' already sits at 7 R-facing parameters; adding `run_id` would push it to 8
+#' and trip this workspace's `clippy::too_many_arguments` gate (threshold
+#' 7, this file's ONE pre-existing exception is
+#' `sz_preset_es_mu_plus_lambda_raw`, not to be joined by a second). `run_id
+#' = 0` matches how this scaffold is actually exercised (this task's own
+#' TOML test, mirroring py-sezgi's `test_gen_compound_mixed_space_toml_spec_
+#' solves_end_to_end`, calls `solve(spec, problem, master_seed=42)` with no
+#' `run_id` override either -- `solve()`'s own Python signature defaults
+#' `run_id=0`). Test scaffolding only -- NOT one of Task 5's brief-pinned
+#' diagnostics, and (unlike onemax/int_quadratic/cat_match) has no verified
+#' target: this file's own convention never surfaces `Problem::optimum()`
+#' in a result anyway (see `sz_solve_bbob`'s own `best_f`/`evals`/`best_x`
+#' shape), so that caveat needs no separate plumbing here.
+#'
+#' @param spec_toml Algorithm spec as TOML text (e.g. a mixed-space
+#'   `gen/compound` document).
+#' @param n_float Length of the `Block::Float{-5,5,..}` block (double, cast
+#'   to `usize`).
+#' @param n_int Length of the `Block::Int{-5,5,..}` block (double, cast to
+#'   `usize`).
+#' @param k_cat Category count per gene of the `Block::Categorical` block
+#'   (double, cast to `u32`).
+#' @param n_cat Length of the `Block::Categorical` block (double, cast to
+#'   `usize`).
+#' @param n_bin Length of the `Block::Binary` block (double, cast to `usize`).
+#' @param master_seed Master RNG seed. `run_id` is fixed to `0` (see this
+#'   function's own doc for why it is not a parameter here).
+#' @returns A named list with `best_f` (double), `evals` (double), and
+#'   `best_x` -- a MULTI-block genotype, surfaced as an unnamed list of 4
+#'   per-block vectors in `SearchSpace::blocks()` order (Float numeric, Int
+#'   integer, Categorical integer, Binary logical -- see `genotype_to_r`'s
+#'   doc).
+#'
+#' # Errors
+#' A savvy error for any [`sezgi_core::spec`] parse error, or any
+#' [`sezgi_core::engine`] run error.
+#' @export
+`sz_solve_mixed_diagnostic` <- function(`spec_toml`, `n_float`, `n_int`, `k_cat`, `n_cat`, `n_bin`, `master_seed`) {
+  .Call(savvy_sz_solve_mixed_diagnostic__impl, `spec_toml`, `n_float`, `n_int`, `k_cat`, `n_cat`, `n_bin`, `master_seed`)
+}
+
+#' Runs an algorithm spec on [`OneMax`] (Goldberg 1989's classic
+#' Binary-block GA diagnostic; `sezgi_problems::diagnostics::OneMax`) and
+#' returns the result -- M3-8 Task 10, mirroring `sz_solve_tsp`/
+#' `sz_solve_cec2022` exactly (`Engine::from_spec` + `engine.run`), except
+#' `best_x` is now typed via [`genotype_to_r`] rather than assumed `Float`
+#' (see that helper's own doc for the full type-mapping table). Pairs with
+#' `sz_preset_ga_bin(...)`. Diagnostic only -- not a benchmark, see
+#' `OneMax`'s own module doc.
+#'
+#' @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_ga_bin()`).
+#' @param n_bits Length of the single `Block::Binary` (double, cast to
+#'   `usize`).
+#' @param master_seed Master RNG seed.
+#' @param run_id Run id (mixed into the seed for independent replicate streams).
+#' @returns A named list with `best_f` (double), `evals` (double), and
+#'   `best_x` (a LOGICAL vector, one per bit -- see [`genotype_to_r`]'s doc).
+#'
+#' # Errors
+#' A savvy error for any [`sezgi_core::spec`] parse error, or any
+#' [`sezgi_core::engine`] run error.
+#' @export
+`sz_solve_onemax` <- function(`spec_json`, `n_bits`, `master_seed`, `run_id`) {
+  .Call(savvy_sz_solve_onemax__impl, `spec_json`, `n_bits`, `master_seed`, `run_id`)
 }
 
 #' Runs an algorithm spec on a TSPLIB VENDORED instance (`"berlin52"`,
