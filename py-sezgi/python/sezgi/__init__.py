@@ -357,53 +357,101 @@ bias = SimpleNamespace(
 )
 
 def _mo_nsga2(problem, dim, pop_size, budget, m=None, seed=0,
-              eta_c=20.0, eta_m=20.0, p_c=0.9, p_m=None):
+              eta_c=20.0, eta_m=20.0, p_c=0.9, p_m=None,
+              p_c_bin=0.9, p_m_bin=None, k=None, l=None,
+              log_dir=None, label=None):
     return _sezgi.mo_nsga2(problem, dim, pop_size, budget, m=m, seed=seed,
-                           eta_c=eta_c, eta_m=eta_m, p_c=p_c, p_m=p_m)
+                           eta_c=eta_c, eta_m=eta_m, p_c=p_c, p_m=p_m,
+                           p_c_bin=p_c_bin, p_m_bin=p_m_bin, k=k, l=l,
+                           log_dir=log_dir, label=label)
 
 
-def _mo_pareto_front(problem, dim, n, m=None):
-    return _sezgi.mo_pareto_front(problem, dim, n, m=m)
+def _mo_pareto_front(problem, dim, n, m=None, k=None, l=None):
+    return _sezgi.mo_pareto_front(problem, dim, n, m=m, k=k, l=l)
 
 
-# Multi-objective namespace (M3-2 Task 9): binds T6's NSGA-II runner, the
-# ZDT/DTLZ benchmark suites, and the exact 2-objective hypervolume/IGD
-# indicators. Every f64 is passed through EXACTLY as the Rust core computed
-# it (bit-equality mandate: T10's R bindings assert against these same
-# values), so nothing here rounds or reformats a number.
+# Multi-objective namespace (M3-2 Task 9, extended M3-7 Task 10): binds
+# T6's NSGA-II runner, the ZDT/DTLZ/WFG benchmark suites, the exact
+# 2-objective and general-M hypervolume, IGD, and sezgi-moa run logging.
+# Every f64 is passed through EXACTLY as the Rust core computed it
+# (bit-equality mandate: the R bindings assert against these same values),
+# so nothing here rounds or reformats a number.
 #
-# Problem strings: "zdt1", "zdt2", "zdt3", "zdt4", "zdt6" (ZDT5 is a
-# binary-coded problem, out of scope) and "dtlz1".."dtlz7". `m` (number of
-# objectives) is DTLZ-only and REQUIRED there; passing `m` for a zdt problem
-# raises ValueError (zdt problems are always 2-objective).
+# Problem strings: "zdt1".."zdt6" (zdt5 is the binary-coded ZDT5, M3-7 Task
+# 6), "dtlz1".."dtlz9" (dtlz8/dtlz9 are constrained, M3-7 Task 2), and
+# "wfg1".."wfg9" (M3-7 Task 5/6). `dim`/`m`/`k`/`l` are each meaningful for
+# only some families: `dim` is required for zdt1-4/6 and dtlz1-9, REJECTED
+# (must be None) for zdt5 (fixed 80-bit layout) and wfg1-9 (dimension is
+# derived from k+l); `m` is required for dtlz1-9/wfg1-9, REJECTED for every
+# zdt problem (always 2-objective); `k`/`l` are wfg-only (REJECTED for zdt/
+# dtlz), defaulting to the toolkit's own recommended values (k=4 for m=2,
+# k=2*(m-1) for m>=3; l=20) when omitted. A parameter given where it does
+# not apply, or omitted where required, raises ValueError.
 #
 # mo.nsga2(problem, dim, pop_size, budget, m=None, seed=0, eta_c=20.0,
-#   eta_m=20.0, p_c=0.9, p_m=None) -> dict with keys individuals (list of
-#   float-lists, one per final-population member), objectives (list of
-#   float-lists, parallel to individuals), front0 (list of ints: indices of
-#   the final population's non-dominated set), evals_used (int).
-#   eta_c/eta_m/p_c default to the NSGA-II paper's own pinned experimental
-#   settings (Deb et al. 2002, Sec. IV.A); p_m=None resolves on the Rust
-#   side to 1/n_variables. pop_size must be >= 4 AND a multiple of 4 (a
-#   KanGAL-faithful tightening of the naive "even, >= 4" rule) or this
-#   raises ValueError.
+#   eta_m=20.0, p_c=0.9, p_m=None, p_c_bin=0.9, p_m_bin=None, k=None,
+#   l=None, log_dir=None, label=None) -> dict with keys individuals (list
+#   of float-lists, one per final-population member -- a Binary block's
+#   bits are flattened to 0.0/1.0), objectives (list of float-lists,
+#   parallel to individuals), front0 (list of ints: indices of the final
+#   population's non-dominated set), evals_used (int), and violations
+#   (list of floats, <= 0.0, 0.0 = feasible; present ONLY when the problem
+#   is constrained -- dtlz8/dtlz9 today). eta_c/eta_m/p_c default to the
+#   NSGA-II paper's own pinned experimental settings (Deb et al. 2002,
+#   Sec. IV.A); p_m=None resolves on the Rust side to 1/n_variables.
+#   p_c_bin/p_m_bin are the binary-genotype counterparts (consulted only
+#   for zdt5's all-Binary space); p_c_bin defaults to 0.9 (mirroring p_c;
+#   the paper gives no verified binary-specific default), p_m_bin=None
+#   resolves to 1/l (the paper's own stated binary default). pop_size must
+#   be >= 4 AND a multiple of 4 (a KanGAL-faithful tightening of the naive
+#   "even, >= 4" rule) or this raises ValueError. When log_dir is given,
+#   the run is additionally streamed to
+#   <log_dir>/<label>-s<seed>.moa (sezgi-moa v1 format); label is then
+#   REQUIRED (ValueError otherwise).
 #
 # mo.hypervolume_2d(front, ref_point) -> float: the exact 2-objective
 #   S-metric hypervolume (front: list of [f1, f2] rows; ref_point: a
 #   2-element list).
 #
+# mo.hypervolume(front, ref_point) -> float: the exact general-M
+#   hypervolume (While, Bradstreet & Barone 2012, the WFG algorithm; M=2
+#   delegates to hypervolume_2d). ref_point is REQUIRED, with no default --
+#   see that module's own "Choosing a reference point" doc for why no
+#   value is silently picked.
+#
 # mo.igd(front, reference_front) -> float: Inverted Generational Distance
 #   (Ishibuchi et al. 2015, eq. 12, p=1). Any equal, consistent number of
 #   objectives.
 #
-# mo.pareto_front(problem, dim, n, m=None) -> list of float-lists, or None
-#   when the problem has no known analytic front sample at this m (e.g.
-#   DTLZ5/DTLZ6 with m > 3).
+# mo.pareto_front(problem, dim, n, m=None, k=None, l=None) -> list of
+#   float-lists, or None when the problem has no known analytic front
+#   sample (e.g. DTLZ5/DTLZ6 with m > 3, or WFG1/WFG2 unconditionally).
+#
+# mo.evaluate(problem, x, dim=None, m=None, k=None, l=None) -> list of
+#   float: direct, one-shot objective evaluation of a decision vector x,
+#   bypassing nsga2's population/budget machinery -- added (M3-7 Task 10)
+#   so fixture-value tests can pin an exact x, mirroring
+#   problems.cec2022_evaluate's convention.
+#
+# mo.evaluate_constraints(problem, x, dim=None, m=None, k=None, l=None) ->
+#   list of float or None: the matching one-shot constraint-row evaluation
+#   (None for an unconstrained problem).
+#
+# mo.read_moa(path, at=None) -> dict with keys algo, problem (the label
+#   mo.nsga2 was called with -- kept as the on-disk header key name),
+#   m, seed, budget, kind ("float"/"binary"), records (list of dicts:
+#   eval_index, objectives, genotype), archive (the reconstructed
+#   nondominated archive at evaluation budget `at`; at=None uses the
+#   file's own logged budget, i.e. the full run's final archive).
 mo = SimpleNamespace(
     nsga2=_mo_nsga2,
     hypervolume_2d=_sezgi.mo_hypervolume_2d,
+    hypervolume=_sezgi.mo_hypervolume,
     igd=_sezgi.mo_igd,
     pareto_front=_mo_pareto_front,
+    evaluate=_sezgi.mo_evaluate,
+    evaluate_constraints=_sezgi.mo_evaluate_constraints,
+    read_moa=_sezgi.mo_read_moa,
 )
 
 # Problems namespace (M3-3 Task 9): CEC 2022 + TSPLIB, mirroring
