@@ -1,0 +1,3334 @@
+{
+  "header": {
+    "toolkit_paper_citation": "Simon Huband, Luigi Barone, Lyndon While, Phil Hingston, \"A Scalable Multi-objective Test Problem Toolkit,\" Evolutionary Multi-Criterion Optimization: Third International Conference, EMO 2005, LNCS 3410, pp. 280-295, Springer-Verlag, 2005 (\"corrected version: 22 June 2005\").",
+    "toolkit_paper_url": "https://web.archive.org/web/20051214183800/http://www.wfg.csse.uwa.edu.au:80/publications/WFG2005a_corrected.pdf",
+    "toolkit_paper_sha256": "6ef19d2563b2f9b70871e495509f09a41d5c66430b45bbe038424110d2e7b54a",
+    "toolkit_repo_url": "https://github.com/richardeverson/wfg",
+    "toolkit_repo_commit": "a156c75ea4d3cd460ca95d66dc05dc1c065200f4",
+    "toolkit_version_dir": "WFG_v2006.03.28",
+    "toolkit_license_note": "repo-root LICENSE (GPLv2) covers richardeverson's own Python wrapper only; every file under WFG_v2006.03.28/ carries the WFG authors' own permissive academic notice instead (T5/T6 module doc, quoted in full). ORACLE-ONLY use: no toolkit C++ line enters this repository.",
+    "probe_compile_command": "g++ -std=c++11 -O2 -o probe probe.cpp WFG_v2006.03.28/Toolkit/*.cpp -- probe.cpp is a scratchpad-only CLI driver (T5/T6, extended by T7 verification: re-verified this task by recompiling from the existing probe.cpp source into a byte-identical binary, `diff`-checked bit-for-bit against WFG1 and WFG9 probe outputs before use) calling only the toolkit's own unmodified public headers (ExampleProblems.h/TransFunctions.h/ShapeFunctions.h); invocation: `probe wfgN k M z1 z2 ... zn`, stdout `%.17g`-precision (std::setprecision(17)) space-separated objective values.",
+    "pymoo_version": "0.6.2",
+    "pymoo_install": "uv venv <scratchpad>/pymoo-venv (T4 precedent, reused unmodified this task) then VIRTUAL_ENV=<scratchpad>/pymoo-venv uv pip install pymoo -- PyPI, scratchpad-only. Version re-verified this task via `python -c \"import pymoo; print(pymoo.__version__)\"`.",
+    "pymoo_source_file": "pymoo/problems/many/wfg.py",
+    "pymoo_scaling_convention_finding": "ESTABLISHED FROM SOURCE (not assumed): pymoo.problems.many.wfg.WFG.__init__ sets `xl=0.0, xu=2*np.arange(1,n_var+1)` -- the SAME native [0, 2i] per-coordinate domain the toolkit and sezgi use (the paper's own zi,max=2i, Table 6), NOT an internally-exposed [0,1]-normalized interface; pymoo normalizes internally (`y = x / self.xu`, wfg.py line ~198/264/304/etc.) but its PUBLIC evaluate() takes the same raw z domain as the toolkit's probe and this fixture's `x` values -- confirmed empirically, not merely by reading the source: `WFG1(n_var=8,n_obj=2,k=4,l=4).evaluate([[0]*8])` == [1.0, 5.0] and `.evaluate([[2,4,...,16]])` == [3.0, 1.0], bit-identical to the compiled toolkit's own `probe wfg1 4 2 0 0 0 0 0 0 0 0` / `probe wfg1 4 2 2 4 6 8 10 12 14 16` output and to wfg.rs's own `wfg1_matches_toolkit_all_configs` unit-test literals for the same two points. No scaling mismatch: every x below is passed to pymoo's evaluate() UNCHANGED from the same value passed to the toolkit probe and to sezgi's Wfg.",
+    "tolerance": 1e-08,
+    "tolerance_rationale": "1e-8 relative: independent summation order across sezgi (Rust), the compiled toolkit (C++), and pymoo (numpy) means bit-exactness is not expected from any of these pairings -- same value and same rationale cec2014_reference_values.json's/cec2022_reference_values.json's own headers use (M3-3 T8 / M3-6 T5 precedent, mirrored here). In practice this task's own generation run measured far tighter: max relative delta 2.8095583961488147e-15 between the compiled toolkit and pymoo over all 288 individual objective-value comparisons (108 probe points x up to 3 objectives each) -- near f64 machine epsilon, i.e. NO divergence class was found or needed for this task's coverage (see divergence_classes_note below).",
+    "divergence_classes": {},
+    "divergence_classes_note": "EMPTY, not merely unpopulated: pymoo's WFG1-WFG9 (pymoo.problems.many.wfg, read in full this task) is source-verified to implement the SAME EMO2005/toolkit transition-stack formulas as sezgi's own wfg.rs (Table 6 t1..t4 per problem, same shape/transformation-function definitions, same S/A constants, same native [0,2i] domain -- see pymoo_scaling_convention_finding above) -- unlike opfunu's CEC2014/CEC2022 hybrids/compositions (cec2014_reference_values.json's own divergence_classes map), no shuffle-before-rotate, missing-shift, or wrong-submatrix class of bug was found in pymoo's WFG module for this fixture's coverage (1..=9 x {(m=2,k=4,l=4),(m=3,k=4,l=4),(m=3,k=6,l=20)} x {zero,max,generic,random} = 108 probe points, 288 individual objective-value comparisons): every comparison measured at most 2.8095583961488147e-15 relative deviation, far under the 1e-8 tolerance -- consistent with floating-point summation- order noise between numpy (pymoo) and the toolkit's own C++ loop order, not an algorithmic disagreement. `points[*][*].exclude` is `null` for every point in this fixture (no exclusion tag is used anywhere) precisely because no divergence needed one; the field is retained (not dropped) so a FUTURE re-generation that DOES find a pymoo divergence (e.g. if this fixture's coverage is later widened to m>3 or to WFG variants pymoo's own module docs do not exercise) can tag it the same way cec2014_reference_values.json already does, without a schema change.",
+    "coverage": "which in 1..=9 (WFG1-WFG9, the full suite) x (m,k,l) in {(2,4,4),(3,4,4),(3,6,20)} = 27 combinations x 4 probe points each = 108 total probe points. All 27 (which,m,k,l) combinations satisfy every constructor constraint checked by BOTH sezgi's own Wfg::new (k % (m-1) == 0 and k>0; l>0, additionally even for WFG2/WFG3) and pymoo's own WFG.validate (same k%(m-1)==0 check, PLUS pymoo's own stricter k>=4 minimum, PLUS WFG2/WFG3's l%2==0) -- verified programmatically before generation (this script would have raised on `Wfg2(...)`/pymoo `WFG.__init__` otherwise); no combo needed substitution.",
+    "domain": "TRUE (not internally-normalized) domain: x_i in [0, 2i] for i=1..n (n=k+l), the paper's own zi,max=2i (Table 6), matching sezgi's own Wfg::new domain and the toolkit probe's own raw z-vector CLI argument convention (see pymoo_scaling_convention_finding above for pymoo's identical public convention).",
+    "probe_points": {
+      "zero": "all-zeros, length n=k+l -- the lower domain boundary.",
+      "max": "z_i = 2*i for i=1..n -- the upper domain boundary (zi,max, Table 6).",
+      "generic": "z_i = PATTERN[(i-1) mod 8] * 2*i, PATTERN = [0.1, 0.9, 0.35, 0.6, 0.25, 0.75, 0.5, 0.15] -- the SAME deterministic period-8 fraction pattern, computed with the SAME f64 arithmetic order, as wfg.rs's own `generic_z` test helper (T5/T6's own fixture-transcription-hazard fix, module doc: hand-rounding this pattern's decimal literals was found to produce ~5.6% relative error via b_poly's alpha=0.02 exponent amplifying sub-ULP differences -- this fixture avoids the hazard the same way T5/T6 did, by generating the value in code, never hand-transcribing a rounded literal).",
+      "random": "python3 random.Random(20060328 + which*100000 + m*1000 + k*10 + l).uniform(0, 2*i) drawn once per coordinate i=1..n in ascending order -- one independent seeded draw per (which,m,k,l) combination, fully reproducible (gen_fixture.py in this task's report). Base constant 20060328 is the toolkit's own release-version date (WFG_v2006.03.28), mirroring cec2014_reference_values.json's own report-year-styled seed-base convention (20140101). Absolute domain point (not an offset), range [0, 2i] -- the paper's own per-coordinate domain, not a narrower or rescaled interior subset."
+    },
+    "generation_procedure": "For each of the 27 (which,m,k,l) combinations, 4 points (zero, max, generic, random, defined above) were evaluated against BOTH the compiled toolkit probe (subprocess, argv floats passed via Python repr() for full round-trip precision, stdout parsed at std::setprecision(17)) and pymoo's WFG{which}(n_var=k+l, n_obj=m, k=k, l=l).evaluate([[x]], return_values_of=['F']) -- same x array, no rescaling (see pymoo_scaling_convention_finding). Every stored value is either a freshly-computed Python float (the z-vector coordinates) or a float() parse of the probe's own stdout token -- never a hand-rounded decimal literal (the T5/T6 fixture-transcription-hazard lesson, this fixture's own `probe_points.generic` note). json.dump(..., indent=2) serializes every float via Python's shortest-round-trip repr, which is bit-faithful to the underlying f64 (same convention cec2014_reference_values.json already uses)."
+  },
+  "points": {
+    "1_2_4_4": {
+      "which": 1,
+      "m": 2,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            1.0,
+            5.0
+          ],
+          "pymoo_value": [
+            1.0,
+            5.0
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            3.0,
+            1.0
+          ],
+          "pymoo_value": [
+            3.0,
+            1.0
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            2.9352610723460653,
+            0.9853678852759681
+          ],
+          "pymoo_value": [
+            2.9352610723460653,
+            0.9853678852759681
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            0.3976577069764353,
+            2.795428170579792,
+            1.4322943279307165,
+            6.218082883054781,
+            2.0938728455421773,
+            0.8244030642149922,
+            7.783014644787526,
+            14.088980436253149
+          ],
+          "toolkit_value": [
+            2.9411869620175097,
+            0.9908276765131617
+          ],
+          "pymoo_value": [
+            2.94118696201751,
+            0.9908276765131618
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "1_3_4_4": {
+      "which": 1,
+      "m": 3,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            1.0,
+            1.0,
+            7.0
+          ],
+          "pymoo_value": [
+            1.0,
+            1.0,
+            7.0
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            2.9999999999999996,
+            1.0,
+            1.0
+          ],
+          "pymoo_value": [
+            2.9999999999999996,
+            1.0,
+            1.0
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            2.8865123826729717,
+            0.9841147576365188,
+            0.9873746164778296
+          ],
+          "pymoo_value": [
+            2.8865123826729717,
+            0.9841147576365188,
+            0.9873746164778296
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            0.2673423539491231,
+            1.7026325980384684,
+            0.1415873900049729,
+            1.5650508274261226,
+            7.71114475803675,
+            6.53504699217329,
+            2.5991002623249964,
+            2.651903374550331
+          ],
+          "toolkit_value": [
+            2.7606401734597052,
+            0.9976677876022291,
+            1.0001377179884292
+          ],
+          "pymoo_value": [
+            2.7606401734597052,
+            0.9976677876022292,
+            1.0001377179884294
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "1_3_6_20": {
+      "which": 1,
+      "m": 3,
+      "k": 6,
+      "l": 20,
+      "n": 26,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            1.0,
+            1.0,
+            7.0
+          ],
+          "pymoo_value": [
+            1.0,
+            1.0,
+            7.0
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0,
+            18.0,
+            20.0,
+            22.0,
+            24.0,
+            26.0,
+            28.0,
+            30.0,
+            32.0,
+            34.0,
+            36.0,
+            38.0,
+            40.0,
+            42.0,
+            44.0,
+            46.0,
+            48.0,
+            50.0,
+            52.0
+          ],
+          "toolkit_value": [
+            2.9999999999999996,
+            1.0,
+            1.0
+          ],
+          "pymoo_value": [
+            2.9999999999999996,
+            1.0,
+            1.0
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4,
+            1.8,
+            18.0,
+            7.699999999999999,
+            14.399999999999999,
+            6.5,
+            21.0,
+            15.0,
+            4.8,
+            3.4000000000000004,
+            32.4,
+            13.299999999999999,
+            24.0,
+            10.5,
+            33.0,
+            23.0,
+            7.199999999999999,
+            5.0,
+            46.800000000000004
+          ],
+          "toolkit_value": [
+            2.795813160599584,
+            0.8982291923723121,
+            0.9035091486644551
+          ],
+          "pymoo_value": [
+            2.795813160599584,
+            0.8982291923723121,
+            0.9035091486644551
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.1558572311399578,
+            2.871987336673441,
+            2.0829326386873968,
+            3.8079669873420867,
+            8.074202663381573,
+            8.86461379824487,
+            7.529239318623466,
+            14.541945997649735,
+            1.2233713784710782,
+            9.140722663035522,
+            15.52196372970242,
+            20.381838959102254,
+            23.933046436506636,
+            5.623425714713394,
+            16.964413705217442,
+            20.18016061996942,
+            23.433469330855495,
+            35.43040670322205,
+            37.50871807363294,
+            34.6942339433889,
+            26.218532106725974,
+            27.287398677029156,
+            43.35945392719377,
+            2.427598984770528,
+            39.70012457669309,
+            29.382377069244857
+          ],
+          "toolkit_value": [
+            2.9202769966486706,
+            0.9899275363536013,
+            0.9926067892127572
+          ],
+          "pymoo_value": [
+            2.92027699664867,
+            0.9899275363536012,
+            0.9926067892127571
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "2_2_4_4": {
+      "which": 2,
+      "m": 2,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.6666666666666666,
+            4.666666666666667
+          ],
+          "pymoo_value": [
+            0.6666666666666666,
+            4.666666666666667
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            2.6666666666666665,
+            0.6666666666666666
+          ],
+          "pymoo_value": [
+            2.6666666666666665,
+            0.6666666666666666
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            1.0656188139201694,
+            4.43310855152451
+          ],
+          "pymoo_value": [
+            1.0656188139201694,
+            4.43310855152451
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.509658836127644,
+            1.3053114965312438,
+            1.5693094987227827,
+            2.168470670628878,
+            6.564665454060469,
+            11.620436270108405,
+            10.708411101548762,
+            1.9241105556514029
+          ],
+          "toolkit_value": [
+            1.0072565141165704,
+            3.009855980087537
+          ],
+          "pymoo_value": [
+            1.0072565141165704,
+            3.0098559800875364
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "2_3_4_4": {
+      "which": 2,
+      "m": 3,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.6666666666666666,
+            0.6666666666666666,
+            6.666666666666667
+          ],
+          "pymoo_value": [
+            0.6666666666666666,
+            0.6666666666666666,
+            6.666666666666667
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            2.666666666666666,
+            0.6666666666666666,
+            0.6666666666666666
+          ],
+          "pymoo_value": [
+            2.666666666666666,
+            0.6666666666666666,
+            0.6666666666666666
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            0.6629562780813327,
+            0.8836343414113588,
+            6.507326007326007
+          ],
+          "pymoo_value": [
+            0.6629562780813327,
+            0.8836343414113588,
+            6.507326007326007
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.025806907882275,
+            2.725132663327307,
+            2.4464879235778247,
+            0.9733601201972757,
+            4.532442464251096,
+            10.041094198153576,
+            8.603198749212051,
+            14.742487763276275
+          ],
+          "toolkit_value": [
+            0.7892943976447636,
+            1.693725040395838,
+            3.144578165366892
+          ],
+          "pymoo_value": [
+            0.7892943976447636,
+            1.693725040395838,
+            3.1445781653668923
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "2_3_6_20": {
+      "which": 2,
+      "m": 3,
+      "k": 6,
+      "l": 20,
+      "n": 26,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.6666666666666667,
+            0.6666666666666667,
+            6.666666666666667
+          ],
+          "pymoo_value": [
+            0.6666666666666667,
+            0.6666666666666667,
+            6.666666666666667
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0,
+            18.0,
+            20.0,
+            22.0,
+            24.0,
+            26.0,
+            28.0,
+            30.0,
+            32.0,
+            34.0,
+            36.0,
+            38.0,
+            40.0,
+            42.0,
+            44.0,
+            46.0,
+            48.0,
+            50.0,
+            52.0
+          ],
+          "toolkit_value": [
+            2.666666666666666,
+            0.6666666666666667,
+            0.6666666666666667
+          ],
+          "pymoo_value": [
+            2.666666666666666,
+            0.6666666666666667,
+            0.6666666666666667
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4,
+            1.8,
+            18.0,
+            7.699999999999999,
+            14.399999999999999,
+            6.5,
+            21.0,
+            15.0,
+            4.8,
+            3.4000000000000004,
+            32.4,
+            13.299999999999999,
+            24.0,
+            10.5,
+            33.0,
+            23.0,
+            7.199999999999999,
+            5.0,
+            46.800000000000004
+          ],
+          "toolkit_value": [
+            0.6702702774855169,
+            0.7578854818031288,
+            5.161721611721611
+          ],
+          "pymoo_value": [
+            0.6702702774855169,
+            0.7578854818031288,
+            5.1617216117216085
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.8504895966895418,
+            3.981338336481503,
+            5.428076309698484,
+            6.48913015742252,
+            1.414197758351744,
+            8.861077237099362,
+            10.548974229552943,
+            3.048369722870879,
+            9.831136568185812,
+            18.028980006991112,
+            5.850051745411187,
+            13.192157948816536,
+            7.0339440412212335,
+            27.282006265250576,
+            0.9814322957085986,
+            8.89994677147132,
+            5.76907558576383,
+            5.644522043645317,
+            19.47837562931409,
+            36.589275245357285,
+            9.50893947536211,
+            15.323895635207954,
+            21.71458906906028,
+            35.23244412773067,
+            5.429873339297125,
+            28.345021523333553
+          ],
+          "toolkit_value": [
+            1.2471486680921977,
+            1.4009785681642808,
+            4.478753464220182
+          ],
+          "pymoo_value": [
+            1.2471486680921977,
+            1.4009785681642808,
+            4.478753464220182
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "3_2_4_4": {
+      "which": 3,
+      "m": 2,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.6666666666666666,
+            4.666666666666667
+          ],
+          "pymoo_value": [
+            0.6666666666666666,
+            4.666666666666667
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            2.6666666666666665,
+            0.6666666666666666
+          ],
+          "pymoo_value": [
+            2.6666666666666665,
+            0.6666666666666666
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            1.4823260073260072,
+            2.5573260073260076
+          ],
+          "pymoo_value": [
+            1.4823260073260072,
+            2.5573260073260076
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            0.8741182904140488,
+            0.5175610121404941,
+            4.506489269798216,
+            4.854866894323018,
+            8.223007646929702,
+            9.470388482859622,
+            8.626181105936679,
+            4.287351557442152
+          ],
+          "toolkit_value": [
+            1.3785561021775068,
+            2.491972144679165
+          ],
+          "pymoo_value": [
+            1.3785561021775068,
+            2.491972144679165
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "3_3_4_4": {
+      "which": 3,
+      "m": 3,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.6666666666666666,
+            0.6666666666666666,
+            6.666666666666667
+          ],
+          "pymoo_value": [
+            0.6666666666666666,
+            0.6666666666666666,
+            6.666666666666667
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            2.333333333333333,
+            1.3333333333333335,
+            0.6666666666666666
+          ],
+          "pymoo_value": [
+            2.333333333333333,
+            1.3333333333333335,
+            0.6666666666666666
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            0.9946428571428572,
+            1.5326923076923076,
+            3.5073260073260073
+          ],
+          "pymoo_value": [
+            0.9946428571428572,
+            1.5326923076923076,
+            3.5073260073260073
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.348675924618412,
+            2.473009469084232,
+            5.59986229984823,
+            6.763012843514174,
+            7.36076456470255,
+            11.877539361929168,
+            2.139260224991326,
+            4.208162986385913
+          ],
+          "toolkit_value": [
+            1.5985218400175778,
+            1.2884582258181325,
+            2.755669426823461
+          ],
+          "pymoo_value": [
+            1.5985218400175778,
+            1.2884582258181325,
+            2.755669426823461
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "3_3_6_20": {
+      "which": 3,
+      "m": 3,
+      "k": 6,
+      "l": 20,
+      "n": 26,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.6666666666666667,
+            0.6666666666666667,
+            6.666666666666667
+          ],
+          "pymoo_value": [
+            0.6666666666666667,
+            0.6666666666666667,
+            6.666666666666667
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0,
+            18.0,
+            20.0,
+            22.0,
+            24.0,
+            26.0,
+            28.0,
+            30.0,
+            32.0,
+            34.0,
+            36.0,
+            38.0,
+            40.0,
+            42.0,
+            44.0,
+            46.0,
+            48.0,
+            50.0,
+            52.0
+          ],
+          "toolkit_value": [
+            2.3333333333333335,
+            1.3333333333333333,
+            0.6666666666666667
+          ],
+          "pymoo_value": [
+            2.3333333333333335,
+            1.3333333333333333,
+            0.6666666666666667
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4,
+            1.8,
+            18.0,
+            7.699999999999999,
+            14.399999999999999,
+            6.5,
+            21.0,
+            15.0,
+            4.8,
+            3.4000000000000004,
+            32.4,
+            13.299999999999999,
+            24.0,
+            10.5,
+            33.0,
+            23.0,
+            7.199999999999999,
+            5.0,
+            46.800000000000004
+          ],
+          "toolkit_value": [
+            0.9770732600732601,
+            1.381018315018315,
+            3.811721611721612
+          ],
+          "pymoo_value": [
+            0.9770732600732601,
+            1.381018315018315,
+            3.811721611721612
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.0833270271918511,
+            1.9043990696906339,
+            4.968393202123874,
+            3.8959621609593125,
+            0.08942654584601084,
+            1.6336636225521892,
+            12.161627241027963,
+            15.253468190198971,
+            4.753921914195633,
+            16.92018898745131,
+            10.997765800625558,
+            6.743536097503605,
+            22.54015635669203,
+            8.324996397090775,
+            9.318875854112452,
+            9.288451874582169,
+            30.81064571515106,
+            32.63425634597008,
+            18.37469199320931,
+            20.666834769621488,
+            30.596882380358473,
+            28.156676409332736,
+            6.79918520229357,
+            46.09670328878269,
+            30.254217619640944,
+            43.61888702148857
+          ],
+          "toolkit_value": [
+            0.9338478259727124,
+            2.0774579225219485,
+            2.803025199985823
+          ],
+          "pymoo_value": [
+            0.9338478259727124,
+            2.0774579225219485,
+            2.803025199985823
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "4_2_4_4": {
+      "which": 4,
+      "m": 2,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            3.0,
+            1.0000000000000002
+          ],
+          "pymoo_value": [
+            3.0,
+            1.0000000000000002
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            3.0,
+            1.0000000000000002
+          ],
+          "pymoo_value": [
+            3.0,
+            1.0000000000000002
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            1.275106902131418,
+            3.7043553279145627
+          ],
+          "pymoo_value": [
+            1.275106902131418,
+            3.7043553279145627
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.7126609524129053,
+            1.9271987243524031,
+            5.703131162065834,
+            3.0459577241660076,
+            7.405672669266287,
+            7.2800620796246704,
+            2.409097510401369,
+            1.621553619786802
+          ],
+          "toolkit_value": [
+            1.5400565345417325,
+            3.6157002405844056
+          ],
+          "pymoo_value": [
+            1.5400565345417323,
+            3.6157002405844056
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "4_3_4_4": {
+      "which": 4,
+      "m": 3,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "pymoo_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "pymoo_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            0.5234027613452319,
+            3.336416632547231,
+            4.009046367876935
+          ],
+          "pymoo_value": [
+            0.5234027613452319,
+            3.336416632547231,
+            4.009046367876935
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            0.17979756729743634,
+            3.5510910450125968,
+            4.940629380205972,
+            4.441999162636101,
+            9.65707191524547,
+            2.2780786565363065,
+            11.360478777386632,
+            6.65557956902243
+          ],
+          "toolkit_value": [
+            1.2729524711843931,
+            3.1446603079083317,
+            3.787445748572804
+          ],
+          "pymoo_value": [
+            1.2729524711843931,
+            3.1446603079083317,
+            3.787445748572804
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "4_3_6_20": {
+      "which": 4,
+      "m": 3,
+      "k": 6,
+      "l": 20,
+      "n": 26,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "pymoo_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0,
+            18.0,
+            20.0,
+            22.0,
+            24.0,
+            26.0,
+            28.0,
+            30.0,
+            32.0,
+            34.0,
+            36.0,
+            38.0,
+            40.0,
+            42.0,
+            44.0,
+            46.0,
+            48.0,
+            50.0,
+            52.0
+          ],
+          "toolkit_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "pymoo_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4,
+            1.8,
+            18.0,
+            7.699999999999999,
+            14.399999999999999,
+            6.5,
+            21.0,
+            15.0,
+            4.8,
+            3.4000000000000004,
+            32.4,
+            13.299999999999999,
+            24.0,
+            10.5,
+            33.0,
+            23.0,
+            7.199999999999999,
+            5.0,
+            46.800000000000004
+          ],
+          "toolkit_value": [
+            0.7643216027529967,
+            2.386370750591389,
+            5.28199452671207
+          ],
+          "pymoo_value": [
+            0.7643216027529967,
+            2.386370750591389,
+            5.28199452671207
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.953010077145811,
+            0.4208563467374371,
+            4.214316123995419,
+            2.6548001649123947,
+            2.0909322087785576,
+            4.526534614762507,
+            12.688928823154685,
+            15.987452870948427,
+            7.448728818426028,
+            12.389340225047818,
+            17.065781457475257,
+            6.891141357770283,
+            19.432849709482333,
+            10.432474259410707,
+            2.7523439389112148,
+            3.667319778408107,
+            1.3263310999581706,
+            11.94165053759041,
+            11.639477060295901,
+            6.570864327609658,
+            36.88248836842093,
+            32.362002872054525,
+            2.0825225639024154,
+            0.49856830310354816,
+            0.37557453307205946,
+            7.423316244716082
+          ],
+          "toolkit_value": [
+            0.8730551694865996,
+            3.658120849677451,
+            3.810392006558261
+          ],
+          "pymoo_value": [
+            0.8730551694865996,
+            3.658120849677451,
+            3.810392006558261
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "5_2_4_4": {
+      "which": 5,
+      "m": 2,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.20691819145581142,
+            4.037669334932526
+          ],
+          "pymoo_value": [
+            0.2069181914558112,
+            4.037669334932527
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            0.2069181914555187,
+            4.037669334932491
+          ],
+          "pymoo_value": [
+            0.20691819145551896,
+            4.037669334932491
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            1.472382748286957,
+            4.192843843592891
+          ],
+          "pymoo_value": [
+            1.4723827482869574,
+            4.192843843592891
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            0.6857239216048816,
+            0.539459363260959,
+            5.385608758240724,
+            0.36075725957911864,
+            9.87911568891105,
+            3.3923590336569096,
+            9.974114107535822,
+            10.348439113941735
+          ],
+          "toolkit_value": [
+            1.7640215642913346,
+            3.5502504094886715
+          ],
+          "pymoo_value": [
+            1.7640215642913346,
+            3.5502504094886715
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "5_3_4_4": {
+      "which": 5,
+      "m": 3,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.06231165940490613,
+            0.36286893008067367,
+            6.0315040023987745
+          ],
+          "pymoo_value": [
+            0.06231165940490606,
+            0.36286893008067334,
+            6.031504002398775
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            0.0623116594048005,
+            0.3628689300801632,
+            6.031504002398758
+          ],
+          "pymoo_value": [
+            0.06231165940480057,
+            0.36286893008016363,
+            6.031504002398758
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            0.9758919594206503,
+            1.9878648923615367,
+            6.105838909417616
+          ],
+          "pymoo_value": [
+            0.9758919594206505,
+            1.9878648923615372,
+            6.105838909417616
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.1165828637494193,
+            3.16853079522865,
+            2.1145065221732535,
+            3.6738308409073186,
+            7.526564281057571,
+            1.5116717484634052,
+            13.32481199285657,
+            5.754815784462483
+          ],
+          "toolkit_value": [
+            1.9360983409215426,
+            0.8477245635079346,
+            4.548101639040865
+          ],
+          "pymoo_value": [
+            1.9360983409215422,
+            0.8477245635079345,
+            4.5481016390408655
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "5_3_6_20": {
+      "which": 5,
+      "m": 3,
+      "k": 6,
+      "l": 20,
+      "n": 26,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.0623116594049061,
+            0.3628689300806736,
+            6.0315040023987745
+          ],
+          "pymoo_value": [
+            0.06231165940490606,
+            0.36286893008067334,
+            6.031504002398775
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0,
+            18.0,
+            20.0,
+            22.0,
+            24.0,
+            26.0,
+            28.0,
+            30.0,
+            32.0,
+            34.0,
+            36.0,
+            38.0,
+            40.0,
+            42.0,
+            44.0,
+            46.0,
+            48.0,
+            50.0,
+            52.0
+          ],
+          "toolkit_value": [
+            0.06231165940480052,
+            0.3628689300801632,
+            6.031504002398758
+          ],
+          "pymoo_value": [
+            0.06231165940480057,
+            0.36286893008016363,
+            6.031504002398758
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4,
+            1.8,
+            18.0,
+            7.699999999999999,
+            14.399999999999999,
+            6.5,
+            21.0,
+            15.0,
+            4.8,
+            3.4000000000000004,
+            32.4,
+            13.299999999999999,
+            24.0,
+            10.5,
+            33.0,
+            23.0,
+            7.199999999999999,
+            5.0,
+            46.800000000000004
+          ],
+          "toolkit_value": [
+            0.8729891665309172,
+            1.0807685300864873,
+            6.222185423789944
+          ],
+          "pymoo_value": [
+            0.8729891665309172,
+            1.0807685300864873,
+            6.222185423789944
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            0.40541329873917764,
+            1.4617485486793367,
+            5.165997879601903,
+            4.452700984854059,
+            8.757984728570419,
+            9.714227542320323,
+            10.331458373746822,
+            4.207241008608738,
+            3.219835057581534,
+            6.237355331101357,
+            21.009720166863744,
+            8.502815060023675,
+            16.85277969803223,
+            5.772091279839414,
+            8.908908586217688,
+            2.584549571274163,
+            2.0478815769977836,
+            27.042431889712034,
+            1.5724536102083613,
+            21.58547839135039,
+            27.375085432746516,
+            36.502225107190874,
+            43.91523865044266,
+            5.262394785716591,
+            12.113529209007295,
+            16.981104709554497
+          ],
+          "toolkit_value": [
+            1.5310871699740467,
+            3.116973853897419,
+            3.9663276737857656
+          ],
+          "pymoo_value": [
+            1.531087169974047,
+            3.116973853897419,
+            3.9663276737857656
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "6_2_4_4": {
+      "which": 6,
+      "m": 2,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.4,
+            4.4
+          ],
+          "pymoo_value": [
+            0.4,
+            4.4
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            1.5755705045849462,
+            3.6360679774997897
+          ],
+          "pymoo_value": [
+            1.5755705045849462,
+            3.6360679774997897
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            2.2745281058919207,
+            2.132880708391472
+          ],
+          "pymoo_value": [
+            2.2745281058919207,
+            2.132880708391472
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            0.5716988235718161,
+            0.3832109918428279,
+            2.9783666501296278,
+            5.353578757237944,
+            6.9169793802218,
+            6.27224636803297,
+            4.033088303121081,
+            13.745483574420309
+          ],
+          "toolkit_value": [
+            2.0929613592752245,
+            3.2320766628760342
+          ],
+          "pymoo_value": [
+            2.0929613592752245,
+            3.2320766628760342
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "6_3_4_4": {
+      "which": 6,
+      "m": 3,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.4,
+            0.4,
+            6.4
+          ],
+          "pymoo_value": [
+            0.4,
+            0.4,
+            6.4
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            1.9,
+            2.1320508075688775,
+            3.400000000000001
+          ],
+          "pymoo_value": [
+            1.9,
+            2.1320508075688775,
+            3.400000000000001
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            1.8048665115797227,
+            3.296334560799609,
+            1.7057119031483137
+          ],
+          "pymoo_value": [
+            1.8048665115797227,
+            3.296334560799609,
+            1.7057119031483137
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.8738911706093428,
+            2.898449094254116,
+            5.128875814915572,
+            5.511235594711166,
+            8.5427545239404,
+            0.6277788886277604,
+            7.279378241834209,
+            13.57364187439743
+          ],
+          "toolkit_value": [
+            2.097189257656705,
+            2.592621628830687,
+            3.383139955046442
+          ],
+          "pymoo_value": [
+            2.097189257656705,
+            2.592621628830687,
+            3.383139955046442
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "6_3_6_20": {
+      "which": 6,
+      "m": 3,
+      "k": 6,
+      "l": 20,
+      "n": 26,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.09523809523809523,
+            0.09523809523809523,
+            6.095238095238095
+          ],
+          "pymoo_value": [
+            0.09523809523809523,
+            0.09523809523809523,
+            6.095238095238095
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0,
+            18.0,
+            20.0,
+            22.0,
+            24.0,
+            26.0,
+            28.0,
+            30.0,
+            32.0,
+            34.0,
+            36.0,
+            38.0,
+            40.0,
+            42.0,
+            44.0,
+            46.0,
+            48.0,
+            50.0,
+            52.0
+          ],
+          "toolkit_value": [
+            1.095238095238095,
+            2.0952380952380953,
+            4.337878782357381
+          ],
+          "pymoo_value": [
+            1.095238095238095,
+            2.0952380952380953,
+            4.337878782357381
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4,
+            1.8,
+            18.0,
+            7.699999999999999,
+            14.399999999999999,
+            6.5,
+            21.0,
+            15.0,
+            4.8,
+            3.4000000000000004,
+            32.4,
+            13.299999999999999,
+            24.0,
+            10.5,
+            33.0,
+            23.0,
+            7.199999999999999,
+            5.0,
+            46.800000000000004
+          ],
+          "toolkit_value": [
+            2.1124215637699324,
+            2.7933383676134986,
+            2.8329207632065847
+          ],
+          "pymoo_value": [
+            2.1124215637699324,
+            2.7933383676134986,
+            2.8329207632065847
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.5105316814337628,
+            3.91670729668962,
+            2.861578918996671,
+            7.711302910396254,
+            2.783611434437472,
+            2.7653984656655823,
+            5.707068415452631,
+            8.556656410869822,
+            2.2572495069423386,
+            18.96620522065463,
+            19.53883147916105,
+            3.5780014845469577,
+            13.782746511086604,
+            10.417719761319333,
+            10.511570219681861,
+            5.925874648176787,
+            21.44245247822628,
+            13.246704340657649,
+            33.69552854482646,
+            35.00635494549225,
+            27.691868758534273,
+            16.622237020205336,
+            12.093085535611305,
+            20.550297765750393,
+            15.207715891968721,
+            49.241472415067214
+          ],
+          "toolkit_value": [
+            2.3607810255091293,
+            2.1750980618465943,
+            3.4225921402522497
+          ],
+          "pymoo_value": [
+            2.3607810255091293,
+            2.1750980618465943,
+            3.4225921402522497
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "7_2_4_4": {
+      "which": 7,
+      "m": 2,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            1.0,
+            5.0
+          ],
+          "pymoo_value": [
+            1.0,
+            5.0
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            3.0,
+            1.0000000000000002
+          ],
+          "pymoo_value": [
+            3.0,
+            1.0000000000000002
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            1.8704337648781033,
+            3.1921236066258687
+          ],
+          "pymoo_value": [
+            1.8704337648781033,
+            3.1921236066258687
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.5988970137242302,
+            1.0052586847074538,
+            0.00797769174884344,
+            6.979694826999553,
+            1.0149170860307422,
+            9.337823483162182,
+            13.344229859733158,
+            0.8132811623325278
+          ],
+          "toolkit_value": [
+            2.193212802622777,
+            3.6338890585486667
+          ],
+          "pymoo_value": [
+            2.193212802622777,
+            3.6338890585486667
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "7_3_4_4": {
+      "which": 7,
+      "m": 3,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            1.0,
+            1.0,
+            7.0
+          ],
+          "pymoo_value": [
+            1.0,
+            1.0,
+            7.0
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "pymoo_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            1.468987858956224,
+            2.376210579221865,
+            4.626689532627775
+          ],
+          "pymoo_value": [
+            1.468987858956224,
+            2.376210579221865,
+            4.626689532627775
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.5267763507506664,
+            3.0030530009152243,
+            5.5418007293219755,
+            1.4226731022447527,
+            5.793742695343398,
+            10.627966069482376,
+            4.993725359533629,
+            0.8218848300091608
+          ],
+          "toolkit_value": [
+            1.6755908764404028,
+            2.393736561208992,
+            4.4840865645071455
+          ],
+          "pymoo_value": [
+            1.6755908764404028,
+            2.393736561208992,
+            4.4840865645071455
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "7_3_6_20": {
+      "which": 7,
+      "m": 3,
+      "k": 6,
+      "l": 20,
+      "n": 26,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            1.0,
+            1.0,
+            7.0
+          ],
+          "pymoo_value": [
+            1.0,
+            1.0,
+            7.0
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0,
+            18.0,
+            20.0,
+            22.0,
+            24.0,
+            26.0,
+            28.0,
+            30.0,
+            32.0,
+            34.0,
+            36.0,
+            38.0,
+            40.0,
+            42.0,
+            44.0,
+            46.0,
+            48.0,
+            50.0,
+            52.0
+          ],
+          "toolkit_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "pymoo_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4,
+            1.8,
+            18.0,
+            7.699999999999999,
+            14.399999999999999,
+            6.5,
+            21.0,
+            15.0,
+            4.8,
+            3.4000000000000004,
+            32.4,
+            13.299999999999999,
+            24.0,
+            10.5,
+            33.0,
+            23.0,
+            7.199999999999999,
+            5.0,
+            46.800000000000004
+          ],
+          "toolkit_value": [
+            1.523215178535634,
+            2.189788550131792,
+            4.9221296628998905
+          ],
+          "pymoo_value": [
+            1.5232151785356338,
+            2.189788550131792,
+            4.922129662899891
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            0.9163746268706026,
+            2.3921528918483297,
+            5.14688751049339,
+            1.6852625110541428,
+            4.048977070931668,
+            7.158880372512907,
+            8.305268739456178,
+            3.778234787678553,
+            16.372554815039262,
+            2.138870837814857,
+            3.1031750214952716,
+            16.04986039381919,
+            7.458532217073815,
+            27.123532797619763,
+            20.558608237941066,
+            17.979403186652707,
+            15.823098781695375,
+            1.2951452437329993,
+            17.501674227486717,
+            25.667607400738525,
+            26.921854672052802,
+            8.636259721340103,
+            23.488431459865293,
+            29.524488081589464,
+            35.20761898094758,
+            25.19321144383291
+          ],
+          "toolkit_value": [
+            1.4225733460920966,
+            3.1002784383630932,
+            3.947532177489214
+          ],
+          "pymoo_value": [
+            1.4225733460921006,
+            3.100278438363093,
+            3.947532177489206
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "8_2_4_4": {
+      "which": 8,
+      "m": 2,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            1.0,
+            5.0
+          ],
+          "pymoo_value": [
+            1.0,
+            5.0
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            3.0,
+            1.0000000000000002
+          ],
+          "pymoo_value": [
+            3.0,
+            1.0000000000000002
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            1.8150614671080652,
+            3.3123011288284694
+          ],
+          "pymoo_value": [
+            1.8150614671080652,
+            3.3123011288284694
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            0.8710961330277802,
+            2.3321663116109153,
+            0.933315586577639,
+            1.4728413066396122,
+            5.487374087093051,
+            9.52579366457994,
+            6.887364014558058,
+            6.947914601158184
+          ],
+          "toolkit_value": [
+            1.437714915968003,
+            3.8651857912569176
+          ],
+          "pymoo_value": [
+            1.437714915968003,
+            3.8651857912569176
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "8_3_4_4": {
+      "which": 8,
+      "m": 3,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            1.0,
+            1.0,
+            7.0
+          ],
+          "pymoo_value": [
+            1.0,
+            1.0,
+            7.0
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "pymoo_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            1.388855962498448,
+            2.5058644460163766,
+            4.671527429136079
+          ],
+          "pymoo_value": [
+            1.388855962498448,
+            2.5058644460163766,
+            4.671527429136079
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            0.36576622724655494,
+            2.8577125381260444,
+            2.0786253105972743,
+            0.026430697620500432,
+            2.9076550950450217,
+            8.154953017116554,
+            1.5447687264619459,
+            12.828797393699425
+          ],
+          "toolkit_value": [
+            0.8694826687530568,
+            3.0122495378101477,
+            5.088689966815391
+          ],
+          "pymoo_value": [
+            0.8694826687530568,
+            3.0122495378101477,
+            5.088689966815391
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "8_3_6_20": {
+      "which": 8,
+      "m": 3,
+      "k": 6,
+      "l": 20,
+      "n": 26,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            1.0,
+            1.0,
+            7.0
+          ],
+          "pymoo_value": [
+            1.0,
+            1.0,
+            7.0
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0,
+            18.0,
+            20.0,
+            22.0,
+            24.0,
+            26.0,
+            28.0,
+            30.0,
+            32.0,
+            34.0,
+            36.0,
+            38.0,
+            40.0,
+            42.0,
+            44.0,
+            46.0,
+            48.0,
+            50.0,
+            52.0
+          ],
+          "toolkit_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "pymoo_value": [
+            3.0,
+            1.0000000000000002,
+            1.0000000000000004
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4,
+            1.8,
+            18.0,
+            7.699999999999999,
+            14.399999999999999,
+            6.5,
+            21.0,
+            15.0,
+            4.8,
+            3.4000000000000004,
+            32.4,
+            13.299999999999999,
+            24.0,
+            10.5,
+            33.0,
+            23.0,
+            7.199999999999999,
+            5.0,
+            46.800000000000004
+          ],
+          "toolkit_value": [
+            1.4435032614621215,
+            2.2164976139071957,
+            5.040671141996371
+          ],
+          "pymoo_value": [
+            1.4435032614621215,
+            2.2164976139071957,
+            5.040671141996371
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.7819850256345395,
+            0.7556408006479427,
+            5.8432441842257195,
+            5.53129380198132,
+            6.091491324832395,
+            4.1005009439794105,
+            12.455951902396643,
+            7.898568721773579,
+            0.6158247125139287,
+            12.187932794330468,
+            18.057376639841298,
+            8.753509199942512,
+            20.970169920160437,
+            12.365480377512247,
+            22.733348855438887,
+            17.448948249579075,
+            27.16523770069979,
+            31.1042446932017,
+            36.036078626823226,
+            12.952510251688034,
+            3.2505651200185106,
+            6.445956374943645,
+            20.450526116638304,
+            36.25874417751669,
+            39.30413434914572,
+            13.622108900415224
+          ],
+          "toolkit_value": [
+            2.1159334703333967,
+            3.0788656955166145,
+            3.6351417727107282
+          ],
+          "pymoo_value": [
+            2.1159334703333967,
+            3.0788656955166145,
+            3.6351417727107282
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "9_2_4_4": {
+      "which": 9,
+      "m": 2,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.46282151815629363,
+            4.398026241462924
+          ],
+          "pymoo_value": [
+            0.46282151815629347,
+            4.398026241462924
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            0.46282151815620454,
+            4.398026241462929
+          ],
+          "pymoo_value": [
+            0.46282151815620465,
+            4.398026241462929
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            2.2590142706731453,
+            2.240874474702232
+          ],
+          "pymoo_value": [
+            2.2590142706731453,
+            2.240874474702232
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            1.7059859248352172,
+            3.899528511864141,
+            5.059532335498112,
+            5.59655252365243,
+            5.63306390427641,
+            6.227302673309587,
+            10.178855552012598,
+            6.32739944280652
+          ],
+          "toolkit_value": [
+            2.150696136921458,
+            3.8718812131065077
+          ],
+          "pymoo_value": [
+            2.150696136921458,
+            3.8718812131065077
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "9_3_4_4": {
+      "which": 9,
+      "m": 3,
+      "k": 4,
+      "l": 4,
+      "n": 8,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.4054781046317331,
+            0.6090569265354293,
+            6.391777208527434
+          ],
+          "pymoo_value": [
+            0.4054781046317331,
+            0.6090569265354292,
+            6.391777208527434
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0
+          ],
+          "toolkit_value": [
+            0.40547810463171763,
+            0.6090569265351345,
+            6.391777208527458
+          ],
+          "pymoo_value": [
+            0.40547810463171763,
+            0.6090569265351347,
+            6.391777208527458
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4
+          ],
+          "toolkit_value": [
+            1.2130772647553276,
+            1.0552152617621613,
+            5.9624118310784535
+          ],
+          "pymoo_value": [
+            1.2130772647553276,
+            1.0552152617621613,
+            5.9624118310784535
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            0.4505521358574536,
+            1.3588997776355605,
+            1.589609355698893,
+            1.2861189086025488,
+            9.815986980781023,
+            8.674218408407228,
+            4.822833418223505,
+            8.01375059594383
+          ],
+          "toolkit_value": [
+            0.787810666930969,
+            4.360900967010563,
+            3.0195115515322226
+          ],
+          "pymoo_value": [
+            0.7878106669309692,
+            4.360900967010564,
+            3.0195115515322226
+          ],
+          "exclude": null
+        }
+      }
+    },
+    "9_3_6_20": {
+      "which": 9,
+      "m": 3,
+      "k": 6,
+      "l": 20,
+      "n": 26,
+      "points": {
+        "zero": {
+          "x": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "toolkit_value": [
+            0.09832076150497088,
+            0.252156286693877,
+            6.090612312682427
+          ],
+          "pymoo_value": [
+            0.09832076150497088,
+            0.252156286693877,
+            6.090612312682427
+          ],
+          "exclude": null
+        },
+        "max": {
+          "x": [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+            10.0,
+            12.0,
+            14.0,
+            16.0,
+            18.0,
+            20.0,
+            22.0,
+            24.0,
+            26.0,
+            28.0,
+            30.0,
+            32.0,
+            34.0,
+            36.0,
+            38.0,
+            40.0,
+            42.0,
+            44.0,
+            46.0,
+            48.0,
+            50.0,
+            52.0
+          ],
+          "toolkit_value": [
+            0.09832076150496216,
+            0.25215628669365553,
+            6.09061231268244
+          ],
+          "pymoo_value": [
+            0.09832076150496216,
+            0.25215628669365553,
+            6.09061231268244
+          ],
+          "exclude": null
+        },
+        "generic": {
+          "x": [
+            0.2,
+            3.6,
+            2.0999999999999996,
+            4.8,
+            2.5,
+            9.0,
+            7.0,
+            2.4,
+            1.8,
+            18.0,
+            7.699999999999999,
+            14.399999999999999,
+            6.5,
+            21.0,
+            15.0,
+            4.8,
+            3.4000000000000004,
+            32.4,
+            13.299999999999999,
+            24.0,
+            10.5,
+            33.0,
+            23.0,
+            7.199999999999999,
+            5.0,
+            46.800000000000004
+          ],
+          "toolkit_value": [
+            2.0962690522820666,
+            2.8626099745147995,
+            2.8048817550270218
+          ],
+          "pymoo_value": [
+            2.0962690522820666,
+            2.8626099745147986,
+            2.8048817550270253
+          ],
+          "exclude": null
+        },
+        "random": {
+          "x": [
+            0.7153624788475508,
+            1.504513164558431,
+            4.555908018276259,
+            3.96080503038943,
+            3.7751096009337304,
+            8.545347255261635,
+            10.79686549094029,
+            0.08014216593695878,
+            14.380476128668802,
+            18.77163963867772,
+            9.101199272475194,
+            23.954913894731423,
+            13.013003833044285,
+            12.457145464459856,
+            9.645789326874949,
+            7.502507480876474,
+            32.069249511208426,
+            7.533556749143194,
+            5.906802407853123,
+            27.005432829356973,
+            8.467998454570123,
+            0.9241466373050535,
+            10.34129896304986,
+            41.350793734628326,
+            14.278793983809685,
+            43.45330736008731
+          ],
+          "toolkit_value": [
+            2.1595261185025603,
+            2.648230513127698,
+            4.643997688226843
+          ],
+          "pymoo_value": [
+            2.1595261185025616,
+            2.6482305131276997,
+            4.643997688226838
+          ],
+          "exclude": null
+        }
+      }
+    }
+  }
+}

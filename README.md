@@ -238,7 +238,7 @@ is always `None`/`NULL` until the method can be verified from a real source.
 See `docs/DECISIONS.md`'s M3-1 record for the full method-provenance table,
 pinned KS/AD formulas, and the deferral's search log.
 
-## Multi-objective optimization (M3-2)
+## Multi-objective optimization (M3-2, extended M3-7)
 
 The Python `sezgi.mo` namespace and the R `sz_nsga2`/`sz_mo_*` functions run NSGA-II (Deb, Pratap,
 Agarwal & Meyarivan 2002) against the ZDT (Zitzler, Deb & Thiele 2000) and
@@ -277,6 +277,70 @@ to v2 (see `docs/DECISIONS.md`'s M3-2 record for the full ruling).
 `pop_size` must be a multiple of 4, not merely even — a KanGAL-faithful
 tightening of the naive "even, >= 4" rule that NSGA-II's own reference C
 code (`nsga2r.c`) enforces for its double-permutation tournament pairing.
+
+### Multi-objective remainders (M3-7)
+
+M3-7 closes every MO capability the M3-2 record above left deferred: a
+constraint channel plus Deb's constrained-domination in NSGA-II (feasible
+beats infeasible; among infeasible, smaller total violation wins; among
+feasible, plain dominance — KanGAL `nsga2r.c`'s own `check_dominance`), a
+binary genotype path (two-point crossover + bit-flip mutation, per the
+SAME reference C — the task brief's "one-point crossover" sketch was
+corrected to the C's actual two-point structure, code-over-report),
+DTLZ8/DTLZ9 (the constraint-surface pair from the 2005 book chapter),
+ZDT5 (the 80-bit binary-coded T5), the full WFG1-WFG9 scalable toolkit
+(Huband, Hingston, Barone & While), a general-`M` exact hypervolume (the
+WFG algorithm, While, Bradstreet & Barone 2012), and archive-first
+"sezgi-moa v1" run logging:
+
+    import sezgi, tempfile
+
+    with tempfile.TemporaryDirectory() as log_dir:
+        result = sezgi.mo.nsga2("wfg4", dim=None, m=2, pop_size=40, budget=4000,
+                                 seed=20260830, log_dir=log_dir, label="demo")
+        archive = sezgi.mo.read_moa(f"{log_dir}/demo-s20260830.moa")
+    print(len(archive["archive"]), sezgi.mo.hypervolume(archive["archive"], [2.2, 4.4]))
+
+Output (live-run, same scenario as `examples/python/wfg4_nsga2.py`):
+
+    217 3.0620256270488344
+
+New problem strings: `"zdt5"` (binary-coded, `dim` rejected — fixed
+80-bit layout), `"dtlz8"`/`"dtlz9"` (constrained — `mo.nsga2(...)`'s
+result dict gains a `"violations"` key, present ONLY for a constrained
+problem), `"wfg1"`..`"wfg9"` (`dim` rejected — derived from `k`/`l`;
+`k`/`l` default to the toolkit's own recommended values, `k=4` for `m=2`/
+`k=2*(m-1)` for `m>=3`, `l=20`, when omitted). `mo.hypervolume(front,
+ref_point)` is the general-`M` counterpart to the frozen 2-objective
+`mo.hypervolume_2d` — `ref_point` is REQUIRED, with no default (see
+`docs/DECISIONS.md`'s M3-7 record, ruling 5, and Ishibuchi, Imada,
+Setoguchi & Nojima 2018's critique of the choice). `mo.nsga2(...,
+log_dir=, label=)` streams every feasible archive insertion to
+`<log_dir>/<label>-s<seed>.moa` (sezgi-moa v1: a versioned header plus one
+record per archive insertion, no `.dat`/`.info` IOH mimicry, no COCO
+compatibility claim — COCO bbob-biobj and MO-IOHinspector cited as design
+precedent, not reproduced); `mo.read_moa(path, at=None)` reconstructs the
+archive at any evaluation budget.
+
+Binary-coded MO (zdt5) is scoped to the KanGAL reference exactly —
+all-Float OR all-Binary spaces only; a MIXED space is rejected naming the
+M3-8 deferral explicitly (`Int`/`Categorical`/`Binary` typed operators
+generally, and mixed-representation NSGA-II specifically, remain future
+work, deliberately not pre-empted by this scoping). Everything
+ZDT1-4/6/DTLZ1-7/`hypervolume_2d` documented in the M3-2 section above
+stays frozen byte-for-byte.
+
+R mirrors this 1:1 (`sz_nsga2`, `sz_mo_hypervolume`, `sz_mo_read_moa`),
+including two new cross-language bit-equality anchors (an nsga2-on-wfg4
+and an nsga2-on-zdt5 scenario) and a `.moa` file byte-identity check
+across languages. `examples/python/wfg4_nsga2.py`/`examples/r/wfg4_nsga2.R`
+is the matched pair (NSGA-II on WFG4, `log_dir`-logged, reporting archive
+size + hypervolume at the nadir x 1.1 reference point). See
+`docs/DECISIONS.md`'s M3-7 record for the full provenance table (KanGAL
+C, the DTLZ 2005 chapter, the ZDT 2000 paper, the WFG EMO2005 paper plus
+official toolkit via a dead-host Wayback chain, the 2012 hypervolume
+paper), every toolkit-vs-paper/C-vs-paper/secondary-library divergence
+found, and the closed carry-forward items.
 
 ## CEC 2022 benchmark suite (M3-3)
 
@@ -742,6 +806,15 @@ competition's own 1st-place algorithm) on CEC 2014 f1, through
 `sezgi.solve()`/`sz_solve_cec2014`, bit-identical between languages. See
 "CEC 2014 / CEC 2017 benchmark suites (M3-6)" above.
 
+`examples/python/wfg4_nsga2.py`/`examples/r/wfg4_nsga2.R` (M3-7) is a
+matched PAIR for the MO remainders: NSGA-II on WFG4, called directly
+through `sezgi.mo.nsga2()`/`sz_nsga2()` (like `nsga2_zdt1.py`/`.R`, not
+`sezgi.solve()` — see "Multi-objective optimization" above), with
+`log_dir`-logged sezgi-moa v1 output read back via `mo.read_moa()`/
+`sz_mo_read_moa()` and reported through the general-`M` `mo.hypervolume()`/
+`sz_mo_hypervolume()`, bit-identical between languages (gated by a
+committed testthat anchor, `r-sezgi/tests/testthat/test-mo.R`).
+
 ## Development
 
     cargo test --workspace --release        # Rust tests
@@ -749,6 +822,39 @@ competition's own 1st-place algorithm) on CEC 2014 f1, through
     R CMD INSTALL --preclean r-sezgi && Rscript -e 'testthat::test_dir("r-sezgi/tests/testthat", package = "sezgi")' # R tests
 
 ## Status
+
+M3-7 (multi-objective remainders) **complete** — closes every deferred MO
+capability from M3-2: a constraint channel (`MoProblem::evaluate_constraints_batch`)
+and Deb's constrained-domination in NSGA-II, transcribed from KanGAL
+`nsga2r.c`'s own `check_dominance`; a binary genotype path (two-point
+crossover + bit-flip mutation, also from the C — the plan's own
+"one-point crossover" sketch was wrong, corrected under the standing
+code-over-report ruling); DTLZ8/DTLZ9 (the constraint-surface pair, Eq.
+6.26/6.27 of the 2005 book chapter, including a documented `// sezgi
+decision:` for DTLZ8's undefined `M=2` corner); ZDT5 (the 80-bit
+binary-coded T5, Zitzler-Deb-Thiele 2000 Definition 4); the full
+WFG1-WFG9 scalable toolkit (Huband, Hingston, Barone & While, recovered
+via a dead-host Wayback Machine chain after IEEE/ResearchGate/Semantic
+Scholar all failed, cross-checked against a compiled copy of the official
+C++ toolkit at ~1e-15 and against pymoo 0.6.2 with zero divergences across
+288 comparisons); a general-`M` exact hypervolume (the WFG algorithm,
+While, Bradstreet & Barone 2012, also Wayback-recovered) with an explicit,
+never-defaulted reference point (Ishibuchi, Imada, Setoguchi & Nojima
+2018 cited for why); and archive-first "sezgi-moa v1" run logging
+(COCO bbob-biobj/MO-IOHinspector cited as design precedent, no
+compatibility claim). Python (`sezgi.mo.*`) and R (`sz_nsga2`/`sz_mo_*`)
+bindings expose the full surface with cross-language bit-equal output; a
+matched `wfg4_nsga2` Python/R example pair, gated by a committed testthat
+anchor. WFG/hv reference code stayed ORACLE-ONLY throughout — never
+vendored (see `docs/DECISIONS.md`'s M3-7 record for the license findings
+on each). MO component-graph spec integration remains deferred to v2
+(unchanged since M3-2); `Int`/`Categorical`/`Binary` typed operators and
+mixed-representation NSGA-II remain M3-8 scope, deliberately not
+pre-empted by this milestone's binary-only NSGA-II path. See
+`docs/DECISIONS.md`'s "M3-7 completed" record for the full
+method-provenance table, every divergence found, and the closed
+carry-forward items. Next: v1.0 prep (see the checklist), or M3-8
+(Int/Categorical/Binary typed operators, mixed spaces).
 
 M3-6 (CEC 2014 + CEC 2017 benchmark suites) **complete** — the full CEC
 2014 suite (30 fids: unimodal, simple multimodal, hybrid F17-F22,

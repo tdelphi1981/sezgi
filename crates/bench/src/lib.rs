@@ -29,3 +29,9 @@ pub use reporting::{Aggregate, per_budget_packages, results_matrix};
 
 pub mod session;
 pub use session::{EvalSession, SessionMeta};
+
+pub mod mo_archive;
+pub use mo_archive::{
+    read_moa, GenoKind, MoArchiveError, MoArchiveGenotype, MoArchiveRecord, MoArchiveRun,
+    MoArchiveWriter, MoRunLoggedError, MOA_FORMAT_TAG, nsga2_run_logged,
+};

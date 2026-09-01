@@ -6,24 +6,28 @@
 OBJECTIVE space, if known. See `MoProblem::pareto_front` in
 `crates/core/src/mo.rs`.}
 \usage{
-sz_mo_pareto_front(problem, dim, m = NULL, n)
+sz_mo_pareto_front(problem, dim, n, m = NULL, k = NULL, l = NULL)
 }
 \arguments{
-\item{problem}{Same `problem`/`m` mapping as `sz_nsga2()`.}
+\item{problem}{Same `problem`/`dim`/`m`/`k`/`l` mapping as `sz_nsga2()`.}
 
-\item{dim}{Decision-space dimensionality.}
-
-\item{m}{Number of objectives. REQUIRED for dtlz, must be `NULL`
-(default) for zdt -- same rule as `sz_nsga2()`.}
+\item{dim}{Decision-space dimensionality -- same rule as `sz_nsga2()`.}
 
 \item{n}{Number of front points to sample.}
+
+\item{m}{Number of objectives -- same rule as `sz_nsga2()`.}
+
+\item{k}{Optional WFG position-related-parameter count; wfg-only.}
+
+\item{l}{Optional WFG distance-related-parameter count; wfg-only.}
 }
 \value{
 A `list` of `n` numeric vectors (mirrors `sz_nsga2()`'s
   `objectives`/`individuals` container convention -- a list, not a
   matrix), or `NULL` when the problem has no known analytic front sample
-  at this `m` (verified case: DTLZ5/DTLZ6 with `m > 3`) -- mirrors
-  py-sezgi's `sezgi.mo.pareto_front()` return exactly.
+  at this `m` (verified cases: DTLZ5/DTLZ6 with `m > 3`; WFG1/WFG2
+  unconditionally) -- mirrors py-sezgi's `sezgi.mo.pareto_front()` return
+  exactly.
 }
 \description{
 A deterministic `n`-point sample of the analytic Pareto front in

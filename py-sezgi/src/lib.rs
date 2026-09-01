@@ -5,10 +5,11 @@ use pyo3::types::{PyDict, PyList};
 use sezgi_bench::{
     coco_export as bench_coco_export, default_targets as bench_default_targets,
     ecdf as bench_ecdf, ecdf_per_algo as bench_ecdf_per_algo, ioh_records as bench_ioh_records,
-    per_budget_packages as bench_per_budget_packages, read_ioh_root,
-    results_matrix as bench_results_matrix, run_experiment_logged, run_experiment_parallel,
-    run_experiment_sequential, run_experiment_with_checkpoint, Aggregate, EcdfCurve, EvalSession,
-    ExperimentSpec, IohLogger, RunKey, RunRecord, SessionMeta, SUITE_BBOB,
+    nsga2_run_logged, per_budget_packages as bench_per_budget_packages,
+    read_ioh_root, read_moa as bench_read_moa, results_matrix as bench_results_matrix,
+    run_experiment_logged, run_experiment_parallel, run_experiment_sequential,
+    run_experiment_with_checkpoint, Aggregate, EcdfCurve, EvalSession, ExperimentSpec, GenoKind,
+    IohLogger, MoArchiveGenotype, RunKey, RunRecord, SessionMeta, SUITE_BBOB,
 };
 use sezgi_bias::{
     central_bias_scan, f0 as bias_f0_mod, scan_from_positions, structural_bias_scan,
@@ -24,11 +25,18 @@ use sezgi_core::mo::MoProblem;
 use sezgi_core::problem::Problem;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 use sezgi_core::spec::AlgorithmSpec;
-use sezgi_problems::{BbobProblem, Cec2014, Cec2017, Cec2022, Dtlz, Tsp, TspError, Zdt};
+use sezgi_problems::{BbobProblem, Cec2014, Cec2017, Cec2022, Dtlz, Tsp, TspError, Wfg, Zdt};
+// Zdt5 (M3-7 Task 6) is not re-exported at `sezgi_problems`'s crate root
+// (only `Zdt`/`ZdtError` are, per that crate's `lib.rs`) -- imported by its
+// full module path instead, rather than widening `crates/problems/src/lib.rs`'s
+// own `pub use` (out of this task's scope: only `py-sezgi/src/lib.rs` is
+// touched, per this task's own gate).
+use sezgi_problems::zdt::Zdt5;
 use sezgi_stats::{
     bayesian_plackett_luce, bayesian_signed_rank, cliffs_delta, cliffs_magnitude, friedman,
-    hypervolume_2d as stats_hypervolume_2d, igd as stats_igd, paper_package, plackett_luce,
-    wilcoxon_signed_rank, PaperPackage, WilcoxonMethod, WilcoxonResult,
+    hypervolume as stats_hypervolume, hypervolume_2d as stats_hypervolume_2d, igd as stats_igd,
+    paper_package, plackett_luce, wilcoxon_signed_rank, PaperPackage, WilcoxonMethod,
+    WilcoxonResult,
 };
 use sezgi_stats::uniformity::{AdResult, KsResult};
 use std::panic::{self, AssertUnwindSafe};
@@ -1727,36 +1735,105 @@ fn bias_report(
 }
 
 // ---------------------------------------------------------------------
-// Multi-objective bindings (sezgi.mo) -- M3-2 Task 9.
+// Multi-objective bindings (sezgi.mo) -- M3-2 Task 9, extended in M3-7.
 //
-// Binds T6's NSGA-II runner (`sezgi_components::nsga2::nsga2_run`), the
-// ZDT/DTLZ benchmark suites (`sezgi_problems::{Zdt, Dtlz}`), and the exact
-// 2-objective hypervolume / IGD indicators (`sezgi_stats::{hypervolume_2d,
-// igd}`). Every scalar/vector f64 is passed through EXACTLY as the Rust
-// core computed it -- no rounding/formatting anywhere in this section (T10's
-// R bindings assert bit-equality against these same values).
+// Binds the NSGA-II runner (`sezgi_components::nsga2::nsga2_run`, incl. the
+// M3-7 constrained and binary paths), the ZDT/DTLZ/WFG benchmark suites
+// (`sezgi_problems::{Zdt, Zdt5, Dtlz, Wfg}`), the exact hypervolume / IGD
+// indicators (`sezgi_stats::{hypervolume_2d, hypervolume, igd}`), and the
+// sezgi-moa v1 archive logging (`sezgi_bench::mo_archive`). Every
+// scalar/vector f64 is passed through EXACTLY as the Rust core computed it
+// -- no rounding/formatting anywhere in this section (the R bindings assert
+// bit-equality against these same values).
 //
 // Problem-string mapping (shared by `mo_nsga2` and `mo_pareto_front`, via
-// `mo_problem_from_str`): `"zdt1"`, `"zdt2"`, `"zdt3"`, `"zdt4"`, `"zdt6"`
-// (ZDT5 is a binary-coded problem, out of scope -- see
-// `sezgi_problems::zdt`'s module doc; `"zdt5"` is rejected the same way any
-// other unrecognized ZDT number is, via `Zdt::new`'s own `UnknownWhich`
-// error) and `"dtlz1"`..`"dtlz7"`. **`m` (number of objectives) is DTLZ-only
-// and REQUIRED there** (`Dtlz::new` has no default `m` to fall back to);
-// **passing `m` for a `zdt*` problem is a `ValueError`** (zdt problems are
-// always 2-objective by construction, so a caller-supplied `m` could never
-// be honored silently -- rejecting it outright surfaces the mistake instead
-// of quietly ignoring the argument).
+// `mo_problem_from_str`): `"zdt1"`..`"zdt4"`, `"zdt6"` (real-coded);
+// `"zdt5"` (the binary-coded T5, its own `Zdt5` type -- fixed 80-bit
+// layout, so `dim` is rejected for it); `"dtlz1"`..`"dtlz9"` (`m` REQUIRED;
+// 8/9 are the constrained pair and surface `violations`); `"wfg1"`..
+// `"wfg9"` (`m` required, optional `k`/`l` with the toolkit-recommended
+// defaults). **Passing `m` for a `zdt*` problem is a `ValueError`** (zdt
+// problems are always 2-objective by construction, so a caller-supplied
+// `m` could never be honored silently -- rejecting it outright surfaces
+// the mistake instead of quietly ignoring the argument); `k`/`l` are
+// likewise WFG-only.
 // ---------------------------------------------------------------------
 
-/// Shared problem-string -> `Box<dyn MoProblem>` builder for `mo_nsga2` and
-/// `mo_pareto_front`. See this section's own doc for the full mapping.
-fn mo_problem_from_str(problem: &str, dim: usize, m: Option<usize>) -> PyResult<Box<dyn MoProblem>> {
+/// WFG's own recommended `k` default (module doc's "Recommended `k`/`l`
+/// defaults" section, `sezgi_problems::wfg`'s own `// sezgi decision:` on
+/// the toolkit README's typo -- the widely-used literature reading: `k=4`
+/// for `m=2`, `k=2*(m-1)` for `m>=3`). Guarded at `m<=2` (not `m==2`) purely
+/// to avoid a `usize` underflow computing a THROWAWAY value for `m<2`: an
+/// `m<2` call always fails [`Wfg::new`]'s own `BadM` check first (checked
+/// before the `k%(m-1)==0` line that would otherwise divide by zero), so
+/// this default is never actually used in that case.
+fn wfg_default_k(m: usize) -> usize {
+    if m <= 2 { 4 } else { 2 * (m - 1) }
+}
+
+/// WFG's own recommended `l` default (same module-doc section): `l=20`,
+/// unconditional on `m`.
+const WFG_DEFAULT_L: usize = 20;
+
+/// Shared problem-string -> `Box<dyn MoProblem>` builder for `mo_nsga2`,
+/// `mo_pareto_front`, `mo_evaluate`, and `mo_evaluate_constraints`. See this
+/// section's own doc for the full mapping.
+///
+/// `dim`/`m`/`k`/`l` are each meaningful for only SOME problem families
+/// (`dim`: zdt1-4/6, dtlz1-9; `m`: dtlz1-9, wfg1-9; `k`/`l`: wfg1-9 only) --
+/// a parameter given where it does not apply, or omitted where it is
+/// required, is an honest `ValueError`, mirroring the pre-existing
+/// `m`-is-dtlz-only rejection style exactly (never silently ignored).
+fn mo_problem_from_str(
+    problem: &str,
+    dim: Option<usize>,
+    m: Option<usize>,
+    k: Option<usize>,
+    l: Option<usize>,
+) -> PyResult<Box<dyn MoProblem>> {
     let unknown = || {
         PyValueError::new_err(format!(
-            "unknown problem `{problem}` (expected one of zdt1, zdt2, zdt3, zdt4, zdt6, or dtlz1..dtlz7)"
+            "unknown problem `{problem}` (expected one of zdt1, zdt2, zdt3, zdt4, zdt5, zdt6, \
+             dtlz1..dtlz9, or wfg1..wfg9)"
         ))
     };
+
+    // sezgi decision: ZDT5 (M3-7 Task 6) is checked BEFORE the generic
+    // "zdt"-prefix branch below -- `Zdt::new(5, dim)` exists as a type but
+    // deliberately REJECTS which=5 with its own "use Zdt5::new() instead"
+    // error (zdt.rs's own doc), since ZDT5 is a separate, binary-coded type
+    // with no free `dim`/real-coded space at all. Letting the generic
+    // branch's `strip_prefix("zdt")` catch "zdt5" would just re-surface
+    // that Rust-internal redirect error instead of actually constructing
+    // it, so it is special-cased here first.
+    if problem == "zdt5" {
+        if m.is_some() {
+            return Err(PyValueError::new_err(
+                "m is DTLZ-only (number of objectives); zdt5 is always 2-objective -- \
+                 omit m (or pass m=None) for zdt5",
+            ));
+        }
+        // sezgi decision: `dim` is REJECTED for zdt5 (mirroring how `m` is
+        // rejected for every zdt problem), not merely ignored -- zdt5's
+        // search space is a FIXED 80-bit layout (one 30-bit block plus ten
+        // 5-bit blocks, Zitzler/Deb/Thiele 2000 Definition 4; see
+        // `Zdt5::new`'s own doc), not a free-dimension real-coded space, so
+        // a caller-supplied `dim` can never be honored and silently
+        // dropping it would hide a caller's wrong assumption.
+        if dim.is_some() {
+            return Err(PyValueError::new_err(
+                "dim is not accepted for zdt5: its search space is a FIXED 80-bit layout \
+                 (one 30-bit block plus ten 5-bit blocks) -- omit dim (or pass dim=None) for zdt5",
+            ));
+        }
+        if k.is_some() || l.is_some() {
+            return Err(PyValueError::new_err(
+                "k/l are wfg-only; omit them (or pass None) for zdt5",
+            ));
+        }
+        return Ok(Box::new(Zdt5::new()));
+    }
+
     if let Some(rest) = problem.strip_prefix("zdt") {
         let which: u32 = rest.parse().map_err(|_| unknown())?;
         if m.is_some() {
@@ -1765,13 +1842,56 @@ fn mo_problem_from_str(problem: &str, dim: usize, m: Option<usize>) -> PyResult<
                  omit m (or pass m=None) for a zdt problem",
             ));
         }
+        if k.is_some() || l.is_some() {
+            return Err(PyValueError::new_err(
+                "k/l are wfg-only; omit them (or pass None) for a zdt problem",
+            ));
+        }
+        let dim = dim.ok_or_else(|| {
+            PyValueError::new_err("dim is required for zdt problems")
+        })?;
         let p = Zdt::new(which, dim).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Box::new(p))
+    } else if let Some(rest) = problem.strip_prefix("wfg") {
+        let which: u32 = rest.parse().map_err(|_| unknown())?;
+        // sezgi decision: `dim` is REJECTED for wfg (same reasoning as
+        // zdt5 above) -- a WFG instance's dimension `n = k + l` is DERIVED
+        // from `k`/`l` (`Wfg::new`'s own signature takes no `dim` at all),
+        // so there is no free `dim` slot to fill; a caller must use `k`/`l`
+        // instead.
+        if dim.is_some() {
+            return Err(PyValueError::new_err(
+                "dim is not accepted for wfg problems: n = k + l is derived from k and l -- \
+                 omit dim (or pass dim=None) and use k/l instead",
+            ));
+        }
+        let m = m.ok_or_else(|| {
+            PyValueError::new_err("m (number of objectives) is required for wfg problems")
+        })?;
+        // sezgi decision: `k`/`l` default to the toolkit's own recommended
+        // values (`wfg_default_k`/`WFG_DEFAULT_L` above) when omitted,
+        // mirroring `p_m`'s own `None`-resolves-to-a-formula precedent
+        // rather than requiring every caller to spell them out.
+        let k = k.unwrap_or_else(|| wfg_default_k(m));
+        let l = l.unwrap_or(WFG_DEFAULT_L);
+        let p = Wfg::new(which, m, k, l).map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Box::new(p))
     } else if let Some(rest) = problem.strip_prefix("dtlz") {
         let which: u32 = rest.parse().map_err(|_| unknown())?;
+        if k.is_some() || l.is_some() {
+            return Err(PyValueError::new_err(
+                "k/l are wfg-only; omit them (or pass None) for a dtlz problem",
+            ));
+        }
         let m = m.ok_or_else(|| {
             PyValueError::new_err("m (number of objectives) is required for dtlz problems")
         })?;
+        let dim = dim.ok_or_else(|| {
+            PyValueError::new_err("dim is required for dtlz problems")
+        })?;
+        // dtlz8/dtlz9 (M3-7 Task 2) reuse `Dtlz::new` unchanged -- its own
+        // `dim > m` constraint-surface check (`DtlzError::BadDimConstraintSurface`)
+        // surfaces via the SAME `map_err` path as every other dtlz error.
         let p = Dtlz::new(which, m, dim).map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Box::new(p))
     } else {
@@ -1780,48 +1900,227 @@ fn mo_problem_from_str(problem: &str, dim: usize, m: Option<usize>) -> PyResult<
 }
 
 /// Flattens a [`Genotype`] into a single `Vec<f64>` (concatenating every
-/// block in order) -- these are always single- or multi-Float-block
-/// genotypes here, since `nsga2_run` validates an all-`Block::Float` space
-/// before ever constructing one (`Nsga2Error::NonFloatSpace`). Mirrors
-/// `solve`'s own `best_x` conversion above (`BlockValues::Float(xs) => ...`),
-/// generalized to however many Float blocks the space has (ZDT4 has two:
-/// `x1` and the rest).
+/// block in order) -- always either an all-`Block::Float` genotype (zdt1-4/
+/// 6, dtlz1-9, wfg1-9) or an all-`Block::Binary` one (zdt5 only), since
+/// `nsga2_run` validates exactly one of those two shapes before ever
+/// constructing one (`Nsga2Error::NonFloatSpace`/`MixedGenotypeSpace`).
+/// Mirrors `solve`'s own `best_x` conversion above (`BlockValues::Float(xs)
+/// => ...`), generalized to however many Float blocks the space has (ZDT4
+/// has two: `x1` and the rest).
+///
+/// `# sezgi decision:` (M3-7 Task 10) a `Block::Binary` block's bits are
+/// flattened to `0.0`/`1.0` floats, the SAME 0/1 convention
+/// `genotype_from_flat` (below) reads back -- keeping `individuals`
+/// uniformly typed as "list of float-lists" across every problem family
+/// (rather than introducing a differently-typed field only for zdt5) is
+/// simpler for every existing consumer of this dict shape (Python callers,
+/// R bindings via M3-7 Task 11) that already expects floats.
 fn genotype_to_flat_vec(g: &Genotype) -> Vec<f64> {
     let mut out = Vec::new();
     for b in &g.blocks {
-        if let BlockValues::Float(xs) = b {
-            out.extend_from_slice(xs);
+        match b {
+            BlockValues::Float(xs) => out.extend_from_slice(xs),
+            BlockValues::Bin(bits) => out.extend(bits.iter().map(|&b| if b { 1.0 } else { 0.0 })),
+            _ => {}
         }
     }
     out
 }
 
+/// Builds a [`Genotype`] matching `space`'s own block layout from a flat
+/// `x` (the inverse of [`genotype_to_flat_vec`]'s flattening, used by
+/// `mo_evaluate`/`mo_evaluate_constraints` to construct a one-off individual
+/// from a caller-supplied decision vector). `Block::Float` blocks take their
+/// slice of `x` verbatim; `Block::Binary` blocks read each value as a bit
+/// via `!= 0.0` (matching `genotype_to_flat_vec`'s own `0.0`/`1.0` encoding
+/// on the way back out).
+///
+/// # Errors
+/// `ValueError` if `x.len() != space.dim()`, or if `space` has a block that
+/// is neither `Block::Float` nor `Block::Binary` (unreachable through
+/// `mo_problem_from_str`'s own zdt/dtlz/wfg constructors today, but checked
+/// honestly rather than silently skipped).
+fn genotype_from_flat(space: &SearchSpace, x: &[f64]) -> PyResult<Genotype> {
+    if x.len() != space.dim() {
+        return Err(PyValueError::new_err(format!(
+            "x must have exactly {} coordinates (dim={}), got {}",
+            space.dim(), space.dim(), x.len()
+        )));
+    }
+    let mut blocks = Vec::with_capacity(space.blocks().len());
+    let mut i = 0usize;
+    for b in space.blocks() {
+        match *b {
+            Block::Float { n, .. } => {
+                blocks.push(BlockValues::Float(x[i..i + n].to_vec()));
+                i += n;
+            }
+            Block::Binary { n } => {
+                blocks.push(BlockValues::Bin(x[i..i + n].iter().map(|&v| v != 0.0).collect()));
+                i += n;
+            }
+            _ => return Err(PyValueError::new_err(
+                "mo.evaluate only supports all-Float or all-Binary spaces")),
+        }
+    }
+    Ok(Genotype { blocks })
+}
+
+/// `sezgi.mo.evaluate(problem, x, dim=None, m=None, k=None, l=None) ->
+/// list[float]` -- direct, one-shot objective evaluation of a decision
+/// vector `x` against any `sezgi.mo` problem string, bypassing `nsga2`'s
+/// population/budget machinery entirely (`problem`/`dim`/`m`/`k`/`l` share
+/// `mo_nsga2`'s own `mo_problem_from_str` mapping).
+///
+/// `# sezgi decision:` (M3-7 Task 10) added purely so this binding's OWN
+/// test suite can pin exact fixture values (zdt5's all-ones/all-zeros hand
+/// fixtures, dtlz8/9's hand fixtures, the committed
+/// `wfg_reference_values.json` points) directly from Python -- mirroring
+/// the existing `cec2022_evaluate`/`cec2014_evaluate`/`cec2017_evaluate`
+/// one-shot-evaluation convention already established in this file. Not
+/// literally named in this task's brief (which only names
+/// `nsga2`/`pareto_front` for the new problem families), but required by
+/// the brief's own Test section, since `nsga2`'s randomly-initialized
+/// population cannot pin a fixture at a chosen `x`.
+///
+/// `x`: for an all-Float problem, its raw decision values; for zdt5 (the
+/// only all-Binary problem reachable here), each entry is read as a bit
+/// (`!= 0.0` -> `true`) -- see [`genotype_from_flat`]'s own doc.
+///
+/// # Errors
+/// Same problem-construction errors as `mo.nsga2`/`mo.pareto_front`, plus a
+/// `ValueError` if `len(x)` does not match the problem's own dimension.
+#[pyfunction]
+#[pyo3(signature = (problem, x, dim=None, m=None, k=None, l=None))]
+fn mo_evaluate(
+    problem: &str,
+    x: Vec<f64>,
+    dim: Option<usize>,
+    m: Option<usize>,
+    k: Option<usize>,
+    l: Option<usize>,
+) -> PyResult<Vec<f64>> {
+    let prob = mo_problem_from_str(problem, dim, m, k, l)?;
+    let g = genotype_from_flat(prob.space(), &x)?;
+    Ok(prob
+        .evaluate_batch(std::slice::from_ref(&g))
+        .into_iter()
+        .next()
+        .expect("evaluate_batch returns one row per input genotype"))
+}
+
+/// `sezgi.mo.evaluate_constraints(problem, x, dim=None, m=None, k=None,
+/// l=None) -> Optional[list[float]]` -- direct, one-shot constraint-row
+/// evaluation, mirroring `mo.evaluate`'s calling convention exactly (same
+/// [`mo_problem_from_str`] mapping, same [`genotype_from_flat`] decoding).
+/// Returns `None` for an unconstrained problem (every zdt/wfg problem, and
+/// dtlz1-7), or the constraint row (`g_1..g_ncon`, `g_j >= 0` meaning
+/// SATISFIED -- see [`sezgi_core::mo::MoProblem::evaluate_constraints_batch`]'s
+/// own doc for the pinned sign convention) for a constrained one (dtlz8/
+/// dtlz9).
+///
+/// # Errors
+/// Same as `mo.evaluate`.
+#[pyfunction]
+#[pyo3(signature = (problem, x, dim=None, m=None, k=None, l=None))]
+fn mo_evaluate_constraints(
+    problem: &str,
+    x: Vec<f64>,
+    dim: Option<usize>,
+    m: Option<usize>,
+    k: Option<usize>,
+    l: Option<usize>,
+) -> PyResult<Option<Vec<f64>>> {
+    let prob = mo_problem_from_str(problem, dim, m, k, l)?;
+    let g = genotype_from_flat(prob.space(), &x)?;
+    Ok(prob
+        .evaluate_constraints_batch(std::slice::from_ref(&g))
+        .map(|rows| rows.into_iter().next().expect("one row per input genotype")))
+}
+
 /// `sezgi.mo.nsga2(problem, dim, pop_size, budget, m=None, seed=0,
-/// eta_c=20.0, eta_m=20.0, p_c=0.9, p_m=None)` -- binds
-/// [`sezgi_components::nsga2::nsga2_run`]. `eta_c`/`eta_m`/`p_c` default to
-/// the paper's own pinned experimental settings (Deb et al. 2002, Sec.
-/// IV.A: eta_c=20, eta_m=20, p_c=0.9 -- see that module's "Defaults"
-/// doc section); `p_m=None` resolves on the Rust side to `1 / n_variables`
-/// (the paper's own default), never re-derived here.
+/// eta_c=20.0, eta_m=20.0, p_c=0.9, p_m=None, p_c_bin=0.9, p_m_bin=None,
+/// k=None, l=None, log_dir=None, label=None)` -- binds
+/// [`sezgi_components::nsga2::nsga2_run`] (or, when `log_dir` is given,
+/// [`nsga2_run_logged`] -- see below). `eta_c`/`eta_m`/`p_c` default to the
+/// paper's own pinned experimental settings (Deb et al. 2002, Sec. IV.A:
+/// eta_c=20, eta_m=20, p_c=0.9 -- see that module's "Defaults" doc
+/// section); `p_m=None` resolves on the Rust side to `1 / n_variables` (the
+/// paper's own default), never re-derived here.
+///
+/// `dim`: required (may be `None`, but the argument itself must be
+/// supplied) for zdt1-4/6 and dtlz1-9; REJECTED (must be `None`) for zdt5
+/// and wfg1-9, whose dimension is fixed (zdt5) or derived from `k`/`l`
+/// (wfg) -- see [`mo_problem_from_str`]'s own doc.
+///
+/// `p_c_bin`/`p_m_bin` (M3-7 Task 3/10): the binary-genotype counterparts
+/// of `p_c`/`p_m`, consulted ONLY when `problem` builds an all-Binary space
+/// (zdt5 today) -- `Nsga2Config`'s own doc: "Only consulted when
+/// `nsga2_run`'s search space is all-Block::Binary -- never read on the
+/// all-Float path". `# sezgi decision:` `p_c_bin` defaults to `0.9`,
+/// mirroring `p_c`'s own paper-pinned default -- the paper itself gives NO
+/// verified formula for a binary-specific crossover probability (KanGAL's
+/// C reference requires it as a REQUIRED CLI input with no built-in
+/// default either, `Nsga2Config::p_c_bin`'s own doc), so `p_c`'s value is
+/// the closest defensible choice, not a verified paper quote. `p_m_bin`
+/// defaults to `None`, which the Rust side resolves to `1 / l` (`l` = the
+/// space's total bit count) -- the paper's OWN stated binary-coded default,
+/// mirroring `p_m`'s identical `None`-resolves-to-a-formula design exactly.
+/// Both are passed through UNCONDITIONALLY (validated by
+/// [`sezgi_components::nsga2::Nsga2Config`]'s own range check even for an
+/// all-Float problem, where they are simply unused) -- no problem-family
+/// gating is added on the Python side, matching the Rust config's own
+/// unconditional-validation design.
+///
+/// `k`/`l` (M3-7 Task 10): wfg-only parameters, forwarded to
+/// [`mo_problem_from_str`] -- see that function's own doc for their
+/// defaults and the `dim`-rejection this implies for wfg.
+///
+/// `log_dir`/`label` (M3-7 Task 9/10): when `log_dir` is given, the run is
+/// executed via [`nsga2_run_logged`] instead of the plain `nsga2_run`,
+/// streaming every feasible archive insertion to
+/// `<log_dir>/<label>-s<seed>.moa` (sezgi-moa v1 format; see
+/// `crates/bench/src/mo_archive.rs`'s own module doc for the exact format
+/// grammar) -- `label` is REQUIRED whenever `log_dir` is given (an honest
+/// `ValueError` otherwise, mirroring how `EvalSession`'s own `for_problem`
+/// constructor requires enough identity to build a meaningful on-disk key
+/// before it will accept a `log_dir`); omitting `log_dir` runs exactly as
+/// before (byte-identical `nsga2_run` path), and `label` is simply ignored
+/// if given without `log_dir`.
 ///
 /// Returns a dict mirroring `MoRunResult` 1:1: `individuals` (list of
 /// float-lists, one per final-population member, flattened across every
-/// Float block), `objectives` (list of float-lists, parallel to
+/// block -- see [`genotype_to_flat_vec`]'s own doc for the Binary-block
+/// encoding), `objectives` (list of float-lists, parallel to
 /// `individuals`), `front0` (list of ints: indices of the final
-/// population's non-dominated set), `evals_used` (int).
+/// population's non-dominated set), `evals_used` (int), and `violations`
+/// (M3-7 Task 1/10) -- **present ONLY when the problem is constrained**
+/// (dtlz8/dtlz9 today; `MoRunResult::violations`'s own `Some` iff
+/// `evaluate_constraints_batch` returned `Some` rule), a list of floats
+/// (`<= 0.0`, `0.0` = fully feasible) parallel to `individuals`/
+/// `objectives`. `# sezgi decision:` the key is ABSENT (not present with a
+/// `None` value) for an unconstrained problem -- the SAME
+/// present-only-when-meaningful convention `solve()`'s own
+/// `skipped_empty_runs` key already uses in this file, rather than a
+/// dict key every caller must always check for `None`.
 ///
 /// # Errors
-/// `ValueError` for an unrecognized `problem` string, an `m` given for a
-/// zdt problem, a missing `m` for a dtlz problem, or any
-/// [`sezgi_components::nsga2::Nsga2Error`] (including `pop_size` failing
-/// the `>= 4 && pop_size % 4 == 0` check -- NOT merely "even, >= 4").
+/// `ValueError` for an unrecognized `problem` string, a `dim`/`m`/`k`/`l`
+/// given where the problem does not accept it (or missing where required --
+/// see [`mo_problem_from_str`]'s own doc), a `log_dir` given without
+/// `label`, or any [`sezgi_components::nsga2::Nsga2Error`] (including
+/// `pop_size` failing the `>= 4 && pop_size % 4 == 0` check -- NOT merely
+/// "even, >= 4") / [`sezgi_bench::MoRunLoggedError`] (when `log_dir` is
+/// given).
 #[pyfunction]
-#[pyo3(signature = (problem, dim, pop_size, budget, m=None, seed=0, eta_c=20.0, eta_m=20.0, p_c=0.9, p_m=None))]
+#[pyo3(signature = (problem, dim, pop_size, budget, m=None, seed=0, eta_c=20.0, eta_m=20.0,
+                     p_c=0.9, p_m=None, p_c_bin=0.9, p_m_bin=None, k=None, l=None,
+                     log_dir=None, label=None))]
 #[allow(clippy::too_many_arguments)]
 fn mo_nsga2(
     py: Python<'_>,
     problem: &str,
-    dim: usize,
+    dim: Option<usize>,
     pop_size: usize,
     budget: u64,
     m: Option<usize>,
@@ -1830,13 +2129,29 @@ fn mo_nsga2(
     eta_m: f64,
     p_c: f64,
     p_m: Option<f64>,
+    p_c_bin: f64,
+    p_m_bin: Option<f64>,
+    k: Option<usize>,
+    l: Option<usize>,
+    log_dir: Option<&str>,
+    label: Option<&str>,
 ) -> PyResult<Py<PyDict>> {
-    let prob = mo_problem_from_str(problem, dim, m)?;
-    let cfg = Nsga2Config { pop_size, budget, seed, eta_c, eta_m, p_c, p_m };
+    let prob = mo_problem_from_str(problem, dim, m, k, l)?;
+    let cfg = Nsga2Config { pop_size, budget, seed, eta_c, eta_m, p_c, p_m, p_c_bin, p_m_bin };
 
-    let result = run_with_bridge(py, || {
-        nsga2_run(prob.as_ref(), &cfg).map_err(|e| PyValueError::new_err(e.to_string()))
-    })?;
+    let result = if let Some(dir) = log_dir {
+        let label = label.ok_or_else(|| PyValueError::new_err(
+            "label is required when log_dir is given (sezgi-moa file naming: \
+             <log_dir>/<label>-s<seed>.moa)"))?;
+        run_with_bridge(py, || {
+            nsga2_run_logged(prob.as_ref(), &cfg, Path::new(dir), label)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })?
+    } else {
+        run_with_bridge(py, || {
+            nsga2_run(prob.as_ref(), &cfg).map_err(|e| PyValueError::new_err(e.to_string()))
+        })?
+    };
 
     let d = PyDict::new(py);
 
@@ -1854,6 +2169,9 @@ fn mo_nsga2(
 
     d.set_item("front0", PyList::new(py, &result.front0)?)?;
     d.set_item("evals_used", result.evals_used)?;
+    if let Some(v) = &result.violations {
+        d.set_item("violations", PyList::new(py, v)?)?;
+    }
 
     Ok(d.into())
 }
@@ -1879,6 +2197,39 @@ fn mo_hypervolume_2d(front: Vec<Vec<f64>>, ref_point: Vec<f64>) -> PyResult<f64>
     stats_hypervolume_2d(&front, &rp).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
+/// `sezgi.mo.hypervolume(front, ref_point)` -- binds [`sezgi_stats::hypervolume`]
+/// (M3-7 Task 8/10), the exact general-M hypervolume via the WFG algorithm
+/// (While, Bradstreet & Barone, "A Fast Way of Calculating Exact
+/// Hypervolumes", IEEE TEC 2012). Unlike `hypervolume_2d`, `front`/
+/// `ref_point` may have any number `M >= 1` of objectives (`M == 2`
+/// delegates internally to the SAME `hypervolume_2d`, that module's own "2D
+/// shortcut" doc section).
+///
+/// `ref_point` is **REQUIRED, with no default** (a plain positional/keyword
+/// argument -- calling this with only `front` raises Python's own
+/// `TypeError` for a missing argument, by signature, not a `ValueError`
+/// this binding raises itself): `sezgi_stats::moo_indicators`'s own module
+/// doc, "Choosing a reference point: explicit-always, contested in the
+/// literature" section, deliberately never picks one FOR the caller. One
+/// common convention from that literature (also the module's own examples/
+/// tests' choice, and the specific one critiqued by Ishibuchi, Imada,
+/// Setoguchi & Nojima 2018, "How to Specify a Reference Point in
+/// Hypervolume Calculation for Fair Performance Comparison", GECCO
+/// Companion) is the analytic front's nadir point (the componentwise worst
+/// value across the front) scaled by `1.1` -- a caller-supplied choice,
+/// never defaulted here.
+///
+/// # Errors
+/// `ValueError` for any [`sezgi_stats::StatsError`] (`ref_point` empty, a
+/// `front` row with a different number of objectives than `ref_point`, or a
+/// non-finite value). An EMPTY `front` is NOT an error -- it returns `0.0`
+/// (the algorithm's own base case, `hypervolume`'s own "empty front"
+/// doc section).
+#[pyfunction]
+fn mo_hypervolume(front: Vec<Vec<f64>>, ref_point: Vec<f64>) -> PyResult<f64> {
+    stats_hypervolume(&front, &ref_point).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
 /// `sezgi.mo.igd(front, reference_front)` -- binds [`sezgi_stats::igd`]
 /// exactly (Ishibuchi et al. 2015, eq. 12, `p = 1`; see that function's doc
 /// for the pinned definition). Any (equal, consistent) number of objectives
@@ -1892,23 +2243,105 @@ fn mo_igd(front: Vec<Vec<f64>>, reference_front: Vec<Vec<f64>>) -> PyResult<f64>
     stats_igd(&front, &reference_front).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
-/// `sezgi.mo.pareto_front(problem, dim, n, m=None)` -- a deterministic
-/// `n`-point sample of the analytic Pareto front in OBJECTIVE space, via
-/// [`sezgi_core::mo::MoProblem::pareto_front`]. Same `problem`/`m` mapping
-/// as `mo_nsga2` (see this section's own doc). Returns `None` when the
-/// problem has no known analytic front sample at this `m` (e.g. DTLZ5/DTLZ6
-/// with `m > 3` -- verified only for `m <= 3`, see `sezgi_problems::dtlz`'s
-/// module doc), a list of `n` float-lists otherwise.
+/// `sezgi.mo.pareto_front(problem, dim, n, m=None, k=None, l=None)` -- a
+/// deterministic `n`-point sample of the analytic Pareto front in OBJECTIVE
+/// space, via [`sezgi_core::mo::MoProblem::pareto_front`]. Same
+/// `problem`/`dim`/`m`/`k`/`l` mapping as `mo_nsga2` (see this section's own
+/// doc). Returns `None` when the problem has no known analytic front sample
+/// at this `m` (e.g. DTLZ5/DTLZ6 with `m > 3` -- verified only for `m <= 3`,
+/// see `sezgi_problems::dtlz`'s module doc; or WFG1/WFG2 unconditionally --
+/// see `sezgi_problems::wfg`'s own `pareto_front` decisions section), a
+/// list of `n` float-lists otherwise.
 ///
 /// # Errors
 /// Same as `mo_nsga2`'s problem-construction errors (unrecognized `problem`,
-/// `m` given for zdt, `m` missing for dtlz, or any
-/// `ZdtError`/`DtlzError`).
+/// a `dim`/`m`/`k`/`l` given where the problem does not accept it or
+/// missing where required, or any `ZdtError`/`DtlzError`/`WfgError`).
 #[pyfunction]
-#[pyo3(signature = (problem, dim, n, m=None))]
-fn mo_pareto_front(problem: &str, dim: usize, n: usize, m: Option<usize>) -> PyResult<Option<Vec<Vec<f64>>>> {
-    let prob = mo_problem_from_str(problem, dim, m)?;
+#[pyo3(signature = (problem, dim, n, m=None, k=None, l=None))]
+fn mo_pareto_front(
+    problem: &str,
+    dim: Option<usize>,
+    n: usize,
+    m: Option<usize>,
+    k: Option<usize>,
+    l: Option<usize>,
+) -> PyResult<Option<Vec<Vec<f64>>>> {
+    let prob = mo_problem_from_str(problem, dim, m, k, l)?;
     Ok(prob.pareto_front(n))
+}
+
+/// `sezgi.mo.read_moa(path, at=None)` -- binds [`sezgi_bench::read_moa`] (a
+/// "sezgi-moa v1" archive file written by `mo.nsga2(..., log_dir=...,
+/// label=...)`, M3-7 Task 9/10). Returns a dict:
+/// - `algo` (str): the logging algorithm name -- always `"nsga2"` today
+///   (`nsga2_run_logged`'s own fixed `NSGA2_ALGO_NAME`).
+/// - `problem` (str): the `label` `mo.nsga2` was called with. **Kept as the
+///   literal on-disk header key name** (`crates/bench/src/mo_archive.rs`'s
+///   own format grammar: the header line is `problem <label>`, not
+///   `label <label>`) rather than renamed here to `"label"` -- this
+///   binding stays a thin, direct mirror of [`MoArchiveRun`]'s own field
+///   names, so a reader cross-checking against the Rust struct (or the R
+///   binding, M3-7 Task 11) sees the SAME key everywhere.
+/// - `m` (int), `seed` (int), `budget` (int).
+/// - `kind` (str): `"float"` or `"binary"`.
+/// - `records` (list of dicts, in file/eval order): `eval_index` (int),
+///   `objectives` (list of float), `genotype` (list of float for
+///   `kind="float"`, list of bool for `kind="binary"` -- [`MoArchiveGenotype`]'s
+///   own two variants).
+/// - `archive` (list of float-lists): the reconstructed nondominated
+///   archive at evaluation budget `at`, via [`MoArchiveRun::archive_at`].
+///
+/// `# sezgi decision:` `at=None` resolves to the file's own logged `budget`
+/// header field (the full run's final archive) -- `archive_at` itself takes
+/// a REQUIRED `evals: u64` with no Rust-side default, and the file's own
+/// `budget` is the one value guaranteed to reconstruct the run's COMPLETE
+/// trajectory (`nsga2_run_logged`'s own `MoEvaluator` budget enforcement
+/// means no `eval_index` beyond it was ever charged) -- a natural,
+/// self-contained default rather than requiring every caller to pass the
+/// budget back in by hand after already reading it out of the same dict.
+///
+/// # Errors
+/// `ValueError` for any [`sezgi_bench::MoArchiveError`] (missing file, a
+/// malformed header, or a malformed record line).
+#[pyfunction]
+#[pyo3(signature = (path, at=None))]
+fn mo_read_moa(py: Python<'_>, path: &str, at: Option<u64>) -> PyResult<Py<PyDict>> {
+    let run = bench_read_moa(path).map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let d = PyDict::new(py);
+    d.set_item("algo", &run.algo)?;
+    d.set_item("problem", &run.problem)?;
+    d.set_item("m", run.m)?;
+    d.set_item("seed", run.seed)?;
+    d.set_item("budget", run.budget)?;
+    d.set_item("kind", match run.kind {
+        GenoKind::Float => "float",
+        GenoKind::Binary => "binary",
+    })?;
+
+    let records = PyList::empty(py);
+    for r in &run.records {
+        let rd = PyDict::new(py);
+        rd.set_item("eval_index", r.eval_index)?;
+        rd.set_item("objectives", PyList::new(py, &r.objectives)?)?;
+        match &r.genotype {
+            MoArchiveGenotype::Float(xs) => rd.set_item("genotype", PyList::new(py, xs)?)?,
+            MoArchiveGenotype::Binary(bits) => rd.set_item("genotype", PyList::new(py, bits)?)?,
+        }
+        records.append(rd)?;
+    }
+    d.set_item("records", records)?;
+
+    let evals = at.unwrap_or(run.budget);
+    let archive = run.archive_at(evals);
+    let archive_list = PyList::empty(py);
+    for row in &archive {
+        archive_list.append(PyList::new(py, row)?)?;
+    }
+    d.set_item("archive", archive_list)?;
+
+    Ok(d.into())
 }
 
 #[pyfunction] fn preset_de_rand_1(pop_size: usize, budget: u64) -> String {
@@ -2086,8 +2519,12 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bias_report, m)?)?;
     m.add_function(wrap_pyfunction!(mo_nsga2, m)?)?;
     m.add_function(wrap_pyfunction!(mo_hypervolume_2d, m)?)?;
+    m.add_function(wrap_pyfunction!(mo_hypervolume, m)?)?;
     m.add_function(wrap_pyfunction!(mo_igd, m)?)?;
     m.add_function(wrap_pyfunction!(mo_pareto_front, m)?)?;
+    m.add_function(wrap_pyfunction!(mo_evaluate, m)?)?;
+    m.add_function(wrap_pyfunction!(mo_evaluate_constraints, m)?)?;
+    m.add_function(wrap_pyfunction!(mo_read_moa, m)?)?;
     m.add_function(wrap_pyfunction!(preset_de_rand_1, m)?)?;
     m.add_function(wrap_pyfunction!(preset_de_best_1, m)?)?;
     m.add_function(wrap_pyfunction!(preset_jde, m)?)?;

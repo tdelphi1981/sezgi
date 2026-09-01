@@ -53,10 +53,12 @@
 //! module's `Zdt::new(which, dim)` always takes `dim` explicitly and never
 //! silently substitutes these numbers.
 //!
-//! **T5 excluded**: T5 is a deceptive, BINARY-coded problem (`xi` a bit
-//! string, `f1(x1) = 1 + u(x1)` a unitation count) that does not fit this
-//! module's real-coded `Block::Float` representation; it is a documented
-//! deferral, not part of this suite.
+//! **T5 is `Zdt5`, a separate type**: T5 is a deceptive, BINARY-coded
+//! problem (`xi` a bit string) that does not fit `Zdt`'s real-coded
+//! `Block::Float` representation, so it is NOT a `Zdt::new(which, dim)`
+//! variant; it is implemented below as its own type, [`Zdt5`], in this same
+//! module. See [`Zdt5`]'s own doc for its provenance (Definition 4, quoted
+//! verbatim) and design.
 //!
 //! ## Analytic Pareto fronts (objective space)
 //!
@@ -105,7 +107,7 @@ use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 pub enum ZdtError {
     #[error(
         "which must be one of {{1,2,3,4,6}} (ZDT5 is a binary-coded deceptive problem, out of \
-         scope for this real-coded suite -- see this module's doc), got {0}"
+         scope for this real-coded suite -- use `Zdt5::new()` instead), got {0}"
     )]
     UnknownWhich(u32),
     #[error("dim must be >= 2")]
@@ -113,7 +115,8 @@ pub enum ZdtError {
 }
 
 /// One instance of the ZDT multi-objective suite (`which` selects ZDT1,
-/// ZDT2, ZDT3, ZDT4, or ZDT6 -- ZDT5 is excluded, see the module doc).
+/// ZDT2, ZDT3, ZDT4, or ZDT6 -- ZDT5 is [`Zdt5`], a separate type; see the
+/// module doc).
 pub struct Zdt {
     which: u32,
     dim: usize,
@@ -343,6 +346,186 @@ impl MoProblem for Zdt {
     }
 }
 
+/// ZDT5, introduced as **T5** in Zitzler, Deb & Thiele (2000) -- Definition
+/// 4, Equation 11, p.178 of the same PROVENANCE-verified source as this
+/// module's other functions (sha256 `4b7cd99b01a4cc6143c5edce5f38d08d2ca65e\
+/// 46ac3f4dc5f7424a297031fdc0`; see the module doc's header). Quoted
+/// verbatim:
+///
+/// > The test function T5 describes a deceptive problem and distinguishes
+/// > itself from the other test functions in that xi represents a binary
+/// > string:
+/// >
+/// > f1(x1) = 1 + u(x1)
+/// > g(x2,...,xm) = sum_{i=2}^{m} v(u(xi))
+/// > h(f1,g) = 1/f1
+/// >
+/// > where u(xi) gives the number of ones in the bit vector xi
+/// > (unitation),
+/// >
+/// > v(u(xi)) = { 2 + u(xi)  if u(xi) < 5 }
+/// >            { 1          if u(xi) = 5 }
+/// >
+/// > and m = 11, x1 in {0,1}^30, and x2,...,xm in {0,1}^5. The true
+/// > Pareto-optimal front is formed with g(x) = 10, while the best
+/// > deceptive Pareto-optimal front is represented by the solutions for
+/// > which g(x) = 11. The global Pareto-optimal front as well as the local
+/// > ones are convex.
+///
+/// Composing per the shared scheme (module doc's Equation 6:
+/// `f2(x) = g(...) h(f1, g(...))`): `h(f1,g) = 1/f1` (NOT `1/g`, and not a
+/// function of `g` at all -- verified directly from the quoted Eq. 11), so
+/// `f2 = g * h = g / f1`. Cross-checked bit-for-bit against pymoo 0.6.2's
+/// `pymoo.problems.multi.zdt.ZDT5` (`normalize=False`) on pinned bitstrings
+/// (all-zeros, all-ones, and several mixed patterns): exact agreement (see
+/// this task's report for the transcript).
+///
+/// ## Layout
+///
+/// `m = 11`: one `Block::Binary { n: 30 }` for `x1`, then ten
+/// `Block::Binary { n: 5 }` blocks for `x2,...,x11` -- 11 Binary blocks, 80
+/// bits total, fixed by the paper (unlike `Zdt::new`'s explicit `dim`,
+/// there is no free dimension parameter here, so `Zdt5::new()` takes none).
+///
+/// ## Analytic Pareto front (objective space)
+///
+/// The global front is `g(x) = 10` (every one of the ten 5-bit groups at
+/// its OWN global optimum `u = 5`, `v = 1`), giving `f2 = 10/f1`. `f1 = 1 +
+/// u(x1)` with `x1` an independent 30-bit block, so `u(x1)` ranges over the
+/// 31 integers `0,...,30` and `f1` over `1,...,31` -- **the front is
+/// GENUINELY DISCRETE**: exactly 31 distinct objective-space points, not a
+/// continuous curve sampled at `n` locations like T1-T4/T6.
+///
+/// // sezgi decision: `pareto_front(n)` returns `min(n, 31)` points (never
+/// // fabricating points beyond the 31 that exist), evenly spread across
+/// // the 31 discrete `f1` values by rounding `i * 30 / (count - 1)` to the
+/// // nearest integer index (`count >= 2`); `n == 1` returns the single
+/// // point at `f1 = 1`; `n == 0` returns empty, matching `Zdt`'s
+/// // convention. Because the spacing between consecutive exact index
+/// // values is always `>= 1` for `count <= 31`, the rounded indices are
+/// // provably strictly increasing (no duplicate/skipped points): if
+/// // `x2 - x1 >= 1` then `round(x2) != round(x1)`, since two values
+/// // rounding to the same integer must be within `1` of each other, with
+/// // equality possible only at a `.5/.5` tie split by the two adjacent
+/// // integers. For `n > 31`, the extra points cannot be manufactured
+/// // without duplicating a discrete point, so they are simply not
+/// // produced -- callers must not assume `pareto_front(n).len() == n` for
+/// // this type (documented on [`Zdt5::pareto_front`] below), unlike every
+/// // other function in this module.
+///
+/// The paper also names a DECEPTIVE local front at `g(x) = 11`: the
+/// per-group landscape `v` is minimized at `u = 5` (`v = 1`, the true
+/// optimum) but has a local optimum at `u = 0` (`v = 2`, better than
+/// `v = 3,4,5,6` at `u = 1,2,3,4`, which is why it is "deceptive" --
+/// bit-flip hill-climbing within a group tends to walk DOWN to `u = 0`
+/// rather than climb all the way up to `u = 5`). The smallest `g` value
+/// strictly above the true optimum `10` replaces exactly one group's `v=1`
+/// with the next-smallest available value `v=2` (`u=0`), giving `g = 9*1 +
+/// 2 = 11` -- matching the paper's stated `g(x) = 11` exactly. This module
+/// does not special-case that front (it is not exposed via
+/// `pareto_front`); it is exercised by this file's tests to prove `g=11`
+/// points are dominated by `g=10` points at the same `f1`, and are
+/// correctly excluded from `pareto_front`'s output.
+#[derive(Debug, Clone)]
+pub struct Zdt5 {
+    space: SearchSpace,
+}
+
+impl Default for Zdt5 {
+    fn default() -> Self { Self::new() }
+}
+
+impl Zdt5 {
+    /// Fixed layout (module/type doc): no parameters, since the paper pins
+    /// `m=11`, `x1` at 30 bits, and `x2,...,x11` at 5 bits each. Infallible:
+    /// `SearchSpace::new` only ever rejects `Block::Float`/`Block::Int`
+    /// blocks with `lo >= hi` (`crates/core/src/space.rs`), and `Binary`
+    /// blocks carry no bounds to violate -- so, unlike `Zdt::new`, there is
+    /// no error type here (module doc's "own error enum entry or struct --
+    /// mirror the module's conventions" left this construction path with
+    /// nothing left to fail on).
+    pub fn new() -> Self {
+        let mut blocks = vec![Block::Binary { n: 30 }];
+        blocks.extend(std::iter::repeat_n(Block::Binary { n: 5 }, 10));
+        let space =
+            SearchSpace::new(blocks).expect("ZDT5's fixed Binary blocks carry no bounds to violate");
+        Self { space }
+    }
+
+    /// `u(x)`: the unitation (count of `true`/one bits) of one bit vector,
+    /// per the quoted Definition 4.
+    fn unitation(bits: &[bool]) -> u32 { bits.iter().filter(|&&b| b).count() as u32 }
+
+    /// `v(u)`, quoted verbatim above: `2 + u` if `u < 5`, else `1`. Each
+    /// group block has exactly 5 bits, so `u` is always in `0..=5` here;
+    /// the paper's `u(xi) = 5` branch and "otherwise" are the same thing on
+    /// this fixed 5-bit domain, so `else` (not a redundant `u == 5` guard)
+    /// is the faithful, total translation.
+    fn v(u: u32) -> f64 { if u < 5 { 2.0 + u as f64 } else { 1.0 } }
+
+    /// `f1 = 1 + u(x1)`, `g = sum_i v(u(xi))`, `h = 1/f1`, `f2 = g*h = g/f1`
+    /// (module/type doc's Eq. 6 composition, verified against Eq. 11).
+    fn eval_one(x1: &[bool], groups: &[Vec<bool>]) -> [f64; 2] {
+        let f1 = 1.0 + Self::unitation(x1) as f64;
+        let g: f64 = groups.iter().map(|grp| Self::v(Self::unitation(grp))).sum();
+        [f1, g / f1]
+    }
+}
+
+impl MoProblem for Zdt5 {
+    fn space(&self) -> &SearchSpace { &self.space }
+    fn n_objectives(&self) -> usize { 2 }
+
+    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+        pop.iter()
+            .map(|g| match g.blocks.split_first() {
+                Some((BlockValues::Bin(x1), rest))
+                    if rest.len() == 10 && rest.iter().all(|b| matches!(b, BlockValues::Bin(_))) =>
+                {
+                    let groups: Vec<Vec<bool>> = rest
+                        .iter()
+                        .map(|b| match b {
+                            BlockValues::Bin(bits) => bits.clone(),
+                            _ => unreachable!("checked by the outer guard"),
+                        })
+                        .collect();
+                    let [f1, f2] = Self::eval_one(x1, &groups);
+                    vec![f1, f2]
+                }
+                _ => vec![f64::INFINITY; 2],
+            })
+            .collect()
+    }
+
+    /// See the type doc's `// sezgi decision:` -- returns `min(n, 31)`
+    /// points on the discrete global front (`g=10`, `f2 = 10/f1`,
+    /// `f1 in {1,...,31}`); `pareto_front(n).len() == n` does NOT hold for
+    /// `n > 31`, unlike every other function in this module.
+    fn pareto_front(&self, n: usize) -> Option<Vec<Vec<f64>>> {
+        if n == 0 {
+            return Some(Vec::new());
+        }
+        const TOTAL: usize = 31; // u(x1) in 0..=30 -> f1 in 1..=31
+        let count = n.min(TOTAL);
+        let indices: Vec<usize> = if count == 1 {
+            vec![0]
+        } else {
+            (0..count)
+                .map(|i| ((i * (TOTAL - 1)) as f64 / (count - 1) as f64).round() as usize)
+                .collect()
+        };
+        Some(
+            indices
+                .into_iter()
+                .map(|u1| {
+                    let f1 = 1.0 + u1 as f64;
+                    vec![f1, 10.0 / f1]
+                })
+                .collect(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,9 +549,24 @@ mod tests {
 
     #[test]
     fn zdt5_excluded_as_unknown() {
-        // ZDT5 is the binary-coded deceptive problem, deliberately excluded
-        // (module doc): it must surface as UnknownWhich, not silently work.
+        // ZDT5 is the binary-coded deceptive problem: it is NOT a
+        // Zdt::new(which, dim) variant (it is the separate `Zdt5` type,
+        // below), so `which=5` must still surface as UnknownWhich, not
+        // silently work.
         assert!(matches!(Zdt::new(5, 11), Err(ZdtError::UnknownWhich(5))));
+    }
+
+    #[test]
+    fn unknown_which_error_text_points_at_zdt5() {
+        // Before (pre-Zdt5): "...out of scope for this real-coded suite --
+        // see this module's doc), got 5".
+        // After (this task): "...out of scope for this real-coded suite --
+        // use `Zdt5::new()` instead), got 5" -- the error now names the
+        // concrete replacement type instead of pointing at prose.
+        let Err(err) = Zdt::new(5, 11) else { panic!("Zdt::new(5, _) must be an error") };
+        let msg = err.to_string();
+        assert!(msg.contains("use `Zdt5::new()` instead"), "{msg}");
+        assert!(!msg.contains("see this module's doc"), "{msg}");
     }
 
     #[test]
@@ -665,5 +863,314 @@ mod tests {
             let out = p.evaluate_batch(&pop);
             assert!(out.iter().all(|row| row.iter().all(|v| v.is_finite())), "which={which}: {out:?}");
         }
+    }
+
+    // ==================== Zdt5 (T5, binary-coded, deceptive) ====================
+    //
+    // Provenance: Zitzler/Deb/Thiele 2000, Definition 4, Eq. 11, p.178
+    // (sha256 4b7cd99b01a4cc6143c5edce5f38d08d2ca65e46ac3f4dc5f7424a297031f\
+    // dc0 -- see this task's report). Cross-checked bit-for-bit against
+    // pymoo 0.6.2's `pymoo.problems.multi.zdt.ZDT5(normalize=False)`;
+    // fixtures below are annotated with which pymoo case they reproduce.
+
+    fn zdt5_bits(ones: usize, n: usize) -> Vec<bool> {
+        let mut v = vec![false; n];
+        v[..ones].fill(true);
+        v
+    }
+
+    fn zdt5_geno(x1: Vec<bool>, groups: Vec<Vec<bool>>) -> Genotype {
+        let mut blocks = vec![BlockValues::Bin(x1)];
+        blocks.extend(groups.into_iter().map(BlockValues::Bin));
+        Genotype { blocks }
+    }
+
+    // ---- construction / space shape ----
+
+    #[test]
+    fn zdt5_space_is_eleven_binary_blocks_eighty_bits() {
+        let p = Zdt5::new();
+        let mut expect = vec![Block::Binary { n: 30 }];
+        expect.extend(std::iter::repeat_n(Block::Binary { n: 5 }, 10));
+        assert_eq!(p.space().blocks(), expect.as_slice());
+        assert_eq!(p.space().dim(), 80);
+    }
+
+    #[test]
+    fn zdt5_n_objectives_is_2() {
+        assert_eq!(Zdt5::new().n_objectives(), 2);
+    }
+
+    #[test]
+    fn zdt5_default_matches_new() {
+        // Default is infallible construction of the same fixed layout.
+        assert_eq!(Zdt5::default().space().blocks(), Zdt5::new().space().blocks());
+    }
+
+    // ---- unitation / v() building blocks ----
+
+    #[test]
+    fn zdt5_unitation_counts_ones() {
+        assert_eq!(Zdt5::unitation(&[false, false, false, false, false]), 0);
+        assert_eq!(Zdt5::unitation(&[true, false, true, false, true]), 3);
+        assert_eq!(Zdt5::unitation(&[true, true, true, true, true]), 5);
+    }
+
+    #[test]
+    fn zdt5_v_boundary_at_u_equals_5() {
+        // Definition 4: v(u) = 2+u for u<5, else 1 -- the jump from u=4 to
+        // u=5 (6.0 -> 1.0) is the deceptive discontinuity itself.
+        assert_eq!(Zdt5::v(0), 2.0);
+        assert_eq!(Zdt5::v(1), 3.0);
+        assert_eq!(Zdt5::v(2), 4.0);
+        assert_eq!(Zdt5::v(3), 5.0);
+        assert_eq!(Zdt5::v(4), 6.0, "last point before the deceptive drop");
+        assert_eq!(Zdt5::v(5), 1.0, "the true group optimum: a sharp drop, not a continuation of 2+u");
+    }
+
+    // ---- whole-genotype hand fixtures (RE-DERIVED from Definition 4; each
+    // ---- one also reproduced bit-for-bit by the pymoo 0.6.2 cross-check) ----
+
+    #[test]
+    fn zdt5_all_zeros_fixture() {
+        // u(x1)=0 -> f1=1+0=1. Every one of the 10 groups has u=0<5 ->
+        // v=2+0=2, so g=10*2=20. f2=g/f1=20/1=20. pymoo: [1, 20].
+        let p = Zdt5::new();
+        let g = zdt5_geno(zdt5_bits(0, 30), vec![zdt5_bits(0, 5); 10]);
+        assert_eq!(p.evaluate_batch(&[g]), vec![vec![1.0, 20.0]]);
+    }
+
+    #[test]
+    fn zdt5_all_ones_fixture() {
+        // u(x1)=30 -> f1=1+30=31. Every group has u=5 -> v=1, g=10*1=10.
+        // f2=g/f1=10/31. pymoo: [31, 0.32258064...].
+        let p = Zdt5::new();
+        let g = zdt5_geno(zdt5_bits(30, 30), vec![zdt5_bits(5, 5); 10]);
+        let out = p.evaluate_batch(&[g]);
+        assert_eq!(out[0][0], 31.0);
+        assert!((out[0][1] - 10.0 / 31.0).abs() < 1e-12, "{out:?}");
+    }
+
+    #[test]
+    fn zdt5_mixed_fixture() {
+        // x1 has 7 leading ones (of 30) -> u(x1)=7, f1=1+7=8. Each of the
+        // 10 groups is the 5-bit pattern [1,0,1,0,1] -> u=3<5, v=2+3=5, so
+        // g=10*5=50. f2=g/f1=50/8=6.25. pymoo "mixed_1": [8, 6.25].
+        let p = Zdt5::new();
+        let group = vec![true, false, true, false, true];
+        let g = zdt5_geno(zdt5_bits(7, 30), vec![group; 10]);
+        assert_eq!(p.evaluate_batch(&[g]), vec![vec![8.0, 6.25]]);
+    }
+
+    #[test]
+    fn zdt5_one_group_at_u4_fixture() {
+        // x1 all-zero -> f1=1. One group is [1,1,1,1,0] -> u=4<5, v=6. The
+        // other 9 groups are all-zero -> u=0, v=2 each. g=6+9*2=24.
+        // f2=24/1=24. pymoo "x1_0_one_group_u4": [1, 24].
+        let p = Zdt5::new();
+        let mut groups = vec![zdt5_bits(0, 5); 10];
+        groups[0] = vec![true, true, true, true, false];
+        let g = zdt5_geno(zdt5_bits(0, 30), groups);
+        assert_eq!(p.evaluate_batch(&[g]), vec![vec![1.0, 24.0]]);
+    }
+
+    #[test]
+    fn zdt5_deceptive_g_equals_11_fixture() {
+        // x1 all-zero -> f1=1. One group all-zero (u=0, v=2), the other 9
+        // groups all-ones (u=5, v=1 each). g=2+9*1=11 -- exactly the
+        // paper's stated "best deceptive Pareto-optimal front" value.
+        // f2=11/1=11. pymoo "x1_0_9groups_ones_1group_zero": [1, 11].
+        let p = Zdt5::new();
+        let mut groups = vec![zdt5_bits(5, 5); 10];
+        groups[0] = zdt5_bits(0, 5);
+        let g = zdt5_geno(zdt5_bits(0, 30), groups);
+        assert_eq!(p.evaluate_batch(&[g]), vec![vec![1.0, 11.0]]);
+    }
+
+    #[test]
+    fn zdt5_malformed_genotype_yields_infinity() {
+        // Wrong block shape (not 1 + 10 Bin blocks) must not panic.
+        let p = Zdt5::new();
+        let bad = Genotype { blocks: vec![BlockValues::Bin(vec![false; 30])] };
+        assert_eq!(p.evaluate_batch(&[bad]), vec![vec![f64::INFINITY, f64::INFINITY]]);
+    }
+
+    // ---- front membership: g=10 on the front, g=11 dominated-but-excluded ----
+
+    #[test]
+    fn zdt5_g10_point_is_on_pareto_front() {
+        // f1=8 (x1 has 7 ones), all 10 groups all-ones -> g=10, f2=10/8=1.25.
+        let p = Zdt5::new();
+        let front = p.pareto_front(31).unwrap();
+        assert!(
+            front.iter().any(|row| (row[0] - 8.0).abs() < 1e-12 && (row[1] - 1.25).abs() < 1e-12),
+            "expected (8, 1.25) on the front: {front:?}"
+        );
+    }
+
+    #[test]
+    fn zdt5_g11_point_is_not_on_front_but_dominates_g12_at_same_f1() {
+        use sezgi_components::nsga2::dominates;
+        let p = Zdt5::new();
+
+        // Same f1=8 as the g=10 fixture above, but g=11 (one group traded
+        // down from u=5,v=1 to u=0,v=2): f2=11/8=1.375.
+        let mut g11_groups = vec![zdt5_bits(5, 5); 10];
+        g11_groups[0] = zdt5_bits(0, 5);
+        let g11 = zdt5_geno(zdt5_bits(7, 30), g11_groups);
+        let g11_obj = p.evaluate_batch(&[g11])[0].clone();
+        assert_eq!(g11_obj[0], 8.0);
+        assert!((g11_obj[1] - 11.0 / 8.0).abs() < 1e-12);
+
+        // Not on the (g=10-only) front.
+        let front = p.pareto_front(31).unwrap();
+        assert!(
+            !front.iter().any(|row| (row[0] - g11_obj[0]).abs() < 1e-9 && (row[1] - g11_obj[1]).abs() < 1e-9),
+            "a g=11 point must not appear on the g=10 global front: {g11_obj:?} in {front:?}"
+        );
+        // But it IS dominated by the true front's same-f1 point (g=10 <
+        // g=11 at equal f1).
+        let g10_point = vec![8.0, 1.25];
+        assert!(dominates(&g10_point, &g11_obj), "g=10 point must dominate the g=11 point at equal f1");
+
+        // And the g=11 point in turn dominates a same-f1 g=12 point (one
+        // group at u=1,v=3 instead of u=5,v=1 -> g=9*1+3=12, f2=12/8=1.5).
+        let mut g12_groups = vec![zdt5_bits(5, 5); 10];
+        g12_groups[0] = zdt5_bits(1, 5);
+        let g12 = zdt5_geno(zdt5_bits(7, 30), g12_groups);
+        let g12_obj = p.evaluate_batch(&[g12])[0].clone();
+        assert_eq!(g12_obj[0], 8.0);
+        assert!((g12_obj[1] - 1.5).abs() < 1e-12);
+        assert!(dominates(&g11_obj, &g12_obj), "g=11 point must dominate a worse same-f1 g=12 point");
+    }
+
+    // ---- pareto_front: discrete-front sampling decision ----
+
+    #[test]
+    fn zdt5_pareto_front_31_covers_every_discrete_point_exactly() {
+        let p = Zdt5::new();
+        let front = p.pareto_front(31).unwrap();
+        assert_eq!(front.len(), 31);
+        for (i, row) in front.iter().enumerate() {
+            let f1 = 1.0 + i as f64;
+            assert_eq!(row[0], f1, "index {i}: {front:?}");
+            assert_eq!(row[1], 10.0 / f1, "index {i}: {front:?}");
+        }
+    }
+
+    #[test]
+    fn zdt5_pareto_front_caps_at_31_never_fabricating_points() {
+        // sezgi decision (type doc): requesting more than the 31 points
+        // that genuinely exist returns exactly 31, not `n`.
+        let p = Zdt5::new();
+        for n in [32usize, 50, 100, 1000] {
+            let front = p.pareto_front(n).unwrap();
+            assert_eq!(front.len(), 31, "n={n}");
+        }
+    }
+
+    #[test]
+    fn zdt5_pareto_front_small_n_is_strictly_increasing_and_deterministic() {
+        let p = Zdt5::new();
+        for n in [1usize, 2, 5, 10, 17, 30] {
+            let a = p.pareto_front(n).unwrap();
+            let b = p.pareto_front(n).unwrap();
+            assert_eq!(a, b, "n={n}: pareto_front must be deterministic");
+            assert_eq!(a.len(), n.min(31), "n={n}");
+            for w in a.windows(2) {
+                assert!(w[1][0] > w[0][0], "n={n}: f1 must be strictly increasing: {a:?}");
+                assert!((w[1][1] - 10.0 / w[1][0]).abs() < 1e-12);
+            }
+            // Endpoints always present.
+            assert_eq!(a[0], vec![1.0, 10.0], "n={n}: first point must be f1=1");
+            if n >= 2 {
+                assert_eq!(a[n.min(31) - 1], vec![31.0, 10.0 / 31.0], "n={n}: last point must be f1=31");
+            }
+        }
+    }
+
+    #[test]
+    fn zdt5_pareto_front_zero_is_empty() {
+        assert_eq!(Zdt5::new().pareto_front(0), Some(Vec::new()));
+    }
+
+    // ---- nsga2_run integration: T3's binary path on a deceptive problem ----
+
+    #[test]
+    fn nsga2_run_binary_zdt5_front0_g_is_bounded() {
+        // A deceptive problem legitimately may converge to the true front
+        // (g=10), the paper's named deceptive local front (g=11), or --
+        // with a modest budget on an 80-bit deceptive landscape -- some
+        // intermediate mix of "escaped to the global per-group optimum
+        // u=5" and "trapped at the LOCAL per-group optimum u=0" blocks
+        // (recall: within one 5-bit group, v(u) strictly INCREASES from
+        // u=0 to u=4 -- 2,3,4,5,6 -- before dropping sharply to 1 at u=5,
+        // so ordinary hill-climbing selection pressure pushes every group
+        // toward u=0 first; only crossover/mutation luck escapes further
+        // up to the true optimum u=5). What must hold, honestly, is that
+        // this selection pressure is doing its job at all: front0's g
+        // must never regress into the genuinely-bad intermediate zone
+        // (u in 1..=4 on a majority of groups), which the deceptive
+        // structure makes strictly worse than the u=0 trap itself.
+        //
+        // Measured (this task's development run, pop=60, budget=9000,
+        // p_m_bin defaulting to 1/80): a 10-seed sweep over
+        // seed in {1,2,3,5,7,11,13,17,23,42} gave front0 g values (every
+        // member of front0 had the SAME g -- only x1, which has no
+        // deceptive structure, diversified across f1) of exactly
+        // {19, 19, 18, 18, 18, 18, 18, 18, 16, 15} -- i.e. every run
+        // pushed g down into [15, 19], comfortably below the "no group
+        // stuck at an intermediate value" bound of 20 (10 groups all at
+        // the LOCAL optimum u=0, v=2, the worst-case outcome consistent
+        // with every group having escaped the genuinely bad u in 1..=4
+        // zone). Anchored at g<=25 (headroom above the full observed
+        // [15,19] range, well below the theoretical worst 60) with
+        // seed=11 (a representative, non-cherry-picked point of that
+        // sweep, g=18) for this test's fixed, deterministic assertion.
+        use sezgi_components::nsga2::{Nsga2Config, nsga2_run};
+        let p = Zdt5::new();
+        let cfg = Nsga2Config {
+            pop_size: 60,
+            budget: 9000,
+            seed: 11,
+            eta_c: 20.0,
+            eta_m: 20.0,
+            p_c: 0.9,
+            p_m: None,
+            p_c_bin: 0.9,
+            p_m_bin: None,
+        };
+        let result = nsga2_run(&p, &cfg).unwrap();
+        assert!(!result.front0.is_empty());
+        for &i in &result.front0 {
+            let f1 = result.objectives[i][0];
+            let f2 = result.objectives[i][1];
+            let g = f2 * f1; // f2 = g/f1 -> g = f2*f1
+            assert!((f1 - f1.round()).abs() < 1e-9, "f1 must be an integer (1+unitation): {f1}");
+            assert!(
+                g <= 25.0 + 1e-6,
+                "front0 member {i} has g={g} (f1={f1}, f2={f2}): worse than the measured/anchored bound"
+            );
+        }
+    }
+
+    #[test]
+    fn nsga2_run_binary_zdt5_same_seed_twice_bit_identical() {
+        use sezgi_components::nsga2::{Nsga2Config, nsga2_run};
+        let p = Zdt5::new();
+        let cfg = Nsga2Config {
+            pop_size: 20,
+            budget: 2000,
+            seed: 3,
+            eta_c: 20.0,
+            eta_m: 20.0,
+            p_c: 0.9,
+            p_m: None,
+            p_c_bin: 0.9,
+            p_m_bin: None,
+        };
+        let r1 = nsga2_run(&p, &cfg).unwrap();
+        let r2 = nsga2_run(&p, &cfg).unwrap();
+        assert_eq!(r1, r2, "same seed must reproduce a bit-identical MoRunResult");
     }
 }

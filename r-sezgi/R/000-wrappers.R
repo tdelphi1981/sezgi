@@ -369,6 +369,111 @@ NULL
   .Call(savvy_sz_ecdf_raw__impl, `log_root`, `per_algo`, `targets`)
 }
 
+#' Direct, one-shot constraint-row evaluation, mirroring `sz_mo_evaluate`'s
+#' calling convention exactly (same [`mo_problem_from_str`] mapping, same
+#' [`genotype_from_flat`] decoding) -- binds
+#' [`sezgi_core::mo::MoProblem::evaluate_constraints_batch`].
+#'
+#' This is the raw savvy-generated binding, same raw/wrapper pattern as
+#' `sz_mo_evaluate()` / `sz_mo_evaluate_raw()` above -- the public R entry
+#' point is the hand-written wrapper `sz_mo_evaluate_constraints()` in
+#' `R/mo.R`.
+#'
+#' @param problem Same mapping as `sz_nsga2_raw`.
+#' @param x A numeric vector, the decision vector to evaluate.
+#' @param dim Optional decision-space dimensionality -- same rule as
+#'   `sz_nsga2_raw`.
+#' @param m Optional number of objectives -- same rule as `sz_nsga2_raw`.
+#' @param k Optional WFG position-related-parameter count; wfg-only.
+#' @param l Optional WFG distance-related-parameter count; wfg-only.
+#' @returns A numeric vector (`g_1..g_ncon`, `g_j >= 0` meaning SATISFIED --
+#'   see [`sezgi_core::mo::MoProblem::evaluate_constraints_batch`]'s own doc
+#'   for the pinned sign convention), or `NULL` for an unconstrained
+#'   problem (every zdt/wfg problem, and dtlz1-7).
+#'
+#' # Errors
+#' Same as `sz_mo_evaluate_raw`.
+#' @noRd
+`sz_mo_evaluate_constraints_raw` <- function(`problem`, `x`, `dim` = NULL, `m` = NULL, `k` = NULL, `l` = NULL) {
+  .Call(savvy_sz_mo_evaluate_constraints_raw__impl, `problem`, `x`, `dim`, `m`, `k`, `l`)
+}
+
+#' Direct, one-shot objective evaluation of a decision vector `x` against
+#' any `sz_mo_*` problem string, bypassing `sz_nsga2`'s population/budget
+#' machinery entirely -- binds [`sezgi_core::mo::MoProblem::evaluate_batch`]
+#' for a single individual. Same `problem`/`dim`/`m`/`k`/`l` mapping as
+#' `sz_nsga2_raw`, via [`mo_problem_from_str`].
+#'
+#' `# sezgi decision:` (M3-7 Task 11) added purely so this binding's OWN
+#' test suite can pin exact fixture values (zdt5's all-ones/all-zeros hand
+#' fixtures, dtlz8/9's hand fixtures, the committed
+#' `wfg_reference_values.json` points) directly from R -- mirroring
+#' py-sezgi's own `mo.evaluate` (added for the identical reason, M3-7 Task
+#' 10) and the existing `sz_cec2022_evaluate`/`sz_cec2014_evaluate`/
+#' `sz_cec2017_evaluate` one-shot-evaluation convention already established
+#' in this crate.
+#'
+#' `x`: for an all-Float problem, its raw decision values; for zdt5 (the
+#' only all-Binary problem reachable here), each entry is read as a bit
+#' (`!= 0.0` -> `TRUE`) -- see [`genotype_from_flat`]'s own doc.
+#'
+#' This is the raw savvy-generated binding (`problem`/`x` required,
+#' `dim`/`m`/`k`/`l` trailing since they are all optional). The public R
+#' entry point with R-native argument order (`problem, dim, x, m, k, l`) is
+#' the hand-written wrapper `sz_mo_evaluate()` in `R/mo.R`, which calls this
+#' function -- same raw/wrapper pattern as `sz_nsga2()` / `sz_nsga2_raw()`.
+#'
+#' @param problem Same mapping as `sz_nsga2_raw`.
+#' @param x A numeric vector, the decision vector to evaluate.
+#' @param dim Optional decision-space dimensionality -- same rule as
+#'   `sz_nsga2_raw`.
+#' @param m Optional number of objectives -- same rule as `sz_nsga2_raw`.
+#' @param k Optional WFG position-related-parameter count; wfg-only.
+#' @param l Optional WFG distance-related-parameter count; wfg-only.
+#' @returns A numeric vector, length equal to the problem's own objective
+#'   count.
+#'
+#' # Errors
+#' Same problem-construction errors as `sz_nsga2_raw`/`sz_mo_pareto_front`,
+#' plus a savvy error if `length(x)` does not match the problem's own
+#' dimension.
+#' @noRd
+`sz_mo_evaluate_raw` <- function(`problem`, `x`, `dim` = NULL, `m` = NULL, `k` = NULL, `l` = NULL) {
+  .Call(savvy_sz_mo_evaluate_raw__impl, `problem`, `x`, `dim`, `m`, `k`, `l`)
+}
+
+#' General-M exact hypervolume (While, Bradstreet & Barone 2012, the WFG
+#' algorithm; `M == 2` delegates internally to the SAME
+#' [`sezgi_stats::hypervolume_2d`]) -- binds [`sezgi_stats::hypervolume`]
+#' (M3-7 Task 8/11). Unlike `sz_mo_hypervolume_2d`, `front`/`ref_point` may
+#' have any number `M >= 1` of objectives.
+#'
+#' `ref_point` is REQUIRED, with no default: `sezgi_stats::moo_indicators`'s
+#' own module doc, "Choosing a reference point: explicit-always, contested
+#' in the literature" section, deliberately never picks one for the caller.
+#' One common convention from that literature (also critiqued by Ishibuchi,
+#' Imada, Setoguchi & Nojima 2018, "How to Specify a Reference Point in
+#' Hypervolume Calculation for Fair Performance Comparison", GECCO
+#' Companion) is the analytic front's nadir point (the componentwise worst
+#' value across the front) scaled by `1.1` -- a caller-supplied choice,
+#' never defaulted here.
+#'
+#' @param front A numeric matrix, rows = points, any number of columns --
+#'   see this module's own doc, "Container-idiom decisions".
+#' @param ref_point A numeric vector, same length as `front`'s column
+#'   count.
+#' @returns A numeric scalar. An EMPTY `front` is NOT an error -- it
+#'   returns `0.0` (the algorithm's own base case).
+#'
+#' # Errors
+#' A savvy error for any [`sezgi_stats::StatsError`] (`ref_point` empty, a
+#' `front` row with a different number of objectives than `ref_point`, or a
+#' non-finite value), or if `front` is not a matrix.
+#' @export
+`sz_mo_hypervolume` <- function(`front`, `ref_point`) {
+  .Call(savvy_sz_mo_hypervolume__impl, `front`, `ref_point`)
+}
+
 #' Exact 2-objective hypervolume (Zitzler & Thiele 1999 S-metric,
 #' reference-point variant; minimization) -- binds
 #' [`sezgi_stats::hypervolume_2d`] exactly. See that function's doc for the
@@ -410,49 +515,96 @@ NULL
 
 #' A deterministic `n`-point sample of the analytic Pareto front in
 #' OBJECTIVE space, if known -- binds [`sezgi_core::mo::MoProblem::pareto_front`].
-#' Same `problem`/`m` mapping as `sz_nsga2_raw` (see this module's own doc).
+#' Same `problem`/`dim`/`m`/`k`/`l` mapping as `sz_nsga2_raw` (see this
+#' module's own doc).
 #'
-#' This is the raw savvy-generated binding (required args only, `m`
-#' trailing since it is optional). The public R entry point with R-native
-#' defaults (`m = NULL`) is the hand-written wrapper `sz_mo_pareto_front()`
-#' in `R/mo.R`, which calls this function -- same raw/wrapper pattern as
-#' `sz_nsga2()` / `sz_nsga2_raw()`.
+#' This is the raw savvy-generated binding (`problem`/`n` required,
+#' `dim`/`m`/`k`/`l` trailing since they are all optional). The public R
+#' entry point with R-native argument order is the hand-written wrapper
+#' `sz_mo_pareto_front()` in `R/mo.R`, which calls this function -- same
+#' raw/wrapper pattern as `sz_nsga2()` / `sz_nsga2_raw()`.
 #'
 #' @param problem Same mapping as `sz_nsga2_raw`.
-#' @param dim Decision-space dimensionality (double, cast to `usize`).
 #' @param n Number of front points to sample (double, cast to `usize`).
-#' @param m Optional number of objectives (double, cast to `usize`).
-#'   REQUIRED for dtlz, must be `NULL` for zdt -- same rule as
-#'   `sz_nsga2_raw`.
+#' @param dim Optional decision-space dimensionality (double, cast to
+#'   `usize`) -- same rule as `sz_nsga2_raw`.
+#' @param m Optional number of objectives (double, cast to `usize`) --
+#'   same rule as `sz_nsga2_raw`.
+#' @param k Optional WFG position-related-parameter count; wfg-only.
+#' @param l Optional WFG distance-related-parameter count; wfg-only.
 #' @returns A `list` of `n` numeric vectors (see this module's own doc,
 #'   "Container-idiom decisions"), or `NULL` when the problem has no known
-#'   analytic front sample at this `m` (verified case: DTLZ5/DTLZ6 with
-#'   `m > 3`) -- mirrors py-sezgi's `sezgi.mo.pareto_front()` return
-#'   exactly.
+#'   analytic front sample (e.g. DTLZ5/DTLZ6 with `m > 3`, or WFG1/WFG2
+#'   unconditionally) -- mirrors py-sezgi's `sezgi.mo.pareto_front()`
+#'   return exactly.
 #'
 #' # Errors
 #' Same as `sz_nsga2_raw`'s problem-construction errors.
 #' @noRd
-`sz_mo_pareto_front_raw` <- function(`problem`, `dim`, `n`, `m` = NULL) {
-  .Call(savvy_sz_mo_pareto_front_raw__impl, `problem`, `dim`, `n`, `m`)
+`sz_mo_pareto_front_raw` <- function(`problem`, `n`, `dim` = NULL, `m` = NULL, `k` = NULL, `l` = NULL) {
+  .Call(savvy_sz_mo_pareto_front_raw__impl, `problem`, `n`, `dim`, `m`, `k`, `l`)
+}
+
+#' Reads a "sezgi-moa v1" archive file written by `sz_nsga2(..., log_dir =,
+#' label =)` (M3-7 Task 9/11) -- binds [`sezgi_bench::read_moa`]. Returns a
+#' named list:
+#' - `algo` (character): the logging algorithm name -- always `"nsga2"`
+#'   today (`nsga2_run_logged`'s own fixed `NSGA2_ALGO_NAME`).
+#' - `problem` (character): the `label` `sz_nsga2` was called with. **Kept
+#'   as the literal on-disk header key name** (`crates/bench/src/mo_archive.rs`'s
+#'   own format grammar: the header line is `problem <label>`, not
+#'   `label <label>`) rather than renamed here to `"label"` -- this binding
+#'   stays a thin, direct mirror of `MoArchiveRun`'s own field names, so a
+#'   reader cross-checking against the Rust struct (or the Python binding,
+#'   M3-7 Task 10) sees the SAME key everywhere.
+#' - `m`, `seed`, `budget` (double, whole-number-valued -- R has no native
+#'   integer64).
+#' - `kind` (character): `"float"` or `"binary"`.
+#' - `records` (list, in file/eval order): each entry a named list with
+#'   `eval_index` (double), `objectives` (numeric vector), `genotype`
+#'   (numeric vector for `kind = "float"`, `logical` vector for
+#'   `kind = "binary"` -- see this module's own doc, "Container-idiom
+#'   decisions").
+#' - `archive` (list of numeric vectors): the reconstructed nondominated
+#'   archive at evaluation budget `at`, via `MoArchiveRun::archive_at`.
+#'
+#' `# sezgi decision:` `at = NULL` (the default) resolves to the file's own
+#' logged `budget` header field (the full run's final archive) -- mirrors
+#' py-sezgi's own `mo.read_moa(path, at=None)` default exactly.
+#'
+#' This is directly `@export`ed (no hand-written wrapper needed): `at` is
+#' the only optional parameter and trails `path`, so savvy already emits
+#' `at = NULL` in the generated R signature -- same pattern as
+#' `sz_mo_hypervolume_2d`/`sz_mo_igd`.
+#'
+#' @param path Path to a sezgi-moa v1 file.
+#' @param at Optional evaluation budget (double, cast to `u64`) at which to
+#'   reconstruct the archive; `NULL` (default) uses the file's own logged
+#'   `budget`.
+#' @returns A named list -- see this function's own doc above.
+#'
+#' # Errors
+#' A savvy error for any [`sezgi_bench::MoArchiveError`] (missing file, a
+#' malformed header, or a malformed record line).
+#' @export
+`sz_mo_read_moa` <- function(`path`, `at` = NULL) {
+  .Call(savvy_sz_mo_read_moa__impl, `path`, `at`)
 }
 
 #' NSGA-II run (Deb, Pratap, Agarwal & Meyarivan 2002) -- binds
-#' [`sezgi_components::nsga2::nsga2_run`]. See this module's own doc for the
-#' `problem`/`m` mapping.
+#' [`sezgi_components::nsga2::nsga2_run`] (or, when `log_dir` is given,
+#' [`sezgi_bench::nsga2_run_logged`] -- see this module's own doc). See this
+#' module's own doc for the `problem`/`dim`/`m`/`k`/`l` mapping.
 #'
-#' This is the raw savvy-generated binding (required args only, optional
-#' args -- `m`/`p_m` -- trailing; savvy has no way to express a non-`NULL`
-#' default for a required argument in the generated signature, and requires
-#' optional args last). The public R entry point with R-native defaults
-#' (`m = NULL`, `seed = 0`, `eta_c = 20.0`, `eta_m = 20.0`, `p_c = 0.9`,
-#' `p_m = NULL`) is the hand-written wrapper `sz_nsga2()` in `R/mo.R`, which
-#' calls this function -- same raw/wrapper pattern as `sz_bias_structural()`
-#' / `sz_bias_structural_raw()`.
+#' This is the raw savvy-generated binding: every `Option`-typed parameter
+#' (savvy's own "optional args last" requirement) trails the required ones
+#' in `dim, m, p_m, p_m_bin, k, l, log_dir, label` order. The public R entry
+#' point with R-native argument order and defaults is the hand-written
+#' wrapper `sz_nsga2()` in `R/mo.R`, which calls this function -- same
+#' raw/wrapper pattern as `sz_bias_structural()` / `sz_bias_structural_raw()`.
 #'
-#' @param problem One of `"zdt1"`, `"zdt2"`, `"zdt3"`, `"zdt4"`, `"zdt6"`,
-#'   or `"dtlz1"`..`"dtlz7"`.
-#' @param dim Decision-space dimensionality (double, cast to `usize`).
+#' @param problem One of `"zdt1"`..`"zdt6"`, `"dtlz1"`..`"dtlz9"`, or
+#'   `"wfg1"`..`"wfg9"`.
 #' @param pop_size Population size (double, cast to `usize`). Must be
 #'   `>= 4` and a multiple of 4 (KanGAL's double-permutation tournament
 #'   pairing requires it -- NOT merely "even, >= 4").
@@ -462,22 +614,43 @@ NULL
 #' @param eta_m Polynomial-mutation distribution index. Paper default:
 #'   `20.0`.
 #' @param p_c SBX crossover probability. Paper default: `0.9`.
+#' @param p_c_bin Binary-genotype crossover probability. Default `0.9`
+#'   (mirrors `p_c`'s own default; only consulted for an all-Binary space,
+#'   i.e. zdt5).
+#' @param dim Optional decision-space dimensionality (double, cast to
+#'   `usize`). REQUIRED (may be `NULL`, but the argument itself must be
+#'   supplied) for zdt1-4/6 and dtlz1-9; REJECTED (must be `NULL`) for
+#'   zdt5 and wfg1-9.
 #' @param m Optional number of objectives (double, cast to `usize`).
-#'   REQUIRED for dtlz problems; must be `NULL` for zdt problems.
+#'   REQUIRED for dtlz/wfg problems; must be `NULL` for zdt problems.
 #' @param p_m Optional per-variable mutation probability. `NULL` resolves
 #'   on the Rust side to `1 / n_variables` (the paper's own default), never
 #'   re-derived here.
+#' @param p_m_bin Optional per-bit binary mutation probability. `NULL`
+#'   resolves on the Rust side to `1 / l` (the paper's own binary-coded
+#'   default); only consulted for an all-Binary space.
+#' @param k Optional WFG position-related-parameter count. `NULL` resolves
+#'   to the toolkit's own recommended default; wfg-only.
+#' @param l Optional WFG distance-related-parameter count. `NULL` resolves
+#'   to `20`; wfg-only.
+#' @param log_dir Optional sezgi-moa v1 log directory. When given, `label`
+#'   is required and the run additionally streams to
+#'   `<log_dir>/<label>-s<seed>.moa`.
+#' @param label Optional sezgi-moa run label; required iff `log_dir` is
+#'   given.
 #' @returns A named list with `individuals`, `objectives`, `front0`,
-#'   `evals_used` -- see this module's own doc.
+#'   `evals_used`, and (present only for a constrained problem) `violations`
+#'   -- see this module's own doc.
 #'
 #' # Errors
-#' A savvy error for an unrecognized `problem` string, an `m` given for a
-#' zdt problem, a missing `m` for a dtlz problem, or any
-#' [`sezgi_components::nsga2::Nsga2Error`] (including `pop_size` failing
-#' the `>= 4 && pop_size % 4 == 0` check).
+#' A savvy error for an unrecognized `problem` string, a `dim`/`m`/`k`/`l`
+#' given where the problem does not accept it (or missing where required --
+#' see `mo_problem_from_str`'s own doc), a `log_dir` given without `label`,
+#' or any [`sezgi_components::nsga2::Nsga2Error`] / `MoRunLoggedError`
+#' (including `pop_size` failing the `>= 4 && pop_size % 4 == 0` check).
 #' @noRd
-`sz_nsga2_raw` <- function(`problem`, `dim`, `pop_size`, `budget`, `seed`, `eta_c`, `eta_m`, `p_c`, `m` = NULL, `p_m` = NULL) {
-  .Call(savvy_sz_nsga2_raw__impl, `problem`, `dim`, `pop_size`, `budget`, `seed`, `eta_c`, `eta_m`, `p_c`, `m`, `p_m`)
+`sz_nsga2_raw` <- function(`problem`, `pop_size`, `budget`, `seed`, `eta_c`, `eta_m`, `p_c`, `p_c_bin`, `dim` = NULL, `m` = NULL, `p_m` = NULL, `p_m_bin` = NULL, `k` = NULL, `l` = NULL, `log_dir` = NULL, `label` = NULL) {
+  .Call(savvy_sz_nsga2_raw__impl, `problem`, `pop_size`, `budget`, `seed`, `eta_c`, `eta_m`, `p_c`, `p_c_bin`, `dim`, `m`, `p_m`, `p_m_bin`, `k`, `l`, `log_dir`, `label`)
 }
 
 #' Builds one `sezgi_stats::PaperPackage` PER DISTINCT BUDGET present in a

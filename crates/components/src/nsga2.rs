@@ -18,12 +18,178 @@
 //! variation operators -- see its own "## NSGA-II main-loop runner" section
 //! for the main-loop provenance (initialization, tournament pairing/
 //! comparison, environmental selection, RNG derivation, budget-tail rule).
+//! M3-7 Task 1 adds the constraint channel beside the Task 4 pieces
+//! (`constraint_violation`, `dominates_constrained`,
+//! `fast_non_dominated_sort_constrained`, module doc's "## Constrained
+//! domination" section below) -- every constrained-aware function/argument
+//! added by that task takes the EXACT unconstrained old code path whenever
+//! a problem's `evaluate_constraints_batch` (`sezgi_core::mo::MoProblem`)
+//! returns `None`. M3-7 Task 3 adds the binary-genotype path beside the
+//! Task 5/6 real-coded pieces (`bin_cross_pair`, `bin_flip_mutation`, and
+//! the new `nsga2_run_binary` runner, dispatched from `nsga2_run` via
+//! `classify_space` -- module doc's "## Binary genotype path" section
+//! below) -- every existing all-Float call takes the EXACT byte-identical
+//! old code path (now named `nsga2_run_float`), untouched by this task.
 //!
 //! ## Pareto dominance
 //! Pinned to the standard minimization definition, consistent with the
 //! paper's unglossed `p ≺ q` ("p dominates q") notation used throughout
 //! Section III-A below: `a` dominates `b` iff `a[i] <= b[i]` for every
 //! objective `i`, and `a[i] < b[i]` for at least one `i`.
+//!
+//! ## Constrained domination (M3-7 Task 1)
+//! The paper itself does not define a constrained variant of dominance (it
+//! is an unconstrained-optimization paper); this is pinned entirely to the
+//! KanGAL reference C, the SAME `darnir/nsga2` GitHub mirror T4/T5/T6
+//! already pinned (module doc above), re-fetched this task and verified via
+//! `git hash-object` against the GitHub API's own recorded git blob sha for
+//! each file (the M3-2 record did not carry a sha for these `.c` files --
+//! only the `raw.githubusercontent.com/darnir/nsga2/master/*.c` URL -- so
+//! this task's own fetch is the first sha-verified pin for them; see the
+//! task-1 report for the exact sha values). Two new files, not read during
+//! M3-2 (which only needed the unconstrained dominance branch):
+//! `dominance.c` (the constrained branches of `check_dominance` itself) and
+//! `eval.c` (`evaluate_ind`, where `constr_violation` is accumulated from
+//! the raw constraint row).
+//!
+//! **`check_dominance` (`dominance.c`), quoted verbatim in full (this is
+//! the WHOLE function -- the unconstrained tail, already quoted in the "###
+//! Tournament comparison" section below, is the `else` branch's innermost
+//! `else`):**
+//! ```text
+//! int check_dominance (individual *a, individual *b)
+//! {
+//!     int i;
+//!     int flag1;
+//!     int flag2;
+//!     flag1 = 0;
+//!     flag2 = 0;
+//!     if (a->constr_violation<0 && b->constr_violation<0)
+//!     {
+//!         if (a->constr_violation > b->constr_violation)
+//!         {
+//!             return (1);
+//!         }
+//!         else
+//!         {
+//!             if (a->constr_violation < b->constr_violation)
+//!             {
+//!                 return (-1);
+//!             }
+//!             else
+//!             {
+//!                 return (0);
+//!             }
+//!         }
+//!     }
+//!     else
+//!     {
+//!         if (a->constr_violation < 0 && b->constr_violation == 0)
+//!         {
+//!             return (-1);
+//!         }
+//!         else
+//!         {
+//!             if (a->constr_violation == 0 && b->constr_violation <0)
+//!             {
+//!                 return (1);
+//!             }
+//!             else
+//!             {
+//!                 for (i=0; i<nobj; i++)
+//!                 {
+//!                     if (a->obj[i] < b->obj[i]) { flag1 = 1; }
+//!                     else { if (a->obj[i] > b->obj[i]) { flag2 = 1; } }
+//!                 }
+//!                 if (flag1==1 && flag2==0) { return (1); }
+//!                 else { if (flag1==0 && flag2==1) { return (-1); }
+//!                        else { return (0); } }
+//!             }
+//!         }
+//!     }
+//! }
+//! ```
+//! Truth table (both `a`/`b` individuals): both `constr_violation<0`
+//! (BOTH infeasible) -> whichever has the LARGER `constr_violation`
+//! (closer to `0`, i.e. LESS violated) dominates; a tie (equal violation)
+//! -> neither dominates. One `<0` (infeasible), the other `==0` (feasible)
+//! -> the FEASIBLE one dominates unconditionally, objectives never
+//! consulted. Both `==0` (BOTH feasible) -> falls through to the exact same
+//! objective-comparison loop as the unconstrained branch (quoted in the
+//! "### Tournament comparison" section below) -- plain Pareto dominance.
+//! `constr_violation` is never positive in this C (see `eval.c` below), so
+//! these three cases are exhaustive; [`dominates_constrained`] below
+//! implements this exact truth table, returning `true` iff `a` dominates
+//! `b` (`check_dominance` returning `1`).
+//!
+//! **`evaluate_ind` (`eval.c`), quoted verbatim (the `constr_violation`
+//! accumulation; the `test_problem` call that fills `ind->obj`/`ind->constr`
+//! is the problem-specific part, out of scope here):**
+//! ```text
+//! void evaluate_ind (individual *ind)
+//! {
+//!     int j;
+//!     test_problem (ind->xreal, ind->xbin, ind->gene, ind->obj, ind->constr);
+//!     if (ncon==0)
+//!     {
+//!         ind->constr_violation = 0.0;
+//!     }
+//!     else
+//!     {
+//!         ind->constr_violation = 0.0;
+//!         for (j=0; j<ncon; j++)
+//!         {
+//!             if (ind->constr[j]<0.0)
+//!             {
+//!                 ind->constr_violation += ind->constr[j];
+//!             }
+//!         }
+//!     }
+//!     return;
+//! }
+//! ```
+//! I.e. `constr_violation` starts at `0.0` and accumulates `constr[j]`
+//! ITSELF (not `fabs(constr[j])`, not normalized by anything) for every `j`
+//! with `constr[j] < 0.0`; a satisfied constraint (`constr[j] >= 0.0`)
+//! contributes nothing. This is the source of the `g_j >= 0` FEASIBLE
+//! convention pinned on [`sezgi_core::mo::MoProblem::evaluate_constraints_batch`]
+//! (also the Deb/Thiele/Laumanns/Zitzler 2005 DTLZ book chapter's own
+//! convention -- the SAME sign both ways). [`constraint_violation`] below
+//! implements this exact accumulation.
+//!
+//! **Where constrained domination enters the algorithm.** Both
+//! `tourselect.c`'s `tournament()` (quoted in "### Tournament comparison"
+//! below) and `fillnds.c`'s `fill_nondominated_sort` (the C's
+//! non-dominated-sort/rank-assignment routine, linked-list based rather
+//! than this crate's array-based `fast_non_dominated_sort`) call
+//! `check_dominance` DIRECTLY -- there is no separate constrained code path
+//! in the C at the call-site level, because the constrained branches live
+//! INSIDE `check_dominance` itself. `nsga2_run` below mirrors this: no
+//! separate "constrained mode" flag threads through the algorithm shape,
+//! only the pairwise predicate changes ([`dominates`] -> `Some(violations)`
+//! selects [`dominates_constrained`] instead, `None` keeps [`dominates`]).
+//! **No RNG interaction:** `check_dominance` draws nothing (it is a pure
+//! function of `obj`/`constr_violation`), so adding the constrained
+//! branches changes NO draw count/order anywhere in the algorithm -- the
+//! frozen RNG-draw-structure findings from T4/T5/T6 (module doc above) are
+//! entirely unaffected by this task.
+//!
+//! **Not compiled/probed against the C's own driver for this task.**
+//! `check_dominance` takes no RNG input and produces a value purely as a
+//! function of its two individuals' `obj`/`constr_violation` fields --
+//! there is no seeded "tournament outcome" to reproduce beyond what direct
+//! source inspection (above, sha-verified) already pins exactly, and M3-2's
+//! own "RNG stream derivation" finding (module doc above) already
+//! established that `sezgi_core::rng::RngStream` is NOT a bit-reproduction
+//! target for the C's own `rand()`-based `randomperc()` (only DRAW
+//! STRUCTURE/COUNT is pinned) -- so a compiled-C probe of "seeded
+//! constrained-tournament outcomes" would not even be a meaningful
+//! cross-check target here (the draws would differ regardless of whether
+//! constraints are involved), on top of adding no confidence beyond the
+//! deterministic quoted source already gives. Hand-derivation (this
+//! module's own test fixtures, cross-checked against the quoted truth
+//! table above by hand) is the task-1 report's documented basis for this
+//! call.
 //!
 //! ## Fast non-dominated sort (paper, p. 184, `fast-non-dominated-sort(P)`)
 //! Quoted verbatim from the algorithm box (comments after `if`/assignment
@@ -543,8 +709,250 @@
 //! requirement"): `popsize<4 || popsize%4!=0` -> exit; `pcross_real`/
 //! `pmut_real` outside `[0,1]` -> exit; `eta_c<=0` / `eta_m<=0` -> exit.
 //! `nsga2_run` additionally requires the problem's [`SearchSpace`] to be
-//! ALL [`Block::Float`] (`Nsga2Error::NonFloatSpace`, per the task brief --
-//! this crate's SBX/polynomial-mutation operators are real-coded only, T5).
+//! ALL [`Block::Float`] OR ALL [`Block::Binary`] (M3-7 Task 3 below adds the
+//! all-Binary alternative; a space that is neither is rejected --
+//! [`Nsga2Error::NonFloatSpace`] for a block that is neither `Float` nor
+//! `Binary`, [`Nsga2Error::MixedGenotypeSpace`] for a space genuinely
+//! mixing `Float` and `Binary` blocks together, naming the M3-8 deferral).
+//!
+//! ## Binary genotype path (Task 3, M3-7)
+//!
+//! **Provenance.** Same `darnir/nsga2` GitHub mirror this module has pinned
+//! throughout (T4-T6's module doc above, T1's "Constrained domination"
+//! section); this task re-fetches the three files governing the C's
+//! BINARY-variable machinery -- `crossover.c` (`bincross`, alongside the
+//! already-quoted `realcross`), `mutation.c` (`bin_mutate_ind`, alongside
+//! `real_mutate_ind`), `initialize.c` (`initialize_ind`'s binary branch,
+//! elided in T6's own quote above) -- plus `rand.c` and `global.h` for
+//! completeness, and `nsga2r.c`'s `main()` input sequence to verify the
+//! `pcross_bin`/`pmut_bin` parameterization question the brief poses.
+//! Fetched into a fresh scratchpad location this task
+//! (`.../scratchpad/nsga2r-t3/`), sha-verified against the GitHub API's own
+//! recorded git blob sha via `git hash-object` (same method T1 used for
+//! `dominance.c`/`eval.c`):
+//!
+//! | file | GitHub API blob sha | local `git hash-object` | match |
+//! |---|---|---|---|
+//! | `crossover.c` | `9a5549e423b38eb3b9670c76494ad32bcbf1a3bc` | `9a5549e423b38eb3b9670c76494ad32bcbf1a3bc` | yes |
+//! | `mutation.c` | `43ad50df1dfe4922e6a77532f3fa687715d2c212` | `43ad50df1dfe4922e6a77532f3fa687715d2c212` | yes |
+//! | `initialize.c` | `1524d2a877248ea12288c507def09c0af2e7f72b` | `1524d2a877248ea12288c507def09c0af2e7f72b` | yes |
+//! | `rand.c` | `0ba5dd9f99ff0cd8c196503e9d17981765a5deb9` | `0ba5dd9f99ff0cd8c196503e9d17981765a5deb9` | yes |
+//! | `global.h` | `811c69fd78ea2f97b37bcb335816d0a22a63c417` | `811c69fd78ea2f97b37bcb335816d0a22a63c417` | yes |
+//! | `nsga2r.c` | `b73f2de252fc184f7e50ffb2fe5d4828da2acf94` | `b73f2de252fc184f7e50ffb2fe5d4828da2acf94` | yes |
+//!
+//! **`bincross` (`crossover.c`), quoted verbatim in full:**
+//! ```text
+//! /* Routine for two point binary crossover */
+//! void bincross (individual *parent1, individual *parent2, individual *child1, individual *child2)
+//! {
+//!     int i, j;
+//!     double rand;
+//!     int temp, site1, site2;
+//!     for (i=0; i<nbin; i++)
+//!     {
+//!         rand = randomperc();
+//!         if (rand <= pcross_bin)
+//!         {
+//!             nbincross++;
+//!             site1 = rnd(0,nbits[i]-1);
+//!             site2 = rnd(0,nbits[i]-1);
+//!             if (site1 > site2)
+//!             {
+//!                 temp = site1;
+//!                 site1 = site2;
+//!                 site2 = temp;
+//!             }
+//!             for (j=0; j<site1; j++)
+//!             {
+//!                 child1->gene[i][j] = parent1->gene[i][j];
+//!                 child2->gene[i][j] = parent2->gene[i][j];
+//!             }
+//!             for (j=site1; j<site2; j++)
+//!             {
+//!                 child1->gene[i][j] = parent2->gene[i][j];
+//!                 child2->gene[i][j] = parent1->gene[i][j];
+//!             }
+//!             for (j=site2; j<nbits[i]; j++)
+//!             {
+//!                 child1->gene[i][j] = parent1->gene[i][j];
+//!                 child2->gene[i][j] = parent2->gene[i][j];
+//!             }
+//!         }
+//!         else
+//!         {
+//!             for (j=0; j<nbits[i]; j++)
+//!             {
+//!                 child1->gene[i][j] = parent1->gene[i][j];
+//!                 child2->gene[i][j] = parent2->gene[i][j];
+//!             }
+//!         }
+//!     }
+//!     return;
+//! }
+//! ```
+//! **The task brief's "one-point crossover" assumption is WRONG; the C is
+//! TWO-POINT (its own comment says so).** STANDING RULING is "code-over-
+//! report": the C's own source -- both the `/* Routine for two point binary
+//! crossover */` comment and the code itself (TWO independently drawn cut
+//! points `site1`/`site2`, partitioning `gene[i]` into three segments,
+//! middle segment swapped) -- governs over the brief's guess. `bin_cross_pair`
+//! below implements this exactly.
+//!
+//! **Per-VARIABLE, not per-chromosome, and GATED per variable too.**
+//! `bincross`'s outer loop is `for (i=0; i<nbin; i++)`, and the gate itself
+//! (`rand = randomperc(); if (rand <= pcross_bin)`) is INSIDE that loop --
+//! each binary VARIABLE (`sezgi`'s per-block mirror: one `Block::Binary`
+//! per KanGAL `nbin`-index `i`, `nbits[i]` = that block's `n`) gets its OWN
+//! independent gate draw and, on success, its OWN independent `site1`/
+//! `site2` draws. This is a STRUCTURAL difference from `realcross`'s single
+//! whole-pair gate (module doc above: ONE `pcross_real` draw covers every
+//! real variable at once) -- `bin_cross_genome` below mirrors `bincross`'s
+//! per-block loop exactly (calls `bin_cross_pair` once per block, each call
+//! drawing its own gate/sites), never a single genome-wide gate.
+//!
+//! **Pinned draw structure, `bin_cross_pair`** (one block/variable): ONE
+//! draw, the gate (`rand = randomperc(); if (rand <= pcross_bin)`); on
+//! failure, copy both parents verbatim for this block, no further draws.
+//! On success: TWO more draws, `site1 = rnd(0,nbits-1)` then
+//! `site2 = rnd(0,nbits-1)` (via the SAME `rnd` helper the tournament-
+//! pairing shuffle already uses in this module -- module doc's "Tournament
+//! pairing" section -- including its "no draw when `low>=high`" quirk,
+//! which fires for BOTH site draws when `nbits<=1`, i.e. a single-bit
+//! block's crossover always degenerates to a no-op even when the gate
+//! passes); THEN a plain compare-and-swap if `site1 > site2` (verified: the
+//! C computes both unconditionally, then conditionally swaps -- no third
+//! draw). Draw count per block: 1 (gate fails) or 3 (gate passes, `nbits>=2`)
+//! or 1 (gate passes, `nbits<=1` -- the site draws are skipped by `rnd`'s
+//! own no-draw rule, not by `bin_cross_pair` itself).
+//!
+//! **`bin_mutate_ind` (`mutation.c`), quoted verbatim in full:**
+//! ```text
+//! /* Routine for binary mutation of an individual */
+//! void bin_mutate_ind (individual *ind)
+//! {
+//!     int j, k;
+//!     double prob;
+//!     for (j=0; j<nbin; j++)
+//!     {
+//!         for (k=0; k<nbits[j]; k++)
+//!         {
+//!             prob = randomperc();
+//!             if (prob <=pmut_bin)
+//!             {
+//!                 if (ind->gene[j][k] == 0)
+//!                 {
+//!                     ind->gene[j][k] = 1;
+//!                 }
+//!                 else
+//!                 {
+//!                     ind->gene[j][k] = 0;
+//!                 }
+//!                 nbinmut+=1;
+//!             }
+//!         }
+//!     }
+//!     return;
+//! }
+//! ```
+//! **Pinned draw structure, `bin_flip_mutation`** (one block, per bit, in
+//! order): ONE draw, the gate (`prob = randomperc(); if (prob <= pmut_bin)`);
+//! on success, flip the bit (`0<->1`); on failure, leave it unchanged. Only
+//! ONE draw per bit total -- unlike [`polynomial_mutation`]'s gate-then-
+//! `rnd` two-draw shape, a bit-flip needs no magnitude value, only the
+//! gate. `bin_mutate_genome` below mirrors the C's own nested
+//! `for (j=0; j<nbin; j++) for (k=0; k<nbits[j]; k++)` loop: block-major,
+//! bit-minor, in place.
+//!
+//! **`initialize_ind`'s binary branch (`initialize.c`), quoted verbatim
+//! (elided by T6's own quote above, which only needed the real-variable
+//! branch):**
+//! ```text
+//! if (nbin!=0)
+//! {
+//!     for (j=0; j<nbin; j++)
+//!     {
+//!         for (k=0; k<nbits[j]; k++)
+//!         {
+//!             if (randomperc() <= 0.5)
+//!             {
+//!                 ind->gene[j][k] = 0;
+//!             }
+//!             else
+//!             {
+//!                 ind->gene[j][k] = 1;
+//!             }
+//!         }
+//!     }
+//! }
+//! ```
+//! ONE draw per bit, block-major/bit-minor, matching `bin_mutate_ind`'s own
+//! loop shape. **sezgi decision: reused, not duplicated.**
+//! `crates/components/src/init.rs`'s existing `sample_uniform` (this
+//! crate's general-purpose per-block initializer, already used elsewhere)
+//! already implements a `Block::Binary` branch with this EXACT draw
+//! structure -- one `next_f64()` draw per bit, individual-major overall,
+//! block-major/bit-minor within an individual (its `SearchSpace::blocks()`
+//! iteration order, matching `initialize_ind`'s own `nbin`-then-`nbits[j]`
+//! nesting). `nsga2_run_binary` below calls `crate::init::sample_uniform`
+//! directly for the binary path's initial population rather than hand-
+//! rolling a duplicate -- per the task brief's own instruction ("reuse
+//! init's binary sampling, don't duplicate"). The exact bit MAPPING differs
+//! (`sample_uniform`'s `rng.next_f64() < 0.5 -> true` vs the C's
+//! `randomperc() <= 0.5 -> 0(false)`, i.e. a flipped boundary AND a flipped
+//! true/false polarity) -- immaterial under this module's own established
+//! convention (T4/T6's "RNG stream derivation" finding, restated in T1's
+//! module doc: `RngStream` is never pinned to reproduce the C's `rand()`
+//! bit-for-bit, only DRAW STRUCTURE/COUNT is pinned) -- one draw per bit is
+//! the STRUCTURAL fact reused here, not the C's specific `<=`/`>` split.
+//!
+//! **Parameterization: `pcross_bin`/`pmut_bin` are SEPARATE knobs from
+//! `pcross_real`/`pmut_real`, verified from `nsga2r.c`'s own `main()`.**
+//! `global.h` declares FOUR distinct probability globals (`pcross_real`,
+//! `pcross_bin`, `pmut_real`, `pmut_bin`), and `main()`'s own input
+//! sequence reads and range-validates each independently: the real-coded
+//! block (guarded by `if (nreal != 0)`) prompts for and validates
+//! `pcross_real`/`pmut_real`/`eta_c`/`eta_m`; a SEPARATE binary block
+//! (guarded by `if (nbin != 0)`, entered only AFTER `nbits[i]`/
+//! `min_binvar[i]`/`max_binvar[i]` are read for every binary variable)
+//! prompts for and validates `pcross_bin`/`pmut_bin` with the IDENTICAL
+//! `[0,1]`-range check pattern, completely independently of the real-coded
+//! block (a run can have `nreal=0` with only binary variables, or vice
+//! versa, or both together). Per the brief's own instruction ("gain
+//! binary knobs ONLY if the C has separate ones"), [`Nsga2Config`] gains
+//! `p_c_bin: f64` (mirroring `p_c`'s required-field design -- the paper
+//! itself never splits the CROSSOVER probability's default by
+//! representation, only crossover DISTRIBUTION INDEX and mutation
+//! probability get representation-specific paper text, so there is no
+//! verified auto-default formula to resolve `p_c_bin` from) and
+//! `p_m_bin: Option<f64>` (mirroring `p_m`'s `None`-resolves-to-a-formula
+//! design: `None` -> `1/l`, `l` = the space's total flattened bit count,
+//! the paper's OWN stated binary default already quoted in this module
+//! doc's "Defaults" section: "p_m = 1/n or 1/l ... l is the string length
+//! for binary-coded GAs").
+//!
+//! **Space classification and error design.** See [`classify_space`]'s own
+//! doc for the full reasoning (an all-Float space takes the byte-identical
+//! [`nsga2_run_float`] path; an all-Binary space takes the new
+//! [`nsga2_run_binary`] path; [`Nsga2Error::NonFloatSpace`] is EXTENDED,
+//! not replaced, to keep the pre-task `nsga2_run_non_float_space_is_error`
+//! golden passing UNMODIFIED; [`Nsga2Error::MixedGenotypeSpace`] is a new,
+//! separate variant for a space genuinely mixing `Float` and `Binary`
+//! blocks, naming the M3-8 deferral explicitly).
+//!
+//! **Crossover/mutation never depend on constraints, in the C or here.**
+//! Neither `crossover.c` nor `mutation.c` (real or binary branches)
+//! reference `constr`/`constr_violation` anywhere -- `generate_offspring_binary`
+//! below threads `violations` through to [`tournament`] calls only, exactly
+//! like [`generate_offspring`] already does for the real-coded path (T1's
+//! module doc, "Where constrained domination enters the algorithm").
+//! [`environmental_selection`], [`crowd_dist_full`], [`tournament`],
+//! [`shuffle_two_interleaved`], and [`rnd`] are representation-agnostic
+//! (they operate on `Genotype`/objectives/crowd/violations abstractly, never
+//! inspecting block contents) and are REUSED UNCHANGED for both the float
+//! and binary paths -- only initialization and variation
+//! (crossover+mutation) are representation-specific, hence the
+//! `nsga2_run_float`/`nsga2_run_binary` split and the
+//! `generate_offspring`/`generate_offspring_binary` split.
 
 use sezgi_core::mo::{MoEvaluator, MoProblem};
 use sezgi_core::rng::RngStream;
@@ -567,11 +975,19 @@ pub fn dominates(a: &[f64], b: &[f64]) -> bool {
     strictly_better_somewhere
 }
 
-/// Fronts as index lists, front 0 = non-dominated set, per Deb et al. 2002
-/// (`fast-non-dominated-sort`, module doc). Ordering within and across
-/// fronts is pinned; see the module doc for the exact rule.
-pub fn fast_non_dominated_sort(objectives: &[Vec<f64>]) -> Vec<Vec<usize>> {
-    let n = objectives.len();
+/// Shared engine behind [`fast_non_dominated_sort`] and
+/// [`fast_non_dominated_sort_constrained`]: Deb et al. 2002's
+/// `fast-non-dominated-sort(P)` (module doc), parameterized over the
+/// pairwise domination predicate `dom(p, q)` = "does index `p` dominate
+/// index `q`". `n` is the population size. **sezgi decision:** extracted as
+/// a private generic core (introduced this task, M3-7) so the constrained
+/// variant does not hand-duplicate the sort algorithm -- purely a DRY
+/// refactor with NO behavioral change: [`fast_non_dominated_sort`] below
+/// calls this with EXACTLY the same predicate ([`dominates`]) and loop
+/// structure it always had, so its output is unchanged (frozen-path test,
+/// this task's own report, plus every pre-existing M3-2 golden/anchor
+/// passing unmodified is the acceptance evidence).
+fn fast_non_dominated_sort_core(n: usize, dom: impl Fn(usize, usize) -> bool) -> Vec<Vec<usize>> {
     let mut dominated_sets: Vec<Vec<usize>> = vec![Vec::new(); n]; // S_p
     let mut domination_count: Vec<usize> = vec![0; n]; // n_p
     let mut front0 = Vec::new();
@@ -581,9 +997,9 @@ pub fn fast_non_dominated_sort(objectives: &[Vec<f64>]) -> Vec<Vec<usize>> {
             if p == q {
                 continue;
             }
-            if dominates(&objectives[p], &objectives[q]) {
+            if dom(p, q) {
                 dominated_sets[p].push(q);
-            } else if dominates(&objectives[q], &objectives[p]) {
+            } else if dom(q, p) {
                 domination_count[p] += 1;
             }
         }
@@ -608,6 +1024,66 @@ pub fn fast_non_dominated_sort(objectives: &[Vec<f64>]) -> Vec<Vec<usize>> {
         current = next;
     }
     fronts
+}
+
+/// Fronts as index lists, front 0 = non-dominated set, per Deb et al. 2002
+/// (`fast-non-dominated-sort`, module doc). Ordering within and across
+/// fronts is pinned; see the module doc for the exact rule.
+pub fn fast_non_dominated_sort(objectives: &[Vec<f64>]) -> Vec<Vec<usize>> {
+    fast_non_dominated_sort_core(objectives.len(), |p, q| dominates(&objectives[p], &objectives[q]))
+}
+
+/// Total constraint violation for one individual's raw constraint row `g`
+/// (`g_j >= 0` feasible, per [`sezgi_core::mo::MoProblem::evaluate_constraints_batch`]'s
+/// convention). Pinned to the KanGAL reference C's `eval.c`,
+/// `evaluate_ind` (quoted verbatim, module doc's "Constrained domination"
+/// section): starts at `0.0` and accumulates `constr[j]` ITSELF (not its
+/// absolute value) for every `j` with `constr[j] < 0.0`; satisfied rows
+/// (`>= 0.0`) contribute nothing. Always `<= 0.0`; `0.0` means fully
+/// feasible. `g.is_empty()` (the C's `ncon==0` branch) returns `0.0`
+/// trivially, matching the C's explicit special case.
+pub fn constraint_violation(g: &[f64]) -> f64 {
+    g.iter().filter(|&&gj| gj < 0.0).sum()
+}
+
+/// Constrained Pareto dominance: does `a` dominate `b`, per the KanGAL
+/// reference C's `dominance.c`, `check_dominance` (quoted verbatim, module
+/// doc's "Constrained domination" section)? `a_violation`/`b_violation` are
+/// each individual's [`constraint_violation`] (`<= 0.0`, `0.0` = feasible).
+/// Truth table (mirrors `check_dominance` returning `1`): both infeasible
+/// -> `a` wins iff LESS violated (`a_violation > b_violation`, i.e. closer
+/// to zero); one feasible one infeasible -> the feasible one always wins;
+/// both feasible -> plain [`dominates`] on `a`/`b`'s objectives.
+pub fn dominates_constrained(a: &[f64], a_violation: f64, b: &[f64], b_violation: f64) -> bool {
+    if a_violation < 0.0 && b_violation < 0.0 {
+        return a_violation > b_violation;
+    }
+    if a_violation < 0.0 && b_violation == 0.0 {
+        // a infeasible, b feasible: b dominates a, not the other way round.
+        return false;
+    }
+    if a_violation == 0.0 && b_violation < 0.0 {
+        // a feasible, b infeasible: a dominates b unconditionally.
+        return true;
+    }
+    // Both feasible (violation == 0.0 both -- constraint_violation never
+    // returns a positive value, so this is the only remaining case).
+    dominates(a, b)
+}
+
+/// Constrained sibling of [`fast_non_dominated_sort`]: identical algorithm
+/// (shares [`fast_non_dominated_sort_core`]), but the pairwise predicate is
+/// [`dominates_constrained`] instead of plain [`dominates`]. `violations[i]`
+/// is individual `i`'s [`constraint_violation`], parallel to `objectives`.
+pub fn fast_non_dominated_sort_constrained(
+    objectives: &[Vec<f64>],
+    violations: &[f64],
+) -> Vec<Vec<usize>> {
+    debug_assert_eq!(objectives.len(), violations.len(),
+        "fast_non_dominated_sort_constrained: objectives/violations length mismatch");
+    fast_non_dominated_sort_core(objectives.len(), |p, q| {
+        dominates_constrained(&objectives[p], violations[p], &objectives[q], violations[q])
+    })
 }
 
 /// Crowding distance for ONE front (indices into `objectives`); boundary
@@ -846,6 +1322,32 @@ pub struct Nsga2Config {
     /// n_variables` (the paper's own default). `Some(p)` is validated in
     /// `[0,1]`.
     pub p_m: Option<f64>,
+    /// Binary-genotype crossover probability (M3-7 Task 3): KanGAL's own
+    /// `pcross_bin` (`global.h`), a knob kept SEPARATE from `p_c`
+    /// (`pcross_real`) -- verified from the C's own `main()` input sequence
+    /// (`nsga2r.c`), which reads and range-validates `pcross_bin`
+    /// independently of `pcross_real` (see the module doc's "Binary
+    /// genotype path" section). Only consulted when [`nsga2_run`]'s search
+    /// space is all-[`Block::Binary`] -- never read on the all-Float path
+    /// (byte-identical old behavior). **sezgi decision:** required (not
+    /// `Option`), mirroring `p_c`'s own required-field design -- the paper
+    /// itself never splits the CROSSOVER probability by representation
+    /// (only the MUTATION probability gets a representation-specific
+    /// formula, `p_m = 1/n or 1/l`, module doc's "Defaults" section), and
+    /// the C supplies no built-in default for `pcross_bin` either (a
+    /// required CLI input, just like `pcross_real`), so there is no
+    /// verified formula to auto-resolve from -- an explicit value is
+    /// required. Validated in `[0,1]`.
+    pub p_c_bin: f64,
+    /// Per-bit binary mutation probability (M3-7 Task 3). `None` resolves
+    /// to `1 / l` (`l` = the space's total flattened bit count across every
+    /// `Block::Binary` block), the paper's OWN stated binary-genotype
+    /// default (module doc's "Defaults" section: "p_m = 1/n or 1/l ... l is
+    /// the string length for binary-coded GAs"). Mirrors KanGAL's own
+    /// `pmut_bin` (`global.h`), a knob kept separate from `p_m`
+    /// (`pmut_real`). `Some(p)` validated in `[0,1]`. Only consulted for an
+    /// all-Binary space.
+    pub p_m_bin: Option<f64>,
 }
 
 /// One completed NSGA-II run's outcome. **PINNED once merged.**
@@ -857,12 +1359,25 @@ pub struct MoRunResult {
     /// vector.
     pub objectives: Vec<Vec<f64>>,
     /// Indices (into `individuals`/`objectives`) of the final population's
-    /// non-dominated set (front 0 of `fast_non_dominated_sort` on the final
-    /// `objectives`).
+    /// non-dominated set (front 0 of `fast_non_dominated_sort`, or
+    /// `fast_non_dominated_sort_constrained` when `violations.is_some()`,
+    /// on the final `objectives`).
     pub front0: Vec<usize>,
     /// Total evaluations charged, read directly from
     /// [`MoEvaluator::used`].
     pub evals_used: u64,
+    /// Parallel to `individuals`/`objectives`: each entry is that
+    /// individual's [`constraint_violation`] (`<= 0.0`, `0.0` = feasible).
+    /// `sezgi decision:` (this task, M3-7) added alongside `objectives`
+    /// (mirroring its storage, per this task's own interface note) --
+    /// `Some` iff the problem's `evaluate_constraints_batch` returned
+    /// `Some` (a constrained problem), `None` for every unconstrained
+    /// problem (the byte-identical old path: every M3-2 `MoProblem` impl
+    /// leaves this `None`). Additive field; does not change any existing
+    /// `MoRunResult` field, so every prior consumer (both bindings access
+    /// fields by name, not by exhaustive destructure) keeps compiling
+    /// unmodified.
+    pub violations: Option<Vec<f64>>,
 }
 
 /// Errors from [`nsga2_run`]. See the module doc's "Validation" section for
@@ -878,8 +1393,28 @@ pub enum Nsga2Error {
     InvalidProbability { name: &'static str, value: f64 },
     #[error("{name} must be > 0, got {value}")]
     InvalidEta { name: &'static str, value: f64 },
-    #[error("nsga2_run requires an all-Float search space; block {index} is not Block::Float")]
+    /// **sezgi decision (M3-7 Task 3):** kept, EXTENDED rather than
+    /// replaced -- `nsga2_run` now accepts an all-Binary space too (see
+    /// [`MixedGenotypeSpace`](Nsga2Error::MixedGenotypeSpace) below for the
+    /// genuinely-mixed-representation case), but a block that is neither
+    /// `Block::Float` nor `Block::Binary` (`Block::Int`/`Categorical`/
+    /// `Permutation`) is still rejected under this SAME variant, preserving
+    /// the pre-task `nsga2_run_non_float_space_is_error` golden byte-for-
+    /// byte (only the message text below was reworded to stay accurate;
+    /// the variant name/fields/construction condition for that test's
+    /// `Block::Int` space are unchanged).
+    #[error("nsga2_run requires an all-Float or all-Binary search space; block {index} is neither Block::Float nor Block::Binary")]
     NonFloatSpace { index: usize },
+    /// **New (M3-7 Task 3):** a search space mixing `Block::Float` AND
+    /// `Block::Binary` blocks together -- honest rejection naming the M3-8
+    /// deferral (mixed-genotype NSGA-II variation operators are out of
+    /// scope here; see the module doc's "Binary genotype path" section).
+    #[error(
+        "nsga2_run does not support a search space mixing Block::Float and \
+         Block::Binary blocks together (block {index}); mixed-genotype \
+         NSGA-II is deferred to M3-8 -- use an all-Float or all-Binary space"
+    )]
+    MixedGenotypeSpace { index: usize },
     #[error("initial population (pop_size={pop_size}) exceeds the evaluation budget ({budget})")]
     BudgetTooSmallForInit { pop_size: usize, budget: u64 },
 }
@@ -896,6 +1431,24 @@ fn validate_config(cfg: &Nsga2Config) -> Result<(), Nsga2Error> {
             return Err(Nsga2Error::InvalidProbability { name: "p_m", value: p_m });
         }
     }
+    // sezgi decision: p_c_bin/p_m_bin are validated UNCONDITIONALLY here,
+    // regardless of whether the space eventually turns out all-Float or
+    // all-Binary (space classification happens later, in `nsga2_run`,
+    // after this function returns) -- the C only prompts for/validates
+    // `pcross_bin`/`pmut_bin` when `nbin!=0` (`nsga2r.c`'s own input
+    // sequence, module doc), but since this is a pure range check with no
+    // side effect when the value ends up unused, validating unconditionally
+    // is behavior-preserving for every all-Float caller (which must simply
+    // supply an in-range placeholder) and keeps this function space-
+    // agnostic rather than threading a `SearchSpace` reference through it.
+    if !(0.0..=1.0).contains(&cfg.p_c_bin) {
+        return Err(Nsga2Error::InvalidProbability { name: "p_c_bin", value: cfg.p_c_bin });
+    }
+    if let Some(p_m_bin) = cfg.p_m_bin {
+        if !(0.0..=1.0).contains(&p_m_bin) {
+            return Err(Nsga2Error::InvalidProbability { name: "p_m_bin", value: p_m_bin });
+        }
+    }
     // `is_nan() ||` first, rather than the equivalent `!(x > 0.0)`, so
     // clippy's `neg_cmp_op_on_partial_ord` doesn't flag a negated
     // partial-order comparison -- both reject NaN and every `<= 0.0` value.
@@ -910,6 +1463,63 @@ fn validate_config(cfg: &Nsga2Config) -> Result<(), Nsga2Error> {
 
 /// Flattened per-variable lower/upper bounds, plus each block's length (for
 /// reassembling a flat decision vector back into a [`Genotype`]).
+/// Which decision-variable representation an [`nsga2_run`] input space
+/// uses (M3-7 Task 3). See [`classify_space`] and the module doc's "Binary
+/// genotype path" section.
+enum SpaceKind {
+    /// Every block is [`Block::Float`] -- the original T4-T6 real-coded
+    /// path, byte-identical.
+    AllFloat,
+    /// Every block is [`Block::Binary`] -- this task's new path.
+    AllBinary,
+}
+
+/// Classifies `space` for [`nsga2_run`]'s dispatch, per the interface
+/// pinned in this task's brief: an all-`Block::Float` space takes the
+/// (byte-identical) old path, an all-`Block::Binary` space takes the new
+/// path (this task, M3-7 Task 3), and anything else is rejected.
+///
+/// **Error-variant choice, documented (the brief's own instruction:
+/// "extend/replace `NonFloatSpace` as the module's error style dictates"):
+/// EXTENDED, not replaced.** [`Nsga2Error::NonFloatSpace`] keeps its exact
+/// pre-task construction condition -- a block that is neither `Float` nor
+/// `Binary` (`Int`/`Categorical`/`Permutation`) -- so the pre-task
+/// `nsga2_run_non_float_space_is_error` golden (a `Block::Int` space) is
+/// UNCHANGED byte-for-byte (only the error's message text was reworded to
+/// stay accurate; the frozen test only matches the variant/fields, never
+/// the message). A genuinely MIXED space (some blocks `Float`, some
+/// `Binary`) is a new, distinct failure mode -- unlike `Int`/`Categorical`/
+/// `Permutation`, a space with only `Float` and `Binary` blocks was never
+/// "not Float" in the old sense; it is a NEW representation this task
+/// introduces and deliberately does not support (deferred to M3-8) -- so
+/// it gets its own variant, [`Nsga2Error::MixedGenotypeSpace`], naming the
+/// deferral explicitly rather than overloading `NonFloatSpace`'s meaning.
+///
+/// An EMPTY space (`space.blocks().is_empty()`) is classified `AllFloat`
+/// (vacuously true for the "every block is Float" check) -- this matches
+/// pre-task behavior exactly: `float_bounds` on an empty block list already
+/// produced empty bounds (`dim=0`) without error, so preserving that
+/// classification keeps this a pure refactor for the empty-space edge case.
+fn classify_space(space: &SearchSpace) -> Result<SpaceKind, Nsga2Error> {
+    let blocks = space.blocks();
+    let all_float = blocks.iter().all(|b| matches!(b, Block::Float { .. }));
+    if all_float {
+        return Ok(SpaceKind::AllFloat);
+    }
+    let all_binary = blocks.iter().all(|b| matches!(b, Block::Binary { .. }));
+    if all_binary {
+        return Ok(SpaceKind::AllBinary);
+    }
+    let has_float = blocks.iter().any(|b| matches!(b, Block::Float { .. }));
+    let has_binary = blocks.iter().any(|b| matches!(b, Block::Binary { .. }));
+    if has_float && has_binary {
+        let index = blocks.iter().position(|b| matches!(b, Block::Binary { .. })).unwrap();
+        return Err(Nsga2Error::MixedGenotypeSpace { index });
+    }
+    let index = blocks.iter().position(|b| !matches!(b, Block::Float { .. } | Block::Binary { .. })).unwrap();
+    Err(Nsga2Error::NonFloatSpace { index })
+}
+
 type FloatBounds = (Vec<f64>, Vec<f64>, Vec<usize>);
 
 /// Validates an all-`Block::Float` search space (module doc, "Validation")
@@ -963,6 +1573,126 @@ fn flatten_genotype(g: &Genotype) -> Vec<f64> {
     out
 }
 
+/// Extracts each `Block::Binary` block's bit vector from a [`Genotype`]
+/// (already validated all-Binary by [`classify_space`]/[`nsga2_run`]), in
+/// block order -- `sezgi`'s per-block mirror of the C's `nbin`-indexed
+/// `ind->gene[i][..]` (module doc's "Binary genotype path" section: "how
+/// the C treats multi-variable binary genomes maps to sezgi's multiple
+/// Binary blocks -- mirror block-per-variable").
+fn genotype_binary_blocks(g: &Genotype) -> Vec<Vec<bool>> {
+    g.blocks.iter().map(|b| match b {
+        BlockValues::Bin(xs) => xs.clone(),
+        _ => unreachable!("nsga2_run_binary validated an all-Binary space before ever constructing a Genotype"),
+    }).collect()
+}
+
+/// Reassembles per-block bit vectors (same shape as
+/// [`genotype_binary_blocks`]'s output) into a [`Genotype`].
+fn to_genotype_binary(blocks: Vec<Vec<bool>>) -> Genotype {
+    Genotype { blocks: blocks.into_iter().map(BlockValues::Bin).collect() }
+}
+
+/// KanGAL reference C's `crossover.c`, `bincross`, on ONE binary block
+/// (`sezgi`'s per-block mirror of the C's per-`nbin`-variable `nbits[i]`-
+/// bit `gene[i]` row) -- see the module doc's "Binary genotype path"
+/// section for the verified quote, the sha check, and the "two-point, not
+/// one-point" correction to the task brief's assumption. `p1`/`p2` must be
+/// the same length (`nbits`). Returns `(child1, child2)`.
+///
+/// **Pinned draw structure** (module doc): ONE draw, the per-BLOCK gate
+/// (`rand = randomperc(); if (rand <= pcross_bin)`) -- unlike `sbx_pair`'s
+/// single gate covering the WHOLE real-coded pair at once, `bincross`
+/// gates EACH binary block independently (the C's own `for (i=0; i<nbin;
+/// i++)` outer loop encloses the gate itself, not just the crossover math
+/// -- see the quote). On failure, copy both parents verbatim for this
+/// block -- no further draws for it. On success: TWO more draws, `site1 =
+/// rnd(0,nbits[i]-1)` then `site2 = rnd(0,nbits[i]-1)` (via [`rnd`], SAME
+/// helper the tournament-pairing shuffle uses -- no draw at all when
+/// `nbits <= 1`, since `rnd(0,0)` hits the `low>=high` no-draw branch
+/// twice), THEN sorted ascending with NO further draw (a plain compare-and-
+/// swap, not a third draw) -- verified: the C computes `site1`/`site2`
+/// unconditionally THEN swaps them if `site1 > site2`, it does not re-draw.
+/// The genome is then partitioned into three (possibly-empty) segments by
+/// `[site1, site2)`: `[0,site1)` and `[site2,nbits)` come from each child's
+/// OWN parent (child1<-parent1, child2<-parent2), the MIDDLE segment
+/// `[site1,site2)` is SWAPPED (child1<-parent2, child2<-parent1) -- a
+/// classic two-point crossover, no draws.
+pub fn bin_cross_pair(p1: &[bool], p2: &[bool], p_c_bin: f64, rng: &mut RngStream) -> (Vec<bool>, Vec<bool>) {
+    debug_assert_eq!(p1.len(), p2.len(), "bin_cross_pair: parent bit vectors must have equal length");
+    let n = p1.len();
+
+    // Per-block gate: ONE draw.
+    if rng.next_f64() > p_c_bin {
+        return (p1.to_vec(), p2.to_vec());
+    }
+
+    let hi = n.saturating_sub(1);
+    let mut site1 = rnd(0, hi, rng);
+    let mut site2 = rnd(0, hi, rng);
+    if site1 > site2 {
+        std::mem::swap(&mut site1, &mut site2);
+    }
+
+    let mut c1 = Vec::with_capacity(n);
+    let mut c2 = Vec::with_capacity(n);
+    for j in 0..n {
+        if j < site1 || j >= site2 {
+            c1.push(p1[j]);
+            c2.push(p2[j]);
+        } else {
+            c1.push(p2[j]);
+            c2.push(p1[j]);
+        }
+    }
+    (c1, c2)
+}
+
+/// Whole-genome [`bin_cross_pair`]: mirrors `bincross`'s own outer
+/// `for (i=0; i<nbin; i++)` loop -- EACH binary block gets its OWN
+/// independent [`bin_cross_pair`] call (own gate, own draws), in block
+/// order.
+fn bin_cross_genome(
+    p1: &[Vec<bool>],
+    p2: &[Vec<bool>],
+    p_c_bin: f64,
+    rng: &mut RngStream,
+) -> (Vec<Vec<bool>>, Vec<Vec<bool>>) {
+    let mut c1 = Vec::with_capacity(p1.len());
+    let mut c2 = Vec::with_capacity(p1.len());
+    for (b1, b2) in p1.iter().zip(p2) {
+        let (x1, x2) = bin_cross_pair(b1, b2, p_c_bin, rng);
+        c1.push(x1);
+        c2.push(x2);
+    }
+    (c1, c2)
+}
+
+/// KanGAL reference C's `mutation.c`, `bin_mutate_ind`, on ONE binary
+/// block, in place. See the module doc's "Binary genotype path" section
+/// for the verified quote.
+///
+/// **Pinned draw structure:** per bit, in order, ONE draw
+/// (`prob = randomperc(); if (prob <= pmut_bin)`); on success, flip the
+/// bit (`0<->1`); on failure, leave it unchanged. No second draw per bit
+/// (unlike [`polynomial_mutation`]'s gate-then-`rnd` two-draw shape --
+/// bit-flip needs no magnitude draw, only the gate).
+pub fn bin_flip_mutation(x: &mut [bool], p_m_bin: f64, rng: &mut RngStream) {
+    for bit in x.iter_mut() {
+        if rng.next_f64() <= p_m_bin {
+            *bit = !*bit;
+        }
+    }
+}
+
+/// Whole-genome [`bin_flip_mutation`]: mirrors `bin_mutate_ind`'s own
+/// nested `for (j=0; j<nbin; j++) for (k=0; k<nbits[j]; k++)` loop --
+/// block-major, bit-minor, in place.
+fn bin_mutate_genome(x: &mut [Vec<bool>], p_m_bin: f64, rng: &mut RngStream) {
+    for block in x.iter_mut() {
+        bin_flip_mutation(block, p_m_bin, rng);
+    }
+}
+
 /// Uniform-in-bounds initial population. Draw order pinned to
 /// `initialize.c`/`rand.c` (module doc): individual-major, variable-minor,
 /// one `next_f64()` draw per variable.
@@ -1005,14 +1735,39 @@ fn shuffle_two_interleaved(n: usize, rng: &mut RngStream) -> (Vec<usize>, Vec<us
 }
 
 /// `tourselect.c`'s `tournament()`, verified faithful (module doc,
-/// "Tournament comparison"): raw pairwise dominance first (reusing
-/// [`dominates`] directly), then crowding distance, then a single coin-flip
-/// draw on a full tie. Returns the winner's index (`i` or `j`).
-fn tournament(objectives: &[Vec<f64>], crowd: &[f64], i: usize, j: usize, rng: &mut RngStream) -> usize {
-    if dominates(&objectives[i], &objectives[j]) {
+/// "Tournament comparison"): raw pairwise dominance first, then crowding
+/// distance, then a single coin-flip draw on a full tie. Returns the
+/// winner's index (`i` or `j`).
+///
+/// `violations`: `None` (the unconstrained problem, byte-identical old
+/// path) uses [`dominates`] directly, exactly as before this task; `Some`
+/// (a constrained problem) uses [`dominates_constrained`] instead --
+/// `tourselect.c`'s own `tournament()` calls the SAME `check_dominance`
+/// either way (module doc's "Constrained domination" section: the
+/// constrained branches live INSIDE `check_dominance` itself, so the C's
+/// `tournament()` needed no separate constrained code path -- neither does
+/// this one). Consumes the SAME RNG draws in the SAME order regardless
+/// (`check_dominance`/`dominates_constrained` draws nothing; only the
+/// downstream coin-flip tiebreak, unaffected here, draws).
+fn tournament(
+    objectives: &[Vec<f64>],
+    crowd: &[f64],
+    i: usize,
+    j: usize,
+    rng: &mut RngStream,
+    violations: Option<&[f64]>,
+) -> usize {
+    let (i_dominates_j, j_dominates_i) = match violations {
+        None => (dominates(&objectives[i], &objectives[j]), dominates(&objectives[j], &objectives[i])),
+        Some(v) => (
+            dominates_constrained(&objectives[i], v[i], &objectives[j], v[j]),
+            dominates_constrained(&objectives[j], v[j], &objectives[i], v[i]),
+        ),
+    };
+    if i_dominates_j {
         return i;
     }
-    if dominates(&objectives[j], &objectives[i]) {
+    if j_dominates_i {
         return j;
     }
     if crowd[i] > crowd[j] {
@@ -1028,9 +1783,17 @@ fn tournament(objectives: &[Vec<f64>], crowd: &[f64], i: usize, j: usize, rng: &
 /// truncation): every front is complete, so every individual gets a
 /// `crowd_dist` from [`crowding_distance`] directly. Mirrors `rank.c`'s
 /// `assign_rank_and_crowding_distance`, called once on the initial
-/// population before the generation loop (module doc).
-fn crowd_dist_full(objectives: &[Vec<f64>]) -> Vec<f64> {
-    let fronts = fast_non_dominated_sort(objectives);
+/// population before the generation loop (module doc). `violations: None`
+/// takes the byte-identical old [`fast_non_dominated_sort`] path;
+/// `Some` sorts via [`fast_non_dominated_sort_constrained`] instead --
+/// crowding distance ITSELF never depends on violation (`crowddist.c` has
+/// no `constr_violation` reference at all -- purely objective-space,
+/// computed identically either way once front membership is settled).
+fn crowd_dist_full(objectives: &[Vec<f64>], violations: Option<&[f64]>) -> Vec<f64> {
+    let fronts = match violations {
+        None => fast_non_dominated_sort(objectives),
+        Some(v) => fast_non_dominated_sort_constrained(objectives, v),
+    };
     let mut out = vec![0.0f64; objectives.len()];
     for front in &fronts {
         let d = crowding_distance(front, objectives);
@@ -1045,12 +1808,16 @@ fn crowd_dist_full(objectives: &[Vec<f64>]) -> Vec<f64> {
 /// tournament pairing + `sbx_pair` crossover (block-of-4 loop), followed by
 /// a SEPARATE full `polynomial_mutation` pass over every child in order
 /// (module doc, "Tournament pairing" -- the two-phase structure is pinned,
-/// not interleaved).
+/// not interleaved). `violations` (`None`/`Some`, parallel to `objectives`)
+/// is threaded through to every [`tournament`] call only -- crossover and
+/// mutation never depend on constraints in the C (`crossover.c`/
+/// `mutation.c` never reference `constr`/`constr_violation`).
 #[allow(clippy::too_many_arguments)]
 fn generate_offspring(
     genos: &[Genotype],
     objectives: &[Vec<f64>],
     crowd: &[f64],
+    violations: Option<&[f64]>,
     lo: &[f64],
     hi: &[f64],
     block_lens: &[usize],
@@ -1065,14 +1832,14 @@ fn generate_offspring(
 
     let mut i = 0;
     while i < n {
-        let p1 = tournament(objectives, crowd, a1[i], a1[i + 1], rng);
-        let p2 = tournament(objectives, crowd, a1[i + 2], a1[i + 3], rng);
+        let p1 = tournament(objectives, crowd, a1[i], a1[i + 1], rng, violations);
+        let p2 = tournament(objectives, crowd, a1[i + 2], a1[i + 3], rng, violations);
         let (c1, c2) = sbx_pair(&flat[p1], &flat[p2], lo, hi, cfg.eta_c, cfg.p_c, rng);
         children[i] = c1;
         children[i + 1] = c2;
 
-        let p3 = tournament(objectives, crowd, a2[i], a2[i + 1], rng);
-        let p4 = tournament(objectives, crowd, a2[i + 2], a2[i + 3], rng);
+        let p3 = tournament(objectives, crowd, a2[i], a2[i + 1], rng, violations);
+        let p4 = tournament(objectives, crowd, a2[i + 2], a2[i + 3], rng, violations);
         let (c3, c4) = sbx_pair(&flat[p3], &flat[p4], lo, hi, cfg.eta_c, cfg.p_c, rng);
         children[i + 2] = c3;
         children[i + 3] = c4;
@@ -1087,25 +1854,109 @@ fn generate_offspring(
     children.iter().map(|f| to_genotype(f, block_lens)).collect()
 }
 
+/// The all-Binary sibling of [`generate_offspring`] (M3-7 Task 3): SAME
+/// tournament-pairing/two-phase-variation shape (selection+crossover first,
+/// a SEPARATE full mutation pass second -- module doc, "Tournament
+/// pairing"), but drives [`bin_cross_genome`]/[`bin_mutate_genome`] instead
+/// of [`sbx_pair`]/[`polynomial_mutation`]. **sezgi decision:** duplicated
+/// rather than parameterizing [`generate_offspring`] itself over a
+/// genotype-representation trait/closure -- [`generate_offspring`] is part
+/// of T1's/T4-T6's FROZEN float path (this task's own acceptance gate: every
+/// existing nsga2 golden passes UNMODIFIED), so this task does not touch
+/// its body at all; a shared generic core (like
+/// [`fast_non_dominated_sort_core`]'s DRY refactor, T1) would need to prove
+/// behavior-preservation on the float side all over again for no benefit
+/// here, since the two functions' per-variable operator calls
+/// (`sbx_pair`/`polynomial_mutation` vs `bin_cross_genome`/
+/// `bin_mutate_genome`) have incompatible per-block/per-variable data
+/// shapes (`Vec<f64>` flattened across ALL Float blocks at once vs
+/// `Vec<Vec<bool>>` kept per Binary block) -- duplication is the more
+/// conservative, lower-risk choice.
+#[allow(clippy::too_many_arguments)]
+fn generate_offspring_binary(
+    genos: &[Genotype],
+    objectives: &[Vec<f64>],
+    crowd: &[f64],
+    violations: Option<&[f64]>,
+    cfg: &Nsga2Config,
+    p_m_bin: f64,
+    rng: &mut RngStream,
+) -> Vec<Genotype> {
+    let n = genos.len();
+    let blocks: Vec<Vec<Vec<bool>>> = genos.iter().map(genotype_binary_blocks).collect();
+    let (a1, a2) = shuffle_two_interleaved(n, rng);
+    let mut children: Vec<Vec<Vec<bool>>> = vec![Vec::new(); n];
+
+    let mut i = 0;
+    while i < n {
+        let p1 = tournament(objectives, crowd, a1[i], a1[i + 1], rng, violations);
+        let p2 = tournament(objectives, crowd, a1[i + 2], a1[i + 3], rng, violations);
+        let (c1, c2) = bin_cross_genome(&blocks[p1], &blocks[p2], cfg.p_c_bin, rng);
+        children[i] = c1;
+        children[i + 1] = c2;
+
+        let p3 = tournament(objectives, crowd, a2[i], a2[i + 1], rng, violations);
+        let p4 = tournament(objectives, crowd, a2[i + 2], a2[i + 3], rng, violations);
+        let (c3, c4) = bin_cross_genome(&blocks[p3], &blocks[p4], cfg.p_c_bin, rng);
+        children[i + 2] = c3;
+        children[i + 3] = c4;
+
+        i += 4;
+    }
+
+    for child in &mut children {
+        bin_mutate_genome(child, p_m_bin, rng);
+    }
+
+    children.into_iter().map(to_genotype_binary).collect()
+}
+
+/// The new population's `(individuals, objectives, crowd_dist, violations)`
+/// -- [`environmental_selection`]'s return shape, all parallel and of
+/// length `n`. Named to keep clippy's `type_complexity` quiet (mirrors
+/// [`FloatBounds`]'s existing tuple-alias convention in this module).
+type SelectedPopulation = (Vec<Genotype>, Vec<Vec<f64>>, Vec<f64>, Option<Vec<f64>>);
+
 /// `(μ+λ)` environmental selection: combine parent + offspring, sort into
 /// fronts, fill whole fronts, and truncate the first non-fitting front by
 /// descending crowding distance (ascending-index tie-break, deterministic
 /// -- module doc, "Environmental selection"). Returns the new population's
-/// `(individuals, objectives, crowd_dist)`, all parallel and of length `n`.
+/// `(individuals, objectives, crowd_dist, violations)`, all parallel and of
+/// length `n` ([`SelectedPopulation`]).
+///
+/// `violations`/`off_violations`: **invariant, always both `None` or both
+/// `Some` together** -- both come from the SAME fixed `problem` within one
+/// `nsga2_run` call (either it always returns `Some` from
+/// `evaluate_constraints_batch`, or it always returns `None`; `nsga2_run`
+/// never mixes the two across generations). `None` takes the
+/// byte-identical old [`fast_non_dominated_sort`] path with no violation
+/// bookkeeping at all -- exactly the pre-task code.
+#[allow(clippy::too_many_arguments)]
 fn environmental_selection(
     mut genos: Vec<Genotype>,
     mut objectives: Vec<Vec<f64>>,
+    violations: Option<Vec<f64>>,
     off_genos: Vec<Genotype>,
     off_objectives: Vec<Vec<f64>>,
+    off_violations: Option<Vec<f64>>,
     n: usize,
-) -> (Vec<Genotype>, Vec<Vec<f64>>, Vec<f64>) {
+) -> SelectedPopulation {
     genos.extend(off_genos);
     objectives.extend(off_objectives);
-    let fronts = fast_non_dominated_sort(&objectives);
+    let mut violations = violations;
+    if let (Some(v), Some(ov)) = (violations.as_mut(), off_violations) {
+        v.extend(ov);
+    }
+
+    let fronts = match &violations {
+        None => fast_non_dominated_sort(&objectives),
+        Some(v) => fast_non_dominated_sort_constrained(&objectives, v),
+    };
 
     let mut new_genos = Vec::with_capacity(n);
     let mut new_objectives = Vec::with_capacity(n);
     let mut new_crowd = Vec::with_capacity(n);
+    let mut new_violations: Option<Vec<f64>> = violations.as_ref().map(|_| Vec::with_capacity(n));
 
     for front in &fronts {
         if new_genos.len() >= n {
@@ -1117,6 +1968,9 @@ fn environmental_selection(
                 new_genos.push(genos[idx].clone());
                 new_objectives.push(objectives[idx].clone());
                 new_crowd.push(d[k]);
+                if let (Some(nv), Some(v)) = (new_violations.as_mut(), &violations) {
+                    nv.push(v[idx]);
+                }
             }
         } else {
             let need = n - new_genos.len();
@@ -1130,18 +1984,138 @@ fn environmental_selection(
                 new_genos.push(genos[idx].clone());
                 new_objectives.push(objectives[idx].clone());
                 new_crowd.push(d[k]);
+                if let (Some(nv), Some(v)) = (new_violations.as_mut(), &violations) {
+                    nv.push(v[idx]);
+                }
             }
             break;
         }
     }
-    (new_genos, new_objectives, new_crowd)
+    (new_genos, new_objectives, new_crowd, new_violations)
 }
+
+/// Evaluates constraints for `pop` via `problem`'s own
+/// `evaluate_constraints_batch` and reduces each individual's raw
+/// constraint row to a single [`constraint_violation`] scalar, parallel to
+/// `pop`. Returns `None` iff the problem itself returns `None`
+/// (unconstrained -- the byte-identical old path).
+///
+/// **sezgi decision:** deliberately NOT charged against
+/// `MoEvaluator`'s evaluation budget -- mirrors the KanGAL C's
+/// `evaluate_ind` (`eval.c`, quoted in the module doc), which computes
+/// `obj` AND `constr` in ONE `test_problem` call, a single evaluation, not
+/// two. Called directly on `problem` (bypassing `MoEvaluator`) for exactly
+/// this reason. The length-contract assertion below mirrors
+/// `MoEvaluator::evaluate`'s own `evaluate_batch` length assert
+/// (`sezgi_core::mo`) -- placed here rather than inside `MoEvaluator`
+/// itself since `evaluate_constraints_batch` deliberately bypasses it.
+fn evaluate_violations(problem: &dyn MoProblem, pop: &[Genotype]) -> Option<Vec<f64>> {
+    let cons = problem.evaluate_constraints_batch(pop)?;
+    assert_eq!(cons.len(), pop.len(),
+        "MoProblem::evaluate_constraints_batch returned wrong length: {} != {}", cons.len(), pop.len());
+    Some(cons.iter().map(|g| constraint_violation(g)).collect())
+}
+
+/// Per-evaluation-batch observer hook for archive-first MO run logging
+/// (M3-7 Task 9, `sezgi_bench::mo_archive`). Called exactly once per
+/// successful [`MoEvaluator::evaluate`] batch -- the initial population,
+/// then each completed generation's offspring (a budget-tail break, module
+/// doc's "Budget-tail rule", never fires the hook for the doomed final
+/// attempt, mirroring `MoRunResult` itself never reflecting it) -- in
+/// evaluation order, with:
+/// - `first_eval_index`: the 1-based eval index of this batch's FIRST row
+///   (matching `crates/bench/src/ioh.rs`'s `IohRunObserver::on_eval`'s own
+///   1-based `eval_index` convention, so a downstream consumer needs no
+///   second indexing convention to learn);
+/// - the batch's genotypes and objectives, already computed (same slices
+///   `nsga2_run`'s own loop already holds -- no recomputation, no extra
+///   evaluations);
+/// - the batch's constraint violations, `Some` parallel slice iff the
+///   problem is constrained ([`evaluate_violations`]'s own `None`/`Some`
+///   contract, unchanged) -- feasibility gating is entirely the CALLER's
+///   concern (`sezgi_bench::mo_archive`'s `// sezgi decision:` on this),
+///   not this module's; the hook is handed every evaluated individual,
+///   feasible or not.
+///
+/// **sezgi decision:** threaded as a plain `Option<&mut MoBatchObserver>`
+/// parameter on a new `_impl` function (below) rather than a new
+/// [`Nsga2Config`] field -- a closure cannot be `Debug`/`Clone`, both of
+/// which `Nsga2Config` derives, and a config field would force every
+/// existing construction site (every test in this module, every M3-2/M3-7
+/// caller) to grow a new field. [`nsga2_run`] itself keeps calling the
+/// `_impl` functions with `None`, so its body -- and every one of its
+/// pre-task callers -- is untouched byte-for-byte; only [`nsga2_run_observed`]
+/// (new, below) ever passes `Some`.
+pub type MoBatchObserver<'o> = dyn FnMut(u64, &[Genotype], &[Vec<f64>], Option<&[f64]>) + 'o;
 
 /// NSGA-II reference runner. See the module doc's "## NSGA-II main-loop
 /// runner" section for the full provenance (initialization, tournament
 /// pairing/comparison, environmental selection, RNG derivation, budget-tail
-/// rule, defaults).
+/// rule, defaults), the "Constrained domination" section for the
+/// constraint channel (M3-7 Task 1), and the "Binary genotype path"
+/// section (M3-7 Task 3) for the binary dispatch below.
+///
+/// **Dispatch (M3-7 Task 3).** `problem.space()` is classified by
+/// [`classify_space`] FIRST: an all-`Block::Float` space calls
+/// [`nsga2_run_float_impl`], whose body is the EXACT pre-task `nsga2_run`
+/// (this task's own acceptance gate: every pre-task golden must pass
+/// UNMODIFIED, so that body is untouched, merely extracted under a new
+/// name); an all-`Block::Binary` space calls the new
+/// [`nsga2_run_binary_impl`] instead. `validate_config` runs ONCE here,
+/// before classification, so its error precedence over space-classification
+/// errors matches the pre-task ordering exactly (`validate_config(cfg)?`
+/// was always the first statement in `nsga2_run`'s body).
+///
+/// **M3-7 Task 9:** `nsga2_run` always passes `None` for the batch observer
+/// -- see [`nsga2_run_observed`] for the `Some` sibling entry point.
 pub fn nsga2_run(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunResult, Nsga2Error> {
+    validate_config(cfg)?;
+    match classify_space(problem.space())? {
+        SpaceKind::AllFloat => nsga2_run_float_impl(problem, cfg, None),
+        SpaceKind::AllBinary => nsga2_run_binary_impl(problem, cfg, None),
+    }
+}
+
+/// [`nsga2_run`]'s observed sibling (M3-7 Task 9): identical dispatch and
+/// identical algorithm, but `observer` is called once per evaluated batch
+/// (see [`MoBatchObserver`]'s doc for the exact contract). This is the
+/// entry point `sezgi_bench::mo_archive::nsga2_run_logged` builds on.
+pub fn nsga2_run_observed(
+    problem: &dyn MoProblem, cfg: &Nsga2Config, observer: &mut MoBatchObserver,
+) -> Result<MoRunResult, Nsga2Error> {
+    validate_config(cfg)?;
+    match classify_space(problem.space())? {
+        SpaceKind::AllFloat => nsga2_run_float_impl(problem, cfg, Some(observer)),
+        SpaceKind::AllBinary => nsga2_run_binary_impl(problem, cfg, Some(observer)),
+    }
+}
+
+/// The real-coded runner (M3-2/T4-T6's original `nsga2_run` body, M3-7
+/// Task 1's constraint channel already folded in -- unchanged by this
+/// task): `problem.evaluate_constraints_batch` returning `None` (every
+/// M3-2 `MoProblem` impl, and any problem that simply never overrides the
+/// trait default) takes the EXACT unconstrained code path this function
+/// always had -- `violations` stays `None` throughout, so
+/// `crowd_dist_full`/`generate_offspring`/`environmental_selection` all
+/// take their own `None` branches, which are textually the pre-task code.
+/// **sezgi decision (M3-7 Task 3):** `validate_config(cfg)` is called again
+/// here (redundant with the dispatcher's own call above, since
+/// [`nsga2_run`] already validated `cfg` before ever reaching this
+/// function) -- kept so this function's body stays a byte-identical copy
+/// of the pre-task `nsga2_run`, rather than trimming the "redundant" call
+/// and risking an accidental behavioral edit to frozen code; the second
+/// call is provably a no-op (same `cfg`, same `Ok(())`/`Err` outcome).
+///
+/// **M3-7 Task 9:** renamed from `nsga2_run_float` and given the
+/// `observer` parameter (see [`MoBatchObserver`]'s doc); every call site
+/// through [`nsga2_run`] passes `None`, so with `observer = None` this
+/// function's control flow and every value it computes are BYTE-IDENTICAL
+/// to the pre-task body -- the two `if let Some(obs) = &mut observer { .. }`
+/// sites below are the ONLY lines added, and they are no-ops when
+/// `observer` is `None`.
+fn nsga2_run_float_impl(
+    problem: &dyn MoProblem, cfg: &Nsga2Config, mut observer: Option<&mut MoBatchObserver>,
+) -> Result<MoRunResult, Nsga2Error> {
     validate_config(cfg)?;
     let (lo, hi, block_lens) = float_bounds(problem.space())?;
     let dim = lo.len();
@@ -1159,28 +2133,111 @@ pub fn nsga2_run(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunResu
         pop_size: cfg.pop_size,
         budget: cfg.budget,
     })?;
-    let mut crowd = crowd_dist_full(&objectives);
+    let mut violations = evaluate_violations(problem, &genos);
+    if let Some(obs) = &mut observer { obs(1, &genos, &objectives, violations.as_deref()); }
+    let mut crowd = crowd_dist_full(&objectives, violations.as_deref());
 
     loop {
         // Budget-tail rule (module doc): generate speculatively, evaluate,
         // and break WITHOUT mutating the population on Err -- mirrors the
         // scalar engine's `Err(_) => break 'outer` exactly.
-        let offspring =
-            generate_offspring(&genos, &objectives, &crowd, &lo, &hi, &block_lens, cfg, p_m, &mut var_rng);
+        let offspring = generate_offspring(
+            &genos, &objectives, &crowd, violations.as_deref(), &lo, &hi, &block_lens, cfg, p_m, &mut var_rng,
+        );
+        let before = eval.used();
         let off_objectives = match eval.evaluate(&offspring) {
             Ok(o) => o,
             Err(_) => break,
         };
-        let (new_genos, new_objectives, new_crowd) =
-            environmental_selection(genos, objectives, offspring, off_objectives, cfg.pop_size);
+        let off_violations = evaluate_violations(problem, &offspring);
+        if let Some(obs) = &mut observer { obs(before + 1, &offspring, &off_objectives, off_violations.as_deref()); }
+        let (new_genos, new_objectives, new_crowd, new_violations) = environmental_selection(
+            genos, objectives, violations, offspring, off_objectives, off_violations, cfg.pop_size,
+        );
         genos = new_genos;
         objectives = new_objectives;
         crowd = new_crowd;
+        violations = new_violations;
     }
 
-    let front0 = fast_non_dominated_sort(&objectives).into_iter().next().unwrap_or_default();
+    let front0 = match &violations {
+        None => fast_non_dominated_sort(&objectives).into_iter().next().unwrap_or_default(),
+        Some(v) => fast_non_dominated_sort_constrained(&objectives, v).into_iter().next().unwrap_or_default(),
+    };
 
-    Ok(MoRunResult { individuals: genos, objectives, front0, evals_used: eval.used() })
+    Ok(MoRunResult { individuals: genos, objectives, front0, evals_used: eval.used(), violations })
+}
+
+/// The all-Binary sibling of [`nsga2_run_float_impl`] (M3-7 Task 3; renamed
+/// from `nsga2_run_float` by M3-7 Task 9, see that function's own doc): SAME
+/// algorithm shape (init -> evaluate -> environmental-selection loop with
+/// the SAME budget-tail rule, SAME RNG-stream derivation), but drives the
+/// binary-genotype operators ([`generate_offspring_binary`],
+/// [`bin_cross_genome`], [`bin_mutate_genome`]) and reuses
+/// `crate::init::sample_uniform`'s existing `Block::Binary` sampling for
+/// initialization (module doc's "Binary genotype path" section: "reuse
+/// init's binary sampling, don't duplicate" -- one `next_f64()` draw per
+/// bit, individual-major/block-major/bit-minor, matching `initialize_ind`'s
+/// own nested-loop STRUCTURE even though the exact `< 0.5`-vs-C's-`<=0.5`
+/// bit mapping differs, per this module's established "draw STRUCTURE is
+/// pinned, not bit-identical values against the C" convention). `p_m_bin`
+/// resolves `None` to `1 / l` (`l` = `problem.space().dim()`, the total
+/// flattened bit count -- the paper's own binary default, module doc's
+/// "Defaults" section).
+///
+/// **M3-7 Task 9:** renamed from `nsga2_run_binary` and given the same
+/// `observer` parameter as [`nsga2_run_float_impl`] (see [`MoBatchObserver`]'s
+/// doc); `observer = None` is byte-identical to the pre-task body, same
+/// reasoning as that function's own doc.
+fn nsga2_run_binary_impl(
+    problem: &dyn MoProblem, cfg: &Nsga2Config, mut observer: Option<&mut MoBatchObserver>,
+) -> Result<MoRunResult, Nsga2Error> {
+    let l = problem.space().dim();
+    let p_m_bin = cfg.p_m_bin.unwrap_or(1.0 / l as f64);
+
+    let master = NSGA2_SEED_BASE.wrapping_add(cfg.seed);
+    let mut init_rng = RngStream::from_master(master, &[1]);
+    let mut var_rng = RngStream::from_master(master, &[2]);
+
+    let mut eval = MoEvaluator::new(problem, cfg.budget);
+
+    let mut genos: Vec<Genotype> =
+        (0..cfg.pop_size).map(|_| crate::init::sample_uniform(problem.space(), &mut init_rng)).collect();
+    let mut objectives = eval.evaluate(&genos).map_err(|_| Nsga2Error::BudgetTooSmallForInit {
+        pop_size: cfg.pop_size,
+        budget: cfg.budget,
+    })?;
+    let mut violations = evaluate_violations(problem, &genos);
+    if let Some(obs) = &mut observer { obs(1, &genos, &objectives, violations.as_deref()); }
+    let mut crowd = crowd_dist_full(&objectives, violations.as_deref());
+
+    loop {
+        // Budget-tail rule: identical to `nsga2_run_float`'s (module doc).
+        let offspring = generate_offspring_binary(
+            &genos, &objectives, &crowd, violations.as_deref(), cfg, p_m_bin, &mut var_rng,
+        );
+        let before = eval.used();
+        let off_objectives = match eval.evaluate(&offspring) {
+            Ok(o) => o,
+            Err(_) => break,
+        };
+        let off_violations = evaluate_violations(problem, &offspring);
+        if let Some(obs) = &mut observer { obs(before + 1, &offspring, &off_objectives, off_violations.as_deref()); }
+        let (new_genos, new_objectives, new_crowd, new_violations) = environmental_selection(
+            genos, objectives, violations, offspring, off_objectives, off_violations, cfg.pop_size,
+        );
+        genos = new_genos;
+        objectives = new_objectives;
+        crowd = new_crowd;
+        violations = new_violations;
+    }
+
+    let front0 = match &violations {
+        None => fast_non_dominated_sort(&objectives).into_iter().next().unwrap_or_default(),
+        Some(v) => fast_non_dominated_sort_constrained(&objectives, v).into_iter().next().unwrap_or_default(),
+    };
+
+    Ok(MoRunResult { individuals: genos, objectives, front0, evals_used: eval.used(), violations })
 }
 
 #[cfg(test)]
@@ -1219,6 +2276,132 @@ mod tests {
         let b = [1.0, 2.0, 4.0];
         assert!(dominates(&a, &b));
         assert!(!dominates(&b, &a));
+    }
+
+    // ---- constraint_violation: KanGAL eval.c accumulation -----------------
+    //
+    // eval.c's evaluate_ind (quoted in the module doc): constr_violation
+    // starts at 0.0 and accumulates constr[j] itself (NOT its absolute
+    // value) for every j with constr[j] < 0.0; constr[j] >= 0.0 rows
+    // contribute nothing. Result is always <= 0.0, 0.0 meaning fully
+    // feasible.
+
+    #[test]
+    fn constraint_violation_all_satisfied_is_zero() {
+        assert_eq!(constraint_violation(&[0.0, 1.0, 5.0]), 0.0);
+    }
+
+    #[test]
+    fn constraint_violation_no_constraints_is_zero() {
+        // ncon==0 in the C: constr_violation = 0.0 unconditionally.
+        assert_eq!(constraint_violation(&[]), 0.0);
+    }
+
+    #[test]
+    fn constraint_violation_sums_only_negative_rows() {
+        // g = [-1.0, 3.0, -2.5]: only the two negative entries accumulate,
+        // the satisfied g1=3.0 contributes nothing.
+        assert_eq!(constraint_violation(&[-1.0, 3.0, -2.5]), -3.5);
+    }
+
+    #[test]
+    fn constraint_violation_boundary_zero_is_satisfied_not_violated() {
+        // g_j == 0.0 is NOT < 0.0 in the C's own test -- satisfied, not
+        // accumulated.
+        assert_eq!(constraint_violation(&[0.0]), 0.0);
+    }
+
+    // ---- dominates_constrained: the three KanGAL check_dominance regimes --
+    //
+    // dominance.c's check_dominance (quoted in the module doc): both
+    // infeasible -> smaller violation magnitude (larger, i.e. closer-to-zero,
+    // constr_violation) wins regardless of objectives; feasible beats
+    // infeasible regardless of objectives; both feasible -> plain
+    // objective dominance.
+
+    #[test]
+    fn dominates_constrained_feasible_beats_infeasible_regardless_of_objectives() {
+        // a is feasible but objectively WORSE in both objectives than b,
+        // which is infeasible -- a must still dominate b.
+        let a = [5.0, 5.0];
+        let a_v = 0.0; // feasible
+        let b = [1.0, 1.0];
+        let b_v = -2.0; // infeasible
+        assert!(dominates_constrained(&a, a_v, &b, b_v));
+        assert!(!dominates_constrained(&b, b_v, &a, a_v));
+    }
+
+    #[test]
+    fn dominates_constrained_both_infeasible_smaller_violation_wins_regardless_of_objectives() {
+        // a is LESS violated (-1.0 > -3.0) but objectively WORSE in both
+        // objectives than b -- a must still dominate b.
+        let a = [5.0, 5.0];
+        let a_v = -1.0;
+        let b = [1.0, 1.0];
+        let b_v = -3.0;
+        assert!(dominates_constrained(&a, a_v, &b, b_v));
+        assert!(!dominates_constrained(&b, b_v, &a, a_v));
+    }
+
+    #[test]
+    fn dominates_constrained_both_infeasible_equal_violation_neither_dominates() {
+        let a = [1.0, 5.0];
+        let b = [5.0, 1.0];
+        assert!(!dominates_constrained(&a, -2.0, &b, -2.0));
+        assert!(!dominates_constrained(&b, -2.0, &a, -2.0));
+    }
+
+    #[test]
+    fn dominates_constrained_both_feasible_falls_back_to_plain_dominance() {
+        let a = [1.0, 2.0];
+        let b = [2.0, 3.0];
+        assert!(dominates_constrained(&a, 0.0, &b, 0.0));
+        assert!(!dominates_constrained(&b, 0.0, &a, 0.0));
+        assert_eq!(dominates_constrained(&a, 0.0, &b, 0.0), dominates(&a, &b));
+    }
+
+    #[test]
+    fn dominates_constrained_both_feasible_mixed_objectives_neither_dominates() {
+        let a = [1.0, 3.0];
+        let b = [2.0, 2.0];
+        assert!(!dominates_constrained(&a, 0.0, &b, 0.0));
+        assert!(!dominates_constrained(&b, 0.0, &a, 0.0));
+    }
+
+    // ---- fast_non_dominated_sort_constrained: hand fixture -----------------
+    //
+    // 4 points, 2 objectives (minimize both), violations in parens:
+    //   P0=(1,5) v=0   P1=(5,1) v=0   P2=(0,0) v=-1   P3=(10,10) v=-5
+    //
+    // P0/P1 (both feasible) are objectively mixed (incomparable) -> front 0.
+    // P0 dominates P2 and P3 (feasible beats infeasible, regardless that
+    // P2/P3 are objectively better); same for P1. P2 dominates P3 (both
+    // infeasible, -1.0 > -5.0 -- P2 less violated). Domination counts:
+    // P0=0, P1=0, P2=2 (by P0,P1), P3=3 (by P0,P1,P2).
+    // front0=[P0,P1] (index order); removing it drops P2's count to 0 ->
+    // front1=[P2]; removing P2 drops P3's count to 0 -> front2=[P3].
+    #[test]
+    fn fast_non_dominated_sort_constrained_hand_fixture() {
+        let objectives = vec![
+            vec![1.0, 5.0],
+            vec![5.0, 1.0],
+            vec![0.0, 0.0],
+            vec![10.0, 10.0],
+        ];
+        let violations = vec![0.0, 0.0, -1.0, -5.0];
+        let fronts = fast_non_dominated_sort_constrained(&objectives, &violations);
+        assert_eq!(fronts, vec![vec![0, 1], vec![2], vec![3]]);
+    }
+
+    #[test]
+    fn fast_non_dominated_sort_constrained_all_feasible_matches_plain_sort() {
+        // All-zero violations must reproduce fast_non_dominated_sort exactly
+        // (the "both feasible" branch falls back to plain dominance).
+        let objectives = six_point_fixture();
+        let violations = vec![0.0; objectives.len()];
+        let fronts_constrained = fast_non_dominated_sort_constrained(&objectives, &violations);
+        let fronts_plain = fast_non_dominated_sort(&objectives);
+        assert_eq!(fronts_constrained, fronts_plain);
     }
 
     // ---- fast_non_dominated_sort: hand fixture ----------------------
@@ -1737,7 +2920,7 @@ mod tests {
     use sezgi_stats::igd;
 
     fn base_cfg() -> Nsga2Config {
-        Nsga2Config { pop_size: 8, budget: 200, seed: 7, eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None }
+        Nsga2Config { pop_size: 8, budget: 200, seed: 7, eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None }
     }
 
     // ---- determinism golden ---------------------------------------------
@@ -1952,7 +3135,7 @@ mod tests {
         let problem = Zdt::new(1, 10).unwrap();
         let cfg = Nsga2Config {
             pop_size: 40, budget: 8000, seed: 1,
-            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None,
+            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None,
         };
         let result = nsga2_run(&problem, &cfg).unwrap();
         let front0_objectives: Vec<Vec<f64>> =
@@ -1960,5 +3143,556 @@ mod tests {
         let reference = problem.pareto_front(200).unwrap();
         let value = igd(&front0_objectives, &reference).unwrap();
         assert!(value < 0.05, "measured IGD {value} exceeds the anchored threshold 0.05");
+    }
+
+    // ---- frozen-path: unconstrained result bit-identical to a BASE golden ----
+    //
+    // Task 1 (M3-7)'s own acceptance gate, distinct from the M3-2
+    // `nsga2_run_determinism_golden_zdt1`/`nsga2_run_same_seed_twice_bit_identical`
+    // tests above (those must also keep passing UNMODIFIED -- this is an
+    // EXTRA, dedicated frozen-path anchor for the constraint-channel work).
+    // ZDT1, dim=6, pop=8, budget=240 (8 + 29*8), seed=99: every one of the 8
+    // final objective rows was captured ONCE from this implementation
+    // BEFORE the constraint-channel change (a temporary `#[ignore]`d probe
+    // test, `println!`-dumped via `cargo test --release -p sezgi-components
+    // --lib zzz_probe_dump_frozen_path_golden -- --ignored --nocapture`, see
+    // the task-1 report), then hardcoded below and replayed AFTER the
+    // change with exact `==` (not a tolerance) -- Rust's `{:?}` float
+    // formatting round-trips to the identical bit pattern, so `==` here is
+    // a true bit-identity check, not merely a close-enough one. This
+    // problem has no constraints (`Zdt` never overrides
+    // `evaluate_constraints_batch`, so it inherits the trait's `None`
+    // default) -- `nsga2_run` must take the exact old unconstrained code
+    // path, unaffected by the new constrained branches added elsewhere in
+    // this module.
+    #[test]
+    fn nsga2_run_frozen_path_unconstrained_bit_identical_to_base_golden() {
+        let problem = Zdt::new(1, 6).unwrap();
+        let cfg = Nsga2Config { pop_size: 8, budget: 240, seed: 99, eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None };
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(result.evals_used, 240);
+        assert_eq!(result.front0, vec![0, 1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(result.violations, None, "an unconstrained problem's result must carry no violations");
+        let expect: [[f64; 2]; 8] = [
+            [0.00011787908056256485, 2.199223923449777],
+            [0.9469380539088896, 0.698594878831741],
+            [0.08915998148372956, 1.4848387055180894],
+            [0.5004246462632003, 1.0738158299010316],
+            [0.9363895329040919, 0.7989749371549623],
+            [0.5212389240466422, 1.002944808087309],
+            [0.07038801267527484, 1.709359380258352],
+            [0.024404567739246597, 1.8526636805977041],
+        ];
+        for (i, (row, e)) in result.objectives.iter().zip(expect.iter()).enumerate() {
+            assert_eq!(row[0], e[0], "row {i} obj0: bit-identity broken vs the BASE golden");
+            assert_eq!(row[1], e[1], "row {i} obj1: bit-identity broken vs the BASE golden");
+        }
+    }
+
+    // ---- nsga2_run: end-to-end constrained integration --------------------
+    //
+    // Toy problem: f1 = x0, f2 = x1 (both minimized), x0, x1 in [-5, 5], ONE
+    // constraint g0 = x0 + x1 - 1 (feasible region x0+x1 >= 1, per the g_j
+    // >= 0 convention). The feasible Pareto-optimal set is exactly the line
+    // x0+x1=1 (any point strictly inside the feasible half-plane is
+    // dominated by some point ON the boundary line that is <= it in both
+    // f1=x0 and f2=x1 while still satisfying the constraint) -- moving
+    // further into the feasible region past the boundary can only increase
+    // x0 or x1 for a fixed sum, so the boundary is where both objectives are
+    // jointly minimized subject to the constraint.
+    struct LineConstraint { space: SearchSpace }
+    impl LineConstraint {
+        fn new() -> Self {
+            let space = SearchSpace::new(vec![Block::Float { lo: -5.0, hi: 5.0, n: 2 }]).unwrap();
+            Self { space }
+        }
+    }
+    impl MoProblem for LineConstraint {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|g| {
+                let BlockValues::Float(xs) = &g.blocks[0] else { return vec![f64::INFINITY; 2] };
+                vec![xs[0], xs[1]]
+            }).collect()
+        }
+        fn evaluate_constraints_batch(&self, pop: &[Genotype]) -> Option<Vec<Vec<f64>>> {
+            Some(pop.iter().map(|g| {
+                let BlockValues::Float(xs) = &g.blocks[0] else { return vec![f64::NEG_INFINITY] };
+                vec![xs[0] + xs[1] - 1.0]
+            }).collect())
+        }
+    }
+
+    #[test]
+    fn nsga2_run_constrained_front0_is_fully_feasible() {
+        let problem = LineConstraint::new();
+        let cfg = Nsga2Config {
+            pop_size: 40, budget: 4000, seed: 3,
+            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None,
+        };
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        let violations = result.violations.as_ref().expect("a constrained problem's result must carry Some(violations)");
+        assert_eq!(violations.len(), result.objectives.len());
+        assert!(!result.front0.is_empty());
+
+        // Feasible dominates infeasible unconditionally (dominance.c) -- as
+        // long as the merged population ever contains a feasible point
+        // (near-certain here: the feasible half-plane covers roughly half
+        // the [-5,5]^2 initial-sampling square), front0 can only contain
+        // infeasible points if NO feasible point exists anywhere, which
+        // would make every front0 member infeasible together. Assert the
+        // stronger, actually-expected outcome: every front0 member is
+        // feasible (violation exactly 0.0 -- g0 = x0+x1-1 >= 0).
+        for &i in &result.front0 {
+            assert_eq!(violations[i], 0.0,
+                "front0 member {i} has violation {} (x0+x1={}), expected fully feasible",
+                violations[i], result.objectives[i][0] + result.objectives[i][1]);
+        }
+
+        // Pareto-optimality check: every front0 member should sit
+        // reasonably close to the feasible boundary x0+x1=1 (the true
+        // optimal set). This test was first written with a tight
+        // placeholder anchor (0.1), run, and observed failing -- the
+        // assertion message reported a true measured max slack of
+        // 0.3548008033434038 at seed=3, pop=40, budget=4000. Anchor below
+        // is rounded up from that measurement to 0.5 (~40% headroom), per
+        // this task's TDD convention: measure, then anchor with headroom.
+        let max_slack = result.front0.iter()
+            .map(|&i| result.objectives[i][0] + result.objectives[i][1] - 1.0)
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!(max_slack < 0.5,
+            "front0's worst slack from the optimal boundary (x0+x1=1) is {max_slack}, exceeds the anchored threshold 0.5");
+    }
+
+    // ==================================================================
+    // Binary genotype path (M3-7 Task 3)
+    // ==================================================================
+
+    // ---- bin_cross_pair: hand-traced draws --------------------------------
+    //
+    // Raw draw sequences below were captured from a reconnaissance probe
+    // (`RngStream::from_master(seed, &[]).next_f64()` repeated, no
+    // bin_cross_pair involvement -- same methodology as sbx_pair's own
+    // "reconnaissance probe" tests above), then used to HAND-DERIVE the
+    // expected gate/site outcomes independently of running bin_cross_pair
+    // itself.
+
+    // Seed 1's first draw is 0.8116121588818848 (same value the sbx_pair
+    // "gate fails" test above already anchors, since both draw from the
+    // SAME `RngStream::from_master(1, &[])` construction), which is >
+    // p_c_bin=0.5 -- the per-block gate fails deterministically, so both
+    // children must equal the parents verbatim with exactly ONE draw
+    // consumed for the whole block (no site1/site2 draws at all).
+    #[test]
+    fn bin_cross_pair_gate_fails_children_equal_parents_verbatim() {
+        let p1 = vec![true, true, true, false];
+        let p2 = vec![false, false, false, true];
+        let rng_before = RngStream::from_master(1, &[]);
+        let mut rng = rng_before.clone();
+        let (c1, c2) = bin_cross_pair(&p1, &p2, 0.5, &mut rng);
+        assert_eq!(c1, p1, "pair-gate failure must copy parent1 verbatim into child1");
+        assert_eq!(c2, p2, "pair-gate failure must copy parent2 verbatim into child2");
+
+        let mut twin = rng_before;
+        let _gate = twin.next_f64();
+        assert_eq!(rng.next_f64(), twin.next_f64(),
+            "bin_cross_pair (gate fail) must consume exactly 1 draw for the whole block");
+    }
+
+    // Seed 0's first three draws are
+    // [0.3245752680314067, 0.38223929651167343, 0.3596172076473553]
+    // (verified via the reconnaissance probe, independent of
+    // bin_cross_pair). With p_c_bin=0.5 and n=8 bits (nbits-1=7):
+    //   - gate: 0.3246 <= 0.5 -> passes (1 draw).
+    //   - site1 = rnd(0,7,rng): width=8, floor(0.38223929651167343*8) =
+    //     floor(3.0579...) = 3 -> site1=3 (1 draw).
+    //   - site2 = rnd(0,7,rng): floor(0.3596172076473553*8) =
+    //     floor(2.8769...) = 2 -> site2=2 (1 draw).
+    //   - site1=3 > site2=2 -> swapped (no draw): site1=2, site2=3.
+    // Segments: [0,2) and [3,8) come from each child's OWN parent; the
+    // single-index middle segment [2,3) (just bit index 2) is SWAPPED.
+    // p1=all-true, p2=all-false makes the swapped bit visually obvious:
+    // c1 must be all-true EXCEPT index 2 (false, from p2); c2 must be
+    // all-false EXCEPT index 2 (true, from p1). 3 draws total (1 gate + 2
+    // site draws).
+    #[test]
+    fn bin_cross_pair_gate_passes_two_point_swap_hand_trace() {
+        let n = 8;
+        let p1 = vec![true; n];
+        let p2 = vec![false; n];
+        let rng_before = RngStream::from_master(0, &[]);
+        let mut rng = rng_before.clone();
+        let (c1, c2) = bin_cross_pair(&p1, &p2, 0.5, &mut rng);
+
+        let mut expect_c1 = vec![true; n];
+        expect_c1[2] = false;
+        let mut expect_c2 = vec![false; n];
+        expect_c2[2] = true;
+        assert_eq!(c1, expect_c1, "only bit index 2 (the swapped middle segment) should differ from parent1");
+        assert_eq!(c2, expect_c2, "only bit index 2 (the swapped middle segment) should differ from parent2");
+
+        let mut twin = rng_before;
+        for _ in 0..3 {
+            let _ = twin.next_f64();
+        }
+        assert_eq!(rng.next_f64(), twin.next_f64(),
+            "bin_cross_pair (gate pass, n=8) must consume exactly 3 draws (1 gate + site1 + site2)");
+    }
+
+    // n=1 (a single-bit block): `rnd(0,0)` hits the C's own `low>=high`
+    // no-draw branch for BOTH site1 and site2 (module doc), so even when
+    // the gate passes, the two-point crossover degenerates to a no-op
+    // (the swapped middle segment is empty) -- children equal parents
+    // verbatim, but for a STRUCTURALLY different reason than the gate-fail
+    // case (only 1 draw total here too, but it's the gate draw, not a
+    // skipped crossover).
+    #[test]
+    fn bin_cross_pair_single_bit_block_gate_pass_is_still_a_noop() {
+        let p1 = vec![true];
+        let p2 = vec![false];
+        let rng_before = RngStream::from_master(0, &[]); // draw0=0.3246 <= 0.5: gate passes
+        let mut rng = rng_before.clone();
+        let (c1, c2) = bin_cross_pair(&p1, &p2, 0.5, &mut rng);
+        assert_eq!(c1, p1, "a 1-bit block's crossover must be a no-op even when the gate passes");
+        assert_eq!(c2, p2, "a 1-bit block's crossover must be a no-op even when the gate passes");
+
+        let mut twin = rng_before;
+        let _gate = twin.next_f64();
+        assert_eq!(rng.next_f64(), twin.next_f64(),
+            "a 1-bit block must consume exactly 1 draw (the gate only -- rnd(0,0) draws nothing)");
+    }
+
+    // ---- bin_cross_pair: bounds / structural properties -------------------
+
+    #[test]
+    fn bin_cross_pair_children_are_recombinations_of_the_parent_bits() {
+        // Property check over many seeds/blocks: every output bit must come
+        // from EITHER parent at that same index (crossover only recombines,
+        // never invents bits), and the two children's bit at each index are
+        // never BOTH different from both parents simultaneously.
+        let mut rng = RngStream::from_master(2024, &[]);
+        for _ in 0..200 {
+            let n = 1 + (rng.next_f64() * 12.0) as usize; // n in [1,12]
+            let p1: Vec<bool> = (0..n).map(|_| rng.next_f64() < 0.5).collect();
+            let p2: Vec<bool> = (0..n).map(|_| rng.next_f64() < 0.5).collect();
+            let (c1, c2) = bin_cross_pair(&p1, &p2, 0.7, &mut rng);
+            for j in 0..n {
+                assert!(
+                    (c1[j] == p1[j] || c1[j] == p2[j]) && (c2[j] == p1[j] || c2[j] == p2[j]),
+                    "child bit at {j} must come from one of the two parents"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn bin_cross_pair_p_c_bin_zero_is_identity() {
+        let mut rng = RngStream::from_master(55, &[]);
+        let p1 = vec![true, false, true, true, false];
+        let p2 = vec![false, true, false, false, true];
+        let (c1, c2) = bin_cross_pair(&p1, &p2, 0.0, &mut rng);
+        assert_eq!(c1, p1, "p_c_bin=0 must leave the block unchanged (gate always fails)");
+        assert_eq!(c2, p2, "p_c_bin=0 must leave the block unchanged (gate always fails)");
+    }
+
+    // ---- bin_cross_genome: per-block independent gating -------------------
+    //
+    // Two blocks, VERY different p_c_bin-relevant draws: this exercises
+    // that each block gets its OWN independent gate/site draws (unlike
+    // sbx_pair's single whole-pair gate), per `bincross`'s own outer
+    // `for (i=0; i<nbin; i++)` loop (module doc).
+    #[test]
+    fn bin_cross_genome_gates_each_block_independently() {
+        let p1 = vec![vec![true; 6], vec![true; 6]];
+        let p2 = vec![vec![false; 6], vec![false; 6]];
+        let mut rng = RngStream::from_master(77, &[]);
+        let (c1, c2) = bin_cross_genome(&p1, &p2, 0.5, &mut rng);
+        assert_eq!(c1.len(), 2);
+        assert_eq!(c2.len(), 2);
+        // Structural sanity only (draw values not hand-derived here,
+        // `bin_cross_pair`'s own tests above already pin the per-block
+        // math exactly): each block's children must still be a
+        // recombination of that SAME block's two parents.
+        for block in 0..2 {
+            for j in 0..6 {
+                assert!(c1[block][j] == p1[block][j] || c1[block][j] == p2[block][j]);
+                assert!(c2[block][j] == p1[block][j] || c2[block][j] == p2[block][j]);
+            }
+        }
+    }
+
+    // ---- bin_flip_mutation: hand-traced draws ------------------------------
+    //
+    // Seed 9's first five draws are
+    // [0.5990316791291411, 0.4297364011687632, 0.19864982391454744,
+    //  0.8838122874587226, 0.06898027406099494] (same seed the
+    // polynomial_mutation "draw_count_mixed_pass_fail" test above already
+    // anchors, since both draw from the SAME `RngStream::from_master(9,
+    // &[])` construction). With p_m_bin=0.5, gate is `draw <= 0.5`:
+    //   bit0: 0.5990 > 0.5 -> unchanged.
+    //   bit1: 0.4297 <= 0.5 -> flipped.
+    //   bit2: 0.1986 <= 0.5 -> flipped.
+    //   bit3: 0.8838 > 0.5 -> unchanged.
+    //   bit4: 0.0690 <= 0.5 -> flipped.
+    // Starting from all-false: expected [false,true,true,false,true].
+    // 5 draws total (one gate draw per bit, no second draw -- unlike
+    // polynomial_mutation's gate-then-`rnd` two-draw shape).
+    #[test]
+    fn bin_flip_mutation_hand_trace() {
+        let mut x = vec![false; 5];
+        let rng_before = RngStream::from_master(9, &[]);
+        let mut rng = rng_before.clone();
+        bin_flip_mutation(&mut x, 0.5, &mut rng);
+        assert_eq!(x, vec![false, true, true, false, true]);
+
+        let mut twin = rng_before;
+        for _ in 0..5 {
+            let _ = twin.next_f64();
+        }
+        assert_eq!(rng.next_f64(), twin.next_f64(),
+            "bin_flip_mutation must consume exactly 1 draw per bit (5 bits -> 5 draws)");
+    }
+
+    #[test]
+    fn bin_flip_mutation_zero_pm_bin_is_identity() {
+        let x0 = vec![true, false, true, true, false, false];
+        let mut x = x0.clone();
+        let mut rng = RngStream::from_master(2024, &[]);
+        bin_flip_mutation(&mut x, 0.0, &mut rng);
+        assert_eq!(x, x0, "p_m_bin=0 must leave every bit unchanged");
+    }
+
+    #[test]
+    fn bin_flip_mutation_one_pm_bin_flips_every_bit() {
+        // p_m_bin=1.0: gate `draw <= 1.0` always passes (draws are in
+        // [0,1)) -- every bit must flip.
+        let x0 = vec![true, false, true, true, false, false];
+        let mut x = x0.clone();
+        let mut rng = RngStream::from_master(2024, &[]);
+        bin_flip_mutation(&mut x, 1.0, &mut rng);
+        let expect: Vec<bool> = x0.iter().map(|b| !b).collect();
+        assert_eq!(x, expect, "p_m_bin=1 must flip every bit");
+    }
+
+    // ---- bin_mutate_genome: block-major, bit-minor -------------------------
+
+    #[test]
+    fn bin_mutate_genome_covers_every_block() {
+        let mut blocks = vec![vec![false; 4], vec![true; 3]];
+        let mut rng = RngStream::from_master(11, &[]);
+        bin_mutate_genome(&mut blocks, 1.0, &mut rng); // p_m_bin=1: flip everything
+        assert_eq!(blocks, vec![vec![true; 4], vec![false; 3]]);
+    }
+
+    // ---- classify_space / dispatch (frozen-error-preservation + new) ------
+
+    struct TinyBinaryProblem { space: SearchSpace }
+    impl TinyBinaryProblem {
+        fn new(n: usize) -> Self {
+            let space = SearchSpace::new(vec![Block::Binary { n }]).unwrap();
+            Self { space }
+        }
+    }
+    impl MoProblem for TinyBinaryProblem {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|_| vec![0.0, 0.0]).collect()
+        }
+    }
+
+    fn base_bin_cfg() -> Nsga2Config {
+        Nsga2Config {
+            pop_size: 8, budget: 200, seed: 7, eta_c: 20.0, eta_m: 20.0,
+            p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None,
+        }
+    }
+
+    #[test]
+    fn nsga2_run_all_binary_space_is_accepted() {
+        let problem = TinyBinaryProblem::new(6);
+        let cfg = base_bin_cfg();
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(result.individuals.len(), 8);
+        for g in &result.individuals {
+            problem.space().validate(g).unwrap();
+        }
+    }
+
+    struct MixedFloatBinaryProblem { space: SearchSpace }
+    impl MixedFloatBinaryProblem {
+        fn new() -> Self {
+            let space = SearchSpace::new(vec![
+                Block::Float { lo: -1.0, hi: 1.0, n: 2 },
+                Block::Binary { n: 4 },
+            ]).unwrap();
+            Self { space }
+        }
+    }
+    impl MoProblem for MixedFloatBinaryProblem {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|_| vec![0.0, 0.0]).collect()
+        }
+    }
+
+    #[test]
+    fn nsga2_run_mixed_float_binary_space_is_rejected_naming_m3_8() {
+        let problem = MixedFloatBinaryProblem::new();
+        let cfg = base_bin_cfg();
+        let err = nsga2_run(&problem, &cfg).unwrap_err();
+        assert!(matches!(err, Nsga2Error::MixedGenotypeSpace { index: 1 }), "got {err:?}");
+        assert!(err.to_string().contains("M3-8"), "error must name the M3-8 deferral: {err}");
+    }
+
+    // Frozen: the pre-task `nsga2_run_non_float_space_is_error` test above
+    // (a Block::Int space) must keep returning NonFloatSpace -- re-asserted
+    // here for a DIFFERENT non-Float, non-Binary block kind (Categorical)
+    // to confirm the "neither Float nor Binary" classification is general,
+    // not merely special-cased for Int.
+    struct TinyCategoricalProblem { space: SearchSpace }
+    impl TinyCategoricalProblem {
+        fn new() -> Self {
+            let space = SearchSpace::new(vec![Block::Categorical { k: 3, n: 2 }]).unwrap();
+            Self { space }
+        }
+    }
+    impl MoProblem for TinyCategoricalProblem {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|_| vec![0.0, 0.0]).collect()
+        }
+    }
+
+    #[test]
+    fn nsga2_run_categorical_space_is_non_float_space_error() {
+        let problem = TinyCategoricalProblem::new();
+        let cfg = base_bin_cfg();
+        let err = nsga2_run(&problem, &cfg).unwrap_err();
+        assert!(matches!(err, Nsga2Error::NonFloatSpace { index: 0 }), "got {err:?}");
+    }
+
+    // ---- p_c_bin / p_m_bin validation --------------------------------------
+
+    #[test]
+    fn nsga2_run_p_c_bin_out_of_range_is_error() {
+        let problem = TinyBinaryProblem::new(6);
+        for bad in [-0.1, 1.1] {
+            let mut cfg = base_bin_cfg();
+            cfg.p_c_bin = bad;
+            let err = nsga2_run(&problem, &cfg).unwrap_err();
+            assert!(matches!(err, Nsga2Error::InvalidProbability { name: "p_c_bin", .. }), "bad={bad}, got {err:?}");
+        }
+    }
+
+    #[test]
+    fn nsga2_run_p_m_bin_out_of_range_is_error() {
+        let problem = TinyBinaryProblem::new(6);
+        for bad in [-0.1, 1.1] {
+            let mut cfg = base_bin_cfg();
+            cfg.p_m_bin = Some(bad);
+            let err = nsga2_run(&problem, &cfg).unwrap_err();
+            assert!(matches!(err, Nsga2Error::InvalidProbability { name: "p_m_bin", .. }), "bad={bad}, got {err:?}");
+        }
+    }
+
+    // ---- nsga2_run: binary determinism ------------------------------------
+
+    #[test]
+    fn nsga2_run_binary_same_seed_twice_bit_identical() {
+        let problem = TinyBinaryProblem::new(10);
+        let mut cfg = base_bin_cfg();
+        cfg.pop_size = 16;
+        cfg.budget = 320;
+        let r1 = nsga2_run(&problem, &cfg).unwrap();
+        let r2 = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(r1, r2, "same seed must reproduce a bit-identical MoRunResult on the binary path");
+    }
+
+    // ---- nsga2_run: binary end-to-end toy problem --------------------------
+    //
+    // Toy problem: unitation trade-off on ONE Binary block of length n.
+    // f1(x) = count of 1-bits (minimize), f2(x) = count of 0-bits
+    // (minimize). Since f1(x) + f2(x) == n for EVERY genotype x in
+    // {0,1}^n, no genotype can ever dominate another (if f1(a) < f1(b)
+    // then necessarily f2(a) > f2(b) -- strictly better in one objective,
+    // strictly worse in the other, always incomparable) -- the Pareto
+    // front is PROVABLY the entire search space. This does not test
+    // "convergence to an optimum" (there is nothing to converge to, every
+    // point already IS optimal) -- it tests the OTHER half of what NSGA-II
+    // is for: crowding-distance-driven DIVERSITY preservation. A uniformly
+    // random initial population's unitation values follow
+    // Binomial(n, 0.5), clustering tightly around n/2 and rarely touching
+    // the extremes 0 or n; NSGA-II's crowding distance assigns
+    // f64::INFINITY to the boundary individuals of every front (module
+    // doc's "Crowding distance" section), so environmental selection
+    // systematically favors points near the unitation extremes over
+    // generations -- the final population's unitation RANGE should be
+    // dramatically wider than a same-size random sample's, and should push
+    // close to the full [0, n] range.
+    struct UnitationTradeoff { space: SearchSpace }
+    impl UnitationTradeoff {
+        fn new(n: usize) -> Self {
+            let space = SearchSpace::new(vec![Block::Binary { n }]).unwrap();
+            Self { space }
+        }
+    }
+    impl MoProblem for UnitationTradeoff {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|g| {
+                let BlockValues::Bin(bits) = &g.blocks[0] else { return vec![f64::INFINITY; 2] };
+                let ones = bits.iter().filter(|&&b| b).count() as f64;
+                let zeros = bits.len() as f64 - ones;
+                vec![ones, zeros]
+            }).collect()
+        }
+    }
+
+    #[test]
+    fn nsga2_run_binary_unitation_tradeoff_front_is_the_whole_population_and_diversifies() {
+        let n = 20;
+        let problem = UnitationTradeoff::new(n);
+        let cfg = Nsga2Config {
+            pop_size: 40, budget: 8040, seed: 5,
+            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None,
+            p_c_bin: 0.9, p_m_bin: None,
+        };
+        let result = nsga2_run(&problem, &cfg).unwrap();
+
+        // Hand-derivable correctness: f1+f2 == n for every individual, and
+        // (as a direct consequence) no individual dominates another, so
+        // front0 must be the ENTIRE final population.
+        for row in &result.objectives {
+            assert_eq!(row[0] + row[1], n as f64, "f1+f2 must equal n for every genotype on this problem");
+        }
+        for i in 0..result.objectives.len() {
+            for j in 0..result.objectives.len() {
+                if i != j {
+                    assert!(!dominates(&result.objectives[i], &result.objectives[j]),
+                        "member {i} dominates member {j}: impossible when f1+f2 is constant");
+                }
+            }
+        }
+        assert_eq!(result.front0.len(), result.objectives.len(),
+            "the whole population must be front0 (the whole space is Pareto-optimal on this problem)");
+
+        // Diversity anchor (measure, then anchor with headroom, per this
+        // task's TDD convention -- see the LineConstraint test above for
+        // the same pattern). Measured at seed=5, n=20, pop=40, budget=8040:
+        // min_ones=0.0, max_ones=20.0 (the population reached BOTH exact
+        // extremes). Anchored well inside that (min <= 2, max >= n-2 = 18)
+        // so the test is not a knife-edge on the exact measured value.
+        let ones: Vec<f64> = result.objectives.iter().map(|o| o[0]).collect();
+        let min_ones = ones.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max_ones = ones.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        assert!(min_ones <= 2.0,
+            "population failed to diversify toward the all-zero extreme: min unitation {min_ones} (n={n})");
+        assert!(max_ones >= n as f64 - 2.0,
+            "population failed to diversify toward the all-one extreme: max unitation {max_ones} (n={n})");
     }
 }
