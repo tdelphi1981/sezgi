@@ -7,11 +7,12 @@
 //! mirror the scalar `Problem`/`Evaluator` conventions (batch evaluation, the
 //! all-or-nothing evaluation budget, wrong-length panics) but evaluate to a
 //! vector of objectives per individual instead of a single scalar fitness.
-//! NSGA-II and the ZDT/DTLZ benchmark suites are intended to build on this
+//! NSGA-II and the ZDT/ZDT5/DTLZ/WFG benchmark suites build on this
 //! surface. There is no scalar "best" tracked here (multi-objective
-//! optimization has no single best point), and there is no `EvalObserver`
-//! analogue in this first version -- MO-specific logging formats (e.g.
-//! IOH/COCO-biobj) are a recorded deferral.
+//! optimization has no single best point). MO run logging, once a recorded
+//! deferral, is closed as of M3-7: NSGA-II exposes a batch observer hook and
+//! `sezgi-bench`'s `mo_archive` writes the archive-first "sezgi-moa v1"
+//! format (see docs/DECISIONS.md's M3-7 record).
 
 use crate::problem::BudgetExhausted;
 use crate::space::{Genotype, SearchSpace};
