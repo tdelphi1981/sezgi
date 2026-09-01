@@ -204,7 +204,7 @@ pub fn ga_int(pop_size: usize, budget: u64) -> AlgorithmSpec {
 /// entry pairing a fused crossover+mutation `Generator` with
 /// `replace/mu-plus-lambda`), swapped to the Categorical representation:
 /// `init/uniform` (its own `Block::Categorical` branch already samples
-/// `rng.next_below(k)`, per `boundary.rs`'s own `sample_uniform`, so there is
+/// `rng.next_below(k)`, per `init.rs`'s own `sample_uniform`, so there is
 /// no dedicated `init/cat-random` the way there is `init/perm-random` --
 /// nothing would differ) and `gen/ga-cat` ([`crate::cat_ops::GaCatGenerator`]
 /// -- the FUSED uniform-crossover + random-reset-mutation generator, per
@@ -218,8 +218,9 @@ pub fn ga_int(pop_size: usize, budget: u64) -> AlgorithmSpec {
 /// `rng.next_below(k)`, per `cat_ops.rs`'s "PROVENANCE" doc), included purely
 /// for spec-shape uniformity with every other preset in this crate. `p_c`/
 /// `p_m` are left at `gen/ga-cat`'s own verified pymoo defaults (`0.9`/
-/// `1/n`, omitted here for the same reason `ga_bin`'s own preset omits them
-/// -- they resolve identically whether stated or not). `pop_size` is the
+/// `1/n`) -- both omitted here (unlike `ga_bin`'s own preset, which sets
+/// `p_c` explicitly and omits only `p_m`) because they resolve identically
+/// whether stated or not. `pop_size` is the
 /// caller's choice (no canonical value from a single source, same as
 /// `ga_real`/`ga_perm`/`ga_bin`/`ga_int`). `min_pop = 2` (tournament
 /// selection needs a population of at least 2), enforced via

@@ -501,8 +501,9 @@ fn sz_nsga2_raw(
     // INERT this task (binding surface untouched -- see
     // sezgi_components::nsga2's own module doc, "M3-8 Task 6" section,
     // "Nsga2Config field spillover"). Fixed defaults (0.9/None), matching
-    // the Rust API's own defaults; exposing these as real, user-tunable
-    // `sz_nsga2_raw` parameters is T9/T10's job.
+    // the Rust API's own defaults; these remain internal-only knobs --
+    // exposing them as real, user-tunable `sz_nsga2_raw` parameters is
+    // deferred (no milestone currently owns this work).
     let cfg = Nsga2Config {
         pop_size: f64_to_usize("pop_size", pop_size)?,
         budget: f64_to_u64("budget", budget)?,

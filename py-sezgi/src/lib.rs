@@ -2636,8 +2636,9 @@ fn mo_nsga2(
     // INERT this task (binding surface untouched -- see
     // sezgi_components::nsga2's own module doc, "M3-8 Task 6" section,
     // "Nsga2Config field spillover"). Fixed defaults (0.9/None), matching
-    // the Rust API's own defaults; exposing these as real, user-tunable
-    // `mo_nsga2` parameters is T9/T10's job.
+    // the Rust API's own defaults; these remain internal-only knobs --
+    // exposing them as real, user-tunable `mo_nsga2` parameters is deferred
+    // (no milestone currently owns this work).
     let cfg = Nsga2Config {
         pop_size, budget, seed, eta_c, eta_m, p_c, p_m, p_c_bin, p_m_bin,
         p_c_cat: 0.9, p_m_cat: None,

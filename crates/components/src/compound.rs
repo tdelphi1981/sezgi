@@ -87,6 +87,14 @@
 //!   ]
 //! }
 //! ```
+//! Note the crossover-probability spelling split visible above: the legacy
+//! generators (`gen/ga-real`, `gen/ga-perm`) parse `pc`, while every M3-8
+//! typed family (`gen/ga-bin`/`gen/ga-int`/`gen/ga-cat`) parses `p_c`. Every
+//! `from_params` here is permissive (unknown keys are silently ignored), so
+//! spelling matters per family -- writing `p_c` on a `gen/ga-real` block (or
+//! `pc` on a typed block) silently falls back to the default instead of
+//! erroring.
+//!
 //! `blocks` is an ORDERED array, one entry per block of the target space, in
 //! the SAME order `SearchSpace::blocks()` lists them. Each entry deserializes
 //! directly as `sezgi_core::spec::ComponentSpec` (`{"kind": ..., ...flattened

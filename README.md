@@ -324,14 +324,20 @@ archive at any evaluation budget.
 
 Binary-coded MO (zdt5) was scoped to the KanGAL reference exactly at M3-7
 time — all-Float OR all-Binary spaces only, a MIXED space rejected naming
-the M3-8 deferral explicitly. **M3-8 closes that deferral**: `nsga2`/
-`sz_nsga2` now accept any space combining Float/Int/Categorical/Binary
-blocks, in any mix (see "Typed operators, mixed spaces, and diagnostic
-problems (M3-8)" below) — only a space containing a `Permutation` block
-stays rejected (MO permutation search is out of scope, the error names it
-explicitly). Everything ZDT1-4/6/DTLZ1-7/`hypervolume_2d` documented in
-the M3-2 section above, and the all-Float/all-Binary paths documented
-here, stay frozen byte-for-byte throughout.
+the M3-8 deferral explicitly. **M3-8 closes that deferral at the Rust-core
+level**: the `nsga2_run` core now accepts any space combining
+Float/Int/Categorical/Binary blocks, in any mix (see "Typed operators,
+mixed spaces, and diagnostic problems (M3-8)" below) — only a space
+containing a `Permutation` block stays rejected (MO permutation search is
+out of scope, the error names it explicitly). This is core-only, though:
+both `sezgi.mo.nsga2` and `sz_nsga2` still take a problem-name string
+(zdt1-6/dtlz1-9/wfg1-9), and every constructible one of those is all-Float
+or all-Binary (zdt5) — no mixed MO problem is constructible from either
+binding today, so frontend reachability of mixed-space NSGA-II is
+deferred (see `docs/DECISIONS.md`). Everything ZDT1-4/6/DTLZ1-7/
+`hypervolume_2d` documented in the M3-2 section above, and the
+all-Float/all-Binary paths documented here, stay frozen byte-for-byte
+throughout.
 
 R mirrors this 1:1 (`sz_nsga2`, `sz_mo_hypervolume`, `sz_mo_read_moa`),
 including two new cross-language bit-equality anchors (an nsga2-on-wfg4
@@ -599,11 +605,19 @@ bindings through the normal spec path (JSON or TOML — the same
       { kind = "gen/ga-bin",  tournament_k = 2, p_c = 0.9 },
     ]
 
-NSGA-II gained the same per-block support (`sezgi.mo.nsga2`/`sz_nsga2` on a
-space combining any of Float/Int/Categorical/Binary, in any mix — see
-"Multi-objective optimization" above); every existing Float/Binary/
-constrained NSGA-II golden stays bit-identical throughout — M3-8 added a
-THIRD `Representation` case (`Mixed`), it did not touch the frozen two.
+Note the spelling above: `gen/ga-real` (a legacy generator, shared with
+`gen/ga-perm`) parses `pc`, while the M3-8 typed families parse `p_c` —
+unknown keys are silently ignored, so the spelling matters per family.
+
+The `nsga2_run` core gained the same per-block support (a space combining
+any of Float/Int/Categorical/Binary, in any mix — see "Multi-objective
+optimization" above); every existing Float/Binary/constrained NSGA-II
+golden stays bit-identical throughout — M3-8 added a THIRD `Representation`
+case (`Mixed`), it did not touch the frozen two. This is a core-level
+capability only: `sezgi.mo.nsga2`/`sz_nsga2` still accept a problem-name
+string, and no mixed-space named problem exists, so mixed spaces are not
+reachable through either binding yet (frontend reachability is a recorded
+deferral, see `docs/DECISIONS.md`).
 
 **ABC-TSP/permutation authoring** (both `sezgi.Algorithm` and
 `sz_algorithm`) is now supported too — see "Write your own algorithm
