@@ -27,7 +27,10 @@ use sezgi_core::problem::{Evaluator, Problem};
 use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 use sezgi_core::spec::AlgorithmSpec;
-use sezgi_problems::{BbobProblem, Cec2014, Cec2017, Cec2022, Dtlz, Tsp, TspError, Wfg, Zdt};
+use sezgi_problems::{
+    BbobProblem, CatMatch, Cec2014, Cec2017, Cec2022, Dtlz, IntQuadratic, OneMax, Tsp, TspError,
+    Wfg, Zdt,
+};
 // Zdt5 (M3-7 Task 6) is not re-exported at `sezgi_problems`'s crate root
 // (only `Zdt`/`ZdtError` are, per that crate's `lib.rs`) -- imported by its
 // full module path instead, rather than widening `crates/problems/src/lib.rs`'s
@@ -58,6 +61,31 @@ enum Inner {
     /// own doc). Same handle shape as `Inner::Cec2022`/`Inner::Cec2014`.
     Cec2017(Cec2017),
     Tsp(Tsp),
+    /// M3-8 Task 9: `sezgi.problems.onemax(n_bits)` -- Goldberg 1989's
+    /// classic Binary-block diagnostic (`sezgi_problems::diagnostics::OneMax`).
+    /// Solve()-eligible exactly like `Inner::Bbob`; pairs with
+    /// `sezgi.presets.ga_bin(...)`.
+    OneMax(OneMax),
+    /// M3-8 Task 9: `sezgi.problems.int_quadratic(lo, hi, n)` -- an Int-block
+    /// diagnostic (`sezgi_problems::diagnostics::IntQuadratic`). Pairs with
+    /// `sezgi.presets.ga_int(...)`.
+    IntQuadratic(IntQuadratic),
+    /// M3-8 Task 9: `sezgi.problems.cat_match(k, n, seed)` -- a Categorical-
+    /// block diagnostic (`sezgi_problems::diagnostics::CatMatch`). Pairs with
+    /// `sezgi.presets.ga_cat(...)`.
+    CatMatch(CatMatch),
+    /// M3-8 Task 9: `sezgi.problems.mixed_diagnostic(n_float, n_int, k_cat,
+    /// n_cat, n_bin)` -- a Float+Int+Categorical+Binary mixed-space
+    /// scaffold problem, added SOLELY so `gen/compound` (M3-8 Task 5) is
+    /// reachable end to end from a Python-authored, mixed-space TOML
+    /// `AlgorithmSpec` (parsed via Python's stdlib `tomllib` into the same
+    /// dict `solve()` already accepts -- no new solve-side API). Mirrors
+    /// `crates/components/src/compound.rs`'s own test-local `MixedProblem`
+    /// exactly (same block bounds, same `evaluate_batch` formula) -- see
+    /// [`MixedDiagnostic`]'s own doc. Not one of Task 5's brief-pinned
+    /// diagnostics (those are each single-block); `optimum()` returns
+    /// `None` accordingly -- no verified target is claimed.
+    Mixed(MixedDiagnostic),
     Callable { f: Py<PyAny>, space: SearchSpace, vectorized: bool },
     /// `sezgi.bias.f0(dim, seed)` -- the BIAS-toolbox null problem
     /// ([`F0Random`]). `dim`/`seed` are stored (not an `F0Random` instance
@@ -69,6 +97,56 @@ enum Inner {
     /// we wanted to. `space` is precomputed at construction time so
     /// `dim()`/`bounds()` need no `F0Random` instance at all.
     F0 { dim: usize, seed: u64, space: SearchSpace },
+}
+
+/// Mixed Float+Int+Categorical+Binary scaffold problem (M3-8 Task 9), living
+/// only in this crate (not `crates/problems`) -- it exists purely to give
+/// `sezgi.solve()` a Python-reachable target whose search space has one
+/// block of each non-Permutation kind, so a mixed-space TOML `AlgorithmSpec`
+/// using `gen/compound` (Task 5) can be run end to end from Python. Mirrors
+/// `crates/components/src/compound.rs`'s own test-local `MixedProblem`
+/// byte-for-byte: `Block::Float{-5,5,n_float}` + `Block::Int{-5,5,n_int}` +
+/// `Block::Categorical{k_cat,n_cat}` + `Block::Binary{n_bin}`, and
+/// `evaluate_batch` = (sum of the float block) + (sum of the int block) +
+/// (count of categorical genes != 0) + (count of `false` bits). Not a
+/// benchmark and not one of Task 5's brief-pinned diagnostics -- `optimum()`
+/// returns `None` (no verified reachable target is claimed; a real value
+/// would need to account for the float block's continuous infimum, which no
+/// finite-budget GA run is guaranteed to hit exactly).
+struct MixedDiagnostic {
+    space: SearchSpace,
+}
+
+impl MixedDiagnostic {
+    fn new(n_float: usize, n_int: usize, k_cat: u32, n_cat: usize, n_bin: usize) -> Self {
+        let space = SearchSpace::new(vec![
+            Block::Float { lo: -5.0, hi: 5.0, n: n_float },
+            Block::Int { lo: -5, hi: 5, n: n_int },
+            Block::Categorical { k: k_cat, n: n_cat },
+            Block::Binary { n: n_bin },
+        ])
+        .expect("Float{-5,5,..}/Int{-5,5,..} bounds are fixed and valid (lo < hi); \
+                 Categorical/Binary have no bounds for SearchSpace::new to reject");
+        Self { space }
+    }
+}
+
+impl Problem for MixedDiagnostic {
+    fn space(&self) -> &SearchSpace { &self.space }
+
+    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
+        pop.iter()
+            .map(|g| {
+                g.blocks.iter().fold(0.0, |f, b| f + match b {
+                    BlockValues::Float(xs) => xs.iter().sum::<f64>(),
+                    BlockValues::Int(xs) => xs.iter().sum::<i64>() as f64,
+                    BlockValues::Cat(xs) => xs.iter().filter(|&&c| c != 0).count() as f64,
+                    BlockValues::Bin(xs) => xs.iter().filter(|&&b| !b).count() as f64,
+                    BlockValues::Perm(_) => 0.0,
+                })
+            })
+            .collect()
+    }
 }
 
 #[pyclass(name = "Problem")]
@@ -207,6 +285,10 @@ impl PyProblem {
             Inner::Cec2014(p) => p.space().dim(),
             Inner::Cec2017(p) => p.space().dim(),
             Inner::Tsp(p) => p.space().dim(),
+            Inner::OneMax(p) => p.space().dim(),
+            Inner::IntQuadratic(p) => p.space().dim(),
+            Inner::CatMatch(p) => p.space().dim(),
+            Inner::Mixed(p) => p.space().dim(),
             Inner::Callable { space, .. } => space.dim(),
             Inner::F0 { space, .. } => space.dim(),
         }
@@ -224,6 +306,10 @@ impl PyProblem {
             Inner::Cec2014(p) => p.space(),
             Inner::Cec2017(p) => p.space(),
             Inner::Tsp(p) => p.space(),
+            Inner::OneMax(p) => p.space(),
+            Inner::IntQuadratic(p) => p.space(),
+            Inner::CatMatch(p) => p.space(),
+            Inner::Mixed(p) => p.space(),
             Inner::Callable { space, .. } => space,
             Inner::F0 { space, .. } => space,
         };
@@ -242,6 +328,12 @@ impl PyProblem {
             Inner::Cec2014(p) => p.optimum(),
             Inner::Cec2017(p) => p.optimum(),
             Inner::Tsp(p) => p.optimum(),
+            Inner::OneMax(p) => p.optimum(),
+            Inner::IntQuadratic(p) => p.optimum(),
+            Inner::CatMatch(p) => p.optimum(),
+            // MixedDiagnostic (Task 9 scaffold): no verified target claimed
+            // -- see its own doc.
+            Inner::Mixed(_) => None,
             Inner::Callable { .. } => None,
             Inner::F0 { .. } => None,
         }
@@ -563,6 +655,63 @@ fn tsp_tour_length(name_or_text: &str, tour: Vec<i64>) -> PyResult<f64> {
     Ok(t.evaluate_batch(&[g])[0])
 }
 
+/// `sezgi.problems.onemax(n_bits)` -- a [`Problem`] handle for
+/// [`sezgi_problems::diagnostics::OneMax`] (M3-8 Task 9), the classic
+/// Binary-block GA diagnostic (Goldberg 1989; this crate's own
+/// minimize-the-zero-bit-count re-expression -- see that module's doc).
+/// Solve()-eligible exactly like `sezgi.bbob(...)`. Pairs with
+/// `sezgi.presets.ga_bin(pop_size, budget)`.
+#[pyfunction]
+fn onemax(n_bits: usize) -> PyProblem {
+    PyProblem { inner: Inner::OneMax(OneMax::new(n_bits)) }
+}
+
+/// `sezgi.problems.int_quadratic(lo, hi, n)` -- a [`Problem`] handle for
+/// [`sezgi_problems::diagnostics::IntQuadratic`] (M3-8 Task 9), an Int-block
+/// quadratic bowl around a fixed target derived deterministically from
+/// `(lo, hi, n)` (see that module's own doc; the constructor takes no `seed`
+/// argument, by the Task 5 brief's pinned signature). Pairs with
+/// `sezgi.presets.ga_int(pop_size, budget)`.
+///
+/// # Errors
+/// `ValueError` if `lo >= hi` -- checked explicitly here (rather than
+/// letting `IntQuadratic::new`'s own internal `SearchSpace::new(...).expect(..)`
+/// panic) so a bad Python call gets a clean exception instead of a Rust
+/// panic, matching every other bounds-checked constructor in this file.
+#[pyfunction]
+fn int_quadratic(lo: i64, hi: i64, n: usize) -> PyResult<PyProblem> {
+    if lo >= hi {
+        return Err(PyValueError::new_err(format!(
+            "int_quadratic: lo ({lo}) must be < hi ({hi})")));
+    }
+    Ok(PyProblem { inner: Inner::IntQuadratic(IntQuadratic::new(lo, hi, n)) })
+}
+
+/// `sezgi.problems.cat_match(k, n, seed)` -- a [`Problem`] handle for
+/// [`sezgi_problems::diagnostics::CatMatch`] (M3-8 Task 9), a Categorical-
+/// block Hamming-distance-to-target matching problem; unlike
+/// `int_quadratic`, `seed` IS an explicit caller-supplied parameter (Task 5
+/// brief's pinned signature). Pairs with `sezgi.presets.ga_cat(pop_size,
+/// budget)`.
+#[pyfunction]
+fn cat_match(k: u32, n: usize, seed: u64) -> PyProblem {
+    PyProblem { inner: Inner::CatMatch(CatMatch::new(k, n, seed)) }
+}
+
+/// `sezgi.problems.mixed_diagnostic(n_float, n_int, k_cat, n_cat, n_bin)` --
+/// a [`Problem`] handle for [`MixedDiagnostic`] (M3-8 Task 9), a
+/// Float+Int+Categorical+Binary mixed-space scaffold problem added SOLELY
+/// so `gen/compound` (Task 5) is reachable end to end through a
+/// Python-authored, mixed-space TOML `AlgorithmSpec` -- see
+/// [`MixedDiagnostic`]'s own doc for the exact block layout/`evaluate_batch`
+/// formula (mirrors `crates/components/src/compound.rs`'s own test-local
+/// `MixedProblem`). Not a benchmark, not one of Task 5's brief-pinned
+/// diagnostics; `optimum()` is always `None`.
+#[pyfunction]
+fn mixed_diagnostic(n_float: usize, n_int: usize, k_cat: u32, n_cat: usize, n_bin: usize) -> PyProblem {
+    PyProblem { inner: Inner::Mixed(MixedDiagnostic::new(n_float, n_int, k_cat, n_cat, n_bin)) }
+}
+
 /// Raised by every [`PyEvalSession`] method once the session has been
 /// [`PyEvalSession::finish`]ed (including a second call to `finish` itself).
 fn session_finished_err() -> PyErr {
@@ -832,6 +981,22 @@ impl PyEvalSession {
             return Ok(Self { inner: Some(SessionKind::Perm(session)) });
         }
 
+        // M3-8 Task 9: onemax/int_quadratic/cat_match/mixed_diagnostic have
+        // no ask/tell session type of their own (no "BinSession"/
+        // "IntSession"/"CatSession"/"MixedSession" analogous to PermSession
+        // exists -- out of this task's scope, which is solve()-only for
+        // these typed families). Rejected up front with an honest message
+        // rather than silently mis-building a Float-typed EvalSession over a
+        // non-Float space.
+        if matches!(&problem.inner,
+            Inner::OneMax(_) | Inner::IntQuadratic(_) | Inner::CatMatch(_) | Inner::Mixed(_)) {
+            return Err(PyValueError::new_err(
+                "EvalSession.for_problem is not currently supported for onemax(...)/\
+                 int_quadratic(...)/cat_match(...)/mixed_diagnostic(...) problems (no \
+                 ask/tell session type exists yet for Binary/Int/Categorical/mixed-typed \
+                 spaces); use sezgi.solve(...) with presets.ga_bin/ga_int/ga_cat instead"));
+        }
+
         let (boxed, meta): (Box<dyn Problem>, SessionMeta) = match &problem.inner {
             Inner::Bbob(p) => {
                 // Fresh instance from the same (fid, dim, instance): matches
@@ -926,6 +1091,8 @@ impl PyEvalSession {
             // Handled and returned above -- this match is unreachable for
             // Inner::Tsp, but the match must still be exhaustive.
             Inner::Tsp(_) => unreachable!("Inner::Tsp is handled and returned before this match"),
+            Inner::OneMax(_) | Inner::IntQuadratic(_) | Inner::CatMatch(_) | Inner::Mixed(_) =>
+                unreachable!("rejected and returned before this match"),
         };
 
         // sezgi decision (M3-5 scope ruling 2, widened again by M3-6 Task 9):
@@ -1186,6 +1353,38 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
             }
             (run_with_bridge(py, || run(p, None))?, None)
         }
+        // M3-8 Task 9: onemax/int_quadratic/cat_match/mixed_diagnostic are
+        // solve()-eligible additively, same shape as Inner::Tsp -- no IOH
+        // identity (fid/instance/f_opt-for-logging) exists for any of them,
+        // so log_dir is rejected the same way.
+        Inner::OneMax(p) => {
+            if log_dir.is_some() {
+                return Err(PyValueError::new_err(
+                    "log_dir is only supported for builtin (bbob) problems"));
+            }
+            (run_with_bridge(py, || run(p, None))?, None)
+        }
+        Inner::IntQuadratic(p) => {
+            if log_dir.is_some() {
+                return Err(PyValueError::new_err(
+                    "log_dir is only supported for builtin (bbob) problems"));
+            }
+            (run_with_bridge(py, || run(p, None))?, None)
+        }
+        Inner::CatMatch(p) => {
+            if log_dir.is_some() {
+                return Err(PyValueError::new_err(
+                    "log_dir is only supported for builtin (bbob) problems"));
+            }
+            (run_with_bridge(py, || run(p, None))?, None)
+        }
+        Inner::Mixed(p) => {
+            if log_dir.is_some() {
+                return Err(PyValueError::new_err(
+                    "log_dir is only supported for builtin (bbob) problems"));
+            }
+            (run_with_bridge(py, || run(p, None))?, None)
+        }
         Inner::F0 { dim, seed, .. } => {
             if log_dir.is_some() {
                 return Err(PyValueError::new_err(
@@ -1198,15 +1397,51 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
 
     let d = PyDict::new(py);
     d.set_item("best_f", result.best_f)?;
-    // best_x's block shape follows the problem's own space: Float for
-    // Bbob/Cec2022/Cec2014/Cec2017/Callable, Perm for Tsp (a permutation
-    // genotype, per tsp.rs's module doc) -- both are surfaced as a plain
-    // list of Python numbers (float or int respectively).
-    match &result.best_x.blocks[0] {
-        BlockValues::Float(xs) => d.set_item("best_x", PyList::new(py, xs)?)?,
-        BlockValues::Perm(xs) => d.set_item("best_x", PyList::new(py, xs)?)?,
-        _ => return Err(PyValueError::new_err("unexpected genotype")),
+    // best_x's block shape follows the problem's own space -- M3-8 Task 9
+    // "typed result genotype" decision, documented here and in the task's
+    // report:
+    //
+    // - A SINGLE-block genotype (every problem before this task, plus
+    //   onemax/int_quadratic/cat_match, each of which is single-block) is
+    //   surfaced as a FLAT list, in each block kind's own natural Python
+    //   type: Float -> list[float] (BYTE-IDENTICAL to every solve() result
+    //   before this task -- no behavior change for existing callers), Perm
+    //   -> list[int] (unchanged from Task 7/8), Int -> list[int], Cat ->
+    //   list[int] (category INDICES 0..k, not labels -- CatMatch/gen/ga-cat
+    //   have no notion of a label), Bin -> list[bool] (Python's native
+    //   boolean, matching Rust's own `Vec<bool>` 1:1 -- chosen over a 0/1-int
+    //   encoding as the more natural per-bit Python type; UNLIKE
+    //   `sezgi.mo.nsga2`'s OWN Binary encoding, which flattens bits to
+    //   0.0/1.0 floats so `individuals` stays uniformly float-typed across
+    //   every MO problem family -- see `genotype_to_flat_vec`'s doc -- there
+    //   is no such cross-family uniformity constraint on solve()'s
+    //   single-problem `best_x`).
+    // - A MULTI-block genotype (reachable only via
+    //   `problems.mixed_diagnostic(...)`, Task 9's `gen/compound` TOML
+    //   reachability scaffold) is surfaced as a list of per-block lists, one
+    //   sub-list per block in `SearchSpace::blocks()` order, each typed as
+    //   above -- the natural generalization that preserves block structure
+    //   rather than collapsing every block into one ambiguously-typed flat
+    //   list.
+    fn block_values_to_py(py: Python<'_>, bv: &BlockValues) -> PyResult<Py<PyAny>> {
+        Ok(match bv {
+            BlockValues::Float(xs) => PyList::new(py, xs)?.into_any().unbind(),
+            BlockValues::Perm(xs) => PyList::new(py, xs)?.into_any().unbind(),
+            BlockValues::Int(xs) => PyList::new(py, xs)?.into_any().unbind(),
+            BlockValues::Cat(xs) => PyList::new(py, xs)?.into_any().unbind(),
+            BlockValues::Bin(xs) => PyList::new(py, xs)?.into_any().unbind(),
+        })
     }
+    let best_x_py: Py<PyAny> = if result.best_x.blocks.len() == 1 {
+        block_values_to_py(py, &result.best_x.blocks[0])?
+    } else {
+        let blocks = PyList::empty(py);
+        for b in &result.best_x.blocks {
+            blocks.append(block_values_to_py(py, b)?)?;
+        }
+        blocks.into_any().unbind()
+    };
+    d.set_item("best_x", best_x_py)?;
     d.set_item("evals_used", result.evals_used)?;
     d.set_item("iterations", result.iterations)?;
     if let Some(skipped) = skipped_empty_runs_opt {
@@ -2703,6 +2938,21 @@ fn mo_read_moa(py: Python<'_>, path: &str, at: Option<u64>) -> PyResult<Py<PyDic
 #[pyfunction] fn preset_ga_perm(pop_size: usize, budget: u64) -> String {
     presets::ga_perm(pop_size, budget).to_json()
 }
+/// `sezgi.presets.ga_bin(pop_size, budget)` (M3-8 Task 9) -- mirrors
+/// `preset_ga_perm`'s own shape; pairs with `sezgi.problems.onemax(...)`.
+#[pyfunction] fn preset_ga_bin(pop_size: usize, budget: u64) -> String {
+    presets::ga_bin(pop_size, budget).to_json()
+}
+/// `sezgi.presets.ga_int(pop_size, budget)` (M3-8 Task 9) -- pairs with
+/// `sezgi.problems.int_quadratic(...)`.
+#[pyfunction] fn preset_ga_int(pop_size: usize, budget: u64) -> String {
+    presets::ga_int(pop_size, budget).to_json()
+}
+/// `sezgi.presets.ga_cat(pop_size, budget)` (M3-8 Task 9) -- pairs with
+/// `sezgi.problems.cat_match(...)`.
+#[pyfunction] fn preset_ga_cat(pop_size: usize, budget: u64) -> String {
+    presets::ga_cat(pop_size, budget).to_json()
+}
 /// Parses the dist string + flattened params accepted by
 /// `preset_es_mu_plus_lambda` into a `Distribution`. Shared with the R
 /// binding's semantics (duplicated there per the "no shared private crate
@@ -2767,6 +3017,10 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tsp, m)?)?;
     m.add_function(wrap_pyfunction!(tsp_load, m)?)?;
     m.add_function(wrap_pyfunction!(tsp_tour_length, m)?)?;
+    m.add_function(wrap_pyfunction!(onemax, m)?)?;
+    m.add_function(wrap_pyfunction!(int_quadratic, m)?)?;
+    m.add_function(wrap_pyfunction!(cat_match, m)?)?;
+    m.add_function(wrap_pyfunction!(mixed_diagnostic, m)?)?;
     m.add_function(wrap_pyfunction!(solve, m)?)?;
     m.add_function(wrap_pyfunction!(run_experiment, m)?)?;
     m.add_function(wrap_pyfunction!(read_ioh_records, m)?)?;
@@ -2825,5 +3079,8 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(preset_random_search, m)?)?;
     m.add_function(wrap_pyfunction!(preset_es_mu_plus_lambda, m)?)?;
     m.add_function(wrap_pyfunction!(preset_ga_perm, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_ga_bin, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_ga_int, m)?)?;
+    m.add_function(wrap_pyfunction!(preset_ga_cat, m)?)?;
     Ok(())
 }
