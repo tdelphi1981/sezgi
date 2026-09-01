@@ -2,7 +2,7 @@
 % Please edit documentation in R/mo.R
 \name{sz_nsga2}
 \alias{sz_nsga2}
-\title{NSGA-II (Deb, Pratap, Agarwal & Meyarivan 2002) run on a ZDT/DTLZ
+\title{NSGA-II (Deb, Pratap, Agarwal & Meyarivan 2002) run on a ZDT/DTLZ/WFG
 multi-objective test problem. See `crates/components/src/nsga2.rs` for
 the full algorithm provenance.}
 \usage{
@@ -16,19 +16,29 @@ sz_nsga2(
   eta_c = 20,
   eta_m = 20,
   p_c = 0.9,
-  p_m = NULL
+  p_m = NULL,
+  p_c_bin = 0.9,
+  p_m_bin = NULL,
+  k = NULL,
+  l = NULL,
+  log_dir = NULL,
+  label = NULL
 )
 }
 \arguments{
-\item{problem}{One of `"zdt1"`, `"zdt2"`, `"zdt3"`, `"zdt4"`, `"zdt6"`
-(ZDT5 is a binary-coded problem, out of scope) or `"dtlz1"`..`"dtlz7"`.}
+\item{problem}{One of `"zdt1"`, `"zdt2"`, `"zdt3"`, `"zdt4"`, `"zdt5"`
+(binary-coded, fixed 80-bit layout), `"zdt6"`, `"dtlz1"`..`"dtlz9"`
+(`"dtlz8"`/`"dtlz9"` are constrained), or `"wfg1"`..`"wfg9"`.}
 
-\item{dim}{Decision-space dimensionality (>= 2 for zdt; >= `m` for dtlz).}
+\item{dim}{Decision-space dimensionality. REQUIRED (may be `NULL`, but
+the argument itself must be supplied) for zdt1-4/6 and dtlz1-9;
+REJECTED (must be `NULL`) for zdt5 (fixed 80-bit layout) and wfg1-9
+(dimension is derived from `k`/`l`).}
 
-\item{m}{Number of objectives. REQUIRED for dtlz problems; must be `NULL`
-(default, and the only valid value) for zdt problems, which are always
-2-objective by construction -- passing `m` for a zdt problem is an
-error, not a silently-ignored argument.}
+\item{m}{Number of objectives. REQUIRED for dtlz/wfg problems; must be
+`NULL` (default, and the only valid value) for zdt problems, which are
+always 2-objective by construction -- passing `m` for a zdt problem is
+an error, not a silently-ignored argument.}
 
 \item{pop_size}{Population size. Must be `>= 4` and a multiple of 4
 (KanGAL's double-permutation tournament pairing requires it -- NOT
@@ -49,20 +59,50 @@ Sec. IV.A's own experimental setting).}
 \item{p_m}{Per-variable mutation probability. `NULL` (default) resolves
 on the Rust side to `1 / n_variables` (the paper's own default), never
 re-derived here.}
+
+\item{p_c_bin}{Binary-genotype crossover probability (M3-7). Default
+`0.9`, mirroring `p_c`'s own default (the paper gives no verified
+binary-specific default) -- only consulted when `problem` builds an
+all-Binary space (zdt5 today).}
+
+\item{p_m_bin}{Optional per-bit binary mutation probability. `NULL`
+(default) resolves on the Rust side to `1 / l` (`l` = the space's total
+bit count, the paper's own stated binary-coded default) -- only
+consulted for an all-Binary space.}
+
+\item{k}{Optional WFG position-related-parameter count. `NULL` (default)
+resolves to the toolkit's own recommended value (`k = 4` for `m = 2`,
+`k = 2*(m-1)` for `m >= 3`); wfg-only, an error for any other problem
+family.}
+
+\item{l}{Optional WFG distance-related-parameter count. `NULL` (default)
+resolves to `20`; wfg-only.}
+
+\item{log_dir}{Optional sezgi-moa v1 log directory (M3-7 archive-first
+run logging). When given, `label` is required and the run additionally
+streams every feasible archive insertion to
+`<log_dir>/<label>-s<seed>.moa` -- see `sz_mo_read_moa()`. Omitting
+`log_dir` runs exactly as before (byte-identical to the unlogged path).}
+
+\item{label}{Optional sezgi-moa run label; REQUIRED iff `log_dir` is
+given, otherwise ignored.}
 }
 \value{
 A named list with `individuals` (list of numeric vectors, one
-  per final-population member, each length `dim`, flattened across every
-  Float block -- e.g. ZDT4 has two blocks concatenated into one flat
-  row), `objectives` (list of numeric vectors, parallel to `individuals`,
-  each length equal to the problem's objective count), `front0` (numeric
-  vector of 1-based positions, R convention, into `individuals`/
-  `objectives` for the final population's non-dominated set -- NOTE:
-  py-sezgi's `front0` is 0-based; this binding converts), `evals_used`
-  (double) -- mirrors py-sezgi's `sezgi.mo.nsga2()` dict keys exactly.
+  per final-population member, each length `dim` -- flattened across
+  every block; a `Block::Binary` block's bits are flattened to
+  `0.0`/`1.0`, e.g. zdt5's own path), `objectives` (list of numeric
+  vectors, parallel to `individuals`, each length equal to the problem's
+  objective count), `front0` (numeric vector of 1-based positions, R
+  convention, into `individuals`/`objectives` for the final population's
+  non-dominated set -- NOTE: py-sezgi's `front0` is 0-based; this binding
+  converts), `evals_used` (double), and (present ONLY for a constrained
+  problem -- dtlz8/dtlz9 today) `violations` (numeric vector, `<= 0.0`,
+  `0.0` = feasible, parallel to `individuals`/`objectives`) -- mirrors
+  py-sezgi's `sezgi.mo.nsga2()` dict keys exactly.
 }
 \description{
-NSGA-II (Deb, Pratap, Agarwal & Meyarivan 2002) run on a ZDT/DTLZ
+NSGA-II (Deb, Pratap, Agarwal & Meyarivan 2002) run on a ZDT/DTLZ/WFG
 multi-objective test problem. See `crates/components/src/nsga2.rs` for
 the full algorithm provenance.
 }

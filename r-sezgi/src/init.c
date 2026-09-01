@@ -109,6 +109,21 @@ SEXP savvy_sz_ecdf_raw__impl(SEXP c_arg__log_root, SEXP c_arg__per_algo, SEXP c_
     return handle_result(res);
 }
 
+SEXP savvy_sz_mo_evaluate_constraints_raw__impl(SEXP c_arg__problem, SEXP c_arg__x, SEXP c_arg__dim, SEXP c_arg__m, SEXP c_arg__k, SEXP c_arg__l) {
+    SEXP res = savvy_sz_mo_evaluate_constraints_raw__ffi(c_arg__problem, c_arg__x, c_arg__dim, c_arg__m, c_arg__k, c_arg__l);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_mo_evaluate_raw__impl(SEXP c_arg__problem, SEXP c_arg__x, SEXP c_arg__dim, SEXP c_arg__m, SEXP c_arg__k, SEXP c_arg__l) {
+    SEXP res = savvy_sz_mo_evaluate_raw__ffi(c_arg__problem, c_arg__x, c_arg__dim, c_arg__m, c_arg__k, c_arg__l);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_mo_hypervolume__impl(SEXP c_arg__front, SEXP c_arg__ref_point) {
+    SEXP res = savvy_sz_mo_hypervolume__ffi(c_arg__front, c_arg__ref_point);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_mo_hypervolume_2d__impl(SEXP c_arg__front, SEXP c_arg__ref_point) {
     SEXP res = savvy_sz_mo_hypervolume_2d__ffi(c_arg__front, c_arg__ref_point);
     return handle_result(res);
@@ -119,13 +134,18 @@ SEXP savvy_sz_mo_igd__impl(SEXP c_arg__front, SEXP c_arg__reference_front) {
     return handle_result(res);
 }
 
-SEXP savvy_sz_mo_pareto_front_raw__impl(SEXP c_arg__problem, SEXP c_arg__dim, SEXP c_arg__n, SEXP c_arg__m) {
-    SEXP res = savvy_sz_mo_pareto_front_raw__ffi(c_arg__problem, c_arg__dim, c_arg__n, c_arg__m);
+SEXP savvy_sz_mo_pareto_front_raw__impl(SEXP c_arg__problem, SEXP c_arg__n, SEXP c_arg__dim, SEXP c_arg__m, SEXP c_arg__k, SEXP c_arg__l) {
+    SEXP res = savvy_sz_mo_pareto_front_raw__ffi(c_arg__problem, c_arg__n, c_arg__dim, c_arg__m, c_arg__k, c_arg__l);
     return handle_result(res);
 }
 
-SEXP savvy_sz_nsga2_raw__impl(SEXP c_arg__problem, SEXP c_arg__dim, SEXP c_arg__pop_size, SEXP c_arg__budget, SEXP c_arg__seed, SEXP c_arg__eta_c, SEXP c_arg__eta_m, SEXP c_arg__p_c, SEXP c_arg__m, SEXP c_arg__p_m) {
-    SEXP res = savvy_sz_nsga2_raw__ffi(c_arg__problem, c_arg__dim, c_arg__pop_size, c_arg__budget, c_arg__seed, c_arg__eta_c, c_arg__eta_m, c_arg__p_c, c_arg__m, c_arg__p_m);
+SEXP savvy_sz_mo_read_moa__impl(SEXP c_arg__path, SEXP c_arg__at) {
+    SEXP res = savvy_sz_mo_read_moa__ffi(c_arg__path, c_arg__at);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_nsga2_raw__impl(SEXP c_arg__problem, SEXP c_arg__pop_size, SEXP c_arg__budget, SEXP c_arg__seed, SEXP c_arg__eta_c, SEXP c_arg__eta_m, SEXP c_arg__p_c, SEXP c_arg__p_c_bin, SEXP c_arg__dim, SEXP c_arg__m, SEXP c_arg__p_m, SEXP c_arg__p_m_bin, SEXP c_arg__k, SEXP c_arg__l, SEXP c_arg__log_dir, SEXP c_arg__label) {
+    SEXP res = savvy_sz_nsga2_raw__ffi(c_arg__problem, c_arg__pop_size, c_arg__budget, c_arg__seed, c_arg__eta_c, c_arg__eta_m, c_arg__p_c, c_arg__p_c_bin, c_arg__dim, c_arg__m, c_arg__p_m, c_arg__p_m_bin, c_arg__k, c_arg__l, c_arg__log_dir, c_arg__label);
     return handle_result(res);
 }
 
@@ -455,10 +475,14 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_cec2022_f_star__impl", (DL_FUNC) &savvy_sz_cec2022_f_star__impl, 1},
     {"savvy_sz_coco_export__impl", (DL_FUNC) &savvy_sz_coco_export__impl, 2},
     {"savvy_sz_ecdf_raw__impl", (DL_FUNC) &savvy_sz_ecdf_raw__impl, 3},
+    {"savvy_sz_mo_evaluate_constraints_raw__impl", (DL_FUNC) &savvy_sz_mo_evaluate_constraints_raw__impl, 6},
+    {"savvy_sz_mo_evaluate_raw__impl", (DL_FUNC) &savvy_sz_mo_evaluate_raw__impl, 6},
+    {"savvy_sz_mo_hypervolume__impl", (DL_FUNC) &savvy_sz_mo_hypervolume__impl, 2},
     {"savvy_sz_mo_hypervolume_2d__impl", (DL_FUNC) &savvy_sz_mo_hypervolume_2d__impl, 2},
     {"savvy_sz_mo_igd__impl", (DL_FUNC) &savvy_sz_mo_igd__impl, 2},
-    {"savvy_sz_mo_pareto_front_raw__impl", (DL_FUNC) &savvy_sz_mo_pareto_front_raw__impl, 4},
-    {"savvy_sz_nsga2_raw__impl", (DL_FUNC) &savvy_sz_nsga2_raw__impl, 10},
+    {"savvy_sz_mo_pareto_front_raw__impl", (DL_FUNC) &savvy_sz_mo_pareto_front_raw__impl, 6},
+    {"savvy_sz_mo_read_moa__impl", (DL_FUNC) &savvy_sz_mo_read_moa__impl, 2},
+    {"savvy_sz_nsga2_raw__impl", (DL_FUNC) &savvy_sz_nsga2_raw__impl, 16},
     {"savvy_sz_per_budget_packages_raw__impl", (DL_FUNC) &savvy_sz_per_budget_packages_raw__impl, 14},
     {"savvy_sz_preset_abc__impl", (DL_FUNC) &savvy_sz_preset_abc__impl, 2},
     {"savvy_sz_preset_alo__impl", (DL_FUNC) &savvy_sz_preset_alo__impl, 2},
