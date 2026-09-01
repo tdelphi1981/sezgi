@@ -322,13 +322,16 @@ compatibility claim — COCO bbob-biobj and MO-IOHinspector cited as design
 precedent, not reproduced); `mo.read_moa(path, at=None)` reconstructs the
 archive at any evaluation budget.
 
-Binary-coded MO (zdt5) is scoped to the KanGAL reference exactly —
-all-Float OR all-Binary spaces only; a MIXED space is rejected naming the
-M3-8 deferral explicitly (`Int`/`Categorical`/`Binary` typed operators
-generally, and mixed-representation NSGA-II specifically, remain future
-work, deliberately not pre-empted by this scoping). Everything
-ZDT1-4/6/DTLZ1-7/`hypervolume_2d` documented in the M3-2 section above
-stays frozen byte-for-byte.
+Binary-coded MO (zdt5) was scoped to the KanGAL reference exactly at M3-7
+time — all-Float OR all-Binary spaces only, a MIXED space rejected naming
+the M3-8 deferral explicitly. **M3-8 closes that deferral**: `nsga2`/
+`sz_nsga2` now accept any space combining Float/Int/Categorical/Binary
+blocks, in any mix (see "Typed operators, mixed spaces, and diagnostic
+problems (M3-8)" below) — only a space containing a `Permutation` block
+stays rejected (MO permutation search is out of scope, the error names it
+explicitly). Everything ZDT1-4/6/DTLZ1-7/`hypervolume_2d` documented in
+the M3-2 section above, and the all-Float/all-Binary paths documented
+here, stay frozen byte-for-byte throughout.
 
 R mirrors this 1:1 (`sz_nsga2`, `sz_mo_hypervolume`, `sz_mo_read_moa`),
 including two new cross-language bit-equality anchors (an nsga2-on-wfg4
@@ -529,6 +532,91 @@ is the field's later, still Davis-attributed, synthesis — pinned to
 Cicirello's 2023 worked numeric example) and the TSPLIB `nint` rounding
 rule.
 
+## Typed operators, mixed spaces, and diagnostic problems (M3-8)
+
+Beyond the Float-block (`presets.ga_real`, DE, CMA-ES, ...) and
+Permutation-block (`presets.ga_perm`) representations, sezgi now has fused
+genetic-algorithm presets for the three remaining block kinds the design
+spec's `SearchSpace` enum names (`docs/superpowers/specs/2026-08-27-sezgi-design.md`
+§3): **`presets.ga_bin`** (Binary — KanGAL two-point crossover + bit-flip
+mutation, Deb, Pratap, Agarwal & Meyarivan 2002 Sec. IV.A, `p_c=0.9`/
+`p_m=1/L`, the same formulas M3-7's binary NSGA-II path already validated),
+**`presets.ga_int`** (Int — real-coded SBX + polynomial mutation computed
+in float then rounded and bound-repaired, pymoo 0.6.2's `Integer`
+convention — "integer SBX" has no dedicated primary paper, pymoo is the
+reference implementation and oracle), and **`presets.ga_cat`** (Categorical
+— uniform crossover at 0.5 + random-reset mutation, pymoo 0.6.2's `Choice`
+convention, resets do NOT exclude the current value). Standalone
+half-operators ship alongside every fused preset (`gen/bin-2pt`/
+`gen/bit-flip`, `gen/int-sbx`/`gen/int-pm`, `gen/cat-ux`/`gen/cat-reset`),
+mirroring `gen/ox`/`gen/perm-swap`'s own precedent.
+
+Three diagnostic problems (`sezgi.problems.onemax(n_bits)`,
+`.int_quadratic(lo, hi, n)`, `.cat_match(k, n, seed)`) make every typed
+preset reachable end to end — minimal, hand-verifiable, single-optimum
+landscapes, explicitly a **diagnostic, not a benchmark suite** (no
+published literature behind them, no quality claims beyond "did the
+preset converge"):
+
+    import sezgi
+
+    problem = sezgi.problems.onemax(100)
+    spec = sezgi.presets.ga_bin(pop_size=20, budget=400)
+    result = sezgi.solve(spec, problem, master_seed=7, run_id=0)
+    print(result["evals_used"], result["best_f"])
+
+Output (live-run, same scenario as `examples/python/onemax_ga.py`):
+
+    400 16.0
+
+`solve()`'s typed-genotype `best_x` mirrors each block's own natural
+Python/R type: Float stays `list[float]`/numeric (byte-identical to every
+result before this milestone), Int/Categorical become `list[int]`/integer
+(categorical values are indices `0..k`, not labels), Binary becomes
+`list[bool]`/logical. This deliberately differs from `sezgi.mo.nsga2`'s/
+`sz_nsga2`'s own Binary encoding (bits flattened to `0.0`/`1.0` floats, for
+cross-family uniformity in that MO-specific result dict) — a documented,
+per-surface choice, not an inconsistency to fix.
+
+**Mixed spaces: `gen/compound` and mixed NSGA-II.** A search space
+combining several block kinds is served by `gen/compound`, the design
+spec §3's own "per block (compound operator)" mechanism: an ordered list
+of one FUSED sub-generator per block (`gen/ga-real`, `gen/ga-int`,
+`gen/ga-cat`, `gen/ga-bin`, or `gen/ga-perm`), each dispatched against its
+own block's single-block view and stitched back into one offspring
+genotype — composition adds nothing beyond routing (verified by an
+exactness test replaying every sub-generator standalone against the same
+RNG stream and asserting byte-identical output). Reachable from both
+bindings through the normal spec path (JSON or TOML — the same
+`AlgorithmSpec` schema either way):
+
+    [stages.generator]
+    kind = "gen/compound"
+    blocks = [
+      { kind = "gen/ga-real", tournament_k = 2, pc = 0.9, eta_c = 15.0, eta_m = 20.0 },
+      { kind = "gen/ga-int",  tournament_k = 2, p_c = 0.9, eta_c = 15.0, eta_m = 20.0 },
+      { kind = "gen/ga-cat",  tournament_k = 2, p_c = 0.9 },
+      { kind = "gen/ga-bin",  tournament_k = 2, p_c = 0.9 },
+    ]
+
+NSGA-II gained the same per-block support (`sezgi.mo.nsga2`/`sz_nsga2` on a
+space combining any of Float/Int/Categorical/Binary, in any mix — see
+"Multi-objective optimization" above); every existing Float/Binary/
+constrained NSGA-II golden stays bit-identical throughout — M3-8 added a
+THIRD `Representation` case (`Mixed`), it did not touch the frozen two.
+
+**ABC-TSP/permutation authoring** (both `sezgi.Algorithm` and
+`sz_algorithm`) is now supported too — see "Write your own algorithm
+(Python) (M3-4)" and "Write your own algorithm (R) (M3-5)" below for the
+`ctx.kind`/`ctx.n`/`ctx.random_permutation()`/`ctx.two_opt(tour, i, j)`
+surface and the `tsp_two_opt` worked example pair.
+
+See `docs/DECISIONS.md`'s "M3-8 completed" record for the full
+method-provenance table (KanGAL binary reuse, pymoo 0.6.2 source shas,
+Eiben & Smith 2015 taxonomy citation with its print-edition caveat, the
+"Deb & Deb 2014 does not cover integers" research finding), the operator
+inventory as shipped, and every deferral born this milestone.
+
 ## Write your own algorithm (Python) (M3-4)
 
 `sezgi.Algorithm` is a subclassable ABC for authoring a metaheuristic
@@ -660,14 +748,38 @@ Output (live run):
 
     verdict: no_evidence
 
-**Scope rulings.** `Algorithm`/`AlgoContext` cover continuous (`Float`-block)
-problems only in v1 — a TSP/permutation problem raises `ValueError` from
-`EvalSession.for_problem` ("EvalSession supports continuous (float)
-problems only"), and authoring a custom permutation-space algorithm this
-way is out of scope, deferred onward (a base-R equivalent of this
-authoring surface now exists too — `sz_algorithm`/`sz_algo_solve`, see
-"Write your own algorithm (R) (M3-5)" below — it shares the same
-continuous-only scope). IOH logging from a custom `Algorithm` covers BBOB
+**Permutation/TSP authoring (M3-8).** `AlgoContext` also supports
+permutation-typed problems now: `ctx.kind` is `"float"` or `"permutation"`
+(`ctx.bounds` is `None` for the latter), `ctx.n` is the tour length,
+`ctx.random_permutation()` draws a uniformly random 0-based tour (a
+Rust-side Fisher-Yates seeded from the session's own RNG stream — NOT
+`ctx.rng`, which stays the plain `random.Random` handle a Float-typed
+algorithm uses), and `ctx.two_opt(tour, i, j)` reverses the inclusive
+segment `tour[i:j+1]` (Eiben & Smith 2015: inversion is "the basic move
+behind 2-opt" — the one neighborhood helper TSP authoring genuinely
+needs). `EvalSession.for_problem` accepts a `sezgi.problems.tsp(name)`
+handle directly; the Float surface stays byte-compatible throughout (every
+pre-M3-8 example/test passes unmodified). `examples/python/oop/tsp_two_opt.py`
+is the worked example — a first-improvement 2-opt local search from one
+random start on TSPLIB berlin52:
+
+    evals_used=2000 best_f=9077 gap=1535 tour_length=9077
+
+R mirrors this exactly via `sz_algorithm`'s `ctx` (`ctx$kind()`, `ctx$n()`,
+`ctx$random_permutation()`, `ctx$two_opt(tour, i, j)`) with **1-based**
+tour indices (matching `sz_solve_tsp`'s own convention) — see "Write your
+own algorithm (R) (M3-5)" below and `examples/r/oop/tsp_two_opt.R`, which
+reproduces the SAME numbers above (tour length is index-convention-invariant;
+`random_permutation()`'s own draw is bit-identical too, both languages
+deriving from the same `RngStream`/Fisher-Yates core).
+
+**Scope rulings.** `Algorithm`/`AlgoContext` cover Float and Permutation
+problems (v1) — Binary/Int/Categorical and mixed-typed problems have no
+ask/tell session type yet (`EvalSession.for_problem` rejects
+`sezgi.problems.onemax`/`.int_quadratic`/`.cat_match`/`.mixed_diagnostic`
+with a `ValueError` naming the reason; `sezgi.solve()` still runs them end
+to end, see "Typed operators, mixed spaces, and diagnostic problems
+(M3-8)" above), deferred onward. IOH logging from a custom `Algorithm` covers BBOB
 and CEC 2022 problems (widened in M3-5 — see `docs/DECISIONS.md`'s M3-5
 record; this superseded an earlier BBOB-only narrowing) —
 `sezgi.bbob(...)` and `sezgi.problems.cec2022(...)` both work with
@@ -757,9 +869,26 @@ Output (live run):
 
     verdict: no_evidence
 
+**Permutation/TSP authoring (M3-8).** `sz_eval_session_tsp(name, budget,
+seed)` mirrors py-sezgi's TSP session; `ctx` gains `ctx$kind()`
+(`"float"`/`"permutation"`), `ctx$n()`, `ctx$random_permutation()` (a
+uniformly random **1-based** tour, matching `sz_solve_tsp`'s own
+convention), and `ctx$two_opt(tour, i, j)` (inclusive `1 <= i < j <= n`
+segment reversal) — the exact R mirror of `sezgi.Algorithm`'s own
+`ctx.kind`/`ctx.n`/`ctx.random_permutation()`/`ctx.two_opt()` surface
+above, byte-compatible on the Float side throughout.
+`examples/r/oop/tsp_two_opt.R` is the R twin of
+`examples/python/oop/tsp_two_opt.py`: same instance/seed/budget, and (since
+both languages derive `random_permutation()` from the identical
+`RngStream`/Fisher-Yates core) it reproduces the SAME
+`evals_used=2000 best_f=9077 gap=1535 tour_length=9077` numbers, gated by a
+cross-language hex anchor (`r-sezgi/tests/testthat/test-tsp-two-opt.R`).
+
 **Scope rulings.** Base-R only (no R6/S4/other new dependency — CRAN
-posture); continuous (`Float`-block) problems only, matching
-`Algorithm`/`AlgoContext`'s own v1 scope exactly. `sz_algorithm`/
+posture); Float and Permutation problems (v1, widened from Float-only by
+M3-8) — Binary/Int/Categorical and mixed-typed problems have no ask/tell
+session type yet, matching `Algorithm`/`AlgoContext`'s own scope above
+exactly. `sz_algorithm`/
 `sz_algo_solve` port the pinned `examples/r/gwo.R` script onto this surface
 verbatim as `examples/r/oop/gwo.R` — the ONE worked twin proving the
 surface (not a full 17-algorithm R wave like `examples/python/oop/`'s —
@@ -815,6 +944,27 @@ through `sezgi.mo.nsga2()`/`sz_nsga2()` (like `nsga2_zdt1.py`/`.R`, not
 `sz_mo_hypervolume()`, bit-identical between languages (gated by a
 committed testthat anchor, `r-sezgi/tests/testthat/test-mo.R`).
 
+`examples/python/onemax_ga.py`/`examples/r/onemax_ga.R` (M3-8) is a matched
+PAIR for the typed-operator milestone: `ga_bin` on the `OneMax` diagnostic
+problem, through `sezgi.solve()`/`sz_solve_onemax`, bit-identical between
+languages (a deliberately non-converging parameter set, per the M3-8 Task
+10 cross-language-anchor convention, so the anchor pins the run's actual
+trajectory, not just "reached the trivial known optimum"). See "Typed
+operators, mixed spaces, and diagnostic problems (M3-8)" above.
+
+`examples/python/oop/tsp_two_opt.py`/`examples/r/oop/tsp_two_opt.R` (M3-8)
+is a matched PAIR for ABC-TSP authoring: a first-improvement 2-opt local
+search (`sezgi.Algorithm`/`sz_algorithm`, `ctx.random_permutation()` +
+`ctx.two_opt()`) on TSPLIB berlin52 from one random start, bit-identical
+between languages despite the 0-based/1-based tour-indexing difference
+(tour LENGTH is index-convention-invariant). Unlike every other pair
+above, both sides sit OUTSIDE their own 17-pair OOP-twin parity gate (no
+pure-script counterpart exists to reproduce) — each gets its own
+determinism/anchored-output/cross-language-hex test file instead
+(`py-sezgi/tests/test_tsp_two_opt_example.py`,
+`r-sezgi/tests/testthat/test-tsp-two-opt.R`). See "Write your own algorithm
+(Python) (M3-4)" above for the worked walkthrough.
+
 ## Development
 
     cargo test --workspace --release        # Rust tests
@@ -822,6 +972,36 @@ committed testthat anchor, `r-sezgi/tests/testthat/test-mo.R`).
     R CMD INSTALL --preclean r-sezgi && Rscript -e 'testthat::test_dir("r-sezgi/tests/testthat", package = "sezgi")' # R tests
 
 ## Status
+
+M3-8 (mixed-type operators) **complete** — closes deferred group D from the
+M3-2/M3-7 records: Binary/Int/Categorical typed operator families
+(`gen/ga-bin`/`gen/ga-int`/`gen/ga-cat` plus standalone halves, KanGAL
+binary reuse + pymoo 0.6.2 Integer/Choice conventions as the executable
+oracles, Eiben & Smith 2015 §4.2-4.3 as the citable textbook taxonomy);
+three diagnostic problems (`OneMax`/`IntQuadratic`/`CatMatch`, honestly
+NOT a benchmark suite) making every typed preset reachable end to end; a
+per-block `gen/compound` generator implementing the design spec §3's own
+"compound operator" mechanism for mixed search spaces, as a COMPONENT (no
+engine/spec-validator surgery); mixed-space NSGA-II support (Float+Int+
+Categorical+Binary in any combination, Permutation still rejected as
+out-of-scope for MO search) built on an M3-7 carry-forward that unifies
+`nsga2_run`'s float/binary main loops first (bit-identity re-proved against
+every frozen golden in the same commit) and dedupes the
+`axis_grid`/`grid_r`/`cartesian_product` sampling helpers; permutation/TSP
+authoring in both `sezgi.Algorithm` (`ctx.kind`/`ctx.n`/
+`ctx.random_permutation()`/`ctx.two_opt()`) and `sz_algorithm` (1-based
+mirror); Python and R bindings for the whole typed surface plus the four
+M3-7-parked binding tests (nsga2-on-WFG, a constrained logged dtlz8 run,
+degenerate hypervolume fronts, one nsga2 m>3 run); and a matched
+`onemax_ga`/`tsp_two_opt` example-pair set. See `docs/DECISIONS.md`'s
+"M3-8 completed" record for the full method-provenance table (including
+pymoo's exact re-fetched source shas, quoted verbatim), the six scope
+rulings, the operator inventory as shipped, and every deferral born this
+milestone (a documented pymoo-vs-sezgi Integer-mutation gate divergence, a
+proposed-but-not-implemented `validate_space` build hook, the Binary
+dual-encoding split between `solve()` and `mo.nsga2`, and the
+single-block-per-kind typed-generator convention). Next: v1.0 prep (see
+the checklist).
 
 M3-7 (multi-objective remainders) **complete** — closes every deferred MO
 capability from M3-2: a constraint channel (`MoProblem::evaluate_constraints_batch`)
