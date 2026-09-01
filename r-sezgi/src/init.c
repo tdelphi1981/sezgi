@@ -434,6 +434,11 @@ SEXP savvy_EvalSession_finish__impl(SEXP self__) {
     return handle_result(res);
 }
 
+SEXP savvy_EvalSession_kind__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_kind__ffi(self__);
+    return handle_result(res);
+}
+
 SEXP savvy_EvalSession_new__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__budget, SEXP c_arg__algo_name, SEXP c_arg__seed, SEXP c_arg__log_dir) {
     SEXP res = savvy_EvalSession_new__ffi(c_arg__fid, c_arg__dim, c_arg__instance, c_arg__budget, c_arg__algo_name, c_arg__seed, c_arg__log_dir);
     return handle_result(res);
@@ -456,6 +461,16 @@ SEXP savvy_EvalSession_new_cec2022__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP 
 
 SEXP savvy_EvalSession_new_f0__impl(SEXP c_arg__dim, SEXP c_arg__f0_seed, SEXP c_arg__budget) {
     SEXP res = savvy_EvalSession_new_f0__ffi(c_arg__dim, c_arg__f0_seed, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_new_tsp__impl(SEXP c_arg__name, SEXP c_arg__budget, SEXP c_arg__seed) {
+    SEXP res = savvy_EvalSession_new_tsp__ffi(c_arg__name, c_arg__budget, c_arg__seed);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_random_permutation__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_random_permutation__ffi(self__);
     return handle_result(res);
 }
 
@@ -540,11 +555,14 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_EvalSession_evaluate__impl", (DL_FUNC) &savvy_EvalSession_evaluate__impl, 2},
     {"savvy_EvalSession_f_opt__impl", (DL_FUNC) &savvy_EvalSession_f_opt__impl, 1},
     {"savvy_EvalSession_finish__impl", (DL_FUNC) &savvy_EvalSession_finish__impl, 1},
+    {"savvy_EvalSession_kind__impl", (DL_FUNC) &savvy_EvalSession_kind__impl, 1},
     {"savvy_EvalSession_new__impl", (DL_FUNC) &savvy_EvalSession_new__impl, 7},
     {"savvy_EvalSession_new_cec2014__impl", (DL_FUNC) &savvy_EvalSession_new_cec2014__impl, 6},
     {"savvy_EvalSession_new_cec2017__impl", (DL_FUNC) &savvy_EvalSession_new_cec2017__impl, 6},
     {"savvy_EvalSession_new_cec2022__impl", (DL_FUNC) &savvy_EvalSession_new_cec2022__impl, 6},
     {"savvy_EvalSession_new_f0__impl", (DL_FUNC) &savvy_EvalSession_new_f0__impl, 3},
+    {"savvy_EvalSession_new_tsp__impl", (DL_FUNC) &savvy_EvalSession_new_tsp__impl, 3},
+    {"savvy_EvalSession_random_permutation__impl", (DL_FUNC) &savvy_EvalSession_random_permutation__impl, 1},
     {NULL, NULL, 0}
 };
 

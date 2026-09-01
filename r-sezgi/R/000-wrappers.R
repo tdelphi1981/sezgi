@@ -1573,6 +1573,18 @@ NULL
   }
 }
 
+`EvalSession_kind` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_kind__impl, `self`)
+  }
+}
+
+`EvalSession_random_permutation` <- function(self) {
+  function() {
+    .Call(savvy_EvalSession_random_permutation__impl, `self`)
+  }
+}
+
 `.savvy_wrap_EvalSession` <- function(ptr) {
   e <- new.env(parent = emptyenv())
   e$.ptr <- ptr
@@ -1584,6 +1596,8 @@ NULL
   e$`evaluate` <- `EvalSession_evaluate`(ptr)
   e$`f_opt` <- `EvalSession_f_opt`(ptr)
   e$`finish` <- `EvalSession_finish`(ptr)
+  e$`kind` <- `EvalSession_kind`(ptr)
+  e$`random_permutation` <- `EvalSession_random_permutation`(ptr)
 
   class(e) <- c("sezgi::EvalSession", "EvalSession", "savvy_sezgi__sealed")
   e
@@ -1613,6 +1627,10 @@ NULL
 
 `EvalSession`$`new_f0` <- function(`dim`, `f0_seed`, `budget`) {
   .savvy_wrap_EvalSession(.Call(savvy_EvalSession_new_f0__impl, `dim`, `f0_seed`, `budget`))
+}
+
+`EvalSession`$`new_tsp` <- function(`name`, `budget`, `seed`) {
+  .savvy_wrap_EvalSession(.Call(savvy_EvalSession_new_tsp__impl, `name`, `budget`, `seed`))
 }
 
 

@@ -60,12 +60,66 @@
 //! giving it R-native default arguments, same raw/wrapper pattern as
 //! `sz_eval_session()` above. `$dim()`/`$bounds()` (see below) are available
 //! on every session regardless of which constructor built it.
+//!
+//! ## Permutation-typed sessions (M3-8 Task 8: TSP)
+//!
+//! [`EvalSession::new_tsp`] builds a session over a vendored TSPLIB instance
+//! (`Tsp::vendored`) -- the R mirror of py-sezgi's M3-8 Task 7 `PermSession`/
+//! `sezgi.problems.tsp(...)` typed session (`py-sezgi/src/lib.rs`'s module
+//! doc is the semantic reference this section mirrors). Unlike every
+//! constructor above, whose [`CoreSession`] is `sezgi_bench::EvalSession`
+//! itself, `new_tsp` builds a crate-local [`PermSession`] instead -- the
+//! SAME reason py-sezgi keeps its own `PermSession` crate-local:
+//! `CoreSession::evaluate` is hard-coded to `Vec<Vec<f64>>` rows /
+//! `BlockValues::Float` genotypes, so a permutation-typed session cannot
+//! reuse it; [`PermSession`] is instead built directly on
+//! [`sezgi_core::problem::Evaluator`], the SAME tamper-proof budget-check/
+//! counting primitive `CoreSession` itself is built on. `EvalSession$inner`
+//! becomes [`SessionKind`] (`Float`/`Perm`) to hold either kind behind one R
+//! handle; every existing method (`evaluate`/`evals_used`/`budget`/`best`/
+//! `f_opt`/`dim`/`bounds`/`finish`) now dispatches on it, with the `Float`
+//! arm of each UNCHANGED from before this task. Two new methods,
+//! `$kind()` and `$random_permutation()`, are added (generated as
+//! `EvalSession$kind()`/`EvalSession$random_permutation()`, both callable on
+//! ANY session regardless of kind -- `kind()` always answers, and
+//! `random_permutation()` errors with a clear message on a Float-typed one).
+//!
+//! **1-based tours, converted at THIS Rust boundary**: per this crate's
+//! standing index-convention ruling (`problems.rs`'s module doc,
+//! "Index-convention decision"), every tour value crossing the R/Rust
+//! boundary here -- `evaluate()`'s input rows, `random_permutation()`'s
+//! return value, `best()`'s `x` field -- is 1-based (a permutation of
+//! `1..=n_cities`) on the R side, converted to/from the underlying 0-based
+//! `BlockValues::Perm` genotype entirely within [`PermSession`]'s own
+//! methods (mirrors `sz_tsp_tour_length`'s own `-1`/`+1` conversion in
+//! `problems.rs` exactly). `sezgi_problems::Tsp` itself is untouched (still
+//! 0-based).
+//!
+//! **RNG parity with py-sezgi**: [`PermSession::random_permutation`] draws
+//! from a Rust-side [`RngStream`] seeded via `RngStream::from_master(seed,
+//! &[PERM_SESSION_RNG_TAG])` -- the identical tag value and derivation
+//! py-sezgi's own `PermSession` uses (`py-sezgi/src/lib.rs`'s
+//! `PERM_SESSION_RNG_TAG`) -- over the SAME shared
+//! [`sezgi_components::perm::fisher_yates_shuffle`] core. So for the SAME
+//! `seed`, the R and Python sessions draw the bit-identical UNDERLYING
+//! 0-based permutation on their first `random_permutation()` call; R simply
+//! displays it shifted `+1`. `two_opt(tour, i, j)` (the third piece of the
+//! Task 8 `ctx` surface) has NO Rust involvement at all -- like py-sezgi's
+//! own `AlgoContext.two_opt` (pure Python, no RNG), it is pure R, added to
+//! `.sz_algo_context()` in `R/algo.R`, operating directly on a 1-based tour
+//! with no FFI boundary to cross.
 
-use savvy::{savvy, savvy_err, ListSexp, NullSexp, NumericSexp, OwnedListSexp, OwnedRealSexp, Sexp};
+use savvy::{
+    savvy, savvy_err, ListSexp, NullSexp, NumericSexp, OwnedListSexp, OwnedRealSexp,
+    OwnedStringSexp, Sexp,
+};
 use sezgi_bench::{EvalSession as CoreSession, SessionMeta};
 use sezgi_bias::F0Random;
-use sezgi_core::problem::Problem;
-use sezgi_problems::{Cec2014, Cec2017, Cec2022};
+use sezgi_components::perm::fisher_yates_shuffle;
+use sezgi_core::problem::{Evaluator, Problem};
+use sezgi_core::rng::RngStream;
+use sezgi_core::space::{BlockValues, Genotype};
+use sezgi_problems::{Cec2014, Cec2017, Cec2022, Tsp};
 use std::path::Path;
 
 /// Casts a non-negative-checked, WHOLE-NUMBER-checked `f64` (as passed from
@@ -173,10 +227,190 @@ fn sexp_to_rows(x: Sexp) -> savvy::Result<Vec<Vec<f64>>> {
     }
 }
 
+/// Path tag folded into [`PermSession`]'s [`RngStream`] (see
+/// [`RngStream::from_master`]) -- IDENTICAL value and role to py-sezgi's
+/// `PERM_SESSION_RNG_TAG` (`py-sezgi/src/lib.rs`): an arbitrary but FIXED
+/// value distinguishing this stream from any other stream this crate might
+/// ever derive from the same `seed`. Kept equal to the Python side ON
+/// PURPOSE -- this is what makes `EvalSession::new_tsp(...)`'s
+/// `random_permutation()` draw the bit-identical underlying 0-based
+/// permutation as `sezgi.EvalSession.for_problem(sezgi.problems.tsp(...))`'s
+/// own `random_permutation()`, for the same `seed`. Changing it would
+/// silently change every future draw sequence AND break that cross-language
+/// parity.
+const PERM_SESSION_RNG_TAG: u64 = 0x5045524D; // "PERM", arbitrary ASCII-hex mnemonic (matches py-sezgi)
+
+/// M3-8 Task 8: ask/tell session over a permutation-typed (TSP) problem --
+/// the R mirror of py-sezgi's crate-local `PermSession`
+/// (`py-sezgi/src/lib.rs`, M3-8 Task 7). See this module's own doc,
+/// "Permutation-typed sessions", for the full design rationale.
+///
+/// UNLIKE py-sezgi's `PermSession` (0-based throughout, matching Python's
+/// own `tour`/`coords` convention), every tour value this struct's public
+/// methods accept or return is 1-BASED (r-sezgi's standing index-convention
+/// ruling, `problems.rs`'s module doc) -- the `-1`/`+1` conversion to/from
+/// the underlying 0-based `BlockValues::Perm` genotype happens entirely
+/// inside [`Self::evaluate`]/[`Self::random_permutation`], never leaking a
+/// 0-based value to a caller. `self.best`, in particular, stores the
+/// 1-based tour (not the 0-based genotype order) so [`Self::best`] needs no
+/// further conversion at its own call site.
+struct PermSession {
+    problem: Box<dyn Problem>,
+    n: usize,
+    budget: u64,
+    used: u64,
+    best: Option<(Vec<u32>, f64)>,
+    rng: RngStream,
+}
+
+impl PermSession {
+    fn new(problem: Box<dyn Problem>, seed: u64, budget: u64) -> Self {
+        let n = problem.space().dim(); // Block::Permutation { n }.dim() == n
+        let rng = RngStream::from_master(seed, &[PERM_SESSION_RNG_TAG]);
+        Self { problem, n, budget, used: 0, best: None, rng }
+    }
+
+    /// A uniformly random 1-based tour (a permutation of `1..=n`), drawn
+    /// from this session's own [`RngStream`] via
+    /// [`sezgi_components::perm::fisher_yates_shuffle`] -- the SAME core
+    /// py-sezgi's `PermSession::random_permutation` calls, over a stream
+    /// seeded identically (see [`PERM_SESSION_RNG_TAG`]'s doc) -- so the
+    /// underlying 0-based draw is bit-identical to Python's for the same
+    /// `seed` and call sequence; the `+1` shift to r-sezgi's 1-based
+    /// convention happens ONLY here, at this Rust boundary. Each call
+    /// advances the stream, so successive calls draw DIFFERENT
+    /// permutations.
+    fn random_permutation(&mut self) -> Vec<u32> {
+        fisher_yates_shuffle(self.n, &mut self.rng)
+            .into_iter()
+            .map(|c| c + 1)
+            .collect()
+    }
+
+    /// Batch-evaluates `tours` -- 1-based (a permutation of `1..=n`, one row
+    /// per point; R's numeric doubles, converted/validated entry-by-entry
+    /// here). All-or-nothing, mirroring `CoreSession::evaluate`'s own error
+    /// semantics (this module's doc) and py-sezgi's `PermSession::evaluate`:
+    /// every row is fully validated (length, whole-number entries,
+    /// `1..=n` range, no repeats) BEFORE the counter moves, so a rejected
+    /// batch leaves `used` untouched and evaluates nothing. Once validated,
+    /// each row is shifted `-1` into a 0-based `BlockValues::Perm` genotype
+    /// and run through a short-lived `Evaluator` sized to the remaining
+    /// budget -- the identical all-or-nothing budget-check reuse pattern
+    /// `CoreSession::evaluate` itself uses. Best-tracking uses the same
+    /// strict-improvement tie rule (`!(b <= f)`) as `Evaluator`/
+    /// `CoreSession`, storing the tour 1-based (see the struct doc).
+    fn evaluate(&mut self, tours: &[Vec<f64>]) -> savvy::Result<Vec<f64>> {
+        let mut orders: Vec<Vec<u32>> = Vec::with_capacity(tours.len());
+        for (row, t) in tours.iter().enumerate() {
+            if t.len() != self.n {
+                return Err(savvy_err!(
+                    "PermSession::evaluate: row {} has {} entries, expected {} \
+                     (one per city)",
+                    row,
+                    t.len(),
+                    self.n
+                ));
+            }
+            let mut seen = vec![false; self.n];
+            let mut order = Vec::with_capacity(self.n);
+            for &v in t {
+                if !v.is_finite() || v.fract() != 0.0 {
+                    return Err(savvy_err!(
+                        "PermSession::evaluate: row {} has a non-whole-number entry {}; \
+                         expected a 1-based city index",
+                        row,
+                        v
+                    ));
+                }
+                let city1 = v as i64;
+                if city1 < 1 || city1 as usize > self.n {
+                    return Err(savvy_err!(
+                        "PermSession::evaluate: row {} has out-of-range entry {} \
+                         (expected 1..={})",
+                        row,
+                        city1,
+                        self.n
+                    ));
+                }
+                let ci = (city1 - 1) as usize;
+                if seen[ci] {
+                    return Err(savvy_err!(
+                        "PermSession::evaluate: row {} has a repeated city {}; \
+                         not a valid permutation",
+                        row,
+                        city1
+                    ));
+                }
+                seen[ci] = true;
+                order.push(ci as u32);
+            }
+            orders.push(order);
+        }
+
+        let pop: Vec<Genotype> = orders
+            .iter()
+            .map(|o| Genotype { blocks: vec![BlockValues::Perm(o.clone())] })
+            .collect();
+
+        // Short-lived Evaluator sized to the remaining budget -- same reuse
+        // pattern as CoreSession::evaluate: its own all-or-nothing check IS
+        // this session's check.
+        let remaining = self.budget - self.used;
+        let mut ev = Evaluator::new(&*self.problem, remaining);
+        let fs = ev.evaluate(&pop).map_err(|e| {
+            savvy_err!(
+                "PermSession::evaluate: budget exceeded ({}/{} used, {} requested)",
+                self.used,
+                self.budget,
+                e.requested
+            )
+        })?;
+
+        for (order, &f) in orders.iter().zip(&fs) {
+            self.used += 1;
+            // Same tie rule as Evaluator::evaluate / CoreSession::evaluate:
+            // update only on strict improvement, ties keep the earlier tour.
+            let improved = !matches!(&self.best, Some((_, b)) if *b <= f);
+            if improved {
+                // +1: store the R-facing 1-based tour, not the 0-based order.
+                self.best = Some((order.iter().map(|&c| c + 1).collect(), f));
+            }
+        }
+        Ok(fs)
+    }
+
+    fn evals_used(&self) -> u64 {
+        self.used
+    }
+    fn budget(&self) -> u64 {
+        self.budget
+    }
+    fn best(&self) -> Option<(Vec<u32>, f64)> {
+        self.best.clone()
+    }
+    /// The problem's known optimum, or `None` if it has none. A vendored TSP
+    /// instance (`Tsp::vendored`) returns `Some` for all three
+    /// (`berlin52`/`eil51`/`st70`, `tsp.rs`'s pinned published optima).
+    fn f_opt(&self) -> Option<f64> {
+        self.problem.optimum()
+    }
+}
+
+/// One [`EvalSession`]'s underlying Rust session -- `Float` for every
+/// continuous-problem constructor above (`new`/`new_cec2022`/`new_cec2014`/
+/// `new_cec2017`/`new_f0`), `Perm` for [`EvalSession::new_tsp`] (M3-8 Task
+/// 8). `EvalSession::kind()` surfaces which one a given session is
+/// (`"float"`/`"permutation"`) to R.
+enum SessionKind {
+    Float(CoreSession),
+    Perm(PermSession),
+}
+
 /// The ask/tell evaluation session -- see the module doc.
 #[savvy]
 struct EvalSession {
-    inner: Option<CoreSession>,
+    inner: Option<SessionKind>,
 }
 
 #[savvy]
@@ -240,7 +474,7 @@ impl EvalSession {
                 .with_log(Path::new(dir), algo_name, seed_u)
                 .map_err(|e| savvy_err!("{e}"))?;
         }
-        Ok(Self { inner: Some(session) })
+        Ok(Self { inner: Some(SessionKind::Float(session)) })
     }
 
     /// Builds a new ask/tell evaluation session over a CEC 2022 problem
@@ -305,7 +539,7 @@ impl EvalSession {
                 .with_log(Path::new(dir), algo_name, seed_u)
                 .map_err(|e| savvy_err!("{e}"))?;
         }
-        Ok(Self { inner: Some(session) })
+        Ok(Self { inner: Some(SessionKind::Float(session)) })
     }
 
     /// Builds a new ask/tell evaluation session over a CEC 2014 problem
@@ -368,7 +602,7 @@ impl EvalSession {
                 .with_log(Path::new(dir), algo_name, seed_u)
                 .map_err(|e| savvy_err!("{e}"))?;
         }
-        Ok(Self { inner: Some(session) })
+        Ok(Self { inner: Some(SessionKind::Float(session)) })
     }
 
     /// Builds a new ask/tell evaluation session over a CEC 2017 problem
@@ -428,7 +662,7 @@ impl EvalSession {
                 .with_log(Path::new(dir), algo_name, seed_u)
                 .map_err(|e| savvy_err!("{e}"))?;
         }
-        Ok(Self { inner: Some(session) })
+        Ok(Self { inner: Some(SessionKind::Float(session)) })
     }
 
     /// Builds a new ask/tell evaluation session over the f0 BIAS-toolbox
@@ -469,12 +703,51 @@ impl EvalSession {
         };
         let session = CoreSession::new_owned(Box::new(problem), meta, budget_u)
             .map_err(|e| savvy_err!("{e}"))?;
-        Ok(Self { inner: Some(session) })
+        Ok(Self { inner: Some(SessionKind::Float(session)) })
+    }
+
+    /// Builds a new ask/tell evaluation session over a vendored TSPLIB
+    /// instance (M3-8 Task 8 -- the R mirror of py-sezgi's M3-8 Task 7
+    /// `PermSession`/`sezgi.problems.tsp(...)` typed session; see this
+    /// module's own doc, "Permutation-typed sessions", for the full design).
+    /// Generated as `EvalSession$new_tsp(...)`; the public R entry point is
+    /// the hand-written wrapper `sz_eval_session_tsp()` in `R/session.R`.
+    ///
+    /// Deliberately has NO `log_dir`/`algo_name` parameters at all -- IOH
+    /// logging is not wired up for permutation-typed sessions (no
+    /// suite/fid identity exists to log a TSP run against), same choice
+    /// [`Self::new_f0`] already makes for its own unsupported-logging case
+    /// (offering and then rejecting the parameter would be worse than never
+    /// offering it).
+    ///
+    /// @param name A vendored TSPLIB instance name (`"berlin52"`, `"eil51"`,
+    ///   `"st70"` -- see [`Tsp::vendored`]). UNLIKE `sz_tsp_load()`/
+    ///   `sz_tsp_tour_length()` in `problems.rs`, raw TSPLIB file text is
+    ///   not accepted here -- mirrors `sz_solve_tsp()`'s own vendored-only
+    ///   restriction, and py-sezgi's `sezgi.problems.tsp(name)`.
+    /// @param budget Evaluation budget (non-negative).
+    /// @param seed Master RNG seed for this session's own
+    ///   `random_permutation()` draws (see [`PERM_SESSION_RNG_TAG`]'s doc
+    ///   for the cross-language parity this seed drives) -- distinct from
+    ///   any IOH-log seed, since this session never logs.
+    fn new_tsp(name: &str, budget: f64, seed: f64) -> savvy::Result<Self> {
+        let budget_u = f64_to_u64("budget", budget)?;
+        let seed_u = f64_to_u64("seed", seed)?;
+
+        let problem = Tsp::vendored(name).map_err(|e| savvy_err!("{e}"))?;
+        let session = PermSession::new(Box::new(problem), seed_u, budget_u);
+        Ok(Self { inner: Some(SessionKind::Perm(session)) })
     }
 
     /// Batch-evaluates `x` -- see the module doc for the accepted shapes.
-    /// All-or-nothing: on any error (dimension mismatch, a non-finite
-    /// coordinate, or budget overrun) nothing is counted.
+    /// A Float-typed session expects each row to be `dim` coordinates; a
+    /// permutation-typed one (`kind() == "permutation"`) expects each row
+    /// to be a 1-based tour (a permutation of `1..=n`, this module's doc,
+    /// "Permutation-typed sessions"). All-or-nothing either way: on any
+    /// error (dimension mismatch / an invalid tour, a non-finite
+    /// coordinate, or budget overrun) nothing is counted. The Float path is
+    /// UNCHANGED from before this task; see [`PermSession::evaluate`] for
+    /// the permutation path's own validation.
     ///
     /// @param x A numeric matrix (rows = points) or a `list` of numeric
     ///   vectors.
@@ -482,84 +755,167 @@ impl EvalSession {
     ///   order preserved).
     fn evaluate(&mut self, x: Sexp) -> savvy::Result<Sexp> {
         let session = self.inner.as_mut().ok_or_else(session_finished_err)?;
-        let xs = sexp_to_rows(x)?;
-        let fs = session.evaluate(&xs).map_err(|e| savvy_err!("{e}"))?;
-        fs.try_into()
+        let rows = sexp_to_rows(x)?;
+        match session {
+            SessionKind::Float(s) => {
+                let fs = s.evaluate(&rows).map_err(|e| savvy_err!("{e}"))?;
+                fs.try_into()
+            }
+            SessionKind::Perm(s) => {
+                let fs = s.evaluate(&rows)?;
+                fs.try_into()
+            }
+        }
     }
 
     /// Number of evaluations counted so far.
     /// @returns A numeric scalar.
     fn evals_used(&self) -> savvy::Result<Sexp> {
-        let session = self.inner.as_ref().ok_or_else(session_finished_err)?;
-        (session.evals_used() as f64).try_into()
+        let used = match self.inner.as_ref().ok_or_else(session_finished_err)? {
+            SessionKind::Float(s) => s.evals_used(),
+            SessionKind::Perm(s) => s.evals_used(),
+        };
+        (used as f64).try_into()
     }
 
     /// The session's total evaluation budget.
     /// @returns A numeric scalar.
     fn budget(&self) -> savvy::Result<Sexp> {
-        let session = self.inner.as_ref().ok_or_else(session_finished_err)?;
-        (session.budget() as f64).try_into()
+        let budget = match self.inner.as_ref().ok_or_else(session_finished_err)? {
+            SessionKind::Float(s) => s.budget(),
+            SessionKind::Perm(s) => s.budget(),
+        };
+        (budget as f64).try_into()
     }
 
-    /// The best evaluation seen so far.
+    /// The best evaluation seen so far. For a permutation-typed session,
+    /// `x` is the 1-based tour (this module's doc, "Permutation-typed
+    /// sessions") -- no further conversion needed at this call site, since
+    /// [`PermSession`] already stores it 1-based.
     /// @returns A named list `list(x = <numeric vector>, f = <numeric
     ///   scalar>)`, or R `NULL` if nothing has been evaluated yet.
     fn best(&self) -> savvy::Result<Sexp> {
-        let session = self.inner.as_ref().ok_or_else(session_finished_err)?;
-        match session.best() {
-            None => Ok(NullSexp.into()),
-            Some((x, f)) => {
-                let mut out = OwnedListSexp::new(2, true)?;
-                out.set_name_and_value(0, "x", OwnedRealSexp::try_from_slice(x)?)?;
-                out.set_name_and_value(1, "f", OwnedRealSexp::try_from_scalar(f)?)?;
-                Ok(out.into())
+        let (x, f) = match match self.inner.as_ref().ok_or_else(session_finished_err)? {
+            SessionKind::Float(s) => s.best().map(|(x, f)| (x.to_vec(), f)),
+            SessionKind::Perm(s) => {
+                s.best().map(|(x, f)| (x.into_iter().map(f64::from).collect::<Vec<f64>>(), f))
             }
-        }
+        } {
+            None => return Ok(NullSexp.into()),
+            Some(xf) => xf,
+        };
+        let mut out = OwnedListSexp::new(2, true)?;
+        out.set_name_and_value(0, "x", OwnedRealSexp::try_from_slice(x.as_slice())?)?;
+        out.set_name_and_value(1, "f", OwnedRealSexp::try_from_scalar(f)?)?;
+        Ok(out.into())
     }
 
     /// The problem's known optimum value, or R `NULL` if it has none.
     /// @returns A numeric scalar, or `NULL` (e.g. an f0 session -- see
     ///   `sz_eval_session_f0()`).
     fn f_opt(&self) -> savvy::Result<Sexp> {
-        let session = self.inner.as_ref().ok_or_else(session_finished_err)?;
-        // `CoreSession::f_opt()` is `Option<f64>` (M3-4 Task 1 generalized
-        // `EvalSession` beyond BBOB). Task 5 (M3-5) adds `new_cec2022`/
-        // `new_f0` constructors alongside the BBOB-only `new()` above; BBOB
-        // and CEC 2022 sessions always have a known optimum (`Some`), but
-        // an f0 session never does, so this now maps `Option<f64>` to
-        // R `NULL`/scalar honestly instead of `.expect()`-ing `Some`.
-        match session.f_opt() {
+        // `f_opt()` is `Option<f64>` on both session kinds (M3-4 Task 1
+        // generalized `EvalSession` beyond BBOB; M3-8 Task 8 adds the Perm
+        // arm the same way). BBOB, CEC 2022/2014/2017, and every vendored
+        // TSP instance always have a known optimum (`Some`), but an f0
+        // session never does, so this maps `Option<f64>` to R `NULL`/scalar
+        // honestly instead of `.expect()`-ing `Some`.
+        match match self.inner.as_ref().ok_or_else(session_finished_err)? {
+            SessionKind::Float(s) => s.f_opt(),
+            SessionKind::Perm(s) => s.f_opt(),
+        } {
             Some(v) => v.try_into(),
             None => Ok(NullSexp.into()),
         }
     }
 
-    /// The search space's dimensionality.
+    /// The search space's dimensionality -- for a permutation-typed
+    /// session, the number of cities (`PermSession::n`, the same value
+    /// `random_permutation()`/`evaluate()` expect a tour's length to be).
     /// @returns A numeric scalar (whole number).
     fn dim(&self) -> savvy::Result<Sexp> {
-        let session = self.inner.as_ref().ok_or_else(session_finished_err)?;
-        (session.dim() as f64).try_into()
+        let dim = match self.inner.as_ref().ok_or_else(session_finished_err)? {
+            SessionKind::Float(s) => s.dim(),
+            SessionKind::Perm(s) => s.n,
+        };
+        (dim as f64).try_into()
     }
 
     /// The uniform `(lo, hi)` bounds of this session's continuous (float)
     /// space -- see `sezgi_bench::EvalSession::bounds`'s doc for the exact
     /// rule (errors for a non-uniform/non-float space; unreachable through
-    /// every constructor this binding exposes today, since BBOB, CEC 2022,
-    /// and f0 are each a single uniform `Float` block, but the error path
-    /// is kept honest rather than assumed away).
+    /// every Float-typed constructor this binding exposes today, since
+    /// BBOB, CEC 2022/2014/2017, and f0 are each a single uniform `Float`
+    /// block, but the error path is kept honest rather than assumed away).
+    /// A permutation-typed session (`kind() == "permutation"`) has no
+    /// uniform domain at all -- errors unconditionally, mirroring
+    /// py-sezgi's `AlgoContext.random_point()` raising a clear `ValueError`
+    /// for a permutation-typed context rather than an opaque one.
     /// @returns A length-2 numeric vector `c(lo, hi)`.
     fn bounds(&self) -> savvy::Result<Sexp> {
-        let session = self.inner.as_ref().ok_or_else(session_finished_err)?;
-        let (lo, hi) = session.bounds().map_err(|e| savvy_err!("{e}"))?;
-        Ok(OwnedRealSexp::try_from_slice([lo, hi])?.into())
+        match self.inner.as_ref().ok_or_else(session_finished_err)? {
+            SessionKind::Float(s) => {
+                let (lo, hi) = s.bounds().map_err(|e| savvy_err!("{e}"))?;
+                Ok(OwnedRealSexp::try_from_slice([lo, hi])?.into())
+            }
+            SessionKind::Perm(_) => Err(savvy_err!(
+                "bounds() is not available for a permutation-typed session \
+                 (this session's kind() is \"permutation\")"
+            )),
+        }
+    }
+
+    /// This session's kind: `"float"` for every continuous-problem
+    /// constructor (`new`/`new_cec2022`/`new_cec2014`/`new_cec2017`/
+    /// `new_f0`), `"permutation"` for [`Self::new_tsp`] (M3-8 Task 8).
+    /// Drives `ctx$kind()`/`ctx$n()`/`ctx$bounds()` in `R/algo.R`, mirroring
+    /// py-sezgi's `AlgoContext.kind` exactly.
+    /// @returns A character scalar, `"float"` or `"permutation"`.
+    fn kind(&self) -> savvy::Result<Sexp> {
+        let k = match self.inner.as_ref().ok_or_else(session_finished_err)? {
+            SessionKind::Float(_) => "float",
+            SessionKind::Perm(_) => "permutation",
+        };
+        Ok(OwnedStringSexp::try_from(k)?.into())
+    }
+
+    /// A uniformly random 1-based tour (a permutation of `1..=n`) drawn from
+    /// this session's own seeded Rust-side RNG stream -- see
+    /// [`PermSession::random_permutation`]'s own doc for the shuffle
+    /// algorithm and this module's doc ("Permutation-typed sessions") for
+    /// the cross-language RNG-parity guarantee with py-sezgi.
+    ///
+    /// @returns A numeric vector of length `dim()`, a permutation of
+    ///   `1:dim()`.
+    ///
+    /// # Errors
+    /// A savvy error if this session's `kind()` is `"float"` -- there is no
+    /// permutation to draw for a continuous-typed session.
+    fn random_permutation(&mut self) -> savvy::Result<Sexp> {
+        let session = self.inner.as_mut().ok_or_else(session_finished_err)?;
+        match session {
+            SessionKind::Perm(s) => {
+                let tour: Vec<f64> = s.random_permutation().into_iter().map(f64::from).collect();
+                Ok(OwnedRealSexp::try_from_slice(tour.as_slice())?.into())
+            }
+            SessionKind::Float(_) => Err(savvy_err!(
+                "random_permutation() is only available for permutation-typed \
+                 sessions (this session's kind() is \"float\")"
+            )),
+        }
     }
 
     /// Flushes the IOH log (if logging was enabled) and marks the session
     /// as finished. Every method call afterward, including a second
     /// `finish()`, raises an error whose message contains
-    /// `"session finished"`.
+    /// `"session finished"`. A permutation-typed session never logs (see
+    /// [`Self::new_tsp`]'s doc), so `finish()` on one is a no-op beyond
+    /// clearing the slot -- mirrors py-sezgi's `PyEvalSession::finish`'s own
+    /// `SessionKind::Perm` arm exactly.
     fn finish(&mut self) -> savvy::Result<()> {
-        let session = self.inner.take().ok_or_else(session_finished_err)?;
-        session.finish().map_err(|e| savvy_err!("{e}"))
+        match self.inner.take().ok_or_else(session_finished_err)? {
+            SessionKind::Float(s) => s.finish().map_err(|e| savvy_err!("{e}")),
+            SessionKind::Perm(_) => Ok(()),
+        }
     }
 }

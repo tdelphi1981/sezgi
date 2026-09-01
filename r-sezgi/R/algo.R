@@ -80,6 +80,53 @@
 
 # ---- AlgoContext (an environment of closures) ----------------------------
 
+#' Reverses the 1-based, INCLUSIVE segment `tour[i:j]` -- positions `i`
+#' through `j`, both inclusive -- returning a NEW tour (`tour` itself is not
+#' mutated). The classic 2-opt move: replaces edges `(tour[i-1], tour[i])`
+#' and `(tour[j], tour[j+1])` with `(tour[i-1], tour[j])` and
+#' `(tour[i], tour[j+1])` (the tour's own closing/wraparound edge is
+#' untouched unless `i == 1` or `j == length(tour)`).
+#'
+#' The R mirror of py-sezgi's `AlgoContext.two_opt(tour, i, j)`
+#' (`py-sezgi/python/sezgi/algo.py`) -- SAME semantics (an inclusive
+#' segment reversal), shifted to r-sezgi's 1-based tour convention: Python's
+#' `0 <= i <= j < len(tour)` becomes `1 <= i <= j <= length(tour)` here, and
+#' R's own `tour[i:j]` slicing is ALREADY inclusive on both ends, so this is
+#' a direct 1-based translation, not a re-derivation. Pure R, no RNG, no
+#' Rust involvement at all (like the Python original) -- there is no FFI
+#' boundary to cross for a pure index-reversal move, unlike
+#' `ctx$random_permutation()` (see `.sz_algo_context()`'s own doc).
+#'
+#' `i == j` reverses a single-element segment (a no-op: the returned tour
+#' equals `tour`). `i == 1, j == length(tour)` reverses the WHOLE tour
+#' (still a no-op on tour length/validity, but exercises both boundaries at
+#' once). Does not itself validate that `tour` is a permutation (a tour
+#' from `ctx$random_permutation()` or an earlier `ctx$two_opt()` call
+#' already is one); does not touch the evaluation budget -- call
+#' `ctx$evaluate(list(result))` to score it.
+#'
+#' @param tour A numeric vector (1-based tour).
+#' @param i,j Whole-number scalars, `1 <= i <= j <= length(tour)`.
+#' @return A new numeric vector, the same length as `tour`.
+#' @noRd
+.sz_two_opt <- function(tour, i, j) {
+  n <- length(tour)
+  if (!(i >= 1 && i <= j && j <= n)) {
+    stop(sprintf(
+      "two_opt: i=%s, j=%s out of range for a tour of length %d (require 1 <= i <= j <= %d)",
+      i, j, n, n
+    ))
+  }
+  # `tour[0]` (not `numeric(0)`) for an empty prefix/suffix: preserves
+  # `tour`'s own type (e.g. integer) instead of coercing the whole result to
+  # double via `c()`.
+  c(
+    if (i > 1) tour[1:(i - 1)] else tour[0],
+    rev(tour[i:j]),
+    if (j < n) tour[(j + 1):n] else tour[0]
+  )
+}
+
 #' Builds the run context a `setup()`/`step()` closure touches, wrapping
 #' `session` -- the SOLE keeper of counting/best/logging, same division of
 #' responsibility as py-sezgi's `AlgoContext`/`PyEvalSession` pair. Every
@@ -95,10 +142,29 @@
 #' runif(dim, lo, hi))` after its own `set.seed(seed)`), not a new
 #' invention -- `sz_algorithm`/`sz_algo_solve` simply codify it.
 #'
+#' M3-8 Task 8 widens `ctx` to also cover a permutation-typed session
+#' (`sz_eval_session_tsp()`) -- the R mirror of py-sezgi's M3-8 Task 7
+#' `AlgoContext` widening (`py-sezgi/python/sezgi/algo.py`): `ctx$kind()`
+#' (`"float"` or `"permutation"`), `ctx$n()` (the SAME value as `ctx$dim()`,
+#' under a second, kind-neutral name -- `n` reads naturally for a tour,
+#' `dim` does not), `ctx$random_permutation()` (delegates to
+#' `session$random_permutation()`, which draws from the SESSION's own
+#' seeded Rust-side RNG stream, NOT R's global stream -- a permutation-typed
+#' run must be reproducible from the same `seed` the same way a float-typed
+#' one is, so the draw comes from the session, mirroring
+#' `AlgoContext.random_permutation()`'s own Rust-side-not-Python's-`random`
+#' choice exactly), and `ctx$two_opt(tour, i, j)` (see `.sz_two_opt()`'s own
+#' doc -- pure R, no RNG, available regardless of `ctx$kind()`).
+#' `ctx$random_point()` now checks `ctx$kind()` FIRST, raising a clear error
+#' naming the actual kind instead of relying on `session$bounds()`'s own
+#' (less specific) rejection -- mirrors `AlgoContext.random_point()`'s own
+#' "small robustness addition" from the same task on the Python side.
+#'
 #' @param session An `EvalSession` object (from `sz_eval_session()` or a
 #'   sibling constructor).
 #' @return An `environment` exposing `evaluate`, `evals_used`, `budget`,
-#'   `remaining`, `best`, `f_opt`, `dim`, `bounds`, `random_point`.
+#'   `remaining`, `best`, `f_opt`, `dim`, `bounds`, `random_point`, `kind`,
+#'   `n`, `random_permutation`, `two_opt`.
 #' @noRd
 .sz_algo_context <- function(session) {
   ctx <- new.env(parent = emptyenv())
@@ -110,11 +176,24 @@
   ctx$f_opt <- function() session$f_opt()
   ctx$dim <- function() session$dim()
   ctx$bounds <- function() session$bounds()
+  ctx$kind <- function() session$kind()
+  ctx$n <- function() session$dim()  # same value as dim(); see doc above
 
   ctx$random_point <- function() {
+    k <- session$kind()
+    if (k != "float") {
+      stop(sprintf(
+        "random_point() is only available for float-typed sessions (this session's kind() is \"%s\")",
+        k
+      ))
+    }
     b <- session$bounds()
     runif(session$dim(), b[1], b[2])
   }
+
+  ctx$random_permutation <- function() session$random_permutation()
+
+  ctx$two_opt <- function(tour, i, j) .sz_two_opt(tour, i, j)
 
   ctx$evaluate <- function(points) {
     remaining <- session$budget() - session$evals_used()
