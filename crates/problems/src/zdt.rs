@@ -1139,6 +1139,8 @@ mod tests {
             p_m: None,
             p_c_bin: 0.9,
             p_m_bin: None,
+            p_c_cat: 0.9,
+            p_m_cat: None,
         };
         let result = nsga2_run(&p, &cfg).unwrap();
         assert!(!result.front0.is_empty());
@@ -1168,6 +1170,8 @@ mod tests {
             p_m: None,
             p_c_bin: 0.9,
             p_m_bin: None,
+            p_c_cat: 0.9,
+            p_m_cat: None,
         };
         let r1 = nsga2_run(&p, &cfg).unwrap();
         let r2 = nsga2_run(&p, &cfg).unwrap();

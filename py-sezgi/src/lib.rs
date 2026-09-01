@@ -1902,9 +1902,11 @@ fn mo_problem_from_str(
 /// Flattens a [`Genotype`] into a single `Vec<f64>` (concatenating every
 /// block in order) -- always either an all-`Block::Float` genotype (zdt1-4/
 /// 6, dtlz1-9, wfg1-9) or an all-`Block::Binary` one (zdt5 only), since
-/// `nsga2_run` validates exactly one of those two shapes before ever
-/// constructing one (`Nsga2Error::NonFloatSpace`/`MixedGenotypeSpace`).
-/// Mirrors `solve`'s own `best_x` conversion above (`BlockValues::Float(xs)
+/// [`mo_problem_from_str`]'s own problem catalog never builds a problem
+/// whose space mixes block kinds (M3-8 Task 6 makes `nsga2_run` itself
+/// ACCEPT mixed spaces too, but no problem registered here ever constructs
+/// one, so this function's own all-Float/all-Binary assumption still holds
+/// for every input it actually sees). Mirrors `solve`'s own `best_x` conversion above (`BlockValues::Float(xs)
 /// => ...`), generalized to however many Float blocks the space has (ZDT4
 /// has two: `x1` and the rest).
 ///
@@ -2137,7 +2139,16 @@ fn mo_nsga2(
     label: Option<&str>,
 ) -> PyResult<Py<PyDict>> {
     let prob = mo_problem_from_str(problem, dim, m, k, l)?;
-    let cfg = Nsga2Config { pop_size, budget, seed, eta_c, eta_m, p_c, p_m, p_c_bin, p_m_bin };
+    // p_c_cat/p_m_cat (M3-8 Task 6): mechanical Nsga2Config spillover, kept
+    // INERT this task (binding surface untouched -- see
+    // sezgi_components::nsga2's own module doc, "M3-8 Task 6" section,
+    // "Nsga2Config field spillover"). Fixed defaults (0.9/None), matching
+    // the Rust API's own defaults; exposing these as real, user-tunable
+    // `mo_nsga2` parameters is T9/T10's job.
+    let cfg = Nsga2Config {
+        pop_size, budget, seed, eta_c, eta_m, p_c, p_m, p_c_bin, p_m_bin,
+        p_c_cat: 0.9, p_m_cat: None,
+    };
 
     let result = if let Some(dir) = log_dir {
         let label = label.ok_or_else(|| PyValueError::new_err(

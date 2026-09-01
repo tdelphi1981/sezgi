@@ -81,9 +81,13 @@ const ZDT_REF_POINT: [f64; 2] = [1.1, 1.1];
 fn standard_cfg(seed: u64) -> Nsga2Config {
     // T6-pinned standard settings (Deb et al. 2002 Sec. IV.A): SBX eta_c=20,
     // polynomial-mutation eta_m=20, p_c=0.9, p_m=None -> 1/n_variables.
-    // p_c_bin/p_m_bin (M3-7 Task 3): unused on these all-Float ZDT/DTLZ
-    // spaces, present only because Nsga2Config now requires them.
-    Nsga2Config { pop_size: POP_SIZE, budget: BUDGET, seed, eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None }
+    // p_c_bin/p_m_bin (M3-7 Task 3) / p_c_cat/p_m_cat (M3-8 Task 6): unused
+    // on these all-Float ZDT/DTLZ spaces, present only because Nsga2Config
+    // now requires them.
+    Nsga2Config {
+        pop_size: POP_SIZE, budget: BUDGET, seed, eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None,
+        p_c_bin: 0.9, p_m_bin: None, p_c_cat: 0.9, p_m_cat: None,
+    }
 }
 
 fn front0_objectives(result: &sezgi_components::nsga2::MoRunResult) -> Vec<Vec<f64>> {
