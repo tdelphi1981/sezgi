@@ -631,7 +631,15 @@ problems = SimpleNamespace(
 
 __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_experiment", "presets",
            "stats", "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf",
-           "coco_export", "bias", "mo", "problems", "Algorithm", "algo"]
+           "coco_export", "bias", "mo", "problems", "Algorithm", "algo",
+           # M4-1 Task 1 (fix round 1): the new space builders / Problem ABC
+           # surface. "as_space" is deliberately excluded -- it is a
+           # problem.py-internal helper (used by Problem._to_native()), not
+           # re-exported into the top-level sezgi namespace at all (only
+           # reachable as sezgi.spaces.as_space), so it has no place in an
+           # __all__ that only lists names this module actually binds.
+           "Float", "Int", "Categorical", "Binary", "Permutation", "Space",
+           "as_native_problem"]
 
 
 # Algorithm-authoring surface (M3-4 Task 2): sezgi.Algorithm is the pure-

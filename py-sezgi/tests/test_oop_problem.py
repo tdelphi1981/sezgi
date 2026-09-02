@@ -319,3 +319,14 @@ def test_space_rejects_empty_and_non_block_arguments():
 def test_space_composes_multiple_blocks_in_order():
     space = sezgi.Space(sezgi.Float(-1.0, 1.0, 2), sezgi.Binary(3))
     assert space.blocks == (sezgi.Float(-1.0, 1.0, 2), sezgi.Binary(3))
+
+
+# ---------------------------------------------------------------------
+# Fix round 1: the new public symbols must be listed in sezgi.__all__ so
+# `from sezgi import *` and __all__-driven tooling see them.
+# ---------------------------------------------------------------------
+
+def test_new_oop_symbols_are_in_dunder_all():
+    for name in ("Float", "Int", "Categorical", "Binary", "Permutation",
+                 "Space", "Problem", "as_native_problem"):
+        assert name in sezgi.__all__, f"{name} missing from sezgi.__all__"
