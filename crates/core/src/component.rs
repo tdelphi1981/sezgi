@@ -77,6 +77,24 @@ pub trait Initializer: Send + Sync {
 pub trait Generator: Send + Sync {
     fn generate(&self, pop: &Population, ctx: &mut Ctx) -> Vec<Genotype>;
     fn meta(&self) -> ComponentMeta;
+
+    /// Space-aware build-time validation hook (M3-8 deferral). Called once,
+    /// by `AlgorithmSpec::validate` (and thereby `Engine::from_spec`'s
+    /// validation path), right after this generator has been built from its
+    /// `ComponentSpec`, with the target `SearchSpace` in scope. Lets a
+    /// generator whose validity depends on the space's per-block STRUCTURE
+    /// (not just the coarse, per-tag `ComponentMeta::supported_blocks`
+    /// check that `AlgorithmSpec::validate` already runs for every
+    /// component) veto a mismatched space at build time, with an honest
+    /// error naming the problem -- instead of only failing later, on the
+    /// first `generate()` call.
+    ///
+    /// Default: no-op (`Ok(())`). Every generator without such per-block
+    /// structure (i.e. every generator except `gen/compound`, as of this
+    /// writing) inherits this default unchanged -- zero behavior change.
+    fn validate_space(&self, _space: &SearchSpace) -> Result<(), ComponentError> {
+        Ok(())
+    }
 }
 
 pub trait Replacer: Send + Sync {

@@ -31,30 +31,49 @@
 //! declares [`SupportedBlocks::All`] (it genuinely can dispatch on any
 //! block type its sub-generator table below covers), and performs its OWN,
 //! finer-grained per-block-INDEX validation internally
-//! ([`CompoundGenerator::validate_against_space`]) rather than asking
-//! `spec.rs`/`sezgi_core::engine::Engine` to grow a new, compound-specific
-//! hook. `spec.rs`, `engine.rs`, and every other existing component are
-//! untouched by this module -- `gen/compound` is registered exactly like
-//! any other generator (`Registry::register_generator`), and its dispatch
-//! table below calls straight into `bin_ops`/`int_ops`/`cat_ops`/`ga`/
-//! `perm`'s own already-registered, already-tested `from_params`
-//! constructors (consumed, not re-implemented).
+//! ([`CompoundGenerator::validate_against_space`]).
+//!
+//! **Update (M3-8 deferral, closed):** at the time this ruling was recorded,
+//! `spec.rs`/`sezgi_core::engine::Engine` had no hook a component could plug
+//! a per-block check into during `AlgorithmSpec::validate`, so
+//! [`CompoundGenerator::validate_against_space`]'s result was only reachable
+//! through a direct call or (indirectly, as a panic) through `generate()` --
+//! see the paragraph below. `sezgi_core::component::Generator` has since
+//! grown exactly such a hook, `validate_space` (default no-op; every other
+//! generator is unaffected), called from `AlgorithmSpec::validate` right
+//! after each stage's generator is built. [`CompoundGenerator`]'s
+//! `Generator` impl overrides it to delegate straight to
+//! `validate_against_space`, so a mis-assigned/wrong-arity compound spec now
+//! fails `AlgorithmSpec::validate`/`Engine::from_spec` directly, with a real
+//! `Result`, before any `generate()` call. `spec.rs`'s change is minimal and
+//! generic (the new hook, not a compound-specific one) -- `gen/compound` is
+//! still registered exactly like any other generator
+//! (`Registry::register_generator`), and its dispatch table below still
+//! calls straight into `bin_ops`/`int_ops`/`cat_ops`/`ga`/`perm`'s own
+//! already-registered, already-tested `from_params` constructors (consumed,
+//! not re-implemented).
 //!
 //! `Generator::generate`'s signature (`fn generate(&self, pop: &Population,
-//! ctx: &mut Ctx) -> Vec<Genotype>`, no `Result`) cannot itself return a
-//! validation error, so [`CompoundGenerator::generate`] calls
+//! ctx: &mut Ctx) -> Vec<Genotype>`, no `Result`) still cannot itself return
+//! a validation error, so [`CompoundGenerator::generate`] still calls
 //! [`CompoundGenerator::validate_against_space`] as its very first action
 //! and PANICS with the same message a direct call to that method would
-//! return, on mismatch -- the same "dynamic backstop" pattern
-//! `sezgi_core::component::ComponentMeta`'s own doc describes for
-//! space-dependent requirements a fixed `usize` can't express (e.g.
-//! Nelder-Mead's `pop_size >= dim + 1`), and the same pattern every typed
-//! generator's own `assert!(pop.len() >= 2, ...)` already uses. Tests below
-//! exercise [`CompoundGenerator::validate_against_space`] DIRECTLY (a real
-//! `Result`, no panic, no engine run needed) for the "mis-assignment
-//! validation errors... naming both" requirement (Task 5 brief) -- this is
-//! the earliest point in this framework's component model a per-block-index
-//! check can run, since no `from_params` (not `CompoundGenerator`'s, not
+//! return, on mismatch -- now unreachable through the normal
+//! `AlgorithmSpec::validate`/`Engine::from_spec` path (which fails earlier,
+//! per the update above), and kept only as a defensive backstop for the
+//! direct-construction path (`from_params` followed directly by
+//! `.generate()`, bypassing `AlgorithmSpec::validate`) -- the same "dynamic
+//! backstop" pattern `sezgi_core::component::ComponentMeta`'s own doc
+//! describes for space-dependent requirements a fixed `usize` can't express
+//! (e.g. Nelder-Mead's `pop_size >= dim + 1`), and the same pattern every
+//! typed generator's own `assert!(pop.len() >= 2, ...)` already uses. Tests
+//! below exercise [`CompoundGenerator::validate_against_space`] DIRECTLY (a
+//! real `Result`, no panic, no engine run needed) for the "mis-assignment
+//! validation errors... naming both" requirement (Task 5 brief), AND (per
+//! the M3-8 deferral closed above) at the `AlgorithmSpec::validate` level --
+//! this is now the earliest point in this framework's component model a
+//! per-block-index check can run, since no `from_params` (not
+//! `CompoundGenerator`'s, not
 //! any other component's) ever receives the target `SearchSpace`.
 //!
 //! ## Sub-generator dispatch table (per Task 5's "Registered generator
@@ -87,13 +106,17 @@
 //!   ]
 //! }
 //! ```
-//! Note the crossover-probability spelling split visible above: the legacy
-//! generators (`gen/ga-real`, `gen/ga-perm`) parse `pc`, while every M3-8
-//! typed family (`gen/ga-bin`/`gen/ga-int`/`gen/ga-cat`) parses `p_c`. Every
-//! `from_params` here is permissive (unknown keys are silently ignored), so
-//! spelling matters per family -- writing `p_c` on a `gen/ga-real` block (or
-//! `pc` on a typed block) silently falls back to the default instead of
-//! erroring.
+//! Note the crossover-probability spelling shown mixed above (`pc` on
+//! `gen/ga-real`, `p_c` on the typed families): both spellings are now
+//! accepted EVERYWHERE, canonical `p_c` (`p_m` for the analogous mutation
+//! key, where a family has one) -- `pc`/`pm` are accepted legacy aliases on
+//! every family, including `gen/ga-real`/`gen/ox`/`gen/ga-perm` (see
+//! `params.rs`'s own doc for the full resolution rule and history). If a
+//! block sets BOTH spellings, the canonical key wins and the legacy key is
+//! ignored outright. Every `from_params` here is still permissive for any
+//! OTHER unknown key (silently ignored), so a genuinely misspelled key
+//! (neither `p_c` nor `pc`) still silently falls back to the default instead
+//! of erroring.
 //!
 //! `blocks` is an ORDERED array, one entry per block of the target space, in
 //! the SAME order `SearchSpace::blocks()` lists them. Each entry deserializes
@@ -265,12 +288,33 @@ impl CompoundGenerator {
 }
 
 impl Generator for CompoundGenerator {
+    /// Delegates to [`CompoundGenerator::validate_against_space`] -- this is
+    /// the M3-8 deferral this module's doc anticipated (see "Controller
+    /// ruling" above, written when no such hook existed): `sezgi_core`'s
+    /// `Generator::validate_space` build-time hook now lets `gen/compound`
+    /// veto a mis-assigned space through `AlgorithmSpec::validate`/
+    /// `Engine::from_spec` directly, with a real `Result`, instead of only
+    /// through the `generate()`-time panic below.
+    fn validate_space(&self, space: &SearchSpace) -> Result<(), ComponentError> {
+        self.validate_against_space(space)
+    }
+
     /// See module doc's "The single-block VIEW contract" and "RNG stream
     /// design" sections for the full algorithm and its exactness proof.
-    /// Panics (via `validate_against_space`'s `Err`, unwrapped) if the
-    /// space doesn't match this compound's `blocks` config -- see module
-    /// doc's "Controller ruling" section for why a panic, not a `Result`,
-    /// is this trait's only available signal here.
+    ///
+    /// Panics (via `validate_against_space`'s `Err`, unwrapped) if the space
+    /// doesn't match this compound's `blocks` config. Since the addition of
+    /// `Generator::validate_space` (delegated to `validate_against_space`
+    /// above), this panic is UNREACHABLE through the normal
+    /// `AlgorithmSpec::validate`/`Engine::from_spec` path -- that path now
+    /// fails earlier, at build/validate time, with a real `Result`. This
+    /// panic remains only as a defensive backstop for the direct
+    /// construction path (`CompoundGenerator::from_params` followed
+    /// directly by `.generate()`, bypassing `AlgorithmSpec::validate`
+    /// entirely -- e.g. this module's own
+    /// `generate_panics_on_mis_assigned_space` test below), which
+    /// `Generator::generate`'s panic-only signature still can't express as
+    /// a `Result`.
     fn generate(&self, pop: &Population, ctx: &mut Ctx) -> Vec<Genotype> {
         if let Err(e) = self.validate_against_space(ctx.space) {
             panic!("gen/compound: {e}");
@@ -539,9 +583,20 @@ mod tests {
         assert!(g.validate_against_space(&space).is_ok());
     }
 
+    // Adapted for the M3-8 deferral closed by this change (`sezgi_core`'s
+    // `Generator::validate_space` build-time hook, delegated to here by
+    // `CompoundGenerator::validate_space` above): through the NORMAL
+    // `AlgorithmSpec::validate`/`Engine::from_spec` path, this exact
+    // mis-assignment now fails earlier, with a real `Result` naming the
+    // sub-generator and block (see
+    // `spec_validation_rejects_gen_compound_mis_assigned_block` below) --
+    // the panic below is no longer reachable that way. This test now
+    // exercises only the remaining defensive-backstop path: calling
+    // `.generate()` directly on a `CompoundGenerator` built via
+    // `from_params`, WITHOUT ever going through `AlgorithmSpec::validate`.
     #[test]
     #[should_panic(expected = "gen/compound")]
-    fn generate_panics_on_mis_assigned_space() {
+    fn generate_panics_on_mis_assigned_space_when_validate_is_bypassed() {
         let g = CompoundGenerator::from_params(&serde_json::json!({
             "blocks": [{"kind": "gen/ga-bin"}]
         })).unwrap();
@@ -559,6 +614,87 @@ mod tests {
     // spec-level integration (mirrors bin_ops.rs's own
     // spec_validation_accepts/rejects tests, at the AlgorithmSpec level)
     // ==================================================================
+
+    /// Shared scaffold for the spec-level `gen/compound` tests below: a
+    /// fully-registered `Registry` plus an `AlgorithmSpec` whose single
+    /// stage's generator is `gen/compound` with the given sub-generator
+    /// `params`. The caller supplies the target `SearchSpace` separately to
+    /// `.validate`/`Engine::from_spec`.
+    fn mixed_compound_spec(generator_params: serde_json::Value) -> (Registry, sezgi_core::spec::AlgorithmSpec) {
+        use sezgi_core::spec::{AlgorithmSpec, StageSpec, TerminationSpec};
+        let mut reg = Registry::new();
+        register(&mut reg);
+        crate::bin_ops::register(&mut reg);
+        crate::int_ops::register(&mut reg);
+        crate::cat_ops::register(&mut reg);
+        crate::ga::register(&mut reg);
+        crate::perm::register(&mut reg);
+        crate::init::register(&mut reg);
+        crate::boundary::register(&mut reg);
+        crate::replace::register(&mut reg);
+        let spec = AlgorithmSpec {
+            name: "t".into(), pop_size: 10,
+            init: ComponentSpec { kind: "init/uniform".into(), params: serde_json::json!({}) },
+            boundary: ComponentSpec { kind: "boundary/clamp".into(), params: serde_json::json!({}) },
+            stages: vec![StageSpec {
+                generator: ComponentSpec { kind: "gen/compound".into(), params: generator_params },
+                replacer: ComponentSpec { kind: "replace/mu-plus-lambda".into(), params: serde_json::json!({}) },
+                adapter: None,
+            }],
+            termination: TerminationSpec { budget: 1000, target: None },
+            restart: None,
+        };
+        (reg, spec)
+    }
+
+    /// M3-8 deferral (task A of the deferral-cleanup batch): a mis-assigned
+    /// `gen/compound` sub-generator (`gen/ga-bin` on a Float block, the same
+    /// mismatch `generate_panics_on_mis_assigned_space_when_validate_is_bypassed`
+    /// above exercises through the panic backstop) now fails
+    /// `AlgorithmSpec::validate` -- and, through it, `Engine::from_spec` --
+    /// directly, with `SpecError::Component(ComponentError::InvalidParams)`
+    /// naming both the sub-generator kind and the block, BEFORE any
+    /// `generate()` call.
+    #[test]
+    fn spec_validation_rejects_gen_compound_mis_assigned_block() {
+        use sezgi_core::engine::Engine;
+        use sezgi_core::spec::SpecError;
+        let space = SearchSpace::new(vec![Block::Float { lo: 0.0, hi: 1.0, n: 3 }]).unwrap();
+        let (reg, spec) = mixed_compound_spec(serde_json::json!({"blocks": [{"kind": "gen/ga-bin"}]}));
+        match spec.validate(&reg, &space) {
+            Err(SpecError::Component(ComponentError::InvalidParams { kind, reason })) => {
+                assert_eq!(kind, "gen/compound");
+                assert!(reason.contains("gen/ga-bin"), "{reason}");
+                assert!(reason.contains("float"), "{reason}");
+            }
+            other => panic!("expected SpecError::Component(InvalidParams), got {other:?}"),
+        }
+        // Engine::from_spec calls spec.validate internally -- same failure,
+        // same error, reached through the engine's own build path.
+        assert!(matches!(
+            Engine::from_spec(&spec, &reg, &space),
+            Err(SpecError::Component(ComponentError::InvalidParams { .. }))
+        ));
+    }
+
+    /// M3-8 deferral: a wrong-arity `gen/compound` spec (4 sub-generator
+    /// entries against a 1-block space, the same mismatch
+    /// `validate_wrong_arity_names_both_counts` above exercises directly)
+    /// now fails `AlgorithmSpec::validate` as well, not only a direct
+    /// `validate_against_space` call.
+    #[test]
+    fn spec_validation_rejects_gen_compound_wrong_arity() {
+        let space = SearchSpace::new(vec![Block::Float { lo: 0.0, hi: 1.0, n: 2 }]).unwrap();
+        let (reg, spec) = mixed_compound_spec(compound_spec_json()); // 4 sub-specs, 1-block space
+        match spec.validate(&reg, &space) {
+            Err(sezgi_core::spec::SpecError::Component(ComponentError::InvalidParams { kind, reason })) => {
+                assert_eq!(kind, "gen/compound");
+                assert!(reason.contains('4'), "{reason}");
+                assert!(reason.contains('1'), "{reason}");
+            }
+            other => panic!("expected SpecError::Component(InvalidParams), got {other:?}"),
+        }
+    }
 
     #[test]
     fn spec_validation_accepts_gen_compound_on_matching_mixed_space() {

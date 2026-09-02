@@ -93,7 +93,14 @@ impl AlgorithmSpec {
             reg.build_boundary(&self.boundary.kind, &self.boundary.params)?.meta(),
         ];
         for st in &self.stages {
-            metas.push(reg.build_generator(&st.generator.kind, &st.generator.params)?.meta());
+            let generator = reg.build_generator(&st.generator.kind, &st.generator.params)?;
+            // Space-aware build-time hook (M3-8 deferral, `component.rs`'s
+            // `Generator::validate_space`): most generators inherit the
+            // no-op default, but e.g. `gen/compound` uses this to veto a
+            // sub-generator/block mismatch here, at build time, instead of
+            // panicking on first `generate()`.
+            generator.validate_space(space)?;
+            metas.push(generator.meta());
             metas.push(reg.build_replacer(&st.replacer.kind, &st.replacer.params)?.meta());
             if let Some(a) = &st.adapter {
                 metas.push(reg.build_adapter(&a.kind, &a.params)?.meta());

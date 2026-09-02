@@ -1,290 +1,284 @@
+//! Categorical operators: `gen/cat-ux`, `gen/cat-reset`, `gen/ga-cat` -- the
+//! Categorical-genotype counterpart to `int_ops.rs`'s Int triple
+//! (`gen/int-sbx`/`gen/int-pm`/`gen/ga-int`), `bin_ops.rs`'s Binary triple
+//! (`gen/bin-2pt`/`gen/bit-flip`/`gen/ga-bin`) and `ga.rs`'s Float pair
+//! (`gen/ga-real`). Like those modules, all three operate on a single
+//! `Block::Categorical { k, n }` block (block tag `"categorical"`, per
+//! `sezgi_core::spec::block_tag` -- the exact string checked by
+//! `AlgorithmSpec::validate`'s `SupportedBlocks::Only` gate).
+//!
+//! ## PROVENANCE -- pymoo 0.6.2's Choice convention (Apache-2.0)
+//!
+//! This module structurally ports pymoo 0.6.2's Choice-variable operator
+//! wiring -- its uniform-crossover-mask genotype recombination and its
+//! random-reset mutation. pymoo is licensed Apache-2.0; this is attributed
+//! structural porting, not a verbatim code copy: pymoo
+//! (github.com/anyoptimization/pymoo, tag `0.6.2`) --
+//!
+//! | File | sha256 |
+//! |---|---|
+//! | `pymoo/core/mixed.py` | `2218e749b5f945df05ba76998933b405363eba00260461188dd4829f26fc2e47` |
+//! | `pymoo/operators/crossover/ux.py` | `561bef264612954e5babe7555b88733fd4467e8687120abcba0fa9e4e46a5e12` |
+//! | `pymoo/operators/mutation/rm.py` | `d392c104deb40f2302c516cb39b5c049074af89e10acc02ecd64f316d2338430` |
+//! | `pymoo/core/variable.py` | `20a3b34b8b217242029328b1f31d4216ad6e4370a1d6f053f19eb44b60746ced` |
+//! | `pymoo/core/crossover.py` | `93a9d4e9e65337342ee3a015f3e9269e0a068829c25de78b39dcfdfc66de8f1c` |
+//! | `pymoo/core/mutation.py` | `3259175177b8814ce128e912d3b62e3ae511a020ee5652c7e4c339638b6048a7` |
+//! | `pymoo/util/misc.py` | `8d32099e34554561b90a17a2d740bae0dae2f59b95b4eae2cb861af3fc779b73` |
+//!
+//! Every file above was fetched TWICE -- once via `curl` from
+//! `raw.githubusercontent.com/anyoptimization/pymoo/0.6.2/...` (the GitHub
+//! tag), once via `uv pip install --python .venv/bin/python pymoo==0.6.2` in
+//! the scratchpad venv (the PyPI release) -- and `diff`'d byte-identical
+//! (`exit=0`) between the two, confirming the tag and the release are the
+//! same code (same technique as `int_ops.rs`'s own Task 3 re-verification).
+//! `variable.py`/`mixed.py`/`crossover.py`/`mutation.py`'s sha256s here are
+//! IDENTICAL to `int_ops.rs`'s own PROVENANCE table (same files, re-fetched
+//! independently, same bytes -- cross-confirms both tasks read the same
+//! pinned pymoo release).
+//!
+//! - `pymoo/core/mixed.py`, `MixedVariableMating.__init__` -- the wiring:
+//!   ```python
+//!   if crossover is None:
+//!       crossover = {
+//!           Binary: UX(), Real: SBX(),
+//!           Integer: SBX(vtype=float, repair=RoundingRepair()),
+//!           Choice: UX(),
+//!       }
+//!   if mutation is None:
+//!       mutation = {
+//!           Binary: BFM(), Real: PM(),
+//!           Integer: PM(vtype=float, repair=RoundingRepair()),
+//!           Choice: ChoiceRandomMutation(),
+//!       }
+//!   ```
+//!   `Choice` maps to `UX()` (uniform crossover, no override args) for
+//!   crossover and `ChoiceRandomMutation()` (no override args) for mutation
+//!   -- UNLIKE `Integer`/`Real`, no `vtype=float`/`repair=RoundingRepair()`
+//!   wrapping: Choice values are never floated or rounded, they are moved
+//!   around/resampled as opaque category indices throughout.
+//!
+//! ### (a) Uniform-crossover mask semantics -- quoted verbatim, per-gene 0.5
+//!
+//! `pymoo/operators/crossover/ux.py`, `UniformCrossover._do` (`UX` is a
+//! trivial subclass, no override):
+//! ```python
+//! def _do(self, _, X, random_state=None, **kwargs):
+//!     _, n_matings, n_var = X.shape
+//!     M = random_state.random((n_matings, n_var)) < 0.5
+//!     _X = crossover_mask(X, M)
+//!     return _X
+//! ```
+//! `pymoo/util/misc.py`, `crossover_mask`:
+//! ```python
+//! def crossover_mask(X, M):
+//!     _X = np.copy(X)
+//!     _X[0][M] = X[1][M]
+//!     _X[1][M] = X[0][M]
+//!     return _X
+//! ```
+//! One draw per gene, ONE fixed threshold `0.5` (NOT parameterized by
+//! `prob_var` the way `Integer`'s SBX exchange rate is -- `0.5` is intrinsic
+//! to "uniform" crossover itself, not a tunable gate): `M[j] = draw < 0.5`.
+//! Where `M[j]` is `True`, child0's gene `j` and child1's gene `j` are
+//! SWAPPED (`_X[0][M]=X[1][M]`, `_X[1][M]=X[0][M]`); where `False`, each
+//! child keeps its own-index parent's gene. VERIFIED exactly via the
+//! scratchpad `cat_oracle_probe.py::ux_mask_scenario` (a scripted
+//! `random_state` returning `[0.1, 0.9, 0.49999, 0.5]` for a 4-gene pair
+//! produces gene0/gene2 swapped, gene1/gene3 kept -- matching `< 0.5`
+//! exactly, including the `0.5` boundary itself being EXCLUDED (not
+//! swapped), confirmed against [`cat_cross_pair`]'s own strict `<` below).
+//!
+//! `UX._do` has NO pair-level gate of its own -- that lives in the base
+//! `Crossover.do` wrapper (`pymoo/core/crossover.py`,
+//! `Crossover.__init__(self, n_parents, n_offsprings, prob=0.9, **kwargs)`,
+//! NOT overridden by `UX`), quoted verbatim:
+//! ```python
+//! prob = get(self.prob, size=n_matings)
+//! cross = random_state.random(n_matings) < prob
+//! ```
+//! i.e. an outer per-PAIR gate (default `p_c = 0.9`) wraps the per-gene mask
+//! draws, mirroring the SAME single-outer-gate-then-per-gene-action shape
+//! `bin_ops.rs`'s `bin_cross_pair`/`int_ops.rs`'s `sbx_pair` already use
+//! (KanGAL's `bincross`'s single `p_c` gate, `sbx_pair`'s own internal
+//! whole-pair gate). [`cat_cross_pair`] below follows the SAME shape: one
+//! `p_c` gate (default `0.9`, VERIFIED as `UX`'s own resolved default via
+//! `cat_oracle_probe.py::get_prob_var_default_scenario`'s
+//! `UX().prob.value == 0.9`), THEN, on pass, one fixed-`0.5` mask draw per
+//! gene.
+//!
+//! ### (b) Random-reset sampling -- quoted verbatim, verified: does NOT
+//! exclude the current value
+//!
+//! `pymoo/operators/mutation/rm.py`, `ChoiceRandomMutation._do`:
+//! ```python
+//! def _do(self, problem, X, random_state=None, **kwargs):
+//!     assert problem.vars is not None
+//!     X = X.astype(object)
+//!     prob_var = self.get_prob_var(problem, size=len(X))
+//!     for k, (_, var) in enumerate(problem.vars.items()):
+//!         mut = np.where(random_state.random(len(X)) < prob_var)[0]
+//!         v = var.sample(len(mut), random_state=random_state)
+//!         X[mut, k] = v
+//!     return X
+//! ```
+//! `var.sample(...)` (`pymoo/core/variable.py`, `Variable.sample` ->
+//! `Choice._sample`), quoted verbatim:
+//! ```python
+//! def _sample(self, n, random_state=None):
+//!     return random_state.choice(self.options, size=n)
+//! ```
+//! **VERDICT (settled from source, not assumed): the reset draws UNIFORMLY
+//! over ALL `k` options, and does NOT exclude the currently-held value.**
+//! `Choice._sample` takes `self.options` (the FULL option set) and the
+//! COUNT `n` only -- there is no reference anywhere in this call chain (nor
+//! in `Choice.__init__`/`Variable.__init__`) to the variable's current
+//! value, no filtering, no "exclude self" logic, no shrunk option pool. A
+//! "reset" can therefore reproduce the SAME category the gene already held,
+//! with probability `1/k`, exactly like an ordinary independent resample
+//! (indistinguishable from `init/uniform`'s own `Block::Categorical` sampler
+//! -- `boundary.rs`'s `sample_uniform`'s `rng.next_below(k as u64)` -- by
+//! design). VERIFIED two ways in the scratchpad venv:
+//! - Structurally: read `Choice._sample`/`Choice.__init__`/`Variable.sample`
+//!   above -- no exclusion code exists to find.
+//! - Statistically, through pymoo's OWN REAL mutation code path (not just
+//!   `Choice._sample` in isolation): `cat_oracle_probe_stats.py` constructs a
+//!   `FakeProblem` with one `Choice(options=[0..5))` variable, a population
+//!   of 20000 individuals all holding value `0`, `ChoiceRandomMutation(
+//!   prob_var=1.0)` (forces every trial's gate to pass, isolating the reset
+//!   kernel), calls `ChoiceRandomMutation()._do(problem, X,
+//!   random_state=rng)` directly (numpy's own `default_rng(31415)`), and
+//!   measures `frac(new_value == 0)` over the 20000 trials: **0.201550**,
+//!   matching the `1/k = 1/5 = 0.2` prediction for "no exclusion" (an
+//!   EXCLUDING reset would instead land at exactly `0.0`). [`cat_reset`]
+//!   below mirrors this exactly: on gate pass, `rng.next_below(k)` -- a
+//!   plain uniform draw over `0..k`, no filtering of the current value.
+//!
+//! ### (c) Parameter defaults -- the two-level-to-single-level gating
+//! mapping (mirrors `int_ops.rs`'s own documented mapping exactly)
+//!
+//! `Crossover.__init__(self, n_parents, n_offsprings, prob=0.9, **kwargs)`
+//! (`UX` inherits, no override) -> **`p_c = 0.9`** for [`cat_cross_pair`]/
+//! `gen/cat-ux`/`gen/ga-cat`'s own pair-level gate (VERIFIED via
+//! `cat_oracle_probe.py`'s `UX().prob.value == 0.9`).
+//!
+//! `Mutation.__init__(self, prob=1.0, prob_var=None, **kwargs)`
+//! (`pymoo/core/mutation.py`) -- `ChoiceRandomMutation` does NOT override
+//! `__init__` (no override args on the class at all, only `_do`), so it
+//! inherits the BASE `Mutation` class's default `prob=1.0` for its OUTER,
+//! individual-level gate (`Mutation.do`: `mut = random_state.random(
+//! size=n_mut) <= prob`) -- VERIFIED via `cat_oracle_probe.py`'s
+//! `ChoiceRandomMutation().prob.value == 1.0`. This is DIFFERENT from
+//! `int_ops.rs`'s own finding for `PM` (whose own constructor sets
+//! `prob=0.9`, overriding `Mutation`'s base default): **Choice's outer gate
+//! defaults to `1.0`, i.e. it is a NO-OP pass-through** (always fires) --
+//! unlike `Integer`'s PM, which has a meaningful `0.9` outer gate on top of
+//! its per-variable `prob_var` gate. The ONLY mutation gate with a
+//! non-trivial default for Choice is therefore the per-variable one:
+//! `Mutation.get_prob_var` (`pymoo/core/mutation.py`), quoted verbatim:
+//! ```python
+//! def get_prob_var(self, problem, **kwargs):
+//!     prob_var = (
+//!         self.prob_var if self.prob_var is not None else min(0.5, 1 / problem.n_var)
+//!     )
+//!     return get(prob_var, **kwargs)
+//! ```
+//! `ChoiceRandomMutation` never sets `self.prob_var` (no such constructor
+//! arg), so this resolves to `min(0.5, 1/n_var) = 1/n_var` for every
+//! `n_var >= 2` -- VERIFIED via `cat_oracle_probe.py`'s
+//! `get_prob_var_default_scenario` (`n_var in {1,2,4,10}` all match exactly)
+//! -- the SAME `1/n` convention `gen/ga-real`/`gen/ga-bin`/`gen/ga-perm`/
+//! `gen/ga-int` already default `p_m` to.
+//!
+//! **The gating-convention mapping (mirrors `int_ops.rs`'s own documented
+//! mapping)**: pymoo's Choice mutation is ALSO nominally two-level
+//! (individual `prob` x per-variable `prob_var`), but since Choice's own
+//! individual-level default (`1.0`) is a no-op, its EFFECTIVE resolved
+//! mutation rate for `n_var >= 2` is ALREADY `1.0 * 1/n_var = 1/n_var`,
+//! numerically IDENTICAL to what a single-level `1/n` gate would give --
+//! unlike `Integer`'s PM, where the two-level gate resolves to `0.9/n`
+//! (an ACTUAL divergence from sezgi's single-level `1/n`, documented in
+//! `int_ops.rs`'s own module doc). [`cat_reset`]/`gen/cat-reset`/
+//! `gen/ga-cat` below use a single per-variable gate at `p_m` (default
+//! `1/n`, matching `int_ops.rs`'s/`bin_ops.rs`'s established `Option<f64>`
+//! pattern) with NO outer individual-level gate on top -- for Choice
+//! specifically this is NOT an approximation of pymoo's own semantics, it
+//! is EXACTLY pymoo's own resolved rate (pymoo's outer gate being `1.0` by
+//! default makes the two conventions coincide here, unlike the Integer
+//! case).
+//!
+//! For crossover, pymoo's own structure IS already single-level (one `p_c`
+//! pair gate, `0.9` default, wrapping the fixed-`0.5` per-gene mask) -- no
+//! mapping/divergence needed at all: [`cat_cross_pair`] reproduces this
+//! shape directly, verbatim.
+//!
+//! ## Single-block scope (mirrors `bin_ops.rs`'s/`int_ops.rs`'s own house
+//! convention)
+//!
+//! Like `bin_ops.rs`'s/`int_ops.rs`'s own generators, this module's
+//! generators read exactly ONE `Block::Categorical` block, via
+//! `ctx.space.blocks()[0]` ([`cat_dim`]/[`cat_k`]/[`cat_values`]) --
+//! consistent with `gen/ga-real` (Float, one block), `gen/ga-perm`
+//! (Permutation, one block), `gen/ga-bin` (Binary, one block) and
+//! `gen/ga-int` (Int, one block), NOT with `nsga2_run`'s multi-block MO
+//! path. A general multi-block composition, if ever needed, is out of scope
+//! here (M3-8 Task 5's `gen/compound` may revisit it).
+//!
+//! ## Standalone `gen/cat-ux`/`gen/cat-reset` (implementer judgment: shipped)
+//!
+//! The brief's PINNED interface names only `gen/ga-cat` explicitly, leaving
+//! standalone crossover-only/mutation-only registry IDs to implementer
+//! judgment ("ship only if they factor naturally"). [`cat_cross_pair`]/
+//! [`cat_reset`] factor exactly as naturally here as `bin_cross_pair`/
+//! `bin_flip_mutation` did for `bin_ops.rs` and `sbx_round_pair`/
+//! `pm_round_mutation` did for `int_ops.rs` (both of which DID ship
+//! standalones, per Task 2/Task 3) -- there is no structural reason
+//! Categorical would be different, so this module ships `gen/cat-ux`
+//! (crossover-only) and `gen/cat-reset` (mutation-only) alongside the fused
+//! `gen/ga-cat`, for the same composability reasons (a future
+//! `gen/compound`/two-phase algorithm could want just one half).
+//!
+//! ## `gen/cat-ux` / `gen/ga-cat`'s pair loop (mirrors `gen/bin-2pt`/
+//! `gen/int-sbx` exactly)
+//!
+//! Tournament selection ([`crate::select::tournament`], shared with every
+//! other representation in this crate): draw a candidate, then
+//! `tournament_k - 1` more, keeping the best (lowest fitness) seen. Per
+//! pair: tournament for parent 1 (`tournament_k` draws), THEN tournament for
+//! parent 2 (`tournament_k` more draws), THEN [`cat_cross_pair`] directly --
+//! [`cat_cross_pair`]'s own internal whole-pair gate (`p_c`) is the ONLY
+//! gate; callers here do NOT draw a second, redundant gate (same structural
+//! reasoning as `bin_ops.rs`'s/`int_ops.rs`'s own fused generators).
+//! `gen/ga-cat` additionally mutates both children via [`cat_reset`] (`c1`
+//! then `c2`) after crossover, mirroring `gen/ga-bin`'s/`gen/ga-int`'s own
+//! crossover-then-mutate-both-children shape.
+//!
+//! ## `gen/cat-reset`'s per-individual loop
+//!
+//! Population order (mirrors `gen/bit-flip`'s/`gen/int-pm`'s own
+//! per-individual loop shape), but with NO outer per-individual gate:
+//! [`cat_reset`] already gates PER VARIABLE internally, so a redundant
+//! per-individual gate on top of it would double-gate -- and, per the
+//! gating-convention mapping above, would ALSO diverge from pymoo's own
+//! resolved Choice semantics (whose outer gate is a `1.0` no-op), unlike
+//! `int_ops.rs`'s PM case.
+//!
+//! ## Defaults
+//!
+//! **`p_c` (`gen/cat-ux` and `gen/ga-cat`): `0.9`.** **`p_m` (`gen/cat-reset`
+//! and `gen/ga-cat`): `1/n`**, `n` = the space's single `Block::Categorical`'s
+//! dimension. Both VERIFIED against pymoo 0.6.2's own Choice wiring -- see
+//! "PROVENANCE" above for the quoted source lines and oracle-probe output
+//! each is drawn from.
+//!
+//! **`tournament_k`: `2`**, mirroring every other representation's own
+//! default in this crate (tournament selection itself now lives in
+//! `crate::select::tournament`, shared with every other representation --
+//! see that module's doc).
+
 use sezgi_core::component::*;
 use sezgi_core::problem::Population;
 use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
-
-/// Categorical operators: `gen/cat-ux`, `gen/cat-reset`, `gen/ga-cat` -- the
-/// Categorical-genotype counterpart to `int_ops.rs`'s Int triple
-/// (`gen/int-sbx`/`gen/int-pm`/`gen/ga-int`), `bin_ops.rs`'s Binary triple
-/// (`gen/bin-2pt`/`gen/bit-flip`/`gen/ga-bin`) and `ga.rs`'s Float pair
-/// (`gen/ga-real`). Like those modules, all three operate on a single
-/// `Block::Categorical { k, n }` block (block tag `"categorical"`, per
-/// `sezgi_core::spec::block_tag` -- the exact string checked by
-/// `AlgorithmSpec::validate`'s `SupportedBlocks::Only` gate).
-///
-/// ## PROVENANCE -- pymoo 0.6.2's Choice convention (Apache-2.0)
-///
-/// This module structurally ports pymoo 0.6.2's Choice-variable operator
-/// wiring -- its uniform-crossover-mask genotype recombination and its
-/// random-reset mutation. pymoo is licensed Apache-2.0; this is attributed
-/// structural porting, not a verbatim code copy: pymoo
-/// (github.com/anyoptimization/pymoo, tag `0.6.2`) --
-///
-/// | File | sha256 |
-/// |---|---|
-/// | `pymoo/core/mixed.py` | `2218e749b5f945df05ba76998933b405363eba00260461188dd4829f26fc2e47` |
-/// | `pymoo/operators/crossover/ux.py` | `561bef264612954e5babe7555b88733fd4467e8687120abcba0fa9e4e46a5e12` |
-/// | `pymoo/operators/mutation/rm.py` | `d392c104deb40f2302c516cb39b5c049074af89e10acc02ecd64f316d2338430` |
-/// | `pymoo/core/variable.py` | `20a3b34b8b217242029328b1f31d4216ad6e4370a1d6f053f19eb44b60746ced` |
-/// | `pymoo/core/crossover.py` | `93a9d4e9e65337342ee3a015f3e9269e0a068829c25de78b39dcfdfc66de8f1c` |
-/// | `pymoo/core/mutation.py` | `3259175177b8814ce128e912d3b62e3ae511a020ee5652c7e4c339638b6048a7` |
-/// | `pymoo/util/misc.py` | `8d32099e34554561b90a17a2d740bae0dae2f59b95b4eae2cb861af3fc779b73` |
-///
-/// Every file above was fetched TWICE -- once via `curl` from
-/// `raw.githubusercontent.com/anyoptimization/pymoo/0.6.2/...` (the GitHub
-/// tag), once via `uv pip install --python .venv/bin/python pymoo==0.6.2` in
-/// the scratchpad venv (the PyPI release) -- and `diff`'d byte-identical
-/// (`exit=0`) between the two, confirming the tag and the release are the
-/// same code (same technique as `int_ops.rs`'s own Task 3 re-verification).
-/// `variable.py`/`mixed.py`/`crossover.py`/`mutation.py`'s sha256s here are
-/// IDENTICAL to `int_ops.rs`'s own PROVENANCE table (same files, re-fetched
-/// independently, same bytes -- cross-confirms both tasks read the same
-/// pinned pymoo release).
-///
-/// - `pymoo/core/mixed.py`, `MixedVariableMating.__init__` -- the wiring:
-///   ```python
-///   if crossover is None:
-///       crossover = {
-///           Binary: UX(), Real: SBX(),
-///           Integer: SBX(vtype=float, repair=RoundingRepair()),
-///           Choice: UX(),
-///       }
-///   if mutation is None:
-///       mutation = {
-///           Binary: BFM(), Real: PM(),
-///           Integer: PM(vtype=float, repair=RoundingRepair()),
-///           Choice: ChoiceRandomMutation(),
-///       }
-///   ```
-///   `Choice` maps to `UX()` (uniform crossover, no override args) for
-///   crossover and `ChoiceRandomMutation()` (no override args) for mutation
-///   -- UNLIKE `Integer`/`Real`, no `vtype=float`/`repair=RoundingRepair()`
-///   wrapping: Choice values are never floated or rounded, they are moved
-///   around/resampled as opaque category indices throughout.
-///
-/// ### (a) Uniform-crossover mask semantics -- quoted verbatim, per-gene 0.5
-///
-/// `pymoo/operators/crossover/ux.py`, `UniformCrossover._do` (`UX` is a
-/// trivial subclass, no override):
-/// ```python
-/// def _do(self, _, X, random_state=None, **kwargs):
-///     _, n_matings, n_var = X.shape
-///     M = random_state.random((n_matings, n_var)) < 0.5
-///     _X = crossover_mask(X, M)
-///     return _X
-/// ```
-/// `pymoo/util/misc.py`, `crossover_mask`:
-/// ```python
-/// def crossover_mask(X, M):
-///     _X = np.copy(X)
-///     _X[0][M] = X[1][M]
-///     _X[1][M] = X[0][M]
-///     return _X
-/// ```
-/// One draw per gene, ONE fixed threshold `0.5` (NOT parameterized by
-/// `prob_var` the way `Integer`'s SBX exchange rate is -- `0.5` is intrinsic
-/// to "uniform" crossover itself, not a tunable gate): `M[j] = draw < 0.5`.
-/// Where `M[j]` is `True`, child0's gene `j` and child1's gene `j` are
-/// SWAPPED (`_X[0][M]=X[1][M]`, `_X[1][M]=X[0][M]`); where `False`, each
-/// child keeps its own-index parent's gene. VERIFIED exactly via the
-/// scratchpad `cat_oracle_probe.py::ux_mask_scenario` (a scripted
-/// `random_state` returning `[0.1, 0.9, 0.49999, 0.5]` for a 4-gene pair
-/// produces gene0/gene2 swapped, gene1/gene3 kept -- matching `< 0.5`
-/// exactly, including the `0.5` boundary itself being EXCLUDED (not
-/// swapped), confirmed against [`cat_cross_pair`]'s own strict `<` below).
-///
-/// `UX._do` has NO pair-level gate of its own -- that lives in the base
-/// `Crossover.do` wrapper (`pymoo/core/crossover.py`,
-/// `Crossover.__init__(self, n_parents, n_offsprings, prob=0.9, **kwargs)`,
-/// NOT overridden by `UX`), quoted verbatim:
-/// ```python
-/// prob = get(self.prob, size=n_matings)
-/// cross = random_state.random(n_matings) < prob
-/// ```
-/// i.e. an outer per-PAIR gate (default `p_c = 0.9`) wraps the per-gene mask
-/// draws, mirroring the SAME single-outer-gate-then-per-gene-action shape
-/// `bin_ops.rs`'s `bin_cross_pair`/`int_ops.rs`'s `sbx_pair` already use
-/// (KanGAL's `bincross`'s single `p_c` gate, `sbx_pair`'s own internal
-/// whole-pair gate). [`cat_cross_pair`] below follows the SAME shape: one
-/// `p_c` gate (default `0.9`, VERIFIED as `UX`'s own resolved default via
-/// `cat_oracle_probe.py::get_prob_var_default_scenario`'s
-/// `UX().prob.value == 0.9`), THEN, on pass, one fixed-`0.5` mask draw per
-/// gene.
-///
-/// ### (b) Random-reset sampling -- quoted verbatim, verified: does NOT
-/// exclude the current value
-///
-/// `pymoo/operators/mutation/rm.py`, `ChoiceRandomMutation._do`:
-/// ```python
-/// def _do(self, problem, X, random_state=None, **kwargs):
-///     assert problem.vars is not None
-///     X = X.astype(object)
-///     prob_var = self.get_prob_var(problem, size=len(X))
-///     for k, (_, var) in enumerate(problem.vars.items()):
-///         mut = np.where(random_state.random(len(X)) < prob_var)[0]
-///         v = var.sample(len(mut), random_state=random_state)
-///         X[mut, k] = v
-///     return X
-/// ```
-/// `var.sample(...)` (`pymoo/core/variable.py`, `Variable.sample` ->
-/// `Choice._sample`), quoted verbatim:
-/// ```python
-/// def _sample(self, n, random_state=None):
-///     return random_state.choice(self.options, size=n)
-/// ```
-/// **VERDICT (settled from source, not assumed): the reset draws UNIFORMLY
-/// over ALL `k` options, and does NOT exclude the currently-held value.**
-/// `Choice._sample` takes `self.options` (the FULL option set) and the
-/// COUNT `n` only -- there is no reference anywhere in this call chain (nor
-/// in `Choice.__init__`/`Variable.__init__`) to the variable's current
-/// value, no filtering, no "exclude self" logic, no shrunk option pool. A
-/// "reset" can therefore reproduce the SAME category the gene already held,
-/// with probability `1/k`, exactly like an ordinary independent resample
-/// (indistinguishable from `init/uniform`'s own `Block::Categorical` sampler
-/// -- `boundary.rs`'s `sample_uniform`'s `rng.next_below(k as u64)` -- by
-/// design). VERIFIED two ways in the scratchpad venv:
-/// - Structurally: read `Choice._sample`/`Choice.__init__`/`Variable.sample`
-///   above -- no exclusion code exists to find.
-/// - Statistically, through pymoo's OWN REAL mutation code path (not just
-///   `Choice._sample` in isolation): `cat_oracle_probe_stats.py` constructs a
-///   `FakeProblem` with one `Choice(options=[0..5))` variable, a population
-///   of 20000 individuals all holding value `0`, `ChoiceRandomMutation(
-///   prob_var=1.0)` (forces every trial's gate to pass, isolating the reset
-///   kernel), calls `ChoiceRandomMutation()._do(problem, X,
-///   random_state=rng)` directly (numpy's own `default_rng(31415)`), and
-///   measures `frac(new_value == 0)` over the 20000 trials: **0.201550**,
-///   matching the `1/k = 1/5 = 0.2` prediction for "no exclusion" (an
-///   EXCLUDING reset would instead land at exactly `0.0`). [`cat_reset`]
-///   below mirrors this exactly: on gate pass, `rng.next_below(k)` -- a
-///   plain uniform draw over `0..k`, no filtering of the current value.
-///
-/// ### (c) Parameter defaults -- the two-level-to-single-level gating
-/// mapping (mirrors `int_ops.rs`'s own documented mapping exactly)
-///
-/// `Crossover.__init__(self, n_parents, n_offsprings, prob=0.9, **kwargs)`
-/// (`UX` inherits, no override) -> **`p_c = 0.9`** for [`cat_cross_pair`]/
-/// `gen/cat-ux`/`gen/ga-cat`'s own pair-level gate (VERIFIED via
-/// `cat_oracle_probe.py`'s `UX().prob.value == 0.9`).
-///
-/// `Mutation.__init__(self, prob=1.0, prob_var=None, **kwargs)`
-/// (`pymoo/core/mutation.py`) -- `ChoiceRandomMutation` does NOT override
-/// `__init__` (no override args on the class at all, only `_do`), so it
-/// inherits the BASE `Mutation` class's default `prob=1.0` for its OUTER,
-/// individual-level gate (`Mutation.do`: `mut = random_state.random(
-/// size=n_mut) <= prob`) -- VERIFIED via `cat_oracle_probe.py`'s
-/// `ChoiceRandomMutation().prob.value == 1.0`. This is DIFFERENT from
-/// `int_ops.rs`'s own finding for `PM` (whose own constructor sets
-/// `prob=0.9`, overriding `Mutation`'s base default): **Choice's outer gate
-/// defaults to `1.0`, i.e. it is a NO-OP pass-through** (always fires) --
-/// unlike `Integer`'s PM, which has a meaningful `0.9` outer gate on top of
-/// its per-variable `prob_var` gate. The ONLY mutation gate with a
-/// non-trivial default for Choice is therefore the per-variable one:
-/// `Mutation.get_prob_var` (`pymoo/core/mutation.py`), quoted verbatim:
-/// ```python
-/// def get_prob_var(self, problem, **kwargs):
-///     prob_var = (
-///         self.prob_var if self.prob_var is not None else min(0.5, 1 / problem.n_var)
-///     )
-///     return get(prob_var, **kwargs)
-/// ```
-/// `ChoiceRandomMutation` never sets `self.prob_var` (no such constructor
-/// arg), so this resolves to `min(0.5, 1/n_var) = 1/n_var` for every
-/// `n_var >= 2` -- VERIFIED via `cat_oracle_probe.py`'s
-/// `get_prob_var_default_scenario` (`n_var in {1,2,4,10}` all match exactly)
-/// -- the SAME `1/n` convention `gen/ga-real`/`gen/ga-bin`/`gen/ga-perm`/
-/// `gen/ga-int` already default `p_m` to.
-///
-/// **The gating-convention mapping (mirrors `int_ops.rs`'s own documented
-/// mapping)**: pymoo's Choice mutation is ALSO nominally two-level
-/// (individual `prob` x per-variable `prob_var`), but since Choice's own
-/// individual-level default (`1.0`) is a no-op, its EFFECTIVE resolved
-/// mutation rate for `n_var >= 2` is ALREADY `1.0 * 1/n_var = 1/n_var`,
-/// numerically IDENTICAL to what a single-level `1/n` gate would give --
-/// unlike `Integer`'s PM, where the two-level gate resolves to `0.9/n`
-/// (an ACTUAL divergence from sezgi's single-level `1/n`, documented in
-/// `int_ops.rs`'s own module doc). [`cat_reset`]/`gen/cat-reset`/
-/// `gen/ga-cat` below use a single per-variable gate at `p_m` (default
-/// `1/n`, matching `int_ops.rs`'s/`bin_ops.rs`'s established `Option<f64>`
-/// pattern) with NO outer individual-level gate on top -- for Choice
-/// specifically this is NOT an approximation of pymoo's own semantics, it
-/// is EXACTLY pymoo's own resolved rate (pymoo's outer gate being `1.0` by
-/// default makes the two conventions coincide here, unlike the Integer
-/// case).
-///
-/// For crossover, pymoo's own structure IS already single-level (one `p_c`
-/// pair gate, `0.9` default, wrapping the fixed-`0.5` per-gene mask) -- no
-/// mapping/divergence needed at all: [`cat_cross_pair`] reproduces this
-/// shape directly, verbatim.
-///
-/// ## Single-block scope (mirrors `bin_ops.rs`'s/`int_ops.rs`'s own house
-/// convention)
-///
-/// Like `bin_ops.rs`'s/`int_ops.rs`'s own generators, this module's
-/// generators read exactly ONE `Block::Categorical` block, via
-/// `ctx.space.blocks()[0]` ([`cat_dim`]/[`cat_k`]/[`cat_values`]) --
-/// consistent with `gen/ga-real` (Float, one block), `gen/ga-perm`
-/// (Permutation, one block), `gen/ga-bin` (Binary, one block) and
-/// `gen/ga-int` (Int, one block), NOT with `nsga2_run`'s multi-block MO
-/// path. A general multi-block composition, if ever needed, is out of scope
-/// here (M3-8 Task 5's `gen/compound` may revisit it).
-///
-/// ## Standalone `gen/cat-ux`/`gen/cat-reset` (implementer judgment: shipped)
-///
-/// The brief's PINNED interface names only `gen/ga-cat` explicitly, leaving
-/// standalone crossover-only/mutation-only registry IDs to implementer
-/// judgment ("ship only if they factor naturally"). [`cat_cross_pair`]/
-/// [`cat_reset`] factor exactly as naturally here as `bin_cross_pair`/
-/// `bin_flip_mutation` did for `bin_ops.rs` and `sbx_round_pair`/
-/// `pm_round_mutation` did for `int_ops.rs` (both of which DID ship
-/// standalones, per Task 2/Task 3) -- there is no structural reason
-/// Categorical would be different, so this module ships `gen/cat-ux`
-/// (crossover-only) and `gen/cat-reset` (mutation-only) alongside the fused
-/// `gen/ga-cat`, for the same composability reasons (a future
-/// `gen/compound`/two-phase algorithm could want just one half).
-///
-/// ## `gen/cat-ux` / `gen/ga-cat`'s pair loop (mirrors `gen/bin-2pt`/
-/// `gen/int-sbx` exactly)
-///
-/// Tournament selection ([`tournament`], identical structure to every other
-/// representation's own `tournament` in this crate): draw a candidate, then
-/// `tournament_k - 1` more, keeping the best (lowest fitness) seen. Per
-/// pair: tournament for parent 1 (`tournament_k` draws), THEN tournament for
-/// parent 2 (`tournament_k` more draws), THEN [`cat_cross_pair`] directly --
-/// [`cat_cross_pair`]'s own internal whole-pair gate (`p_c`) is the ONLY
-/// gate; callers here do NOT draw a second, redundant gate (same structural
-/// reasoning as `bin_ops.rs`'s/`int_ops.rs`'s own fused generators).
-/// `gen/ga-cat` additionally mutates both children via [`cat_reset`] (`c1`
-/// then `c2`) after crossover, mirroring `gen/ga-bin`'s/`gen/ga-int`'s own
-/// crossover-then-mutate-both-children shape.
-///
-/// ## `gen/cat-reset`'s per-individual loop
-///
-/// Population order (mirrors `gen/bit-flip`'s/`gen/int-pm`'s own
-/// per-individual loop shape), but with NO outer per-individual gate:
-/// [`cat_reset`] already gates PER VARIABLE internally, so a redundant
-/// per-individual gate on top of it would double-gate -- and, per the
-/// gating-convention mapping above, would ALSO diverge from pymoo's own
-/// resolved Choice semantics (whose outer gate is a `1.0` no-op), unlike
-/// `int_ops.rs`'s PM case.
-///
-/// ## Defaults
-///
-/// **`p_c` (`gen/cat-ux` and `gen/ga-cat`): `0.9`.** **`p_m` (`gen/cat-reset`
-/// and `gen/ga-cat`): `1/n`**, `n` = the space's single `Block::Categorical`'s
-/// dimension. Both VERIFIED against pymoo 0.6.2's own Choice wiring -- see
-/// "PROVENANCE" above for the quoted source lines and oracle-probe output
-/// each is drawn from.
-///
-/// **`tournament_k`: `2`**, mirroring every other representation's own
-/// default in this crate.
-pub(crate) fn tournament(pop: &Population, tournament_k: usize, rng: &mut RngStream) -> usize {
-    let mut best = rng.next_below(pop.len() as u64) as usize;
-    for _ in 1..tournament_k {
-        let c = rng.next_below(pop.len() as u64) as usize;
-        if pop.fitness[c] < pop.fitness[best] { best = c; }
-    }
-    best
-}
 
 /// pymoo 0.6.2's `UX`/`UniformCrossover._do` + `crossover_mask` (see this
 /// module's PROVENANCE doc, "(a)"), wrapped in the SAME single-outer-gate
@@ -367,7 +361,7 @@ impl CatUxGenerator {
         let err = |reason: String| ComponentError::InvalidParams { kind: "gen/cat-ux".into(), reason };
         let g = Self {
             tournament_k: p.get("tournament_k").and_then(|v| v.as_u64()).unwrap_or(2) as usize,
-            p_c: p.get("p_c").and_then(|v| v.as_f64()).unwrap_or(0.9),
+            p_c: crate::params::resolve(p, "p_c", "pc").and_then(|v| v.as_f64()).unwrap_or(0.9),
         };
         if g.tournament_k == 0 { return Err(err("tournament_k must be >= 1".into())); }
         if !(0.0..=1.0).contains(&g.p_c) { return Err(err(format!("p_c outside [0,1]: {}", g.p_c))); }
@@ -383,8 +377,8 @@ impl Generator for CatUxGenerator {
         assert!(pop.len() >= 2, "gen/cat-ux requires a population of at least 2 (pop_size={})", pop.len());
         let mut out = Vec::with_capacity(pop.len());
         while out.len() < pop.len() {
-            let i1 = tournament(pop, self.tournament_k, ctx.rng);
-            let i2 = tournament(pop, self.tournament_k, ctx.rng);
+            let i1 = crate::select::tournament(pop, self.tournament_k, ctx.rng);
+            let i2 = crate::select::tournament(pop, self.tournament_k, ctx.rng);
             let p1 = cat_values(&pop.individuals[i1]).clone();
             let p2 = cat_values(&pop.individuals[i2]).clone();
             let (c1, c2) = cat_cross_pair(&p1, &p2, self.p_c, ctx.rng);
@@ -455,7 +449,7 @@ impl GaCatGenerator {
         let err = |reason: String| ComponentError::InvalidParams { kind: "gen/ga-cat".into(), reason };
         let g = Self {
             tournament_k: p.get("tournament_k").and_then(|v| v.as_u64()).unwrap_or(2) as usize,
-            p_c: p.get("p_c").and_then(|v| v.as_f64()).unwrap_or(0.9),
+            p_c: crate::params::resolve(p, "p_c", "pc").and_then(|v| v.as_f64()).unwrap_or(0.9),
             p_m: p.get("p_m").and_then(|v| v.as_f64()),
         };
         if g.tournament_k == 0 { return Err(err("tournament_k must be >= 1".into())); }
@@ -480,8 +474,8 @@ impl Generator for GaCatGenerator {
         let pm = self.p_m.unwrap_or(1.0 / dim as f64);
         let mut out = Vec::with_capacity(pop.len());
         while out.len() < pop.len() {
-            let i1 = tournament(pop, self.tournament_k, ctx.rng);
-            let i2 = tournament(pop, self.tournament_k, ctx.rng);
+            let i1 = crate::select::tournament(pop, self.tournament_k, ctx.rng);
+            let i2 = crate::select::tournament(pop, self.tournament_k, ctx.rng);
             let p1 = cat_values(&pop.individuals[i1]).clone();
             let p2 = cat_values(&pop.individuals[i2]).clone();
             let (mut c1, mut c2) = cat_cross_pair(&p1, &p2, self.p_c, ctx.rng);
@@ -810,6 +804,25 @@ mod tests {
         assert_eq!(g.p_c, 0.9);
     }
 
+    /// `gen/cat-ux` is an M3-8 typed family (historically parsed only
+    /// `p_c`) -- it now ALSO accepts legacy `pc`, resolving identically to
+    /// the equivalent `p_c` spec (M3-8 deferral cleanup, `params.rs`).
+    #[test]
+    fn cat_ux_pc_alias_resolves_identically_to_canonical_p_c() {
+        let legacy = CatUxGenerator::from_params(&serde_json::json!({"pc": 0.42})).unwrap();
+        let canonical = CatUxGenerator::from_params(&serde_json::json!({"p_c": 0.42})).unwrap();
+        assert_eq!(legacy.p_c, canonical.p_c);
+        assert_eq!(legacy.p_c, 0.42);
+    }
+
+    /// When both spellings are present on the same block, canonical `p_c`
+    /// wins outright -- `pc`'s value is never used.
+    #[test]
+    fn cat_ux_p_c_wins_over_pc_when_both_present() {
+        let g = CatUxGenerator::from_params(&serde_json::json!({"p_c": 0.42, "pc": 0.99})).unwrap();
+        assert_eq!(g.p_c, 0.42);
+    }
+
     // ==================================================================
     // gen/cat-reset (CatResetGenerator)
     // ==================================================================
@@ -928,6 +941,25 @@ mod tests {
         assert_eq!(g.tournament_k, 2);
         assert_eq!(g.p_c, 0.9);
         assert_eq!(g.p_m, None); // resolved lazily against n inside generate()
+    }
+
+    /// `gen/ga-cat` is an M3-8 typed family (historically parsed only
+    /// `p_c`) -- it now ALSO accepts legacy `pc`, resolving identically to
+    /// the equivalent `p_c` spec (M3-8 deferral cleanup, `params.rs`).
+    #[test]
+    fn ga_cat_pc_alias_resolves_identically_to_canonical_p_c() {
+        let legacy = GaCatGenerator::from_params(&serde_json::json!({"pc": 0.42})).unwrap();
+        let canonical = GaCatGenerator::from_params(&serde_json::json!({"p_c": 0.42})).unwrap();
+        assert_eq!(legacy.p_c, canonical.p_c);
+        assert_eq!(legacy.p_c, 0.42);
+    }
+
+    /// When both spellings are present on the same block, canonical `p_c`
+    /// wins outright -- `pc`'s value is never used.
+    #[test]
+    fn ga_cat_p_c_wins_over_pc_when_both_present() {
+        let g = GaCatGenerator::from_params(&serde_json::json!({"p_c": 0.42, "pc": 0.99})).unwrap();
+        assert_eq!(g.p_c, 0.42);
     }
 
     #[test]

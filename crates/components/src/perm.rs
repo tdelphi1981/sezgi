@@ -389,23 +389,13 @@ impl OxGenerator {
         let err = |reason: String| ComponentError::InvalidParams { kind: "gen/ox".into(), reason };
         let g = Self {
             tournament_k: p.get("tournament_k").and_then(|v| v.as_u64()).unwrap_or(2) as usize,
-            pc: p.get("pc").and_then(|v| v.as_f64()).unwrap_or(0.8),
+            pc: crate::params::resolve(p, "p_c", "pc").and_then(|v| v.as_f64()).unwrap_or(0.8),
         };
         if g.tournament_k == 0 { return Err(err("tournament_k must be >= 1".into())); }
         if !(0.0..=1.0).contains(&g.pc) { return Err(err(format!("pc outside [0,1]: {}", g.pc))); }
         Ok(g)
     }
 
-    /// Identical structure to `gen/ga-real`'s own `tournament` (mirrored
-    /// deliberately -- see this module's doc "Composition decision").
-    fn tournament(&self, pop: &Population, rng: &mut RngStream) -> usize {
-        let mut best = rng.next_below(pop.len() as u64) as usize;
-        for _ in 1..self.tournament_k {
-            let c = rng.next_below(pop.len() as u64) as usize;
-            if pop.fitness[c] < pop.fitness[best] { best = c; }
-        }
-        best
-    }
 }
 
 impl Generator for OxGenerator {
@@ -423,7 +413,10 @@ impl Generator for OxGenerator {
         assert!(pop.len() >= 2, "gen/ox requires a population of at least 2 (pop_size={})", pop.len());
         let mut out = Vec::with_capacity(pop.len());
         while out.len() < pop.len() {
-            let (i1, i2) = (self.tournament(pop, ctx.rng), self.tournament(pop, ctx.rng));
+            let (i1, i2) = (
+                crate::select::tournament(pop, self.tournament_k, ctx.rng),
+                crate::select::tournament(pop, self.tournament_k, ctx.rng),
+            );
             let p1 = perm_values(&pop.individuals[i1]).clone();
             let p2 = perm_values(&pop.individuals[i2]).clone();
             let (c1, c2) = if ctx.rng.next_f64() < self.pc {
@@ -550,7 +543,7 @@ impl GaPermGenerator {
         let err = |reason: String| ComponentError::InvalidParams { kind: "gen/ga-perm".into(), reason };
         let g = Self {
             tournament_k: p.get("tournament_k").and_then(|v| v.as_u64()).unwrap_or(2) as usize,
-            pc: p.get("pc").and_then(|v| v.as_f64()).unwrap_or(0.8),
+            pc: crate::params::resolve(p, "p_c", "pc").and_then(|v| v.as_f64()).unwrap_or(0.8),
             p_m: p.get("p_m").and_then(|v| v.as_f64()),
         };
         if g.tournament_k == 0 { return Err(err("tournament_k must be >= 1".into())); }
@@ -561,16 +554,6 @@ impl GaPermGenerator {
         Ok(g)
     }
 
-    /// Identical structure to `gen/ga-real`'s/`gen/ox`'s own `tournament`
-    /// (mirrored deliberately, per this preset's design).
-    fn tournament(&self, pop: &Population, rng: &mut RngStream) -> usize {
-        let mut best = rng.next_below(pop.len() as u64) as usize;
-        for _ in 1..self.tournament_k {
-            let c = rng.next_below(pop.len() as u64) as usize;
-            if pop.fitness[c] < pop.fitness[best] { best = c; }
-        }
-        best
-    }
 }
 
 impl Generator for GaPermGenerator {
@@ -583,7 +566,10 @@ impl Generator for GaPermGenerator {
         let pm = self.p_m.unwrap_or(1.0 / dim as f64);
         let mut out = Vec::with_capacity(pop.len());
         while out.len() < pop.len() {
-            let (i1, i2) = (self.tournament(pop, ctx.rng), self.tournament(pop, ctx.rng));
+            let (i1, i2) = (
+                crate::select::tournament(pop, self.tournament_k, ctx.rng),
+                crate::select::tournament(pop, self.tournament_k, ctx.rng),
+            );
             let p1 = perm_values(&pop.individuals[i1]).clone();
             let p2 = perm_values(&pop.individuals[i2]).clone();
             let (mut c1, mut c2) = if ctx.rng.next_f64() < self.pc {
@@ -924,6 +910,25 @@ mod tests {
         assert_eq!(g.pc, 0.8);
     }
 
+    /// `gen/ox` is a legacy family (historically parsed only `pc`) -- it
+    /// now ALSO accepts canonical `p_c`, resolving identically to the
+    /// equivalent `pc` spec (M3-8 deferral cleanup, `params.rs`).
+    #[test]
+    fn ox_p_c_alias_resolves_identically_to_legacy_pc() {
+        let legacy = OxGenerator::from_params(&serde_json::json!({"p_c": 0.42})).unwrap();
+        let canonical = OxGenerator::from_params(&serde_json::json!({"pc": 0.42})).unwrap();
+        assert_eq!(legacy.pc, canonical.pc);
+        assert_eq!(legacy.pc, 0.42);
+    }
+
+    /// When both spellings are present on the same block, canonical `p_c`
+    /// wins outright -- `pc`'s value is never used.
+    #[test]
+    fn ox_p_c_wins_over_pc_when_both_present() {
+        let g = OxGenerator::from_params(&serde_json::json!({"p_c": 0.42, "pc": 0.99})).unwrap();
+        assert_eq!(g.pc, 0.42);
+    }
+
     // ---- swap-mutation hand fixture ----
 
     #[test]
@@ -1200,6 +1205,25 @@ mod tests {
         assert_eq!(g.tournament_k, 2);
         assert_eq!(g.pc, 0.8);
         assert_eq!(g.p_m, None); // resolved lazily against dim inside generate()
+    }
+
+    /// `gen/ga-perm` is a legacy family (historically parsed only `pc`) --
+    /// it now ALSO accepts canonical `p_c`, resolving identically to the
+    /// equivalent `pc` spec (M3-8 deferral cleanup, `params.rs`).
+    #[test]
+    fn ga_perm_p_c_alias_resolves_identically_to_legacy_pc() {
+        let legacy = GaPermGenerator::from_params(&serde_json::json!({"p_c": 0.42})).unwrap();
+        let canonical = GaPermGenerator::from_params(&serde_json::json!({"pc": 0.42})).unwrap();
+        assert_eq!(legacy.pc, canonical.pc);
+        assert_eq!(legacy.pc, 0.42);
+    }
+
+    /// When both spellings are present on the same block, canonical `p_c`
+    /// wins outright -- `pc`'s value is never used.
+    #[test]
+    fn ga_perm_p_c_wins_over_pc_when_both_present() {
+        let g = GaPermGenerator::from_params(&serde_json::json!({"p_c": 0.42, "pc": 0.99})).unwrap();
+        assert_eq!(g.pc, 0.42);
     }
 
     #[test]

@@ -44,7 +44,7 @@ impl GaRealGenerator {
             kind: "gen/ga-real".into(), reason };
         let g = Self {
             tournament_k: p.get("tournament_k").and_then(|v| v.as_u64()).unwrap_or(2) as usize,
-            pc: p.get("pc").and_then(|v| v.as_f64()).unwrap_or(0.9),
+            pc: crate::params::resolve(p, "p_c", "pc").and_then(|v| v.as_f64()).unwrap_or(0.9),
             pm_per_gene: p.get("pm_per_gene").and_then(|v| v.as_f64()),
             eta_c: p.get("eta_c").and_then(|v| v.as_f64()).unwrap_or(15.0),
             eta_m: p.get("eta_m").and_then(|v| v.as_f64()).unwrap_or(20.0),
@@ -52,15 +52,6 @@ impl GaRealGenerator {
         if g.tournament_k == 0 { return Err(err("tournament_k must be >= 1".into())); }
         if !(0.0..=1.0).contains(&g.pc) { return Err(err(format!("pc outside [0,1]: {}", g.pc))); }
         Ok(g)
-    }
-
-    fn tournament(&self, pop: &Population, rng: &mut RngStream) -> usize {
-        let mut best = rng.next_below(pop.len() as u64) as usize;
-        for _ in 1..self.tournament_k {
-            let c = rng.next_below(pop.len() as u64) as usize;
-            if pop.fitness[c] < pop.fitness[best] { best = c; }
-        }
-        best
     }
 }
 
@@ -70,7 +61,10 @@ impl Generator for GaRealGenerator {
         let pm = self.pm_per_gene.unwrap_or(1.0 / dim as f64);
         let mut out = Vec::with_capacity(pop.len());
         while out.len() < pop.len() {
-            let (i1, i2) = (self.tournament(pop, ctx.rng), self.tournament(pop, ctx.rng));
+            let (i1, i2) = (
+                crate::select::tournament(pop, self.tournament_k, ctx.rng),
+                crate::select::tournament(pop, self.tournament_k, ctx.rng),
+            );
             let g1 = match &pop.individuals[i1].blocks[0] {
                 BlockValues::Float(x) => x.clone(), _ => unreachable!() };
             let g2 = match &pop.individuals[i2].blocks[0] {
@@ -130,5 +124,24 @@ mod tests {
     fn params_validate() {
         assert!(GaRealGenerator::from_params(&serde_json::json!({"pc": 1.5})).is_err());
         assert!(GaRealGenerator::from_params(&serde_json::json!({"tournament_k": 0})).is_err());
+    }
+
+    /// `gen/ga-real` is a legacy family (historically parsed only `pc`) --
+    /// it now ALSO accepts canonical `p_c`, resolving identically to the
+    /// equivalent `pc` spec (M3-8 deferral cleanup, `params.rs`).
+    #[test]
+    fn p_c_alias_resolves_identically_to_legacy_pc() {
+        let legacy = GaRealGenerator::from_params(&serde_json::json!({"p_c": 0.42})).unwrap();
+        let canonical = GaRealGenerator::from_params(&serde_json::json!({"pc": 0.42})).unwrap();
+        assert_eq!(legacy.pc, canonical.pc);
+        assert_eq!(legacy.pc, 0.42);
+    }
+
+    /// When both spellings are present on the same block, canonical `p_c`
+    /// wins outright -- `pc`'s value is never used.
+    #[test]
+    fn p_c_wins_over_pc_when_both_present() {
+        let g = GaRealGenerator::from_params(&serde_json::json!({"p_c": 0.42, "pc": 0.99})).unwrap();
+        assert_eq!(g.pc, 0.42);
     }
 }

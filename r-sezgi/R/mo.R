@@ -58,6 +58,21 @@
 #'   (default) resolves on the Rust side to `1 / l` (`l` = the space's total
 #'   bit count, the paper's own stated binary-coded default) -- only
 #'   consulted for an all-Binary space.
+#' @param p_c_cat Categorical-genotype crossover probability (post-M3-8
+#'   deferral cleanup). Default `0.9`, mirroring `p_c_bin`'s own default (no
+#'   paper/reference precedent exists for Categorical) -- only consulted
+#'   when `problem` builds a `Mixed` space containing a `Block::Categorical`
+#'   block. No `problem` string accepted here builds one today (zdt1-6,
+#'   dtlz1-9, wfg1-9 are all-Float or, for zdt5, all-Binary), so this is
+#'   currently validated but inert against every reachable problem --
+#'   exposed anyway for symmetry with `p_c_bin`/`p_m_bin`.
+#' @param p_m_cat Optional per-gene Categorical mutation probability
+#'   (post-M3-8 deferral cleanup). `NULL` (default) resolves on the Rust
+#'   side to `1 / n_cat` (`n_cat` = the space's total flattened
+#'   `Block::Categorical` dimension), mirroring `p_m`/`p_m_bin`'s own
+#'   `NULL`-resolves-to-a-formula design -- only consulted for a `Mixed`
+#'   space containing a Categorical block (currently unreachable through
+#'   this catalog -- see `p_c_cat` above).
 #' @param k Optional WFG position-related-parameter count. `NULL` (default)
 #'   resolves to the toolkit's own recommended value (`k = 4` for `m = 2`,
 #'   `k = 2*(m-1)` for `m >= 3`); wfg-only, an error for any other problem
@@ -86,10 +101,10 @@
 #' @export
 sz_nsga2 <- function(problem, dim, m = NULL, pop_size, budget, seed = 0,
                       eta_c = 20.0, eta_m = 20.0, p_c = 0.9, p_m = NULL,
-                      p_c_bin = 0.9, p_m_bin = NULL, k = NULL, l = NULL,
-                      log_dir = NULL, label = NULL) {
-  sz_nsga2_raw(problem, pop_size, budget, seed, eta_c, eta_m, p_c, p_c_bin,
-               dim, m, p_m, p_m_bin, k, l, log_dir, label)
+                      p_c_bin = 0.9, p_m_bin = NULL, p_c_cat = 0.9, p_m_cat = NULL,
+                      k = NULL, l = NULL, log_dir = NULL, label = NULL) {
+  sz_nsga2_raw(problem, pop_size, budget, seed, eta_c, eta_m, p_c, p_c_bin, p_c_cat,
+               dim, m, p_m, p_m_bin, p_m_cat, k, l, log_dir, label)
 }
 
 #' A deterministic `n`-point sample of the analytic Pareto front in

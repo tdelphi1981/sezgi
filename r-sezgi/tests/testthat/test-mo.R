@@ -312,6 +312,64 @@ test_that("sz_nsga2 accepts p_c_bin/p_m_bin knobs for zdt5", {
   expect_length(r$individuals, 8)
 })
 
+# ---- sz_nsga2: p_c_cat/p_m_cat (Categorical-genotype knobs) -------------
+#
+# p_c_cat/p_m_cat (post-M3-8 deferral cleanup) are consulted ONLY when
+# `problem` builds a Mixed search space containing a Block::Categorical
+# block (Nsga2Config::p_c_cat's own doc). mo_problem_from_str's own catalog
+# (zdt1-6, dtlz1-9, wfg1-9) never builds one -- see mo.rs's own module doc
+# and py-sezgi's genotype_to_flat_vec doc, "no problem registered here ever
+# constructs one". So unlike p_c_bin/p_m_bin (exercised via zdt5's real
+# all-Binary space), there is currently no reachable problem through this
+# binding whose *outcome* these two knobs can move -- the tests below pin
+# down the two properties that ARE observable today: both knobs are
+# threaded through and unconditionally range-validated (mirroring
+# p_c_bin/p_m_bin's own "validated even when unused" design), and they are
+# correctly INERT on every currently reachable problem (an extreme,
+# non-default value changes nothing) -- the precise mirror of
+# p_c_bin/p_m_bin's own already-shipped behavior on every problem other
+# than zdt5.
+
+test_that("sz_nsga2 accepts p_c_cat/p_m_cat knobs and is deterministic on zdt1", {
+  r1 <- sz_nsga2("zdt1", dim = 5, pop_size = 8, budget = 200, seed = 20260902,
+                 p_c_cat = 0.3, p_m_cat = 0.05)
+  r2 <- sz_nsga2("zdt1", dim = 5, pop_size = 8, budget = 200, seed = 20260902,
+                 p_c_cat = 0.3, p_m_cat = 0.05)
+  expect_length(r1$individuals, 8)
+  expect_identical(r1$objectives, r2$objectives)
+  expect_identical(r1$individuals, r2$individuals)
+  expect_identical(r1$front0, r2$front0)
+  expect_identical(r1$evals_used, r2$evals_used)
+})
+
+test_that("sz_nsga2 omitting p_c_cat/p_m_cat matches explicit defaults", {
+  r_omitted <- sz_nsga2("zdt1", dim = 5, pop_size = 8, budget = 200, seed = 20260903)
+  r_explicit <- sz_nsga2("zdt1", dim = 5, pop_size = 8, budget = 200, seed = 20260903,
+                          p_c_cat = 0.9, p_m_cat = NULL)
+  expect_identical(r_omitted, r_explicit)
+})
+
+test_that("sz_nsga2 p_c_cat/p_m_cat are inert on every reachable problem", {
+  r_default <- sz_nsga2("zdt1", dim = 5, pop_size = 8, budget = 200, seed = 20260904)
+  r_nondefault <- sz_nsga2("zdt1", dim = 5, pop_size = 8, budget = 200, seed = 20260904,
+                            p_c_cat = 0.01, p_m_cat = 0.99)
+  expect_identical(r_default, r_nondefault)
+})
+
+test_that("sz_nsga2 rejects out-of-range p_c_cat", {
+  expect_error(
+    sz_nsga2("zdt1", dim = 5, pop_size = 8, budget = 40, seed = 0, p_c_cat = 1.5),
+    "p_c_cat"
+  )
+})
+
+test_that("sz_nsga2 rejects out-of-range p_m_cat", {
+  expect_error(
+    sz_nsga2("zdt1", dim = 5, pop_size = 8, budget = 40, seed = 0, p_m_cat = -0.1),
+    "p_m_cat"
+  )
+})
+
 # ---- sz_nsga2: new-problem errors -------------------------------------------
 
 test_that("sz_nsga2 rejects dim given for zdt5", {
