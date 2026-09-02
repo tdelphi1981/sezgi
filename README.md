@@ -5,21 +5,230 @@ optimization library with Python and R frontends. Design doc: `docs/superpowers/
 
 ## Quickstart (Python)
 
+Every built-in algorithm is a class; every problem is either a native
+handle (`sezgi.bbob(...)`, `sezgi.problems.onemax(...)`, ...) or a
+`sezgi.Problem` subclass you author yourself — `.run()` accepts either:
+
     import sezgi
 
-    problem = sezgi.bbob(fid=1, dim=10, instance=1)
-    spec = sezgi.presets.de_rand_1(pop_size=50, budget=20_000)
-    result = sezgi.solve(spec, problem, master_seed=42, log_dir="logs/")
-    print(result["best_f"])   # IOH-format log under logs/
+    problem = sezgi.problems.onemax(100)   # diagnostic Binary-space problem
+    result = sezgi.GeneticAlgorithm(pop_size=20).run(problem, budget=400, seed=7)
+    print(result.evals_used, result.best_f)
 
-Your own problem (batch evaluation — a single call per population):
+Output (live-run):
 
-    import numpy as np
+    400 16.0
 
-    def f(X):                       # X: np.ndarray (n, d) float64
-        return ((X - 1.0) ** 2).sum(axis=1)
+`GeneticAlgorithm` auto-dispatches on the problem's space kind (here,
+Binary → `presets.ga_bin`, bit-identically — see "Built-in algorithm
+classes" below); every wrapper's `.run()` returns the same `SolveResult`
+dataclass (`algo, seed, budget, evals_used, best_x, best_f, f_opt, gap`)
+regardless of which class produced it. `sezgi.solve()`/`presets.*` still
+work underneath, unchanged — see "Internals & spec files" below.
 
-    problem = sezgi.from_callable(f, lo=-5.0, hi=5.0, dim=10)
+Your own problem, by subclassing `sezgi.Problem` (see "Define your own
+problem" below for the full space-builder table):
+
+    import sezgi
+
+    class Sphere(sezgi.Problem):
+        def __init__(self, n=3, lo=-5.0, hi=5.0):
+            self.n, self.lo, self.hi = n, lo, hi
+
+        def space(self):
+            return sezgi.Float(self.lo, self.hi, self.n)
+
+        def evaluate(self, x):
+            return sum(v * v for v in x)
+
+    result = sezgi.GeneticAlgorithm(pop_size=20).run(Sphere(n=3), budget=500, seed=1)
+    print(f"evals_used={result.evals_used} best_f={result.best_f:.6g}")
+
+Output (live-run):
+
+    evals_used=500 best_f=0.005517
+
+## Author your own algorithm (Python, class-first) (M4-1)
+
+Subclass `sezgi.Algorithm` and override `generate(self, pop, ctx)` — it
+runs INSIDE the Rust engine loop as a real `Generator` component (a
+captured Python callback registered into the per-call component registry,
+NOT a Python-owned ask/tell loop): the engine still owns the budget,
+boundary repair, evaluation, and logging. `pop.individuals`/`pop.fitness`
+are read-only views of the current population (`pop.individuals[i]` uses
+the same bare/tuple convention `sezgi.Problem.evaluate(x)` does);
+`ctx.rng` draws from the SAME house `RngStream` a Rust generator would use
+at that call, so a Python-authored algorithm is exactly as deterministic
+and reproducible as a built-in one — same seed, byte-identical run.
+`generate` is the only required hook; `initialize`/`validate_space` are
+optional (default: the engine's own `init/uniform`, no build-time veto):
+
+    import sezgi
+
+    class RandomMutation(sezgi.Algorithm):
+        """Every offspring is a copy of a random parent with one perturbed coordinate."""
+
+        def generate(self, pop, ctx):
+            offspring = []
+            for x in pop.individuals:
+                i = ctx.rng.next_below(len(x))
+                y = list(x)
+                y[i] += ctx.rng.next_f64() - 0.5
+                offspring.append(y)
+            return offspring
+
+    result = RandomMutation().run(sezgi.bbob(fid=1, dim=5, instance=1),
+                                   budget=2000, seed=42, pop_size=20)
+    print(f"evals_used={result.evals_used} best_f={result.best_f:.6g} "
+          f"gap={result.gap:.6g}")
+
+Output (live-run):
+
+    evals_used=2000 best_f=-125.949 gap=0.000604428
+
+`sezgi.PopulationAlgorithm` (adds `select(pop, k, ctx)`/`vary(parents,
+ctx)`, default `select` a seeded binary tournament) and `sezgi.LocalSearch`
+(adds `neighbor(x, ctx)`/`accept(f_old, f_new, ctx)`, default `accept`
+greedy, runs at `pop_size=1`) are two family bases over the same
+`Algorithm` — override only the hook that differs, exactly like overriding
+only ONE of pymoo's `sampling`/`selection`/`crossover`/`mutation`/
+`survival` components (see `docs/DECISIONS.md`'s M4-1 record for the
+attribution). `examples/python/oop/custom_de_variant.py` overrides only
+`vary()` on `PopulationAlgorithm` (a ~14-line DE/rand/1-shaped mutation);
+`examples/python/oop/custom_local_search.py` overrides only `neighbor()`
+on `LocalSearch`. **`LocalSearch.accept()` cannot express true SA-style
+"sometimes accept a worse move"** — the default `replace/mu-plus-lambda`
+replacer has already filtered out any worse candidate before Python ever
+sees the population again at `pop_size=1`; `accept()` controls whether
+this base's OWN search anchor advances to the engine's already-decided
+outcome, not what the engine's population itself contains.
+
+Spec persistence is deliberately absent on this path: a Python-authored
+algorithm is a live callback captured per-call by the Rust component
+registry — process-local, with no wire format `AlgorithmSpec::to_toml()`
+can express. `sezgi.solve()`/`presets.*` remain the only path that
+produces a persistable, shareable spec file (see "Internals & spec files"
+below).
+
+## Data recipes: feature selection (M4-1)
+
+`sezgi.recipes.FeatureSelection(X, y, scorer, penalty=0.0)` is a `Problem`
+subclass wrapping a binary-mask feature-selection objective: `space()` is
+`Binary(n_features)`, `evaluate(mask)` is `scorer(X[:, mask], y) +
+penalty * popcount / n_features` (minimize; an empty mask returns `+inf`
+without ever calling `scorer`). Data enters through the objective — no ML
+framework dependency; `scorer` is any callable `(X_sub, y) -> float`.
+Paired with `GeneticAlgorithm`'s Binary auto-dispatch, this recovers a
+known informative-column subset from a synthetic dataset
+(`examples/python/oop/feature_selection.py`: a fixed 20x8 matrix, 3
+informative columns, an OLS-residual-sum-of-squares scorer, `penalty=0.3`
+so the penalty — not just the raw score — is what makes the 3-column
+subset the actual global minimum):
+
+    ./py-sezgi/.venv/bin/python examples/python/oop/feature_selection.py
+
+Output (live-run):
+
+    feature_selection (oop): evals_used=200 best_f=0.3607495483 popcount=3 mask=01010010 recovered=True
+
+`mask=01010010` sets exactly bits 1, 3, 6 — the dataset's own informative
+columns; `recovered=True` confirms the search found the unique global
+minimum (independently cross-checked by a full 256-mask brute-force
+enumeration in `py-sezgi/tests/test_oop_recipes.py`).
+`sezgi.recipes.MixedTuning(space, objective)` is the general-purpose
+sibling — a one-line `Problem` binding an arbitrary objective over an
+arbitrary declared space (the "tune anything" door); a genuinely Mixed
+space through it still needs the `gen/compound` hand-spec workaround
+`GeneticAlgorithm` itself needs (see "Built-in algorithm classes" below).
+
+## Define your own problem: Problem subclassing (M4-1)
+
+`sezgi.Problem` is an ABC over the same callable-problem bridge
+`from_callable` has always used, widened beyond Float (see the Sphere
+example in "Quickstart" above): `evaluate(self, x)` and `space(self)` are
+the two required hooks; `optimum(self)` (default `None`) and
+`batch_evaluate(self, xs)` (default: loop `evaluate`) are optional.
+`space()` returns one of five block builders, or a `sezgi.Space(*blocks)`
+composing several of them:
+
+| Builder | Block kind | `x` type passed to `evaluate` |
+|---|---|---|
+| `sezgi.Float(lo, hi, n)` | Float | `list[float]` |
+| `sezgi.Int(lo, hi, n)` | Int | `list[int]` |
+| `sezgi.Categorical(k, n)` | Categorical | `list[int]` (category indices `0..k`, not labels) |
+| `sezgi.Binary(n)` | Binary | `list[bool]` |
+| `sezgi.Permutation(n)` | Permutation | `list[int]` |
+
+A single-block space passes `x` bare (that block's own value); a
+multi-block `Space(...)` passes `x` as a `tuple` of per-block values, in
+declared order — the same convention `pop.individuals[i]` uses in the
+engine-hosted `Algorithm.generate` hook above.
+`sezgi.as_native_problem(obj)` (used internally by every `.run()`) accepts
+either a `Problem` subclass instance or a native handle (`sezgi.bbob(...)`,
+`sezgi.problems.onemax(...)`, ...), so every built-in class and every
+user-authored `Algorithm` interoperate with both kinds of problem
+uniformly.
+
+## Built-in algorithm classes (M4-1)
+
+Every preset in `presets.rs` also has a configurable class:
+`__init__(pop_size=..., **preset_kwargs)` (the preset's own kwargs pass
+through unchanged), `.run(problem, budget, seed=0, run_id=0, log_dir=None)
+-> SolveResult` — proven bit-identical to the equivalent
+`sezgi.solve(presets.X(...), problem, master_seed=seed, ...)` call at the
+same seed (the wrapper adds nothing; it is a class SKIN, not a new
+algorithm):
+
+| Class | Preset(s) |
+|---|---|
+| `GeneticAlgorithm` | `ga_real`/`ga_perm`/`ga_bin`/`ga_int`/`ga_cat` (space-kind auto-dispatch; `representation=` overrides) |
+| `DifferentialEvolution` | `de_rand_1`/`de_best_1`/`jde` (`variant=`) |
+| `EvolutionStrategy`, `ParticleSwarm`, `SimulatedAnnealing`, `SHADE`, `LSHADE`, `CMAES`, `CMAESIpop`, `NelderMead`, `RandomSearch` | one preset each |
+| `GreyWolfOptimizer`, `WhaleOptimization`, `HarmonySearch`, `CuckooSearch`, `GrasshopperOptimization`, `SineCosineAlgorithm`, `JAYA`, `MothFlameOptimization`, `SalpSwarm`, `FireflyAlgorithm`, `BatAlgorithm`, `FlowerPollination`, `TLBO`, `HarrisHawks`, `AntLion`, `ArtificialBeeColony`, `GravitationalSearch` | one preset each (all 17 labeled-metaphor algorithms) |
+| `NSGA2` | `mo.nsga2`/`nsga2_run` — **run-only, no `generate()` override point** (MO authoring is out of scope this milestone) |
+
+`GeneticAlgorithm` auto-dispatches on the problem's space kind
+(Float/Permutation/Binary/Int/Categorical → `ga_real`/`ga_perm`/`ga_bin`/
+`ga_int`/`ga_cat`); a genuinely **Mixed space is rejected** with a
+`NotImplementedError` naming `gen/compound` (the hand-spec workaround, see
+"Typed operators, mixed spaces, and diagnostic problems (M3-8)" above) —
+`representation=` forces a single-kind preset instead of introspecting the
+space. `NSGA2(pop_size=..., **nsga2_kwargs).run(problem, dim, budget, m=,
+k=, l=, ...)` mirrors `mo.nsga2`'s own contract exactly and returns
+`mo.nsga2`'s own dict shape (`individuals`/`objectives`/`front0`/
+`evals_used`/`violations`), NOT `SolveResult` — a Pareto front has no
+single "best point" for `SolveResult`'s fields to describe.
+
+## Internals & spec files: solve() and presets.* (compat)
+
+`sezgi.solve(spec, problem, master_seed=..., ...)` and `sezgi.presets.*`
+are the ORIGINAL surface every class above builds on, still fully
+supported — every built-in wrapper's `.run()` assembles a preset's JSON
+spec and calls `sezgi.solve()` internally, unchanged. Reach for this path
+directly when you need:
+
+- a **spec file** (TOML/JSON) you can save, diff, or hand-author component
+  by component (`[[stages]]`, `gen/...`, `replace/...` — see "Typed
+  operators, mixed spaces, and diagnostic problems (M3-8)" above for the
+  `gen/compound` mixed-space example). A Python-authored `sezgi.Algorithm`
+  has **no such spec**: it is a live callback captured per-call by the Rust
+  component registry, process-local, with no wire format `to_toml()`/
+  `to_json()` can express — the class-first `.run()` path never exposes
+  spec persistence for a Python component, deliberately (honest degrade,
+  not a gap to be closed).
+- **benchmarking/experiments** — `sezgi.run_experiment`, IOH logging,
+  `per_budget_packages`, bias scanning all consume a spec/preset, not a
+  class instance; every section below this one (Experiments & Statistics,
+  Anytime analysis, Bias scanning, Multi-objective, CEC suites, TSP,
+  Typed operators) is written against `solve()`/`presets.*` directly,
+  unchanged by this milestone.
+- **R** — the class-first surface documented above is Python-only this
+  milestone; R keeps `sz_solve_*`/`sz_preset_*`/`sz_algorithm` (see
+  "Quickstart (R)" and "Write your own algorithm (R) (M3-5)" below).
+
+`solve()`/`presets.*` are not deprecated and are not scheduled for removal
+— they stay compat internals for spec files, benchmarking, and R, per
+`docs/DECISIONS.md`'s M4-1 record.
 
 ## Experiments & Statistics (M2c)
 
@@ -622,11 +831,12 @@ string, and no mixed-space named problem exists, so mixed spaces are not
 reachable through either binding yet (frontend reachability is a recorded
 deferral, see `docs/DECISIONS.md`).
 
-**ABC-TSP/permutation authoring** (both `sezgi.Algorithm` and
-`sz_algorithm`) is now supported too — see "Write your own algorithm
-(Python) (M3-4)" and "Write your own algorithm (R) (M3-5)" below for the
-`ctx.kind`/`ctx.n`/`ctx.random_permutation()`/`ctx.two_opt(tour, i, j)`
-surface and the `tsp_two_opt` worked example pair.
+**ABC-TSP/permutation authoring** (both `sezgi.AskTellAlgorithm` and
+`sz_algorithm`) is now supported too — see "Write your own algorithm,
+ask/tell style (Python) (M3-4)" and "Write your own algorithm (R) (M3-5)"
+below for the `ctx.kind`/`ctx.n`/`ctx.random_permutation()`/
+`ctx.two_opt(tour, i, j)` surface and the `tsp_two_opt` worked example
+pair.
 
 See `docs/DECISIONS.md`'s "M3-8 completed" record for the full
 method-provenance table (KanGAL binary reuse, pymoo 0.6.2 source shas,
@@ -634,22 +844,30 @@ Eiben & Smith 2015 taxonomy citation with its print-edition caveat, the
 "Deb & Deb 2014 does not cover integers" research finding), the operator
 inventory as shipped, and every deferral born this milestone.
 
-## Write your own algorithm (Python) (M3-4)
+## Write your own algorithm, ask/tell style (Python) (`AskTellAlgorithm`, M3-4)
 
-`sezgi.Algorithm` is a subclassable ABC for authoring a metaheuristic
-entirely in Python (no Rust component graph, no `ExperimentSpec`) while
-still getting evaluation counting, all-or-nothing budget enforcement, best
-tracking, and optional IOH logging for free from the SAME `EvalSession`
-core that backs the `examples/python/oop/` twins. A subclass implements two
-methods — `setup(ctx)` (run once) and `step(ctx)` (run repeatedly until the
-budget is exhausted) — over an `AlgoContext` (`ctx.dim`, `ctx.bounds`,
-`ctx.rng`, `ctx.random_point()`, `ctx.evaluate(points)`, `ctx.best()`,
-`ctx.remaining`). A random-search subclass, in full:
+**Renamed in M4-1.** `sezgi.Algorithm` now names the NEW engine-hosted
+class-first base described in "Author your own algorithm (Python,
+class-first)" above; the ask/tell surface described in this section is
+`sezgi.AskTellAlgorithm` (`sezgi.algo.Algorithm` remains as a compat alias
+for the same class — `sezgi.algo.Algorithm is sezgi.AskTellAlgorithm`).
+Nothing below changed behavior, only the name.
+
+`sezgi.AskTellAlgorithm` is a subclassable ABC for authoring a
+metaheuristic entirely in Python (no Rust component graph, no
+`ExperimentSpec`) while still getting evaluation counting, all-or-nothing
+budget enforcement, best tracking, and optional IOH logging for free from
+the SAME `EvalSession` core that backs the `examples/python/oop/` twins.
+A subclass implements two methods — `setup(ctx)` (run once) and
+`step(ctx)` (run repeatedly until the budget is exhausted) — over an
+`AlgoContext` (`ctx.dim`, `ctx.bounds`, `ctx.rng`, `ctx.random_point()`,
+`ctx.evaluate(points)`, `ctx.best()`, `ctx.remaining`). A random-search
+subclass, in full:
 
     import sezgi
 
 
-    class RandomSearch(sezgi.Algorithm):
+    class RandomSearch(sezgi.AskTellAlgorithm):
         """Draw batches of random points; keep the best (EvalSession does that)."""
 
         def setup(self, ctx):
@@ -691,7 +909,7 @@ algorithm producing NaN), and it is NOT `BudgetExhausted` — catch
 `ValueError` separately if a subclass wants to handle it.
 
 **Feeding a custom algorithm into the stats pipeline.** `sezgi.algo.bbob_records`
-sweeps a factory-constructed `Algorithm` across combinations of BBOB
+sweeps a factory-constructed `AskTellAlgorithm` across combinations of BBOB
 functions, dimensions, instances, and seeds, and records each run in the
 exact same dict shape `run_experiment` produces (`algo`, `fid`, `dim`,
 `instance`, `seed`, `budget`, `best_f`, `f_opt`, `gap`, `evals_used`,
@@ -707,10 +925,10 @@ present in the records, per Piotrowski et al. 2025's finding that
 rankings can flip depending on which budget is examined):
 
     import sezgi
-    from sezgi.algo import Algorithm, bbob_records
+    from sezgi.algo import AskTellAlgorithm, bbob_records
 
     # RandomSearch as defined above; a second, genuinely different algorithm:
-    class HillClimber(Algorithm):
+    class HillClimber(AskTellAlgorithm):
         def setup(self, ctx):
             ctx.evaluate([ctx.random_point()])
 
@@ -744,9 +962,9 @@ vectors collected from ANY externally-driven algorithm, not just a
 spec-driven engine run:
 
     import sezgi
-    from sezgi.algo import Algorithm
+    from sezgi.algo import AskTellAlgorithm
 
-    class RandomSearch(Algorithm):
+    class RandomSearch(AskTellAlgorithm):
         def setup(self, ctx):
             self.batch = 10
 
@@ -790,29 +1008,31 @@ reproduces the SAME numbers above (tour length is index-convention-invariant;
 `random_permutation()`'s own draw is bit-identical too, both languages
 deriving from the same `RngStream`/Fisher-Yates core).
 
-**Scope rulings.** `Algorithm`/`AlgoContext` cover Float and Permutation
-problems (v1) — Binary/Int/Categorical and mixed-typed problems have no
-ask/tell session type yet (`EvalSession.for_problem` rejects
-`sezgi.problems.onemax`/`.int_quadratic`/`.cat_match`/`.mixed_diagnostic`
-with a `ValueError` naming the reason; `sezgi.solve()` still runs them end
-to end, see "Typed operators, mixed spaces, and diagnostic problems
-(M3-8)" above), deferred onward. IOH logging from a custom `Algorithm` covers BBOB
-and CEC 2022 problems (widened in M3-5 — see `docs/DECISIONS.md`'s M3-5
-record; this superseded an earlier BBOB-only narrowing) —
-`sezgi.bbob(...)` and `sezgi.problems.cec2022(...)` both work with
-`log_dir=`, but `sezgi.bias.f0(...)` and a raw `from_callable` handle still
-raise `ValueError`, matching `sezgi.solve()`'s own policy for the identical
-handles exactly (neither has a known optimum, and `EvalSession.with_log`
-itself requires one). A known optimum (`f_opt`) is necessary but not
-sufficient on its own for `log_dir` — the on-disk IOH record key also
-needed a suite discriminator (`RunKey.suite`, M3-5) so a CEC 2022 run and a
-BBOB run sharing `(fid, dim, instance, seed, budget)` no longer silently
-merge into one `results_matrix` cell.
+**Scope rulings.** `AskTellAlgorithm`/`AlgoContext` cover Float and
+Permutation problems (v1) — Binary/Int/Categorical and mixed-typed
+problems have no ask/tell session type yet (`EvalSession.for_problem`
+rejects `sezgi.problems.onemax`/`.int_quadratic`/`.cat_match`/
+`.mixed_diagnostic` with a `ValueError` naming the reason; `sezgi.solve()`
+still runs them end to end, see "Typed operators, mixed spaces, and
+diagnostic problems (M3-8)" above), deferred onward. IOH logging from a
+custom `AskTellAlgorithm` covers BBOB and CEC 2022 problems (widened in
+M3-5 — see `docs/DECISIONS.md`'s M3-5 record; this superseded an earlier
+BBOB-only narrowing) — `sezgi.bbob(...)` and `sezgi.problems.cec2022(...)`
+both work with `log_dir=`, but `sezgi.bias.f0(...)` and a raw
+`from_callable` handle still raise `ValueError`, matching `sezgi.solve()`'s
+own policy for the identical handles exactly (neither has a known optimum,
+and `EvalSession.with_log` itself requires one). A known optimum (`f_opt`)
+is necessary but not sufficient on its own for `log_dir` — the on-disk IOH
+record key also needed a suite discriminator (`RunKey.suite`, M3-5) so a
+CEC 2022 run and a BBOB run sharing `(fid, dim, instance, seed, budget)` no
+longer silently merge into one `results_matrix` cell.
 
 ## Write your own algorithm (R) (M3-5)
 
 `sz_algorithm(setup, step, name)`/`sz_algo_solve(algo, session, seed)` are
-the base-R mirror of `sezgi.Algorithm` above — same driver semantics
+the base-R mirror of `sezgi.AskTellAlgorithm` above (the Python ask/tell
+surface, renamed in M4-1 — see "Write your own algorithm, ask/tell style
+(Python)" above) — same driver semantics
 (`setup(ctx)` once, `step(ctx)` repeatedly until the budget is exhausted),
 expressed as two plain closures instead of a subclass, since this project
 stays base-R only (no R6/S4 — see the scope ruling below). `ctx` is an
@@ -891,7 +1111,7 @@ seed)` mirrors py-sezgi's TSP session; `ctx` gains `ctx$kind()`
 (`"float"`/`"permutation"`), `ctx$n()`, `ctx$random_permutation()` (a
 uniformly random **1-based** tour, matching `sz_solve_tsp`'s own
 convention), and `ctx$two_opt(tour, i, j)` (inclusive `1 <= i < j <= n`
-segment reversal) — the exact R mirror of `sezgi.Algorithm`'s own
+segment reversal) — the exact R mirror of `sezgi.AskTellAlgorithm`'s own
 `ctx.kind`/`ctx.n`/`ctx.random_permutation()`/`ctx.two_opt()` surface
 above, byte-compatible on the Float side throughout.
 `examples/r/oop/tsp_two_opt.R` is the R twin of
@@ -904,8 +1124,8 @@ cross-language hex anchor (`r-sezgi/tests/testthat/test-tsp-two-opt.R`).
 **Scope rulings.** Base-R only (no R6/S4/other new dependency — CRAN
 posture); Float and Permutation problems (v1, widened from Float-only by
 M3-8) — Binary/Int/Categorical and mixed-typed problems have no ask/tell
-session type yet, matching `Algorithm`/`AlgoContext`'s own scope above
-exactly. `sz_algorithm`/
+session type yet, matching `AskTellAlgorithm`/`AlgoContext`'s own scope
+above exactly. `sz_algorithm`/
 `sz_algo_solve` port the pinned `examples/r/gwo.R` script onto this surface
 verbatim as `examples/r/oop/gwo.R` — the ONE worked twin proving the
 surface (not a full 17-algorithm R wave like `examples/python/oop/`'s —
@@ -971,7 +1191,7 @@ operators, mixed spaces, and diagnostic problems (M3-8)" above.
 
 `examples/python/oop/tsp_two_opt.py`/`examples/r/oop/tsp_two_opt.R` (M3-8)
 is a matched PAIR for ABC-TSP authoring: a first-improvement 2-opt local
-search (`sezgi.Algorithm`/`sz_algorithm`, `ctx.random_permutation()` +
+search (`sezgi.AskTellAlgorithm`/`sz_algorithm`, `ctx.random_permutation()` +
 `ctx.two_opt()`) on TSPLIB berlin52 from one random start, bit-identical
 between languages despite the 0-based/1-based tour-indexing difference
 (tour LENGTH is index-convention-invariant). Unlike every other pair
@@ -979,8 +1199,26 @@ above, both sides sit OUTSIDE their own 17-pair OOP-twin parity gate (no
 pure-script counterpart exists to reproduce) — each gets its own
 determinism/anchored-output/cross-language-hex test file instead
 (`py-sezgi/tests/test_tsp_two_opt_example.py`,
-`r-sezgi/tests/testthat/test-tsp-two-opt.R`). See "Write your own algorithm
-(Python) (M3-4)" above for the worked walkthrough.
+`r-sezgi/tests/testthat/test-tsp-two-opt.R`). See "Write your own
+algorithm, ask/tell style (Python) (M3-4)" above for the worked walkthrough.
+
+`examples/python/oop/custom_de_variant.py` and
+`examples/python/oop/custom_local_search.py` (M4-1) are two more
+engine-hosted worked examples, over the NEW class-first `sezgi.Algorithm`
+family bases (`PopulationAlgorithm`/`LocalSearch`, not the ask/tell
+surface above): a DE/rand/1-shaped `vary()` override and a
+`neighbor()`-only local search, both on `sezgi.bbob(1, 10, 1)`. Like
+`tsp_two_opt.py`, both sit outside the 17-pair OOP-twin parity gate (no
+pure-script counterpart), each gated by its own anchored pytest.
+`examples/python/oop/feature_selection.py` (M4-1) demonstrates
+`sezgi.recipes.FeatureSelection` recovering a known informative-column
+mask via `GeneticAlgorithm`'s Binary auto-dispatch. `tsp_two_opt.py` (and
+its 18 `examples/python/oop/*.py` siblings) also now import
+`sezgi.AskTellAlgorithm` instead of `sezgi.Algorithm` (M4-1's rename — see
+"Write your own algorithm, ask/tell style (Python)" above); no example's
+printed numbers changed. See "Author your own algorithm (Python,
+class-first)" and "Data recipes: feature selection" above, and
+`examples/README.md`'s own catalog rows, for the full walkthroughs.
 
 ## Development
 
@@ -989,6 +1227,43 @@ determinism/anchored-output/cross-language-hex test file instead
     R CMD INSTALL --preclean r-sezgi && Rscript -e 'testthat::test_dir("r-sezgi/tests/testthat", package = "sezgi")' # R tests
 
 ## Status
+
+M4-1 (Python class-first front door + engine-hosted authoring) **complete**
+— a course correction (user direction 2026-09-02) turning the Python
+interface into a class-first front door: built-in algorithms as
+configurable classes, new algorithms authored by subclassing the new
+engine-hosted `sezgi.Algorithm` template base (hooks run INSIDE the Rust
+engine loop as real `Generator`/`Initializer` components via a captured
+Python callback, NOT a Python-owned loop), and user problems authored by
+subclassing `sezgi.Problem` (with two data recipes) — while `solve()`/
+`presets.*` remain fully working compat internals and **the Rust core
+stayed byte-untouched throughout** (`git diff --stat -- crates/` empty at
+every one of the six tasks' gates, confirming the research doc's §B6
+zero-core-change feasibility verdict HELD in practice, not just in
+theory). Delivered: five space builders (`Float`/`Int`/`Categorical`/
+`Binary`/`Permutation`/`Space`) and the `Problem` ABC over a
+newly-block-typed callable bridge; the `PyRng`/`EngineCtx`/`PopView`
+bridge (clone-out/mutate/write-back RNG protocol, verified byte-identical
+to the engine's own per-stage stream reconstruction); `Algorithm`/
+`PopulationAlgorithm`/`LocalSearch` family bases; 28 built-in wrapper
+classes (one per `presets.rs` builder) plus `GeneticAlgorithm` auto-dispatch,
+`DifferentialEvolution` variants, and a run-only `NSGA2` class skin (29
+classes total, table-driven, proven bit-identical to the underlying
+`solve()`/preset call at the same seed); the `FeatureSelection`/
+`MixedTuning` data recipes. `sezgi.Algorithm`'s old ask/tell surface is
+renamed `sezgi.AskTellAlgorithm` (`sezgi.algo.Algorithm` kept as a compat
+alias; 18 `examples/python/oop/*.py` scripts and their tests updated,
+import/name-only). See "Quickstart (Python)" through "Internals & spec
+files" above for the full walkthrough and `docs/DECISIONS.md`'s "M4-1
+completed" record for the six scope rulings, the provenance table (hook
+taxonomy modeled after pymoo 0.6.2 and jMetal v7.5's public APIs, no code
+copied), the honest-degrade note (Python-component specs are
+process-local, no TOML persistence), and all eight deferrals born this
+milestone (R mirror of the class surface, MO authoring, `ctx.eval`
+mid-generate evaluations, Mixed auto-dispatch for `GeneticAlgorithm`, and
+four more, including two pre-existing engine gaps found along the way).
+Next: v1.0 prep (see the checklist), or the R mirror of this milestone's
+class surface.
 
 M3-8 (mixed-type operators) **complete** — closes deferred group D from the
 M3-2/M3-7 records: Binary/Int/Categorical typed operator families
@@ -1005,7 +1280,7 @@ out-of-scope for MO search) built on an M3-7 carry-forward that unifies
 `nsga2_run`'s float/binary main loops first (bit-identity re-proved against
 every frozen golden in the same commit) and dedupes the
 `axis_grid`/`grid_r`/`cartesian_product` sampling helpers; permutation/TSP
-authoring in both `sezgi.Algorithm` (`ctx.kind`/`ctx.n`/
+authoring in both `sezgi.AskTellAlgorithm` (`ctx.kind`/`ctx.n`/
 `ctx.random_permutation()`/`ctx.two_opt()`) and `sz_algorithm` (1-based
 mirror); Python and R bindings for the whole typed surface plus the four
 M3-7-parked binding tests (nsga2-on-WFG, a constrained logged dtlz8 run,
@@ -1107,7 +1382,8 @@ sessions). Next: v1.0 prep (see the checklist), or the next approved group
 of deferred milestones (CEC 2014/2017, MO remainder, mixed-type problems).
 
 M3-4 (Python algorithm authoring + OOP example twins) **complete** — the
-`sezgi.Algorithm` ABC (`py-sezgi/python/sezgi/algo.py`): a subclassable
+ask/tell `Algorithm` ABC (`py-sezgi/python/sezgi/algo.py`, renamed
+`sezgi.AskTellAlgorithm` in M4-1): a subclassable
 `setup(ctx)`/`step(ctx)` template over `AlgoContext`/`EvalSession`, chosen
 over pure ask/tell because mid-generation evaluation patterns (TLBO's
 teacher/learner passes, HHO's dives) cannot be expressed as a single ask;
