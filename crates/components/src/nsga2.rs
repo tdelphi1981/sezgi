@@ -30,6 +30,11 @@
 //! `classify_space` -- module doc's "## Binary genotype path" section
 //! below) -- every existing all-Float call takes the EXACT byte-identical
 //! old code path (now named `nsga2_run_float`), untouched by this task.
+//! M3-8 Task 1 unifies the two runners' near-verbatim main-loop bodies (the
+//! former `nsga2_run_float_impl`/`nsga2_run_binary_impl`) into one shared
+//! core (`nsga2_run_core`, right above the two thin wrappers), parameterized
+//! over a `Representation` enum -- pure DRY refactor, RNG draw order and
+//! every computed value unchanged (see `nsga2_run_core`'s own doc).
 //!
 //! ## Pareto dominance
 //! Pinned to the standard minimization definition, consistent with the
@@ -953,7 +958,180 @@
 //! (crossover+mutation) are representation-specific, hence the
 //! `nsga2_run_float`/`nsga2_run_binary` split and the
 //! `generate_offspring`/`generate_offspring_binary` split.
+//!
+//! ## M3-8 Task 2: the binary pure cores moved to `bin_ops.rs`
+//!
+//! [`bin_cross_pair`]/[`bin_flip_mutation`]/`rnd` (this module's own copies)
+//! RELOCATED to `crate::bin_ops` verbatim -- byte-identical logic, same
+//! draw order, same numeric outputs for the same seed -- so that
+//! `gen/bin-2pt`/`gen/bit-flip`/`gen/ga-bin` (the new single-objective
+//! registry components `bin_ops.rs` adds) can reuse them without
+//! duplication. This module now re-imports them (`use crate::bin_ops::{...}`
+//! below) rather than defining them; `bin_cross_genome`/`bin_mutate_genome`
+//! (the multi-block MO-specific wrappers) and `shuffle_two_interleaved`
+//! (which also calls `rnd`) are UNCHANGED, now calling the relocated copies.
+//! See `bin_ops.rs`'s own module doc, "The seam" section, for the full
+//! rationale. Every frozen test in this module's own `mod tests` (including
+//! its hand-traced `bin_cross_pair`/`bin_flip_mutation` fixtures) passes
+//! UNMODIFIED after this move -- the acceptance evidence for the relocation.
+//!
+//! ## M3-8 Task 6: mixed-genotype path
+//!
+//! Extends `nsga2_run` to genuinely MIXED Float/Int/Categorical/Binary
+//! search spaces (a space combining two or more of these kinds, OR a space
+//! made entirely of a single kind other than all-Float/all-Binary, e.g. an
+//! all-Int or all-Categorical space) -- the deferral [`Nsga2Error::MixedGenotypeSpace`]
+//! named when M3-7 Task 3 added the Binary path. `Block::Permutation`
+//! remains OUT OF SCOPE (see "Space classification, rewritten" below);
+//! every other combination of the four supported block kinds is now
+//! accepted.
+//!
+//! **No frozen path is touched.** [`classify_space`]'s `AllFloat`/`AllBinary`
+//! branches (and therefore [`nsga2_run_float_impl`]/[`nsga2_run_binary_impl`]/
+//! [`generate_offspring`]/[`generate_offspring_binary`]) are reached under the
+//! EXACT SAME conditions as before this task -- a space is `Mixed` only when
+//! it is neither all-Float nor all-Binary, so a pure-Float or pure-Binary
+//! space can never take the new path, and this task's own acceptance gate
+//! (every pre-task nsga2 golden passing bit-identical) is the evidence.
+//!
+//! **Space classification, rewritten.** [`SpaceKind`] gains a third variant,
+//! `Mixed`, and [`classify_space`] is restructured as a four-way check:
+//! `AllFloat` (unchanged) -> `AllBinary` (unchanged) -> a `Block::Permutation`
+//! block anywhere -> [`Nsga2Error::PermutationSpace`] (new this task, honest
+//! rejection naming multi-objective permutation search as out of scope) ->
+//! otherwise `Mixed` (every block is Float, Int, Categorical, or Binary, in
+//! any combination -- including a single-kind space that is neither all-Float
+//! nor all-Binary, e.g. all-Int).
+//!
+//! **`Nsga2Error::MixedGenotypeSpace` retired.** Its whole reason to exist --
+//! naming M3-8 as a deferral for a space mixing Float and Binary blocks --
+//! is now false (that combination is supported), so the variant is removed
+//! outright rather than left dead. `Nsga2Error::NonFloatSpace` is KEPT
+//! (removing it would touch [`float_bounds`]'s own defensive catch-all,
+//! which still guards the internal invariant "a space [`classify_space`]
+//! classified `AllFloat` really is all-Float" -- unrelated to this task),
+//! but its DOC is updated: after this task, `classify_space` itself never
+//! constructs it (every block kind that is not `Float`/`Binary` now either
+//! joins `Mixed` or triggers `PermutationSpace`), so it survives purely as
+//! `float_bounds`'s own defensive branch, not as a reachable outcome of
+//! `nsga2_run`'s public dispatch. The two pre-task tests that exercised it
+//! as a REACHABLE outcome (`nsga2_run_non_float_space_is_error`, a
+//! `Block::Int` space; `nsga2_run_categorical_space_is_non_float_space_error`,
+//! a `Block::Categorical` space) are UPDATED to assert the new, correct
+//! outcome (acceptance, not rejection) -- their premise (Int/Categorical are
+//! "not supported") is exactly what this task changes, so preserving their
+//! old assertion would pin behavior this task is required to change. See
+//! the task-6 report for the full list of every test whose expectation
+//! changed as a necessary consequence (more than the single
+//! `MixedGenotypeSpace` test the task brief anticipated, since the brief did
+//! not have this module's exact pre-existing test inventory in front of it).
+//!
+//! **`Representation::Mixed` and the per-block dispatch.** [`Representation`]
+//! gains a third variant, `Mixed { p_m, p_m_bin, p_m_cat }` (only the
+//! RESOLVED mutation-rate scalars -- no lifetime-carrying bounds arrays are
+//! needed, unlike `Float`, since [`cross_pair_mixed`]/[`mutate_mixed`] read
+//! each block's own `lo`/`hi`/`k` directly from `problem.space().blocks()`,
+//! passed straight through from [`nsga2_run_core`]). Initialization reuses
+//! `crate::init::sample_uniform` exactly like the Binary path (that function
+//! already handles every `Block` kind generically -- module doc's "Binary
+//! genotype path" section, "reused, not duplicated"). One generation's
+//! variation is [`generate_offspring_mixed`]: SAME two-phase shape as
+//! [`generate_offspring`]/[`generate_offspring_binary`] (tournament pairing +
+//! crossover in the block-of-4 loop, THEN a separate full mutation pass) --
+//! but crossover ([`cross_pair_mixed`]) and mutation ([`mutate_mixed`]) each
+//! loop over `space.blocks()` IN ORDER, dispatching to the typed pure core
+//! that block's `Block` variant owns:
+//! - `Block::Float` -> [`sbx_pair`] / [`polynomial_mutation`] (T5, unchanged).
+//! - `Block::Int` -> [`crate::int_ops::sbx_round_pair`] /
+//!   [`crate::int_ops::pm_round_mutation`] (T5 wrapped in rounding, M3-8 own
+//!   Int module).
+//! - `Block::Categorical` -> [`crate::cat_ops::cat_cross_pair`] /
+//!   [`crate::cat_ops::cat_reset`] (M3-8 own Categorical module).
+//! - `Block::Binary` -> [`bin_cross_pair`] / [`bin_flip_mutation`] (T2/M3-7,
+//!   relocated to `bin_ops.rs`, unchanged).
+//!
+//! **sezgi decision: EVERY block gets its own independent operator call**
+//! (own gate draw, own site/mask/value draws), REGARDLESS of kind -- this
+//! is a DELIBERATE divergence from the all-Float path's own behavior for a
+//! space with MULTIPLE `Block::Float` blocks (`nsga2_run_float_impl`
+//! flattens every Float block into ONE combined vector before a SINGLE
+//! `sbx_pair` call, i.e. one shared whole-pair gate across all of them).
+//! `Mixed` never reaches that flattening code (only entered when the space
+//! is NOT all-Float), so this divergence never changes any all-Float golden;
+//! it is new design freedom for a code path with no historical draw-order to
+//! preserve. Per-block independence was chosen because it is the SAME
+//! granularity `bin_cross_genome`'s own per-`Block::Binary`-block loop
+//! already established (module doc, "Per-VARIABLE, not per-chromosome, and
+//! GATED per variable too") and matches every typed pure core's own single-
+//! block calling convention ([`sbx_round_pair`]/[`cat_cross_pair`]/
+//! [`bin_cross_pair`] each take ONE block's worth of parent values and gate
+//! once for it) -- the simplest, most uniform rule for a genuinely
+//! heterogeneous per-block loop, and the one requiring no bespoke grouping
+//! logic to decide which same-kind blocks should share a gate.
+//!
+//! **Parameter sourcing (the task brief's own open design question).**
+//! - **Float and Int share `cfg.eta_c`/`cfg.p_c`/`cfg.eta_m`/`cfg.p_m`.**
+//!   [`crate::int_ops::sbx_round_pair`]/[`crate::int_ops::pm_round_mutation`]
+//!   are literally [`sbx_pair`]/[`polynomial_mutation`] run on an `f64` copy
+//!   of the `Int` block then rounded (`int_ops.rs`'s own "The reuse seam"
+//!   doc section) -- the SAME math, the SAME distribution index, so sharing
+//!   the SAME knob is not a convenience shortcut, it is the semantically
+//!   correct choice (an Int block IS a Float block that happens to round its
+//!   output, as far as these two operators are concerned). `p_m`'s
+//!   `None`-resolution formula is generalized accordingly: `1 / n` where `n`
+//!   is now the TOTAL flattened dimension across every `Block::Float` AND
+//!   `Block::Int` block combined (for an all-Float space this reduces to the
+//!   pre-task formula exactly, since Int contributes `0`; the Mixed path's
+//!   own resolution lives in [`nsga2_run_mixed_impl`], entirely separate
+//!   code from the Float path's own `nsga2_run_float_impl`, so this
+//!   generalization cannot alter the all-Float golden's resolved `p_m`
+//!   value).
+//! - **Binary keeps its own separate `cfg.p_c_bin`/`cfg.p_m_bin`** (M3-7 Task
+//!   3, unchanged) -- `bin_cross_pair`/`bin_flip_mutation` are a genuinely
+//!   DIFFERENT operator family (two-point crossover, bit-flip mutation, no
+//!   distribution index at all), which is exactly why KanGAL itself gives
+//!   binary variables their own separate `pcross_bin`/`pmut_bin` globals
+//!   (module doc, "Binary genotype path" section) rather than reusing
+//!   `pcross_real`/`pmut_real`.
+//! - **Categorical gets its OWN new knobs, `cfg.p_c_cat: f64` /
+//!   `cfg.p_m_cat: Option<f64>`**, mirroring `p_c_bin`/`p_m_bin`'s own
+//!   design exactly (`p_c_cat` required, no verified auto-default source,
+//!   same reasoning `p_c_bin`'s own doc gives; `p_m_cat: None` -> `1 / n_cat`,
+//!   `n_cat` = total flattened `Block::Categorical` dimension, the SAME
+//!   `None`-resolves-to-`1/dim` shape `p_m`/`p_m_bin` already use). Chosen
+//!   over reusing `cfg.p_c`/`cfg.p_m` because [`cat_cross_pair`]/[`cat_reset`]
+//!   ([`crate::cat_ops`], pymoo's `UX`/`ChoiceRandomMutation` port) are, like
+//!   Binary's operators, a DIFFERENT operator family from SBX/PM (uniform
+//!   masked exchange, uniform-random reset -- no distribution index) -- the
+//!   SAME "different operator family -> separate knob" rule that already
+//!   justifies `p_c_bin`/`p_m_bin`'s existence applies here too, for
+//!   consistency rather than ad hoc reuse. Defaults (`0.9`/`None`) match
+//!   `cat_ops.rs`'s own registered `gen/cat-ux`/`gen/cat-reset`/`gen/ga-cat`
+//!   defaults (that module's own "Defaults" doc section), themselves
+//!   verified against pymoo 0.6.2's Choice wiring.
+//! - No new `eta_*` field: neither `Block::Categorical`'s nor `Block::Binary`'s
+//!   operators take a distribution index at all (only the SBX/PM family
+//!   does), so `eta_c`/`eta_m` need no Categorical/Binary counterpart.
+//!
+//! **`Nsga2Config` field spillover.** `p_c_cat`/`p_m_cat` are new REQUIRED
+//! struct fields (Rust has no field defaults without `#[derive(Default)]`,
+//! which this struct does not derive), so every existing `Nsga2Config { .. }`
+//! construction site in the workspace -- every test in this module and in
+//! `crates/bench`/`crates/problems`/`crates/components/tests`, plus the
+//! `py-sezgi`/`r-sezgi` binding functions that build one internally -- gains
+//! the two new fields mechanically. Per the task brief's own pre-authorization
+//! (mirroring M3-7 Task 3's own `p_c_bin`/`p_m_bin` spillover precedent): the
+//! binding functions' OWN public signatures (`mo_nsga2`/`sz_nsga2_raw`) are
+//! left UNCHANGED this task (no new user-facing `p_c_cat`/`p_m_cat`
+//! parameter) -- each simply passes a fixed inert default (`p_c_cat: 0.9,
+//! p_m_cat: None`, the SAME default this task pins for the paper-authored
+//! Rust API) into its own internal `Nsga2Config { .. }` literal. Exposing
+//! these as real, user-tunable binding parameters is left to T9/T10, per the
+//! task brief's own scoping ("Binding surface ... untouched this task").
 
+use crate::bin_ops::{bin_cross_pair, bin_flip_mutation, rnd};
+use crate::cat_ops::{cat_cross_pair, cat_reset};
+use crate::int_ops::{pm_round_mutation, sbx_round_pair};
 use sezgi_core::mo::{MoEvaluator, MoProblem};
 use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
@@ -1348,6 +1526,30 @@ pub struct Nsga2Config {
     /// (`pmut_real`). `Some(p)` validated in `[0,1]`. Only consulted for an
     /// all-Binary space.
     pub p_m_bin: Option<f64>,
+    /// Categorical-genotype crossover probability (M3-8 Task 6): the
+    /// whole-pair gate for [`crate::cat_ops::cat_cross_pair`], kept SEPARATE
+    /// from `p_c`/`p_c_bin` -- `cat_cross_pair` (uniform masked exchange, no
+    /// distribution index) is a different operator family from SBX, the SAME
+    /// reasoning that already gives `Block::Binary` its own `p_c_bin` (see
+    /// the module doc's "M3-8 Task 6" section, "Parameter sourcing", for the
+    /// full rationale). **sezgi decision:** required (not `Option`),
+    /// mirroring `p_c_bin`'s own required-field design -- no paper/reference
+    /// precedent exists for Categorical, so there is no verified auto-default
+    /// formula to resolve from. Default value in every binding/test call site
+    /// this task touches: `0.9`, matching `cat_ops.rs`'s own `gen/cat-ux`/
+    /// `gen/ga-cat` default (pymoo 0.6.2-verified). Validated in `[0,1]`.
+    /// Only consulted when the search space is `Mixed` (genuinely mixing
+    /// block kinds, or a single non-Float/non-Binary kind) AND contains at
+    /// least one `Block::Categorical` block.
+    pub p_c_cat: f64,
+    /// Per-gene Categorical mutation probability (M3-8 Task 6). `None`
+    /// resolves to `1 / n_cat` (`n_cat` = the space's total flattened
+    /// `Block::Categorical` dimension), mirroring `p_m`/`p_m_bin`'s own
+    /// `None`-resolves-to-`1/dim` design (module doc's "M3-8 Task 6"
+    /// section). Mirrors [`crate::cat_ops::cat_reset`]'s own per-gene gate.
+    /// `Some(p)` validated in `[0,1]`. Only consulted for a `Mixed` space
+    /// containing at least one `Block::Categorical` block.
+    pub p_m_cat: Option<f64>,
 }
 
 /// One completed NSGA-II run's outcome. **PINNED once merged.**
@@ -1393,28 +1595,37 @@ pub enum Nsga2Error {
     InvalidProbability { name: &'static str, value: f64 },
     #[error("{name} must be > 0, got {value}")]
     InvalidEta { name: &'static str, value: f64 },
-    /// **sezgi decision (M3-7 Task 3):** kept, EXTENDED rather than
-    /// replaced -- `nsga2_run` now accepts an all-Binary space too (see
-    /// [`MixedGenotypeSpace`](Nsga2Error::MixedGenotypeSpace) below for the
-    /// genuinely-mixed-representation case), but a block that is neither
-    /// `Block::Float` nor `Block::Binary` (`Block::Int`/`Categorical`/
-    /// `Permutation`) is still rejected under this SAME variant, preserving
-    /// the pre-task `nsga2_run_non_float_space_is_error` golden byte-for-
-    /// byte (only the message text below was reworded to stay accurate;
-    /// the variant name/fields/construction condition for that test's
-    /// `Block::Int` space are unchanged).
+    /// **sezgi decision (M3-7 Task 3; superseded by M3-8 Task 6, see
+    /// below):** originally the catch-all for any block that is neither
+    /// `Block::Float` nor `Block::Binary`. After M3-8 Task 6, Int/
+    /// Categorical/Binary-mixed-with-Float spaces are all supported via the
+    /// new `Mixed` [`SpaceKind`] -- [`classify_space`] itself never
+    /// constructs this variant anymore (only `Block::Permutation` is still
+    /// rejected, via the new [`PermutationSpace`](Nsga2Error::PermutationSpace)
+    /// below). **Kept, not removed:** [`float_bounds`]'s own defensive
+    /// catch-all still constructs it as an internal invariant guard ("a
+    /// space `classify_space` classified `AllFloat` really is all-Float") --
+    /// unrelated to this task, and removing it would touch code this task
+    /// has no reason to touch. The two pre-task tests that exercised it as a
+    /// REACHABLE `nsga2_run` outcome (`Block::Int`/`Block::Categorical`
+    /// spaces) are UPDATED this task to assert the new, correct outcome
+    /// (acceptance) -- see the module doc's "M3-8 Task 6" section.
     #[error("nsga2_run requires an all-Float or all-Binary search space; block {index} is neither Block::Float nor Block::Binary")]
     NonFloatSpace { index: usize },
-    /// **New (M3-7 Task 3):** a search space mixing `Block::Float` AND
-    /// `Block::Binary` blocks together -- honest rejection naming the M3-8
-    /// deferral (mixed-genotype NSGA-II variation operators are out of
-    /// scope here; see the module doc's "Binary genotype path" section).
+    /// **New (M3-8 Task 6):** a search space containing a `Block::Permutation`
+    /// block -- honest rejection naming multi-objective permutation search
+    /// as out of scope (see the module doc's "M3-8 Task 6" section).
+    /// **Retires `Nsga2Error::MixedGenotypeSpace`** (M3-7 Task 3's own
+    /// deferral naming): that variant's whole reason to exist -- a space
+    /// mixing `Block::Float` and `Block::Binary` -- is now a SUPPORTED
+    /// combination (the `Mixed` [`SpaceKind`]), so it is removed outright
+    /// rather than left dead. `Block::Permutation` is the only block kind
+    /// [`classify_space`] still rejects.
     #[error(
-        "nsga2_run does not support a search space mixing Block::Float and \
-         Block::Binary blocks together (block {index}); mixed-genotype \
-         NSGA-II is deferred to M3-8 -- use an all-Float or all-Binary space"
+        "nsga2_run does not support a search space containing a Block::Permutation \
+         block (block {index}); multi-objective permutation search is out of scope"
     )]
-    MixedGenotypeSpace { index: usize },
+    PermutationSpace { index: usize },
     #[error("initial population (pop_size={pop_size}) exceeds the evaluation budget ({budget})")]
     BudgetTooSmallForInit { pop_size: usize, budget: u64 },
 }
@@ -1449,6 +1660,16 @@ fn validate_config(cfg: &Nsga2Config) -> Result<(), Nsga2Error> {
             return Err(Nsga2Error::InvalidProbability { name: "p_m_bin", value: p_m_bin });
         }
     }
+    // sezgi decision (M3-8 Task 6): p_c_cat/p_m_cat validated UNCONDITIONALLY
+    // too, same reasoning as p_c_bin/p_m_bin immediately above.
+    if !(0.0..=1.0).contains(&cfg.p_c_cat) {
+        return Err(Nsga2Error::InvalidProbability { name: "p_c_cat", value: cfg.p_c_cat });
+    }
+    if let Some(p_m_cat) = cfg.p_m_cat {
+        if !(0.0..=1.0).contains(&p_m_cat) {
+            return Err(Nsga2Error::InvalidProbability { name: "p_m_cat", value: p_m_cat });
+        }
+    }
     // `is_nan() ||` first, rather than the equivalent `!(x > 0.0)`, so
     // clippy's `neg_cmp_op_on_partial_ord` doesn't flag a negated
     // partial-order comparison -- both reject NaN and every `<= 0.0` value.
@@ -1470,36 +1691,35 @@ enum SpaceKind {
     /// Every block is [`Block::Float`] -- the original T4-T6 real-coded
     /// path, byte-identical.
     AllFloat,
-    /// Every block is [`Block::Binary`] -- this task's new path.
+    /// Every block is [`Block::Binary`] -- M3-7 Task 3's path.
     AllBinary,
+    /// Every block is `Float`/`Int`/`Categorical`/`Binary`, in ANY
+    /// combination that is not already `AllFloat`/`AllBinary` -- including a
+    /// single-kind space that is neither (e.g. all-`Int`). M3-8 Task 6's new
+    /// path -- see the module doc's own "M3-8 Task 6" section.
+    Mixed,
 }
 
-/// Classifies `space` for [`nsga2_run`]'s dispatch, per the interface
-/// pinned in this task's brief: an all-`Block::Float` space takes the
-/// (byte-identical) old path, an all-`Block::Binary` space takes the new
-/// path (this task, M3-7 Task 3), and anything else is rejected.
+/// Classifies `space` for [`nsga2_run`]'s dispatch: an all-`Block::Float`
+/// space takes the (byte-identical) old path, an all-`Block::Binary` space
+/// takes M3-7 Task 3's path, a `Block::Permutation` block anywhere is
+/// rejected (out of scope), and everything else -- any combination of
+/// `Float`/`Int`/`Categorical`/`Binary` that reaches neither of the first
+/// two checks -- takes M3-8 Task 6's new `Mixed` path.
 ///
-/// **Error-variant choice, documented (the brief's own instruction:
-/// "extend/replace `NonFloatSpace` as the module's error style dictates"):
-/// EXTENDED, not replaced.** [`Nsga2Error::NonFloatSpace`] keeps its exact
-/// pre-task construction condition -- a block that is neither `Float` nor
-/// `Binary` (`Int`/`Categorical`/`Permutation`) -- so the pre-task
-/// `nsga2_run_non_float_space_is_error` golden (a `Block::Int` space) is
-/// UNCHANGED byte-for-byte (only the error's message text was reworded to
-/// stay accurate; the frozen test only matches the variant/fields, never
-/// the message). A genuinely MIXED space (some blocks `Float`, some
-/// `Binary`) is a new, distinct failure mode -- unlike `Int`/`Categorical`/
-/// `Permutation`, a space with only `Float` and `Binary` blocks was never
-/// "not Float" in the old sense; it is a NEW representation this task
-/// introduces and deliberately does not support (deferred to M3-8) -- so
-/// it gets its own variant, [`Nsga2Error::MixedGenotypeSpace`], naming the
-/// deferral explicitly rather than overloading `NonFloatSpace`'s meaning.
+/// **M3-8 Task 6 rework.** Pre-task, anything that was not all-Float/
+/// all-Binary was rejected (`NonFloatSpace` for a lone bad block kind,
+/// `MixedGenotypeSpace` for a genuine Float+Binary mix). Both those
+/// rejections are now WRONG for every case except `Block::Permutation` --
+/// see the module doc's "M3-8 Task 6" section for the full per-variant
+/// reasoning (`MixedGenotypeSpace` retired outright; `NonFloatSpace` kept
+/// only as `float_bounds`'s own defensive, no-longer-reachable-from-here
+/// catch-all; the new [`Nsga2Error::PermutationSpace`] takes over as the
+/// ONE remaining rejection this function can produce).
 ///
 /// An EMPTY space (`space.blocks().is_empty()`) is classified `AllFloat`
-/// (vacuously true for the "every block is Float" check) -- this matches
-/// pre-task behavior exactly: `float_bounds` on an empty block list already
-/// produced empty bounds (`dim=0`) without error, so preserving that
-/// classification keeps this a pure refactor for the empty-space edge case.
+/// (vacuously true for the "every block is Float" check) -- unchanged from
+/// every pre-task revision of this function.
 fn classify_space(space: &SearchSpace) -> Result<SpaceKind, Nsga2Error> {
     let blocks = space.blocks();
     let all_float = blocks.iter().all(|b| matches!(b, Block::Float { .. }));
@@ -1510,14 +1730,18 @@ fn classify_space(space: &SearchSpace) -> Result<SpaceKind, Nsga2Error> {
     if all_binary {
         return Ok(SpaceKind::AllBinary);
     }
-    let has_float = blocks.iter().any(|b| matches!(b, Block::Float { .. }));
-    let has_binary = blocks.iter().any(|b| matches!(b, Block::Binary { .. }));
-    if has_float && has_binary {
-        let index = blocks.iter().position(|b| matches!(b, Block::Binary { .. })).unwrap();
-        return Err(Nsga2Error::MixedGenotypeSpace { index });
+    if let Some(index) = blocks.iter().position(|b| matches!(b, Block::Permutation { .. })) {
+        return Err(Nsga2Error::PermutationSpace { index });
     }
-    let index = blocks.iter().position(|b| !matches!(b, Block::Float { .. } | Block::Binary { .. })).unwrap();
-    Err(Nsga2Error::NonFloatSpace { index })
+    // Every remaining block is Float, Int, Categorical, or Binary, in some
+    // combination that is not already all-Float/all-Binary -- the Mixed
+    // path (M3-8 Task 6) handles every block kind through its own per-block
+    // dispatch, so no further per-block validation is needed here.
+    debug_assert!(blocks.iter().all(|b| matches!(
+        b,
+        Block::Float { .. } | Block::Int { .. } | Block::Categorical { .. } | Block::Binary { .. }
+    )));
+    Ok(SpaceKind::Mixed)
 }
 
 type FloatBounds = (Vec<f64>, Vec<f64>, Vec<usize>);
@@ -1592,62 +1816,9 @@ fn to_genotype_binary(blocks: Vec<Vec<bool>>) -> Genotype {
     Genotype { blocks: blocks.into_iter().map(BlockValues::Bin).collect() }
 }
 
-/// KanGAL reference C's `crossover.c`, `bincross`, on ONE binary block
-/// (`sezgi`'s per-block mirror of the C's per-`nbin`-variable `nbits[i]`-
-/// bit `gene[i]` row) -- see the module doc's "Binary genotype path"
-/// section for the verified quote, the sha check, and the "two-point, not
-/// one-point" correction to the task brief's assumption. `p1`/`p2` must be
-/// the same length (`nbits`). Returns `(child1, child2)`.
-///
-/// **Pinned draw structure** (module doc): ONE draw, the per-BLOCK gate
-/// (`rand = randomperc(); if (rand <= pcross_bin)`) -- unlike `sbx_pair`'s
-/// single gate covering the WHOLE real-coded pair at once, `bincross`
-/// gates EACH binary block independently (the C's own `for (i=0; i<nbin;
-/// i++)` outer loop encloses the gate itself, not just the crossover math
-/// -- see the quote). On failure, copy both parents verbatim for this
-/// block -- no further draws for it. On success: TWO more draws, `site1 =
-/// rnd(0,nbits[i]-1)` then `site2 = rnd(0,nbits[i]-1)` (via [`rnd`], SAME
-/// helper the tournament-pairing shuffle uses -- no draw at all when
-/// `nbits <= 1`, since `rnd(0,0)` hits the `low>=high` no-draw branch
-/// twice), THEN sorted ascending with NO further draw (a plain compare-and-
-/// swap, not a third draw) -- verified: the C computes `site1`/`site2`
-/// unconditionally THEN swaps them if `site1 > site2`, it does not re-draw.
-/// The genome is then partitioned into three (possibly-empty) segments by
-/// `[site1, site2)`: `[0,site1)` and `[site2,nbits)` come from each child's
-/// OWN parent (child1<-parent1, child2<-parent2), the MIDDLE segment
-/// `[site1,site2)` is SWAPPED (child1<-parent2, child2<-parent1) -- a
-/// classic two-point crossover, no draws.
-pub fn bin_cross_pair(p1: &[bool], p2: &[bool], p_c_bin: f64, rng: &mut RngStream) -> (Vec<bool>, Vec<bool>) {
-    debug_assert_eq!(p1.len(), p2.len(), "bin_cross_pair: parent bit vectors must have equal length");
-    let n = p1.len();
-
-    // Per-block gate: ONE draw.
-    if rng.next_f64() > p_c_bin {
-        return (p1.to_vec(), p2.to_vec());
-    }
-
-    let hi = n.saturating_sub(1);
-    let mut site1 = rnd(0, hi, rng);
-    let mut site2 = rnd(0, hi, rng);
-    if site1 > site2 {
-        std::mem::swap(&mut site1, &mut site2);
-    }
-
-    let mut c1 = Vec::with_capacity(n);
-    let mut c2 = Vec::with_capacity(n);
-    for j in 0..n {
-        if j < site1 || j >= site2 {
-            c1.push(p1[j]);
-            c2.push(p2[j]);
-        } else {
-            c1.push(p2[j]);
-            c2.push(p1[j]);
-        }
-    }
-    (c1, c2)
-}
-
-/// Whole-genome [`bin_cross_pair`]: mirrors `bincross`'s own outer
+/// Whole-genome [`bin_cross_pair`] (relocated to `crate::bin_ops`, M3-8 Task
+/// 2 -- see this module's doc, "M3-8 Task 2" section): mirrors `bincross`'s
+/// own outer
 /// `for (i=0; i<nbin; i++)` loop -- EACH binary block gets its OWN
 /// independent [`bin_cross_pair`] call (own gate, own draws), in block
 /// order.
@@ -1667,30 +1838,172 @@ fn bin_cross_genome(
     (c1, c2)
 }
 
-/// KanGAL reference C's `mutation.c`, `bin_mutate_ind`, on ONE binary
-/// block, in place. See the module doc's "Binary genotype path" section
-/// for the verified quote.
-///
-/// **Pinned draw structure:** per bit, in order, ONE draw
-/// (`prob = randomperc(); if (prob <= pmut_bin)`); on success, flip the
-/// bit (`0<->1`); on failure, leave it unchanged. No second draw per bit
-/// (unlike [`polynomial_mutation`]'s gate-then-`rnd` two-draw shape --
-/// bit-flip needs no magnitude draw, only the gate).
-pub fn bin_flip_mutation(x: &mut [bool], p_m_bin: f64, rng: &mut RngStream) {
-    for bit in x.iter_mut() {
-        if rng.next_f64() <= p_m_bin {
-            *bit = !*bit;
-        }
-    }
-}
-
-/// Whole-genome [`bin_flip_mutation`]: mirrors `bin_mutate_ind`'s own
+/// Whole-genome [`bin_flip_mutation`] (relocated to `crate::bin_ops`, M3-8
+/// Task 2 -- see this module's doc, "M3-8 Task 2" section): mirrors
+/// `bin_mutate_ind`'s own
 /// nested `for (j=0; j<nbin; j++) for (k=0; k<nbits[j]; k++)` loop --
 /// block-major, bit-minor, in place.
 fn bin_mutate_genome(x: &mut [Vec<bool>], p_m_bin: f64, rng: &mut RngStream) {
     for block in x.iter_mut() {
         bin_flip_mutation(block, p_m_bin, rng);
     }
+}
+
+/// One pair's crossover across EVERY block of a `Mixed` space, in
+/// `space.blocks()` order (M3-8 Task 6 -- see the module doc's own "M3-8
+/// Task 6" section for the full per-block dispatch/parameter-sourcing
+/// rationale). Each block gets its own independent typed-core call (own
+/// gate draw): [`sbx_pair`] for `Block::Float`, [`sbx_round_pair`] for
+/// `Block::Int`, [`cat_cross_pair`] for `Block::Categorical`,
+/// [`bin_cross_pair`] for `Block::Binary`. `p1`/`p2` must both already be
+/// validated against `blocks` (same shape [`nsga2_run_core`] always hands
+/// this function -- population genotypes it itself constructed via
+/// `crate::init::sample_uniform` or a prior generation's own crossover
+/// output).
+fn cross_pair_mixed(
+    p1: &Genotype,
+    p2: &Genotype,
+    blocks: &[Block],
+    cfg: &Nsga2Config,
+    rng: &mut RngStream,
+) -> (Genotype, Genotype) {
+    let mut c1 = Vec::with_capacity(blocks.len());
+    let mut c2 = Vec::with_capacity(blocks.len());
+    for (b, block) in blocks.iter().enumerate() {
+        match *block {
+            Block::Float { lo, hi, n } => {
+                let (BlockValues::Float(a), BlockValues::Float(bv)) = (&p1.blocks[b], &p2.blocks[b]) else {
+                    unreachable!("Mixed-space genotype/space block-kind mismatch at block {b} (expected Float)");
+                };
+                let (x1, x2) = sbx_pair(a, bv, &vec![lo; n], &vec![hi; n], cfg.eta_c, cfg.p_c, rng);
+                c1.push(BlockValues::Float(x1));
+                c2.push(BlockValues::Float(x2));
+            }
+            Block::Int { lo, hi, n } => {
+                let (BlockValues::Int(a), BlockValues::Int(bv)) = (&p1.blocks[b], &p2.blocks[b]) else {
+                    unreachable!("Mixed-space genotype/space block-kind mismatch at block {b} (expected Int)");
+                };
+                let (x1, x2) = sbx_round_pair(a, bv, &vec![lo; n], &vec![hi; n], cfg.eta_c, cfg.p_c, rng);
+                c1.push(BlockValues::Int(x1));
+                c2.push(BlockValues::Int(x2));
+            }
+            Block::Categorical { .. } => {
+                let (BlockValues::Cat(a), BlockValues::Cat(bv)) = (&p1.blocks[b], &p2.blocks[b]) else {
+                    unreachable!("Mixed-space genotype/space block-kind mismatch at block {b} (expected Categorical)");
+                };
+                let (x1, x2) = cat_cross_pair(a, bv, cfg.p_c_cat, rng);
+                c1.push(BlockValues::Cat(x1));
+                c2.push(BlockValues::Cat(x2));
+            }
+            Block::Binary { .. } => {
+                let (BlockValues::Bin(a), BlockValues::Bin(bv)) = (&p1.blocks[b], &p2.blocks[b]) else {
+                    unreachable!("Mixed-space genotype/space block-kind mismatch at block {b} (expected Binary)");
+                };
+                let (x1, x2) = bin_cross_pair(a, bv, cfg.p_c_bin, rng);
+                c1.push(BlockValues::Bin(x1));
+                c2.push(BlockValues::Bin(x2));
+            }
+            Block::Permutation { .. } => {
+                unreachable!("classify_space rejects any Block::Permutation space before Mixed dispatch is ever reached")
+            }
+        }
+    }
+    (Genotype { blocks: c1 }, Genotype { blocks: c2 })
+}
+
+/// One individual's mutation across EVERY block of a `Mixed` space, in
+/// place, in `space.blocks()` order (M3-8 Task 6 -- mirrors
+/// [`cross_pair_mixed`]'s own per-block dispatch, module doc's "M3-8 Task 6"
+/// section): [`polynomial_mutation`] for `Block::Float`,
+/// [`pm_round_mutation`] for `Block::Int`, [`cat_reset`] for
+/// `Block::Categorical`, [`bin_flip_mutation`] for `Block::Binary`.
+fn mutate_mixed(
+    g: &mut Genotype,
+    blocks: &[Block],
+    cfg: &Nsga2Config,
+    p_m: f64,
+    p_m_bin: f64,
+    p_m_cat: f64,
+    rng: &mut RngStream,
+) {
+    for (b, block) in blocks.iter().enumerate() {
+        match *block {
+            Block::Float { lo, hi, n } => {
+                let BlockValues::Float(x) = &mut g.blocks[b] else {
+                    unreachable!("Mixed-space genotype/space block-kind mismatch at block {b} (expected Float)");
+                };
+                polynomial_mutation(x, &vec![lo; n], &vec![hi; n], cfg.eta_m, p_m, rng);
+            }
+            Block::Int { lo, hi, n } => {
+                let BlockValues::Int(x) = &mut g.blocks[b] else {
+                    unreachable!("Mixed-space genotype/space block-kind mismatch at block {b} (expected Int)");
+                };
+                pm_round_mutation(x, &vec![lo; n], &vec![hi; n], cfg.eta_m, p_m, rng);
+            }
+            Block::Categorical { k, .. } => {
+                let BlockValues::Cat(x) = &mut g.blocks[b] else {
+                    unreachable!("Mixed-space genotype/space block-kind mismatch at block {b} (expected Categorical)");
+                };
+                cat_reset(x, k, p_m_cat, rng);
+            }
+            Block::Binary { .. } => {
+                let BlockValues::Bin(x) = &mut g.blocks[b] else {
+                    unreachable!("Mixed-space genotype/space block-kind mismatch at block {b} (expected Binary)");
+                };
+                bin_flip_mutation(x, p_m_bin, rng);
+            }
+            Block::Permutation { .. } => {
+                unreachable!("classify_space rejects any Block::Permutation space before Mixed dispatch is ever reached")
+            }
+        }
+    }
+}
+
+/// The all-`Mixed` sibling of [`generate_offspring`]/[`generate_offspring_binary`]
+/// (M3-8 Task 6): SAME two-phase tournament-pairing/variation shape
+/// (selection+crossover first in the block-of-4 loop, a SEPARATE full
+/// mutation pass second -- module doc, "Tournament pairing"), but drives
+/// [`cross_pair_mixed`]/[`mutate_mixed`]'s per-block dispatch instead of a
+/// single flattened/whole-genome operator call.
+#[allow(clippy::too_many_arguments)]
+fn generate_offspring_mixed(
+    genos: &[Genotype],
+    objectives: &[Vec<f64>],
+    crowd: &[f64],
+    violations: Option<&[f64]>,
+    blocks: &[Block],
+    cfg: &Nsga2Config,
+    p_m: f64,
+    p_m_bin: f64,
+    p_m_cat: f64,
+    rng: &mut RngStream,
+) -> Vec<Genotype> {
+    let n = genos.len();
+    let (a1, a2) = shuffle_two_interleaved(n, rng);
+    let mut children: Vec<Genotype> = vec![Genotype { blocks: Vec::new() }; n];
+
+    let mut i = 0;
+    while i < n {
+        let p1 = tournament(objectives, crowd, a1[i], a1[i + 1], rng, violations);
+        let p2 = tournament(objectives, crowd, a1[i + 2], a1[i + 3], rng, violations);
+        let (c1, c2) = cross_pair_mixed(&genos[p1], &genos[p2], blocks, cfg, rng);
+        children[i] = c1;
+        children[i + 1] = c2;
+
+        let p3 = tournament(objectives, crowd, a2[i], a2[i + 1], rng, violations);
+        let p4 = tournament(objectives, crowd, a2[i + 2], a2[i + 3], rng, violations);
+        let (c3, c4) = cross_pair_mixed(&genos[p3], &genos[p4], blocks, cfg, rng);
+        children[i + 2] = c3;
+        children[i + 3] = c4;
+
+        i += 4;
+    }
+
+    for child in &mut children {
+        mutate_mixed(child, blocks, cfg, p_m, p_m_bin, p_m_cat, rng);
+    }
+
+    children
 }
 
 /// Uniform-in-bounds initial population. Draw order pinned to
@@ -1700,22 +2013,6 @@ fn init_population(n: usize, lo: &[f64], hi: &[f64], rng: &mut RngStream) -> Vec
     (0..n)
         .map(|_| (0..lo.len()).map(|j| lo[j] + (hi[j] - lo[j]) * rng.next_f64()).collect())
         .collect()
-}
-
-/// `rand.c`'s `rnd(low, high)`: a uniform integer in `[low, high]`
-/// inclusive, via `low + floor(U(0,1) * (high-low+1))` clamped down to
-/// `high`. Pinned quirk (module doc, "Tournament pairing"): **no draw at
-/// all** when `low >= high`.
-fn rnd(low: usize, high: usize, rng: &mut RngStream) -> usize {
-    if low >= high {
-        return low;
-    }
-    let width = (high - low + 1) as f64;
-    let mut res = low + (rng.next_f64() * width).floor() as usize;
-    if res > high {
-        res = high;
-    }
-    res
 }
 
 /// The `tourselect.c` `selection()` double-permutation shuffle, draws
@@ -2055,16 +2352,18 @@ pub type MoBatchObserver<'o> = dyn FnMut(u64, &[Genotype], &[Vec<f64>], Option<&
 /// constraint channel (M3-7 Task 1), and the "Binary genotype path"
 /// section (M3-7 Task 3) for the binary dispatch below.
 ///
-/// **Dispatch (M3-7 Task 3).** `problem.space()` is classified by
-/// [`classify_space`] FIRST: an all-`Block::Float` space calls
+/// **Dispatch (M3-7 Task 3; extended M3-8 Task 6).** `problem.space()` is
+/// classified by [`classify_space`] FIRST: an all-`Block::Float` space calls
 /// [`nsga2_run_float_impl`], whose body is the EXACT pre-task `nsga2_run`
 /// (this task's own acceptance gate: every pre-task golden must pass
 /// UNMODIFIED, so that body is untouched, merely extracted under a new
-/// name); an all-`Block::Binary` space calls the new
-/// [`nsga2_run_binary_impl`] instead. `validate_config` runs ONCE here,
-/// before classification, so its error precedence over space-classification
-/// errors matches the pre-task ordering exactly (`validate_config(cfg)?`
-/// was always the first statement in `nsga2_run`'s body).
+/// name); an all-`Block::Binary` space calls [`nsga2_run_binary_impl`]
+/// (M3-7 Task 3); anything else that is not a `Block::Permutation` space
+/// (rejected) calls the new [`nsga2_run_mixed_impl`] (M3-8 Task 6).
+/// `validate_config` runs ONCE here, before classification, so its error
+/// precedence over space-classification errors matches the pre-task
+/// ordering exactly (`validate_config(cfg)?` was always the first statement
+/// in `nsga2_run`'s body).
 ///
 /// **M3-7 Task 9:** `nsga2_run` always passes `None` for the batch observer
 /// -- see [`nsga2_run_observed`] for the `Some` sibling entry point.
@@ -2073,6 +2372,7 @@ pub fn nsga2_run(problem: &dyn MoProblem, cfg: &Nsga2Config) -> Result<MoRunResu
     match classify_space(problem.space())? {
         SpaceKind::AllFloat => nsga2_run_float_impl(problem, cfg, None),
         SpaceKind::AllBinary => nsga2_run_binary_impl(problem, cfg, None),
+        SpaceKind::Mixed => nsga2_run_mixed_impl(problem, cfg, None),
     }
 }
 
@@ -2087,48 +2387,83 @@ pub fn nsga2_run_observed(
     match classify_space(problem.space())? {
         SpaceKind::AllFloat => nsga2_run_float_impl(problem, cfg, Some(observer)),
         SpaceKind::AllBinary => nsga2_run_binary_impl(problem, cfg, Some(observer)),
+        SpaceKind::Mixed => nsga2_run_mixed_impl(problem, cfg, Some(observer)),
     }
 }
 
-/// The real-coded runner (M3-2/T4-T6's original `nsga2_run` body, M3-7
-/// Task 1's constraint channel already folded in -- unchanged by this
-/// task): `problem.evaluate_constraints_batch` returning `None` (every
-/// M3-2 `MoProblem` impl, and any problem that simply never overrides the
-/// trait default) takes the EXACT unconstrained code path this function
-/// always had -- `violations` stays `None` throughout, so
-/// `crowd_dist_full`/`generate_offspring`/`environmental_selection` all
-/// take their own `None` branches, which are textually the pre-task code.
-/// **sezgi decision (M3-7 Task 3):** `validate_config(cfg)` is called again
-/// here (redundant with the dispatcher's own call above, since
-/// [`nsga2_run`] already validated `cfg` before ever reaching this
-/// function) -- kept so this function's body stays a byte-identical copy
-/// of the pre-task `nsga2_run`, rather than trimming the "redundant" call
-/// and risking an accidental behavioral edit to frozen code; the second
-/// call is provably a no-op (same `cfg`, same `Ok(())`/`Err` outcome).
+/// What differs between the real-coded, all-Binary, and `Mixed` main loops
+/// (M3-8 T1 unification of the former `nsga2_run_float_impl`/
+/// `nsga2_run_binary_impl` near-verbatim pair; `Mixed` added M3-8 Task 6):
+/// everything each variant needs to (a) sample its own initial population
+/// and (b) generate one generation's offspring, per [`nsga2_run_core`]'s two
+/// `match &repr` sites below. Built once by each thin wrapper
+/// ([`nsga2_run_float_impl`]/[`nsga2_run_binary_impl`]/
+/// [`nsga2_run_mixed_impl`]) from that wrapper's own space-specific setup
+/// (`float_bounds`/mutation-rate defaults), then borrowed for the whole run
+/// -- everything else (RNG/evaluator setup, init+evaluate+observe, the
+/// budget-tail loop, sort, crowding, environmental selection, front-0
+/// extraction, observer calls) is the shared skeleton in [`nsga2_run_core`],
+/// unchanged in shape or RNG draw order from the pre-unification bodies
+/// (T1's own acceptance gate: every pre-T1 nsga2 golden passes UNMODIFIED --
+/// `Mixed` adds a THIRD arm to each `match &repr` site without touching
+/// either existing arm's own code).
 ///
-/// **M3-7 Task 9:** renamed from `nsga2_run_float` and given the
-/// `observer` parameter (see [`MoBatchObserver`]'s doc); every call site
-/// through [`nsga2_run`] passes `None`, so with `observer = None` this
-/// function's control flow and every value it computes are BYTE-IDENTICAL
-/// to the pre-task body -- the two `if let Some(obs) = &mut observer { .. }`
-/// sites below are the ONLY lines added, and they are no-ops when
-/// `observer` is `None`.
-fn nsga2_run_float_impl(
-    problem: &dyn MoProblem, cfg: &Nsga2Config, mut observer: Option<&mut MoBatchObserver>,
-) -> Result<MoRunResult, Nsga2Error> {
-    validate_config(cfg)?;
-    let (lo, hi, block_lens) = float_bounds(problem.space())?;
-    let dim = lo.len();
-    let p_m = cfg.p_m.unwrap_or(1.0 / dim as f64);
+/// `Mixed` carries only the three RESOLVED mutation-rate scalars, unlike
+/// `Float` -- no lifetime-carrying bounds arrays are needed, since
+/// [`cross_pair_mixed`]/[`mutate_mixed`] read each block's own `lo`/`hi`/`k`
+/// directly from `problem.space().blocks()` (passed straight through at each
+/// `Mixed` call site in [`nsga2_run_core`] below, module doc's "M3-8 Task 6"
+/// section).
+enum Representation<'a> {
+    Float { lo: &'a [f64], hi: &'a [f64], block_lens: &'a [usize], p_m: f64 },
+    Binary { p_m_bin: f64 },
+    Mixed { p_m: f64, p_m_bin: f64, p_m_cat: f64 },
+}
 
+/// Shared engine behind [`nsga2_run_float_impl`] and
+/// [`nsga2_run_binary_impl`] (M3-8 T1 DRY refactor, following
+/// [`fast_non_dominated_sort_core`]'s own extraction precedent: a private
+/// core parameterized over what differs, thin public-facing wrappers keep
+/// their exact pre-task bodies for setup/dispatch). `repr` ([`Representation`])
+/// carries the ONLY two things that differed between the former
+/// `nsga2_run_float_impl`/`nsga2_run_binary_impl` bodies: how the initial
+/// population is sampled, and how one generation's offspring are generated
+/// (`init_population`+`to_genotype` / [`generate_offspring`] for Float vs
+/// `crate::init::sample_uniform` / [`generate_offspring_binary`] for
+/// Binary) -- every other statement below, in the SAME order, is textually
+/// what both pre-task bodies already shared byte-for-byte: RNG-stream
+/// derivation (`master`/`init_rng`/`var_rng`, identical formula and draw
+/// order for both, so this extraction changes NEITHER seeding NOR which
+/// RNG call happens when -- the bit-identity constraint this task's own
+/// acceptance gate re-proves), evaluator setup, init+evaluate+observe, the
+/// budget-tail loop (generate offspring, evaluate, break WITHOUT mutating
+/// state on `Err` -- module doc's "Budget-tail rule"), environmental
+/// selection, and front-0 extraction.
+fn nsga2_run_core(
+    problem: &dyn MoProblem,
+    cfg: &Nsga2Config,
+    repr: Representation<'_>,
+    mut observer: Option<&mut MoBatchObserver>,
+) -> Result<MoRunResult, Nsga2Error> {
     let master = NSGA2_SEED_BASE.wrapping_add(cfg.seed);
     let mut init_rng = RngStream::from_master(master, &[1]);
     let mut var_rng = RngStream::from_master(master, &[2]);
 
     let mut eval = MoEvaluator::new(problem, cfg.budget);
 
-    let init_flat = init_population(cfg.pop_size, &lo, &hi, &mut init_rng);
-    let mut genos: Vec<Genotype> = init_flat.iter().map(|f| to_genotype(f, &block_lens)).collect();
+    let mut genos: Vec<Genotype> = match &repr {
+        Representation::Float { lo, hi, block_lens, .. } => {
+            let init_flat = init_population(cfg.pop_size, lo, hi, &mut init_rng);
+            init_flat.iter().map(|f| to_genotype(f, block_lens)).collect()
+        }
+        // Binary and Mixed both reuse crate::init::sample_uniform verbatim
+        // (module doc's "Binary genotype path"/"M3-8 Task 6" sections):
+        // that function already handles every Block kind generically, so
+        // Mixed needs no new initialization code of its own.
+        Representation::Binary { .. } | Representation::Mixed { .. } => {
+            (0..cfg.pop_size).map(|_| crate::init::sample_uniform(problem.space(), &mut init_rng)).collect()
+        }
+    };
     let mut objectives = eval.evaluate(&genos).map_err(|_| Nsga2Error::BudgetTooSmallForInit {
         pop_size: cfg.pop_size,
         budget: cfg.budget,
@@ -2141,9 +2476,18 @@ fn nsga2_run_float_impl(
         // Budget-tail rule (module doc): generate speculatively, evaluate,
         // and break WITHOUT mutating the population on Err -- mirrors the
         // scalar engine's `Err(_) => break 'outer` exactly.
-        let offspring = generate_offspring(
-            &genos, &objectives, &crowd, violations.as_deref(), &lo, &hi, &block_lens, cfg, p_m, &mut var_rng,
-        );
+        let offspring = match &repr {
+            Representation::Float { lo, hi, block_lens, p_m } => generate_offspring(
+                &genos, &objectives, &crowd, violations.as_deref(), lo, hi, block_lens, cfg, *p_m, &mut var_rng,
+            ),
+            Representation::Binary { p_m_bin } => generate_offspring_binary(
+                &genos, &objectives, &crowd, violations.as_deref(), cfg, *p_m_bin, &mut var_rng,
+            ),
+            Representation::Mixed { p_m, p_m_bin, p_m_cat } => generate_offspring_mixed(
+                &genos, &objectives, &crowd, violations.as_deref(), problem.space().blocks(), cfg,
+                *p_m, *p_m_bin, *p_m_cat, &mut var_rng,
+            ),
+        };
         let before = eval.used();
         let off_objectives = match eval.evaluate(&offspring) {
             Ok(o) => o,
@@ -2168,76 +2512,121 @@ fn nsga2_run_float_impl(
     Ok(MoRunResult { individuals: genos, objectives, front0, evals_used: eval.used(), violations })
 }
 
-/// The all-Binary sibling of [`nsga2_run_float_impl`] (M3-7 Task 3; renamed
-/// from `nsga2_run_float` by M3-7 Task 9, see that function's own doc): SAME
-/// algorithm shape (init -> evaluate -> environmental-selection loop with
-/// the SAME budget-tail rule, SAME RNG-stream derivation), but drives the
-/// binary-genotype operators ([`generate_offspring_binary`],
-/// [`bin_cross_genome`], [`bin_mutate_genome`]) and reuses
-/// `crate::init::sample_uniform`'s existing `Block::Binary` sampling for
-/// initialization (module doc's "Binary genotype path" section: "reuse
-/// init's binary sampling, don't duplicate" -- one `next_f64()` draw per
-/// bit, individual-major/block-major/bit-minor, matching `initialize_ind`'s
-/// own nested-loop STRUCTURE even though the exact `< 0.5`-vs-C's-`<=0.5`
-/// bit mapping differs, per this module's established "draw STRUCTURE is
-/// pinned, not bit-identical values against the C" convention). `p_m_bin`
-/// resolves `None` to `1 / l` (`l` = `problem.space().dim()`, the total
-/// flattened bit count -- the paper's own binary default, module doc's
-/// "Defaults" section).
+/// The real-coded runner (M3-2/T4-T6's original `nsga2_run` body, M3-7
+/// Task 1's constraint channel already folded in): sets up the Float-space
+/// bounds/mutation-rate `repr` and delegates the whole run to
+/// [`nsga2_run_core`]. `problem.evaluate_constraints_batch` returning `None`
+/// (every M3-2 `MoProblem` impl, and any problem that simply never
+/// overrides the trait default) takes the EXACT unconstrained code path
+/// this function always had -- `violations` stays `None` throughout, so
+/// `crowd_dist_full`/`generate_offspring`/`environmental_selection` all
+/// take their own `None` branches, which are textually the pre-task code.
+/// **sezgi decision (M3-7 Task 3):** `validate_config(cfg)` is called again
+/// here (redundant with the dispatcher's own call above, since
+/// [`nsga2_run`] already validated `cfg` before ever reaching this
+/// function) -- kept so this function stays behaviorally identical to the
+/// pre-task `nsga2_run`, rather than trimming the "redundant" call and
+/// risking an accidental behavioral edit to frozen code; the second call is
+/// provably a no-op (same `cfg`, same `Ok(())`/`Err` outcome).
 ///
-/// **M3-7 Task 9:** renamed from `nsga2_run_binary` and given the same
-/// `observer` parameter as [`nsga2_run_float_impl`] (see [`MoBatchObserver`]'s
-/// doc); `observer = None` is byte-identical to the pre-task body, same
-/// reasoning as that function's own doc.
+/// **M3-7 Task 9:** renamed from `nsga2_run_float` and given the
+/// `observer` parameter (see [`MoBatchObserver`]'s doc); every call site
+/// through [`nsga2_run`] passes `None`, so with `observer = None` this
+/// function's control flow and every value it computes are BYTE-IDENTICAL
+/// to the pre-task body.
+///
+/// **M3-8 Task 1:** the loop body itself moved into [`nsga2_run_core`]
+/// (this function now only resolves the Float-specific `repr` and
+/// delegates); `observer = None` is still byte-identical to the pre-task
+/// body, since [`nsga2_run_core`]'s Float branch is a verbatim relocation
+/// of what used to live here directly.
+fn nsga2_run_float_impl(
+    problem: &dyn MoProblem, cfg: &Nsga2Config, observer: Option<&mut MoBatchObserver>,
+) -> Result<MoRunResult, Nsga2Error> {
+    validate_config(cfg)?;
+    let (lo, hi, block_lens) = float_bounds(problem.space())?;
+    let dim = lo.len();
+    let p_m = cfg.p_m.unwrap_or(1.0 / dim as f64);
+    let repr = Representation::Float { lo: &lo, hi: &hi, block_lens: &block_lens, p_m };
+    nsga2_run_core(problem, cfg, repr, observer)
+}
+
+/// The all-Binary sibling of [`nsga2_run_float_impl`] (M3-7 Task 3; renamed
+/// from `nsga2_run_binary` by M3-7 Task 9): resolves the Binary-specific
+/// `repr` (mutation-rate default) and delegates the whole run to
+/// [`nsga2_run_core`], which drives the binary-genotype operators
+/// ([`generate_offspring_binary`], [`bin_cross_genome`],
+/// [`bin_mutate_genome`]) and reuses `crate::init::sample_uniform`'s
+/// existing `Block::Binary` sampling for initialization (module doc's
+/// "Binary genotype path" section: "reuse init's binary sampling, don't
+/// duplicate" -- one `next_f64()` draw per bit, individual-major/
+/// block-major/bit-minor, matching `initialize_ind`'s own nested-loop
+/// STRUCTURE even though the exact `< 0.5`-vs-C's-`<=0.5` bit mapping
+/// differs, per this module's established "draw STRUCTURE is pinned, not
+/// bit-identical values against the C" convention). `p_m_bin` resolves
+/// `None` to `1 / l` (`l` = `problem.space().dim()`, the total flattened
+/// bit count -- the paper's own binary default, module doc's "Defaults"
+/// section).
+///
+/// **M3-7 Task 9:** given the same `observer` parameter as
+/// [`nsga2_run_float_impl`] (see [`MoBatchObserver`]'s doc).
+///
+/// **M3-8 Task 1:** the loop body moved into [`nsga2_run_core`] (shared
+/// with the Float wrapper above); unlike [`nsga2_run_float_impl`], this
+/// function does NOT re-call `validate_config` -- it never did before this
+/// task either, so that asymmetry is preserved exactly as it always was.
+/// `observer = None` is byte-identical to the pre-task body.
 fn nsga2_run_binary_impl(
-    problem: &dyn MoProblem, cfg: &Nsga2Config, mut observer: Option<&mut MoBatchObserver>,
+    problem: &dyn MoProblem, cfg: &Nsga2Config, observer: Option<&mut MoBatchObserver>,
 ) -> Result<MoRunResult, Nsga2Error> {
     let l = problem.space().dim();
     let p_m_bin = cfg.p_m_bin.unwrap_or(1.0 / l as f64);
+    let repr = Representation::Binary { p_m_bin };
+    nsga2_run_core(problem, cfg, repr, observer)
+}
 
-    let master = NSGA2_SEED_BASE.wrapping_add(cfg.seed);
-    let mut init_rng = RngStream::from_master(master, &[1]);
-    let mut var_rng = RngStream::from_master(master, &[2]);
+/// The genuinely-mixed-genotype sibling of [`nsga2_run_float_impl`]/
+/// [`nsga2_run_binary_impl`] (M3-8 Task 6): resolves the Mixed-specific
+/// mutation-rate defaults (`p_m`, shared with the Float path since
+/// `Block::Int` reuses the SAME SBX/PM cores; `p_m_bin`; `p_m_cat`, new this
+/// task) and delegates the whole run to [`nsga2_run_core`], which drives the
+/// per-block operators ([`generate_offspring_mixed`], [`cross_pair_mixed`],
+/// [`mutate_mixed`]) and reuses `crate::init::sample_uniform` for
+/// initialization (same reuse [`nsga2_run_binary_impl`] already makes --
+/// that function already handles every `Block` kind generically).
+///
+/// **Resolution formulas** (see the module doc's "M3-8 Task 6" section,
+/// "Parameter sourcing", for the full rationale):
+/// - `p_m` (`cfg.p_m`): `None` -> `1 / n` where `n` is the TOTAL flattened
+///   dimension across every `Block::Float` AND `Block::Int` block combined.
+/// - `p_m_bin` (`cfg.p_m_bin`): `None` -> `1 / l_bin` (`l_bin` = total
+///   flattened `Block::Binary` bit count) -- unchanged resolution from the
+///   all-Binary path.
+/// - `p_m_cat` (`cfg.p_m_cat`): `None` -> `1 / n_cat` (`n_cat` = total
+///   flattened `Block::Categorical` dimension).
+///
+/// If a space has no block of the relevant kind at all (e.g. no
+/// `Block::Float`/`Block::Int` block in an all-Categorical-plus-Binary
+/// mixed space), the corresponding resolved default divides by zero
+/// (`f64::INFINITY`) -- harmless, since [`cross_pair_mixed`]/[`mutate_mixed`]
+/// never read that scalar when no block of that kind exists to apply it to.
+fn nsga2_run_mixed_impl(
+    problem: &dyn MoProblem, cfg: &Nsga2Config, observer: Option<&mut MoBatchObserver>,
+) -> Result<MoRunResult, Nsga2Error> {
+    let blocks = problem.space().blocks();
+    let real_dim: usize = blocks.iter().map(|b| match *b {
+        Block::Float { n, .. } | Block::Int { n, .. } => n,
+        _ => 0,
+    }).sum();
+    let bin_dim: usize = blocks.iter().map(|b| match *b { Block::Binary { n } => n, _ => 0 }).sum();
+    let cat_dim: usize = blocks.iter().map(|b| match *b { Block::Categorical { n, .. } => n, _ => 0 }).sum();
 
-    let mut eval = MoEvaluator::new(problem, cfg.budget);
+    let p_m = cfg.p_m.unwrap_or(1.0 / real_dim as f64);
+    let p_m_bin = cfg.p_m_bin.unwrap_or(1.0 / bin_dim as f64);
+    let p_m_cat = cfg.p_m_cat.unwrap_or(1.0 / cat_dim as f64);
 
-    let mut genos: Vec<Genotype> =
-        (0..cfg.pop_size).map(|_| crate::init::sample_uniform(problem.space(), &mut init_rng)).collect();
-    let mut objectives = eval.evaluate(&genos).map_err(|_| Nsga2Error::BudgetTooSmallForInit {
-        pop_size: cfg.pop_size,
-        budget: cfg.budget,
-    })?;
-    let mut violations = evaluate_violations(problem, &genos);
-    if let Some(obs) = &mut observer { obs(1, &genos, &objectives, violations.as_deref()); }
-    let mut crowd = crowd_dist_full(&objectives, violations.as_deref());
-
-    loop {
-        // Budget-tail rule: identical to `nsga2_run_float`'s (module doc).
-        let offspring = generate_offspring_binary(
-            &genos, &objectives, &crowd, violations.as_deref(), cfg, p_m_bin, &mut var_rng,
-        );
-        let before = eval.used();
-        let off_objectives = match eval.evaluate(&offspring) {
-            Ok(o) => o,
-            Err(_) => break,
-        };
-        let off_violations = evaluate_violations(problem, &offspring);
-        if let Some(obs) = &mut observer { obs(before + 1, &offspring, &off_objectives, off_violations.as_deref()); }
-        let (new_genos, new_objectives, new_crowd, new_violations) = environmental_selection(
-            genos, objectives, violations, offspring, off_objectives, off_violations, cfg.pop_size,
-        );
-        genos = new_genos;
-        objectives = new_objectives;
-        crowd = new_crowd;
-        violations = new_violations;
-    }
-
-    let front0 = match &violations {
-        None => fast_non_dominated_sort(&objectives).into_iter().next().unwrap_or_default(),
-        Some(v) => fast_non_dominated_sort_constrained(&objectives, v).into_iter().next().unwrap_or_default(),
-    };
-
-    Ok(MoRunResult { individuals: genos, objectives, front0, evals_used: eval.used(), violations })
+    let repr = Representation::Mixed { p_m, p_m_bin, p_m_cat };
+    nsga2_run_core(problem, cfg, repr, observer)
 }
 
 #[cfg(test)]
@@ -2920,7 +3309,10 @@ mod tests {
     use sezgi_stats::igd;
 
     fn base_cfg() -> Nsga2Config {
-        Nsga2Config { pop_size: 8, budget: 200, seed: 7, eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None }
+        Nsga2Config {
+            pop_size: 8, budget: 200, seed: 7, eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None,
+            p_c_bin: 0.9, p_m_bin: None, p_c_cat: 0.9, p_m_cat: None,
+        }
     }
 
     // ---- determinism golden ---------------------------------------------
@@ -3033,7 +3425,16 @@ mod tests {
         assert!(matches!(err, Nsga2Error::InvalidPopSize { pop_size: 6 }), "got {err:?}");
     }
 
-    // ---- non-Float space is rejected -----------------------------------
+    // ---- all-Int space is accepted (M3-8 Task 6) ------------------------
+    //
+    // Pre-task, this SAME `Block::Int` space was rejected as
+    // `Nsga2Error::NonFloatSpace { index: 0 }` (see this test's own former
+    // name, `nsga2_run_non_float_space_is_error`, and the module doc's
+    // "M3-8 Task 6" section, "`Nsga2Error::MixedGenotypeSpace` retired").
+    // An all-Int space is a `SpaceKind::Mixed` case now (neither all-Float
+    // nor all-Binary), so it is ACCEPTED -- this test is updated to assert
+    // the new, correct outcome rather than pinning the old rejection, which
+    // this task is specifically required to change.
 
     struct TinyIntProblem { space: SearchSpace }
     impl TinyIntProblem {
@@ -3051,11 +3452,14 @@ mod tests {
     }
 
     #[test]
-    fn nsga2_run_non_float_space_is_error() {
+    fn nsga2_run_all_int_space_is_accepted() {
         let problem = TinyIntProblem::new();
         let cfg = base_cfg();
-        let err = nsga2_run(&problem, &cfg).unwrap_err();
-        assert!(matches!(err, Nsga2Error::NonFloatSpace { index: 0 }), "got {err:?}");
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(result.individuals.len(), cfg.pop_size);
+        for g in &result.individuals {
+            problem.space().validate(g).unwrap();
+        }
     }
 
     // ---- p_c / p_m / eta validation ------------------------------------
@@ -3135,7 +3539,7 @@ mod tests {
         let problem = Zdt::new(1, 10).unwrap();
         let cfg = Nsga2Config {
             pop_size: 40, budget: 8000, seed: 1,
-            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None,
+            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None, p_c_cat: 0.9, p_m_cat: None,
         };
         let result = nsga2_run(&problem, &cfg).unwrap();
         let front0_objectives: Vec<Vec<f64>> =
@@ -3168,7 +3572,7 @@ mod tests {
     #[test]
     fn nsga2_run_frozen_path_unconstrained_bit_identical_to_base_golden() {
         let problem = Zdt::new(1, 6).unwrap();
-        let cfg = Nsga2Config { pop_size: 8, budget: 240, seed: 99, eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None };
+        let cfg = Nsga2Config { pop_size: 8, budget: 240, seed: 99, eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None, p_c_cat: 0.9, p_m_cat: None };
         let result = nsga2_run(&problem, &cfg).unwrap();
         assert_eq!(result.evals_used, 240);
         assert_eq!(result.front0, vec![0, 1, 2, 3, 4, 5, 6, 7]);
@@ -3229,7 +3633,7 @@ mod tests {
         let problem = LineConstraint::new();
         let cfg = Nsga2Config {
             pop_size: 40, budget: 4000, seed: 3,
-            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None,
+            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None, p_c_cat: 0.9, p_m_cat: None,
         };
         let result = nsga2_run(&problem, &cfg).unwrap();
         let violations = result.violations.as_ref().expect("a constrained problem's result must carry Some(violations)");
@@ -3505,7 +3909,7 @@ mod tests {
     fn base_bin_cfg() -> Nsga2Config {
         Nsga2Config {
             pop_size: 8, budget: 200, seed: 7, eta_c: 20.0, eta_m: 20.0,
-            p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None,
+            p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None, p_c_cat: 0.9, p_m_cat: None,
         }
     }
 
@@ -3520,6 +3924,14 @@ mod tests {
         }
     }
 
+    // Pre-task, this Float+Binary space was rejected as
+    // `Nsga2Error::MixedGenotypeSpace { index: 1 }` (see this test's own
+    // former name, `nsga2_run_mixed_float_binary_space_is_rejected_naming_m3_8`).
+    // That variant is RETIRED this task (module doc, "M3-8 Task 6" section):
+    // a genuine Float+Binary mix is now the exact scenario `SpaceKind::Mixed`
+    // exists to accept, so this test is updated to assert the new,
+    // intentional outcome (acceptance) rather than the deferral it used to
+    // pin.
     struct MixedFloatBinaryProblem { space: SearchSpace }
     impl MixedFloatBinaryProblem {
         fn new() -> Self {
@@ -3539,19 +3951,21 @@ mod tests {
     }
 
     #[test]
-    fn nsga2_run_mixed_float_binary_space_is_rejected_naming_m3_8() {
+    fn nsga2_run_mixed_float_binary_space_is_accepted() {
         let problem = MixedFloatBinaryProblem::new();
         let cfg = base_bin_cfg();
-        let err = nsga2_run(&problem, &cfg).unwrap_err();
-        assert!(matches!(err, Nsga2Error::MixedGenotypeSpace { index: 1 }), "got {err:?}");
-        assert!(err.to_string().contains("M3-8"), "error must name the M3-8 deferral: {err}");
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(result.individuals.len(), cfg.pop_size);
+        for g in &result.individuals {
+            problem.space().validate(g).unwrap();
+        }
     }
 
-    // Frozen: the pre-task `nsga2_run_non_float_space_is_error` test above
-    // (a Block::Int space) must keep returning NonFloatSpace -- re-asserted
-    // here for a DIFFERENT non-Float, non-Binary block kind (Categorical)
-    // to confirm the "neither Float nor Binary" classification is general,
-    // not merely special-cased for Int.
+    // Pre-task, this SAME `Block::Categorical` space was rejected as
+    // `Nsga2Error::NonFloatSpace { index: 0 }` (see this test's own former
+    // name, `nsga2_run_categorical_space_is_non_float_space_error`) --
+    // updated for the same reason as `nsga2_run_all_int_space_is_accepted`
+    // above (a lone Categorical block is a `SpaceKind::Mixed` case now).
     struct TinyCategoricalProblem { space: SearchSpace }
     impl TinyCategoricalProblem {
         fn new() -> Self {
@@ -3568,11 +3982,74 @@ mod tests {
     }
 
     #[test]
-    fn nsga2_run_categorical_space_is_non_float_space_error() {
+    fn nsga2_run_all_categorical_space_is_accepted() {
         let problem = TinyCategoricalProblem::new();
         let cfg = base_bin_cfg();
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(result.individuals.len(), cfg.pop_size);
+        for g in &result.individuals {
+            problem.space().validate(g).unwrap();
+        }
+    }
+
+    // ---- Permutation-containing space is still rejected (M3-8 Task 6) -----
+    //
+    // Block::Permutation remains explicitly out of scope: multi-objective
+    // permutation search is not part of this task (module doc's "M3-8 Task
+    // 6" section). New honest error, Nsga2Error::PermutationSpace,
+    // retiring/replacing MixedGenotypeSpace's former "name the deferral"
+    // role for the ONE block kind that is still rejected.
+    struct MixedFloatPermutationProblem { space: SearchSpace }
+    impl MixedFloatPermutationProblem {
+        fn new() -> Self {
+            let space = SearchSpace::new(vec![
+                Block::Float { lo: -1.0, hi: 1.0, n: 2 },
+                Block::Permutation { n: 4 },
+            ]).unwrap();
+            Self { space }
+        }
+    }
+    impl MoProblem for MixedFloatPermutationProblem {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|_| vec![0.0, 0.0]).collect()
+        }
+    }
+
+    #[test]
+    fn nsga2_run_permutation_space_is_rejected_naming_out_of_scope() {
+        let problem = MixedFloatPermutationProblem::new();
+        let cfg = base_bin_cfg();
         let err = nsga2_run(&problem, &cfg).unwrap_err();
-        assert!(matches!(err, Nsga2Error::NonFloatSpace { index: 0 }), "got {err:?}");
+        assert!(matches!(err, Nsga2Error::PermutationSpace { index: 1 }), "got {err:?}");
+        assert!(err.to_string().contains("out of scope"), "error must name permutation MOO as out of scope: {err}");
+    }
+
+    // A lone all-Permutation space (no Float/Binary/Int/Categorical block at
+    // all) must be rejected too, at index 0 -- confirms the rejection does
+    // not depend on Permutation being mixed alongside another block kind.
+    struct AllPermutationProblem { space: SearchSpace }
+    impl AllPermutationProblem {
+        fn new() -> Self {
+            let space = SearchSpace::new(vec![Block::Permutation { n: 5 }]).unwrap();
+            Self { space }
+        }
+    }
+    impl MoProblem for AllPermutationProblem {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|_| vec![0.0, 0.0]).collect()
+        }
+    }
+
+    #[test]
+    fn nsga2_run_all_permutation_space_is_rejected() {
+        let problem = AllPermutationProblem::new();
+        let cfg = base_bin_cfg();
+        let err = nsga2_run(&problem, &cfg).unwrap_err();
+        assert!(matches!(err, Nsga2Error::PermutationSpace { index: 0 }), "got {err:?}");
     }
 
     // ---- p_c_bin / p_m_bin validation --------------------------------------
@@ -3660,7 +4137,7 @@ mod tests {
         let cfg = Nsga2Config {
             pop_size: 40, budget: 8040, seed: 5,
             eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None,
-            p_c_bin: 0.9, p_m_bin: None,
+            p_c_bin: 0.9, p_m_bin: None, p_c_cat: 0.9, p_m_cat: None,
         };
         let result = nsga2_run(&problem, &cfg).unwrap();
 
@@ -3694,5 +4171,383 @@ mod tests {
             "population failed to diversify toward the all-zero extreme: min unitation {min_ones} (n={n})");
         assert!(max_ones >= n as f64 - 2.0,
             "population failed to diversify toward the all-one extreme: max unitation {max_ones} (n={n})");
+    }
+
+    // ---- nsga2_run: binary + constrained end-to-end regression (M3-8 T1) --
+    //
+    // No existing test covers the constrained-domination code path
+    // (`dominates_constrained` via `evaluate_constraints_batch`) together
+    // with the all-Binary genotype path: `nsga2_run_constrained_front0_is_fully_feasible`
+    // above exercises constraints only on the Float path,
+    // `nsga2_run_binary_unitation_tradeoff_...` above exercises Binary only
+    // unconstrained. This closes that gap.
+    //
+    // Constrained unitation toy: SAME unitation trade-off objectives as
+    // `UnitationTradeoff` above (f1 = ones count, f2 = zeros count, so
+    // f1+f2 == n for EVERY genotype, feasible or not -- no genotype can
+    // ever dominate another on OBJECTIVES ALONE, same argument as that
+    // test), plus ONE constraint g0 = ones - k (feasible, g0 >= 0, iff
+    // ones >= k; `constraint_violation` reduces an infeasible row to
+    // `ones - k`, always < 0.0 when infeasible).
+    //
+    // Hand-derived domination expectation (KanGAL `check_dominance`,
+    // `dominates_constrained` above): since f1+f2 == n always, no pair of
+    // FEASIBLE individuals can dominate each other on objectives (plain
+    // `dominates` is always false both ways -- `UnitationTradeoff`'s own
+    // argument, unchanged by adding a constraint since `dominates_constrained`
+    // falls back to plain `dominates` whenever both sides are feasible). A
+    // feasible individual can also never be dominated by an infeasible one
+    // (`dominates_constrained`'s feasible-vs-infeasible branch always
+    // favors the feasible side) -- so every feasible individual
+    // unconditionally has `domination_count == 0` and lands in front0.
+    // Conversely, every infeasible individual IS dominated by every
+    // feasible individual present in the same generation's merged
+    // population, so an infeasible individual can only survive into front0
+    // if the entire population were infeasible. Net expectation, checked
+    // against the ACTUAL final population below: as long as at least one
+    // feasible individual survives (asserted), front0 is EXACTLY the set
+    // of feasible individuals (`violation == 0.0`) -- no more, no less.
+    struct ConstrainedUnitation { space: SearchSpace, k: usize }
+    impl ConstrainedUnitation {
+        fn new(n: usize, k: usize) -> Self {
+            let space = SearchSpace::new(vec![Block::Binary { n }]).unwrap();
+            Self { space, k }
+        }
+    }
+    impl MoProblem for ConstrainedUnitation {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|g| {
+                let BlockValues::Bin(bits) = &g.blocks[0] else { return vec![f64::INFINITY; 2] };
+                let ones = bits.iter().filter(|&&b| b).count() as f64;
+                let zeros = bits.len() as f64 - ones;
+                vec![ones, zeros]
+            }).collect()
+        }
+        fn evaluate_constraints_batch(&self, pop: &[Genotype]) -> Option<Vec<Vec<f64>>> {
+            Some(pop.iter().map(|g| {
+                let BlockValues::Bin(bits) = &g.blocks[0] else { return vec![f64::NEG_INFINITY] };
+                let ones = bits.iter().filter(|&&b| b).count() as f64;
+                vec![ones - self.k as f64]
+            }).collect())
+        }
+    }
+
+    #[test]
+    fn nsga2_run_binary_constrained_front0_is_exactly_the_feasible_set() {
+        // n=24, k=22, pop_size=40, budget=440 (10 generations past init),
+        // seed=13: measured (this task's own TDD run) to leave a genuine
+        // feasible/infeasible MIX in the final population (17 feasible, 23
+        // infeasible) rather than converging to all-feasible -- deliberately
+        // NOT the more lenient k (n/2-ish) that this task's own sweep found
+        // converges to all-feasible within a handful of generations; k this
+        // close to n makes the feasible region rare enough that some
+        // infeasible individuals are still present at this budget, so the
+        // test below also exercises the infeasible-vs-infeasible
+        // `dominates_constrained` regime, not just feasible-beats-infeasible.
+        let n = 24;
+        let k = 22;
+        let problem = ConstrainedUnitation::new(n, k);
+        let cfg = Nsga2Config {
+            pop_size: 40, budget: 440, seed: 13,
+            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None, p_c_cat: 0.9, p_m_cat: None,
+        };
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        let violations = result.violations.as_ref()
+            .expect("a constrained problem's result must carry Some(violations)");
+        assert_eq!(violations.len(), result.objectives.len());
+
+        // Structural sanity check for the unitation invariant this test's
+        // hand-derivation depends on.
+        for row in &result.objectives {
+            assert_eq!(row[0] + row[1], n as f64, "f1+f2 must equal n for every genotype on this problem");
+        }
+
+        let expected_front0: Vec<usize> = (0..violations.len()).filter(|&i| violations[i] == 0.0).collect();
+        let infeasible_count = violations.len() - expected_front0.len();
+        assert!(!expected_front0.is_empty(),
+            "test is only meaningful if at least one feasible individual survives into the final population");
+        assert!(infeasible_count > 0,
+            "test is only meaningful if the final population is a genuine feasible/infeasible MIX, not all-feasible");
+        assert_eq!(result.front0, expected_front0,
+            "front0 must be EXACTLY the feasible individuals: KanGAL's constrained dominance makes every \
+             feasible individual dominate every infeasible one unconditionally, and (since f1+f2==n is \
+             constant here) no feasible individual dominates another");
+
+        // Exercise the infeasible-vs-infeasible regime too, on whatever
+        // infeasible individuals happen to remain: `dominates_constrained`
+        // says the LESS violated one (larger, closer-to-zero
+        // `constraint_violation`) always wins a head-to-head against a MORE
+        // violated one -- so a more-violated individual can never dominate
+        // a less-violated one.
+        for i in 0..violations.len() {
+            for j in 0..violations.len() {
+                if violations[i] == 0.0 || violations[j] == 0.0 || violations[i] >= violations[j] {
+                    continue;
+                }
+                // i strictly more violated than j (violations[i] < violations[j], both < 0.0).
+                assert!(
+                    !dominates_constrained(&result.objectives[i], violations[i], &result.objectives[j], violations[j]),
+                    "individual {i} (violation {}) must not dominate less-violated individual {j} (violation {})",
+                    violations[i], violations[j]
+                );
+            }
+        }
+    }
+
+    // ==================================================================
+    // Mixed-genotype path (M3-8 Task 6)
+    // ==================================================================
+
+    fn base_mixed_cfg() -> Nsga2Config {
+        Nsga2Config {
+            pop_size: 8, budget: 200, seed: 7, eta_c: 20.0, eta_m: 20.0,
+            p_c: 0.9, p_m: None, p_c_bin: 0.9, p_m_bin: None, p_c_cat: 0.9, p_m_cat: None,
+        }
+    }
+
+    // ---- Float+Binary toy: exact-budget hand-traced init population -------
+    //
+    // Space: ONE Float variable + ONE Binary block (2 bits). pop_size=4,
+    // budget=4 (== pop_size): the budget-tail rule (module doc, "Budget-tail
+    // rule") generates offspring speculatively every loop attempt but breaks
+    // WITHOUT ever touching the population when the evaluation batch would
+    // exceed budget -- with budget==pop_size, `used=4` after the init batch
+    // leaves ZERO remaining, so the very first offspring-generation attempt
+    // (which still consumes var_rng draws, harmlessly, since its result is
+    // discarded) is immediately followed by a failed evaluate() and a break.
+    // The returned population is therefore EXACTLY sample_uniform's own
+    // init-RNG output -- this test hand-derives that output by
+    // INDEPENDENTLY replaying the SAME RNG-stream derivation (module doc's
+    // "RNG stream derivation": master = NSGA2_SEED_BASE + seed, init stream
+    // path &[1]) and sample_uniform's own per-block draw order (Float: one
+    // `lo + (hi-lo)*draw`; Binary: one `draw < 0.5` per bit, `crates/
+    // components/src/init.rs`), rather than embedding magic literal floats.
+    struct FloatBinToy { space: SearchSpace }
+    impl FloatBinToy {
+        fn new() -> Self {
+            let space = SearchSpace::new(vec![
+                Block::Float { lo: 0.0, hi: 1.0, n: 1 },
+                Block::Binary { n: 2 },
+            ]).unwrap();
+            Self { space }
+        }
+    }
+    impl MoProblem for FloatBinToy {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|g| {
+                let BlockValues::Float(xs) = &g.blocks[0] else { unreachable!() };
+                let BlockValues::Bin(bits) = &g.blocks[1] else { unreachable!() };
+                let ones = bits.iter().filter(|&&b| b).count() as f64;
+                vec![xs[0], ones]
+            }).collect()
+        }
+    }
+
+    #[test]
+    fn nsga2_run_mixed_float_binary_tiny_budget_matches_hand_traced_init() {
+        let problem = FloatBinToy::new();
+        let seed = 21;
+        let cfg = Nsga2Config {
+            pop_size: 4, budget: 4, seed,
+            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None,
+            p_c_bin: 0.9, p_m_bin: None, p_c_cat: 0.9, p_m_cat: None,
+        };
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(result.evals_used, 4, "budget==pop_size must consume exactly the init batch, no generation");
+        assert_eq!(result.individuals.len(), 4);
+
+        // Independent hand-derivation: replay the SAME init-RNG derivation
+        // and sample_uniform's own per-block draw order.
+        let master = NSGA2_SEED_BASE.wrapping_add(seed);
+        let mut rng = RngStream::from_master(master, &[1]);
+        let mut expected = Vec::with_capacity(4);
+        for _ in 0..4 {
+            let x0 = 0.0 + (1.0 - 0.0) * rng.next_f64();
+            let b0 = rng.next_f64() < 0.5;
+            let b1 = rng.next_f64() < 0.5;
+            expected.push(Genotype { blocks: vec![BlockValues::Float(vec![x0]), BlockValues::Bin(vec![b0, b1])] });
+        }
+        assert_eq!(result.individuals, expected,
+            "a budget-exhausted mixed-space run must return EXACTLY the hand-replayed init population");
+
+        // front0 structural cross-check: recompute non-domination directly
+        // from `result.objectives` via plain pairwise `dominates` (a
+        // hand-checkable structural property, independent of
+        // `fast_non_dominated_sort`'s own implementation).
+        let mut expected_front0: Vec<usize> = Vec::new();
+        for i in 0..result.objectives.len() {
+            let dominated = (0..result.objectives.len())
+                .any(|j| j != i && dominates(&result.objectives[j], &result.objectives[i]));
+            if !dominated { expected_front0.push(i); }
+        }
+        let mut got_front0 = result.front0.clone();
+        got_front0.sort_unstable();
+        assert_eq!(got_front0, expected_front0, "front0 must be exactly the non-dominated set under plain `dominates`");
+    }
+
+    // ---- 4-kind smoke: Float + Int + Categorical + Binary -----------------
+
+    struct FourKindToy { space: SearchSpace }
+    impl FourKindToy {
+        fn new() -> Self {
+            let space = SearchSpace::new(vec![
+                Block::Float { lo: -2.0, hi: 2.0, n: 2 },
+                Block::Int { lo: -3, hi: 3, n: 2 },
+                Block::Categorical { k: 4, n: 2 },
+                Block::Binary { n: 4 },
+            ]).unwrap();
+            Self { space }
+        }
+    }
+    impl MoProblem for FourKindToy {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|g| {
+                let BlockValues::Float(fs) = &g.blocks[0] else { unreachable!() };
+                let BlockValues::Int(is) = &g.blocks[1] else { unreachable!() };
+                let BlockValues::Cat(cs) = &g.blocks[2] else { unreachable!() };
+                let BlockValues::Bin(bs) = &g.blocks[3] else { unreachable!() };
+                let f1 = fs.iter().sum::<f64>() + is.iter().map(|&v| v as f64).sum::<f64>();
+                let f2 = cs.iter().map(|&v| v as f64).sum::<f64>() - bs.iter().filter(|&&b| b).count() as f64;
+                vec![f1, f2]
+            }).collect()
+        }
+    }
+
+    #[test]
+    fn nsga2_run_four_kind_mixed_smoke() {
+        let problem = FourKindToy::new();
+        let cfg = Nsga2Config {
+            pop_size: 20, budget: 2000, seed: 42,
+            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None,
+            p_c_bin: 0.9, p_m_bin: None, p_c_cat: 0.9, p_m_cat: None,
+        };
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(result.individuals.len(), 20);
+        assert!(!result.front0.is_empty());
+
+        for g in &result.individuals {
+            // Generic structural validity via SearchSpace::validate.
+            problem.space().validate(g).unwrap();
+
+            // Explicit per-kind validity properties (this task's own
+            // acceptance criteria): ints in bounds, cats < k, bits are
+            // structurally 0/1 (Rust `bool`, trivially so), floats in
+            // bounds.
+            let BlockValues::Float(fs) = &g.blocks[0] else { panic!("expected Float block 0") };
+            for &x in fs {
+                assert!((-2.0..=2.0).contains(&x), "float value {x} out of bounds [-2,2]");
+            }
+            let BlockValues::Int(is) = &g.blocks[1] else { panic!("expected Int block 1") };
+            for &x in is {
+                assert!((-3..=3).contains(&x), "int value {x} out of bounds [-3,3]");
+            }
+            let BlockValues::Cat(cs) = &g.blocks[2] else { panic!("expected Categorical block 2") };
+            for &x in cs {
+                assert!(x < 4, "categorical value {x} not < k=4");
+            }
+            let BlockValues::Bin(bs) = &g.blocks[3] else { panic!("expected Binary block 3") };
+            assert_eq!(bs.len(), 4, "binary block must keep its declared length");
+        }
+
+        // Non-domination sanity: no front0 member dominates another.
+        for &i in &result.front0 {
+            for &j in &result.front0 {
+                if i != j {
+                    assert!(!dominates(&result.objectives[i], &result.objectives[j]),
+                        "front0 member {i} dominates front0 member {j}");
+                }
+            }
+        }
+    }
+
+    // ---- constrained + mixed: T1 regression toy extended with an Int block
+
+    // SAME feasible-half-plane constraint as `LineConstraint` above (T1's
+    // own regression toy, module doc's "Constrained domination" section),
+    // extended with an Int decision variable per this task's own acceptance
+    // requirement. x0 (Float, [-5,5]) + x1 (Int, [-5,5]); f1=x0, f2=x1 (cast
+    // to f64); g0 = x0 + x1 - 1 >= 0 (feasible iff x0+x1 >= 1). Hand-derived
+    // expectation, IDENTICAL reasoning to `LineConstraint`'s own test (KanGAL
+    // `check_dominance`'s feasible-beats-infeasible-unconditionally branch,
+    // module doc): front0 must be exactly the feasible members, and every
+    // front0 member's slack from the true boundary x0+x1=1 should be small
+    // (measured, then anchored with headroom, per this task's own TDD
+    // convention).
+    struct LineConstraintMixed { space: SearchSpace }
+    impl LineConstraintMixed {
+        fn new() -> Self {
+            let space = SearchSpace::new(vec![
+                Block::Float { lo: -5.0, hi: 5.0, n: 1 },
+                Block::Int { lo: -5, hi: 5, n: 1 },
+            ]).unwrap();
+            Self { space }
+        }
+    }
+    impl MoProblem for LineConstraintMixed {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn n_objectives(&self) -> usize { 2 }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<Vec<f64>> {
+            pop.iter().map(|g| {
+                let BlockValues::Float(xs) = &g.blocks[0] else { return vec![f64::INFINITY; 2] };
+                let BlockValues::Int(is) = &g.blocks[1] else { return vec![f64::INFINITY; 2] };
+                vec![xs[0], is[0] as f64]
+            }).collect()
+        }
+        fn evaluate_constraints_batch(&self, pop: &[Genotype]) -> Option<Vec<Vec<f64>>> {
+            Some(pop.iter().map(|g| {
+                let BlockValues::Float(xs) = &g.blocks[0] else { return vec![f64::NEG_INFINITY] };
+                let BlockValues::Int(is) = &g.blocks[1] else { return vec![f64::NEG_INFINITY] };
+                vec![xs[0] + is[0] as f64 - 1.0]
+            }).collect())
+        }
+    }
+
+    #[test]
+    fn nsga2_run_constrained_mixed_front0_is_fully_feasible() {
+        let problem = LineConstraintMixed::new();
+        let cfg = Nsga2Config {
+            pop_size: 40, budget: 4000, seed: 3,
+            eta_c: 20.0, eta_m: 20.0, p_c: 0.9, p_m: None,
+            p_c_bin: 0.9, p_m_bin: None, p_c_cat: 0.9, p_m_cat: None,
+        };
+        let result = nsga2_run(&problem, &cfg).unwrap();
+        let violations = result.violations.as_ref().expect("a constrained problem's result must carry Some(violations)");
+        assert_eq!(violations.len(), result.objectives.len());
+        assert!(!result.front0.is_empty());
+
+        for &i in &result.front0 {
+            assert_eq!(violations[i], 0.0,
+                "front0 member {i} has violation {} (x0+x1={}), expected fully feasible",
+                violations[i], result.objectives[i][0] + result.objectives[i][1]);
+        }
+
+        // Pareto-optimality check, same headroom-anchoring methodology as
+        // `LineConstraint`'s own test above (measure, then anchor with
+        // headroom). This test was first written with a placeholder anchor,
+        // run, and observed passing -- the measured max slack at seed=3,
+        // pop=40, budget=4000 was 0.011142448669622773. Anchor below (0.02)
+        // is rounded up from that measurement with ~80% headroom (the same
+        // proportional headroom convention `LineConstraint`'s own test
+        // uses), not a knife-edge on the exact measured value.
+        let max_slack = result.front0.iter()
+            .map(|&i| result.objectives[i][0] + result.objectives[i][1] - 1.0)
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!(max_slack < 0.02,
+            "front0's worst slack from the optimal boundary (x0+x1=1) is {max_slack}, exceeds the anchored threshold 0.02");
+    }
+
+    #[test]
+    fn nsga2_run_mixed_same_seed_twice_bit_identical() {
+        let problem = FourKindToy::new();
+        let cfg = base_mixed_cfg();
+        let r1 = nsga2_run(&problem, &cfg).unwrap();
+        let r2 = nsga2_run(&problem, &cfg).unwrap();
+        assert_eq!(r1, r2, "same seed must reproduce byte-identical results on the Mixed path too");
     }
 }

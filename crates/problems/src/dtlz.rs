@@ -540,30 +540,11 @@ impl Dtlz {
     }
 
     // ---- deterministic front-sampling lattice (module doc scheme) ----
-
-    fn axis_grid(r: usize) -> Vec<f64> {
-        if r <= 1 { vec![0.0] } else { (0..r).map(|i| i as f64 / (r - 1) as f64).collect() }
-    }
-
-    fn grid_r(n: usize, dim_free: usize) -> usize {
-        ((n.max(1) as f64).powf(1.0 / dim_free as f64)).ceil().max(1.0) as usize
-    }
-
-    fn cartesian_product(axis: &[f64], dim: usize) -> Vec<Vec<f64>> {
-        let mut out = vec![Vec::new()];
-        for _ in 0..dim {
-            let mut next = Vec::with_capacity(out.len() * axis.len());
-            for combo in &out {
-                for &v in axis {
-                    let mut c = combo.clone();
-                    c.push(v);
-                    next.push(c);
-                }
-            }
-            out = next;
-        }
-        out
-    }
+    //
+    // `axis_grid`/`grid_r`/`cartesian_product` moved to
+    // `crate::front_lattice` in M3-8 T1 (shared verbatim with `wfg::Wfg`,
+    // which had a byte-identical copy of this same trio) -- see that
+    // module's own doc for the extraction note.
 
     /// DTLZ7's per-coordinate optimality curve `T(f) = f*(1+sin(3*pi*f))`,
     /// `f in [0,1]` (module doc derivation).
@@ -692,13 +673,15 @@ impl MoProblem for Dtlz {
         let dim_free = self.m - 1;
         match self.which {
             1 => {
-                let r = Self::grid_r(n, dim_free);
-                let combos = Self::cartesian_product(&Self::axis_grid(r), dim_free);
+                let r = crate::front_lattice::grid_r(n, dim_free);
+                let axis = crate::front_lattice::axis_grid(r);
+                let combos = crate::front_lattice::cartesian_product(&axis, dim_free);
                 Some(combos.iter().map(|c| Self::dtlz1_f(c, 0.0)).collect())
             }
             2..=4 => {
-                let r = Self::grid_r(n, dim_free);
-                let combos = Self::cartesian_product(&Self::axis_grid(r), dim_free);
+                let r = crate::front_lattice::grid_r(n, dim_free);
+                let axis = crate::front_lattice::axis_grid(r);
+                let combos = crate::front_lattice::cartesian_product(&axis, dim_free);
                 Some(combos.iter().map(|c| Self::cosine_cascade(c, 0.0)).collect())
             }
             5 | 6 => {
@@ -706,7 +689,7 @@ impl MoProblem for Dtlz {
                 if self.m > 3 {
                     return None;
                 }
-                let axis = Self::axis_grid(n);
+                let axis = crate::front_lattice::axis_grid(n);
                 Some(
                     axis.iter()
                         .map(|&x1| {
@@ -720,9 +703,9 @@ impl MoProblem for Dtlz {
             }
             7 => {
                 let segments = Self::dtlz7_segments(1_000_000);
-                let r = Self::grid_r(n, dim_free);
+                let r = crate::front_lattice::grid_r(n, dim_free);
                 let axis = Self::sample_dtlz7_axis(&segments, r);
-                let combos = Self::cartesian_product(&axis, dim_free);
+                let combos = crate::front_lattice::cartesian_product(&axis, dim_free);
                 Some(combos.iter().map(|c| Self::dtlz7_f(c, 1.0)).collect())
             }
             // DTLZ8: no defensible closed form for the line+hyperplane
@@ -735,7 +718,7 @@ impl MoProblem for Dtlz {
                 if self.m > 3 {
                     return None;
                 }
-                let axis = Self::axis_grid(n);
+                let axis = crate::front_lattice::axis_grid(n);
                 Some(
                     axis.iter()
                         .map(|&c| {
@@ -1466,10 +1449,13 @@ mod tests {
             eta_m: 20.0,
             p_c: 0.9,
             p_m: None,
-            // p_c_bin/p_m_bin (M3-7 Task 3): unused on this all-Float DTLZ8
-            // space, present only because Nsga2Config now requires them.
+            // p_c_bin/p_m_bin (M3-7 Task 3) / p_c_cat/p_m_cat (M3-8 Task 6): unused
+            // on this all-Float DTLZ8 space, present only because Nsga2Config
+            // now requires them.
             p_c_bin: 0.9,
             p_m_bin: None,
+            p_c_cat: 0.9,
+            p_m_cat: None,
         };
         let result = nsga2_run(&p, &cfg).unwrap();
         let violations =
@@ -1497,10 +1483,13 @@ mod tests {
             eta_m: 20.0,
             p_c: 0.9,
             p_m: None,
-            // p_c_bin/p_m_bin (M3-7 Task 3): unused on this all-Float DTLZ9
-            // space, present only because Nsga2Config now requires them.
+            // p_c_bin/p_m_bin (M3-7 Task 3) / p_c_cat/p_m_cat (M3-8 Task 6): unused
+            // on this all-Float DTLZ9 space, present only because Nsga2Config
+            // now requires them.
             p_c_bin: 0.9,
             p_m_bin: None,
+            p_c_cat: 0.9,
+            p_m_cat: None,
         };
         let result = nsga2_run(&p, &cfg).unwrap();
         let violations =

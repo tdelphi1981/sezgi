@@ -198,3 +198,124 @@ test_that("R OOP gwo twin matches the pure gwo.R script (subprocess, string-exac
   oop <- run_fields(file.path(root, "examples", "r", "oop", "gwo.R"))
   expect_identical(oop, pure)
 })
+
+# ---- M3-8 Task 8: permutation-typed ctx surface (kind/n/random_permutation/
+# two_opt) -- the R mirror of py-sezgi's M3-8 Task 7 AlgoContext widening ---
+
+test_that("ctx$kind()/ctx$n() report float for a BBOB session, permutation for a TSP session", {
+  s_float <- sz_eval_session(fid = 1, dim = 5, instance = 1, budget = 10)
+  ctx_float <- .sz_algo_context(s_float)
+  expect_identical(ctx_float$kind(), "float")
+  expect_identical(ctx_float$n(), ctx_float$dim())
+  s_float$finish()
+
+  s_perm <- sz_eval_session_tsp("berlin52", budget = 10, seed = 1)
+  ctx_perm <- .sz_algo_context(s_perm)
+  expect_identical(ctx_perm$kind(), "permutation")
+  expect_identical(ctx_perm$n(), 52)
+  expect_identical(ctx_perm$n(), ctx_perm$dim())
+  s_perm$finish()
+})
+
+test_that("ctx$random_point() errors clearly for a permutation-typed context", {
+  s <- sz_eval_session_tsp("berlin52", budget = 10, seed = 1)
+  ctx <- .sz_algo_context(s)
+  expect_error(ctx$random_point(), "permutation")
+  s$finish()
+})
+
+test_that("ctx$random_permutation() errors clearly for a float-typed context", {
+  s <- sz_eval_session(fid = 1, dim = 5, instance = 1, budget = 10)
+  ctx <- .sz_algo_context(s)
+  expect_error(ctx$random_permutation(), "float")
+  s$finish()
+})
+
+test_that("ctx$random_permutation() delegates to the session (valid 1-based tour)", {
+  s <- sz_eval_session_tsp("berlin52", budget = 10, seed = 1)
+  ctx <- .sz_algo_context(s)
+  t <- ctx$random_permutation()
+  expect_length(t, 52)
+  expect_identical(sort(t), as.double(1:52))
+  s$finish()
+})
+
+# ---- .sz_two_opt() / ctx$two_opt() -----------------------------------------
+
+test_that("two_opt reverses the inclusive [i, j] segment", {
+  tour <- 1:6
+  expect_identical(.sz_two_opt(tour, 2, 4), c(1L, 4L, 3L, 2L, 5L, 6L))
+})
+
+test_that("two_opt: i == j is a no-op (single-element segment)", {
+  tour <- 1:6
+  expect_identical(.sz_two_opt(tour, 3, 3), tour)
+})
+
+test_that("two_opt: i == 1, j == length(tour) reverses the whole tour", {
+  tour <- 1:6
+  expect_identical(.sz_two_opt(tour, 1, 6), rev(tour))
+})
+
+test_that("two_opt: adjacent positions is a plain two-element swap", {
+  tour <- 1:6
+  expect_identical(.sz_two_opt(tour, 3, 4), c(1L, 2L, 4L, 3L, 5L, 6L))
+})
+
+test_that("two_opt: leading segment (i == 1)", {
+  tour <- 1:6
+  expect_identical(.sz_two_opt(tour, 1, 3), c(3L, 2L, 1L, 4L, 5L, 6L))
+})
+
+test_that("two_opt: trailing segment (j == length(tour))", {
+  tour <- 1:6
+  expect_identical(.sz_two_opt(tour, 4, 6), c(1L, 2L, 3L, 6L, 5L, 4L))
+})
+
+test_that("two_opt rejects i > j", {
+  tour <- 1:6
+  expect_error(.sz_two_opt(tour, 4, 2), "out of range")
+})
+
+test_that("two_opt rejects out-of-range indices", {
+  tour <- 1:6
+  expect_error(.sz_two_opt(tour, 0, 3), "out of range")
+  expect_error(.sz_two_opt(tour, 1, 7), "out of range")
+})
+
+test_that("two_opt applied twice with the same (i, j) is the identity (reversal is its own inverse)", {
+  tour <- 1:6
+  once <- .sz_two_opt(tour, 2, 5)
+  twice <- .sz_two_opt(once, 2, 5)
+  expect_identical(twice, tour)
+})
+
+test_that("two_opt does not mutate its argument", {
+  tour <- 1:6
+  original <- tour
+  .sz_two_opt(tour, 2, 4)
+  expect_identical(tour, original)
+})
+
+# ---- End-to-end: sz_algorithm/sz_algo_solve over a permutation-typed session
+
+test_that("a permutation-typed algorithm runs end-to-end via sz_algo_solve", {
+  algo <- sz_algorithm(
+    setup = function(ctx) {
+      tour <- ctx$random_permutation()
+      ctx$evaluate(matrix(tour, nrow = 1))
+    },
+    step = function(ctx) {
+      tour <- ctx$random_permutation()
+      ctx$evaluate(matrix(tour, nrow = 1))
+    },
+    name = "tsp-random-search"
+  )
+  s <- sz_eval_session_tsp("berlin52", budget = 20, seed = 3)
+  res <- sz_algo_solve(algo, s, seed = 3)
+  expect_identical(res$evals_used, 20)
+  expect_identical(res$f_opt, 7542.0)
+  expect_gte(res$gap, 0.0)
+  expect_length(res$best_x, 52)
+  expect_identical(sort(res$best_x), as.double(1:52))
+})

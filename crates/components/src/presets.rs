@@ -123,6 +123,123 @@ pub fn ga_perm(pop_size: usize, budget: u64) -> AlgorithmSpec {
     }
 }
 
+/// Binary GA (M3-8 Task 2) -- mirrors `ga_perm`'s own preset structure
+/// exactly (`init` + `boundary` + one `[[stages]]` entry pairing a fused
+/// crossover+mutation `Generator` with `replace/mu-plus-lambda`), swapped to
+/// the Binary representation: `init/uniform` (its own `Block::Binary`
+/// branch already samples one fair coin flip per bit, per `init.rs`'s own
+/// doc, so there is no dedicated `init/bin-random` the way there is
+/// `init/perm-random` -- nothing would differ) instead of `init/perm-random`,
+/// `gen/ga-bin` ([`crate::bin_ops::GaBinGenerator`] -- the FUSED two-point-
+/// crossover + bit-flip-mutation generator, per `bin_ops.rs`'s module doc)
+/// instead of `gen/ga-perm`, and `replace/mu-plus-lambda` reused as-is (same
+/// elitist merge-sort-truncate replacer `ga_real`/`ga_perm` both use --
+/// `SupportedBlocks::All`). `boundary/clamp` is likewise reused as-is: its
+/// `Block::Binary` branch is a documented no-op (structurally cannot go out
+/// of bounds), included purely for spec-shape uniformity with every other
+/// preset in this crate. `pop_size` is the caller's choice (no canonical
+/// value from a single source, same as `ga_real`/`ga_perm`). `min_pop = 2`
+/// (tournament selection needs a population of at least 2), enforced via
+/// `AlgorithmSpec::validate`.
+pub fn ga_bin(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "ga-bin".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/ga-bin", serde_json::json!(
+                {"tournament_k": 2, "p_c": 0.9})),
+            replacer: comp("replace/mu-plus-lambda", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
+/// Integer GA (M3-8 Task 3) -- mirrors `ga_bin`'s/`ga_perm`'s own preset
+/// structure exactly (`init` + `boundary` + one `[[stages]]` entry pairing a
+/// fused crossover+mutation `Generator` with `replace/mu-plus-lambda`),
+/// swapped to the Int representation: `init/uniform` (its own `Block::Int`
+/// branch already samples `lo + next_below(hi-lo+1)`, per `init.rs`'s own
+/// doc, so there is no dedicated `init/int-random` the way there is
+/// `init/perm-random` -- nothing would differ) and `gen/ga-int`
+/// ([`crate::int_ops::GaIntGenerator`] -- the FUSED SBX-crossover +
+/// polynomial-mutation generator, both computed in float then rounded via
+/// pymoo 0.6.2's `RoundingRepair` convention, per `int_ops.rs`'s module doc)
+/// instead of `gen/ga-perm`/`gen/ga-bin`, and `replace/mu-plus-lambda`
+/// reused as-is (same elitist merge-sort-truncate replacer `ga_real`/
+/// `ga_perm`/`ga_bin` all use -- `SupportedBlocks::All`). `boundary/clamp`
+/// is likewise reused as-is: its `Block::Int` branch already clamps
+/// (`boundary.rs`), included both for spec-shape uniformity with every other
+/// preset in this crate AND as a real backstop here (unlike the structurally
+/// bound-proof binary/permutation cases) -- though `gen/ga-int`'s own
+/// SBX/PM cores already clamp+round into `[lo,hi]` internally (see
+/// `int_ops.rs`'s "PROVENANCE" doc section), so this is redundant-but-safe
+/// belt-and-suspenders, not load-bearing. `eta_c`/`eta_m`/`p_c` are set
+/// explicitly to `gen/ga-int`'s own verified pymoo defaults (`15.0`/`20.0`/
+/// `0.9`) for documentation clarity, even though omitting them would resolve
+/// to the same values. `pop_size` is the caller's choice (no canonical value
+/// from a single source, same as `ga_real`/`ga_perm`/`ga_bin`). `min_pop = 2`
+/// (tournament selection needs a population of at least 2), enforced via
+/// `AlgorithmSpec::validate`.
+pub fn ga_int(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "ga-int".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/ga-int", serde_json::json!(
+                {"tournament_k": 2, "p_c": 0.9, "eta_c": 15.0, "eta_m": 20.0})),
+            replacer: comp("replace/mu-plus-lambda", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
+/// Categorical GA (M3-8 Task 4) -- mirrors `ga_int`'s/`ga_bin`'s/`ga_perm`'s
+/// own preset structure exactly (`init` + `boundary` + one `[[stages]]`
+/// entry pairing a fused crossover+mutation `Generator` with
+/// `replace/mu-plus-lambda`), swapped to the Categorical representation:
+/// `init/uniform` (its own `Block::Categorical` branch already samples
+/// `rng.next_below(k)`, per `init.rs`'s own `sample_uniform`, so there is
+/// no dedicated `init/cat-random` the way there is `init/perm-random` --
+/// nothing would differ) and `gen/ga-cat` ([`crate::cat_ops::GaCatGenerator`]
+/// -- the FUSED uniform-crossover + random-reset-mutation generator, per
+/// pymoo 0.6.2's `Choice` wiring, see `cat_ops.rs`'s module doc) instead of
+/// `gen/ga-int`/`gen/ga-bin`/`gen/ga-perm`, and `replace/mu-plus-lambda`
+/// reused as-is (same elitist merge-sort-truncate replacer every other `ga_*`
+/// preset uses -- `SupportedBlocks::All`). `boundary/clamp` is likewise
+/// reused as-is: its `Block::Categorical` branch is a documented no-op
+/// (structurally cannot go out of bounds -- `gen/ga-cat`'s own cores only
+/// ever copy existing valid category indices or resample fresh ones via
+/// `rng.next_below(k)`, per `cat_ops.rs`'s "PROVENANCE" doc), included purely
+/// for spec-shape uniformity with every other preset in this crate. `p_c`/
+/// `p_m` are left at `gen/ga-cat`'s own verified pymoo defaults (`0.9`/
+/// `1/n`) -- both omitted here (unlike `ga_bin`'s own preset, which sets
+/// `p_c` explicitly and omits only `p_m`) because they resolve identically
+/// whether stated or not. `pop_size` is the
+/// caller's choice (no canonical value from a single source, same as
+/// `ga_real`/`ga_perm`/`ga_bin`/`ga_int`). `min_pop = 2` (tournament
+/// selection needs a population of at least 2), enforced via
+/// `AlgorithmSpec::validate`.
+pub fn ga_cat(pop_size: usize, budget: u64) -> AlgorithmSpec {
+    AlgorithmSpec {
+        name: "ga-cat".into(), pop_size,
+        init: comp("init/uniform", serde_json::json!({})),
+        boundary: comp("boundary/clamp", serde_json::json!({})),
+        stages: vec![StageSpec {
+            generator: comp("gen/ga-cat", serde_json::json!({"tournament_k": 2})),
+            replacer: comp("replace/mu-plus-lambda", serde_json::json!({})),
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    }
+}
+
 pub fn pso(pop_size: usize, budget: u64) -> AlgorithmSpec {
     AlgorithmSpec {
         name: "pso/clerc-kennedy".into(), pop_size,

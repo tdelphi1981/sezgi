@@ -910,33 +910,12 @@ impl Wfg {
         (1..=m).map(|mm| s[mm - 1] * Self::shape_concave(&x, mm)).collect()
     }
 
-    // ---- pareto_front lattice sampling (WFG4-WFG9), mirrors
-    // `crate::dtlz`'s own `axis_grid`/`grid_r`/`cartesian_product` helpers
-    // (same names, same construction) ----
-
-    fn axis_grid(r: usize) -> Vec<f64> {
-        if r <= 1 { vec![0.0] } else { (0..r).map(|i| i as f64 / (r - 1) as f64).collect() }
-    }
-
-    fn grid_r(n: usize, dim_free: usize) -> usize {
-        ((n.max(1) as f64).powf(1.0 / dim_free as f64)).ceil().max(1.0) as usize
-    }
-
-    fn cartesian_product(axis: &[f64], dim: usize) -> Vec<Vec<f64>> {
-        let mut out = vec![Vec::new()];
-        for _ in 0..dim {
-            let mut next = Vec::with_capacity(out.len() * axis.len());
-            for combo in &out {
-                for &v in axis {
-                    let mut c = combo.clone();
-                    c.push(v);
-                    next.push(c);
-                }
-            }
-            out = next;
-        }
-        out
-    }
+    // ---- pareto_front lattice sampling (WFG4-WFG9) ----
+    //
+    // `axis_grid`/`grid_r`/`cartesian_product` moved to
+    // `crate::front_lattice` in M3-8 T1 (this crate's `dtlz::Dtlz` had a
+    // byte-identical copy of this same trio) -- see that module's own doc
+    // for the extraction note.
 }
 
 impl MoProblem for Wfg {
@@ -997,9 +976,9 @@ impl MoProblem for Wfg {
             }
             4..=9 => {
                 let dim_free = self.m - 1;
-                let r = Self::grid_r(n, dim_free);
-                let axis = Self::axis_grid(r);
-                let combos = Self::cartesian_product(&axis, dim_free);
+                let r = crate::front_lattice::grid_r(n, dim_free);
+                let axis = crate::front_lattice::axis_grid(r);
+                let combos = crate::front_lattice::cartesian_product(&axis, dim_free);
                 Some(combos.iter().map(|c| Self::wfg_concave_front_point(self.m, c)).collect())
             }
             _ => None,

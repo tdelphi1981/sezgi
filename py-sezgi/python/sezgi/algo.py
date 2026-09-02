@@ -9,7 +9,19 @@ exhausted and returns a `SolveResult`.
 M3-4 Task 3: `bbob_records` provides a multi-scenario sweep helper that records
 runs in the same shape as `run_experiment`, allowing custom Algorithm instances
 to feed sezgi's stats pipeline (results_matrix, per_budget_packages).
-"""
+
+M3-8 Task 7: `AlgoContext` widens from Float-only to also cover
+permutation-typed problems (`sezgi.problems.tsp(...)`) -- the exact minimal
+surface of the approved scope ruling: `ctx.kind` ("float" or "permutation"),
+`ctx.n` (the dimension -- for a permutation problem, the number of
+cities/positions), `ctx.random_permutation()` (a uniformly random 0-based
+tour, drawn from the session's own seeded RNG stream -- NOT Python's
+`random` module, so a permutation-typed run is reproducible the same way a
+Float-typed one is via `ctx.rng`), and `ctx.two_opt(tour, i, j)` (the
+classic 2-opt reversal move; pure Python, no RNG -- see its own docstring
+for the exact inclusive/exclusive `i`/`j` semantics). Every Float-typed
+attribute/method (`ctx.dim`, `ctx.bounds`, `ctx.random_point()`, ...) is
+UNCHANGED -- this widening is purely additive."""
 import abc
 import random
 import time
@@ -38,12 +50,23 @@ class SolveResult:
 
 class AlgoContext:
     """Everything a subclass touches during a run. Wraps the EvalSession
-    (sole keeper of counting/best/logging) plus a seeded random.Random."""
+    (sole keeper of counting/best/logging) plus a seeded random.Random.
 
-    def __init__(self, session, dim, bounds, seed):
+    `kind`/`n`/`bounds` all come from the session's own problem: `kind` is
+    `"float"` for every continuous problem, `"permutation"` for a
+    permutation-typed one (`sezgi.problems.tsp(...)`, M3-8 Task 7); `bounds`
+    is `None` for a permutation-typed session (there is no uniform (lo, hi)
+    domain to sample -- use `random_permutation()`/`two_opt()` instead of
+    `random_point()`); `n` is the same dimension value as `dim` under a
+    second, kind-neutral name (for a permutation problem, the number of
+    cities/positions -- `dim` reads oddly for a tour, `n` doesn't)."""
+
+    def __init__(self, session, dim, bounds, seed, kind):
         self._session = session
         self.dim = dim
-        self.bounds = bounds          # (lo, hi)
+        self.n = dim                  # same value as `dim`; see class doc
+        self.bounds = bounds          # (lo, hi), or None for kind="permutation"
+        self.kind = kind              # "float" or "permutation"
         self.rng = random.Random(seed)
 
     @property
@@ -66,19 +89,69 @@ class AlgoContext:
         return self._session.best()
 
     def random_point(self):
+        if self.bounds is None:
+            raise ValueError(
+                "random_point() is only available for float-typed problems "
+                f"(this context's kind is {self.kind!r})")
         lo, hi = self.bounds
         return [self.rng.uniform(lo, hi) for _ in range(self.dim)]
 
+    def random_permutation(self):
+        """A uniformly random 0-based tour (a permutation of `range(self.n)`),
+        drawn from the underlying session's own seeded RNG stream -- NOT
+        `self.rng` (Python's `random.Random`, used only by the Float path):
+        a permutation-typed run must be reproducible from the same `seed`
+        the same way a Float-typed one is, so the draw comes from the
+        session (the house `RngStream`, Rust-side), not from Python's
+        `random` module. See `EvalSession.random_permutation`'s own doc for
+        the shuffle algorithm.
+
+        Raises `ValueError` if `self.kind != "permutation"`.
+        """
+        return self._session.random_permutation()
+
+    def two_opt(self, tour, i, j):
+        """Returns a NEW tour with the segment `tour[i:j+1]` -- positions `i`
+        through `j`, 0-based, INCLUSIVE on both ends -- reversed in place:
+        the classic 2-opt move, replacing edges `(tour[i-1], tour[i])` and
+        `(tour[j], tour[j+1])` with `(tour[i-1], tour[j])` and
+        `(tour[i], tour[j+1])` (the tour's own closing edge wraps at the
+        ends, unaffected unless `i == 0` or `j == len(tour) - 1`).
+
+        Requires `0 <= i <= j < len(tour)`; raises `ValueError` otherwise.
+        `i == j` reverses a single-element segment (a no-op: the returned
+        tour equals `tour`). `i == 0, j == len(tour) - 1` reverses the
+        WHOLE tour (still a no-op on tour length/validity, but exercises
+        both boundaries at once).
+
+        Pure Python, no RNG, does not mutate `tour` or touch the
+        evaluation budget -- call `evaluate([...])` on the result to score
+        it. Does not itself validate that `tour` is a permutation (a tour
+        from `random_permutation()` or an earlier `two_opt()` call already
+        is one); available regardless of `self.kind`.
+        """
+        n = len(tour)
+        if not (0 <= i <= j < n):
+            raise ValueError(
+                f"two_opt: i={i}, j={j} out of range for a tour of length {n} "
+                f"(require 0 <= i <= j < {n})")
+        return tour[:i] + list(reversed(tour[i:j + 1])) + tour[j + 1:]
+
     def evaluate(self, points):
         """Evaluates a batch of points, all-or-nothing.
+
+        `points` is a list of rows: each a length-`dim` list of floats for
+        a Float-typed context, or each a length-`n` 0-based tour (a
+        permutation of `range(n)`) for a permutation-typed one.
 
         Raises `BudgetExhausted` (this module) if `points` doesn't fit the
         remaining budget -- checked BEFORE calling the session, so nothing
         is charged on a rejected batch. Raises `ValueError` (from the
         underlying `EvalSession`, not `BudgetExhausted`) if any row is the
-        wrong length or contains a non-finite coordinate (NaN/inf) --
-        that check happens session-side, so it fires even for a batch that
-        fits the budget.
+        wrong length, contains a non-finite coordinate (NaN/inf, Float
+        path), or is not a valid tour (out-of-range/repeated city,
+        permutation path) -- that check happens session-side, so it fires
+        even for a batch that fits the budget.
         """
         if len(points) > self.remaining:
             raise BudgetExhausted(
@@ -101,7 +174,13 @@ class Algorithm(abc.ABC):
         algo_name = self.name or type(self).__name__.lower()
         session = sezgi.EvalSession.for_problem(
             problem, budget, log_dir=log_dir, algo_name=algo_name, seed=seed)
-        ctx = AlgoContext(session, problem.dim(), problem.bounds(), seed)
+        kind = session.kind()
+        # problem.bounds() raises ValueError for a permutation-typed problem
+        # (no uniform (lo, hi) domain -- see PyProblem::bounds's own doc),
+        # so it is only called for a Float-typed session; a permutation-
+        # typed AlgoContext gets bounds=None (see its own class doc).
+        bounds = problem.bounds() if kind == "float" else None
+        ctx = AlgoContext(session, problem.dim(), bounds, seed, kind)
         # finish() must run exactly once no matter how the run ends --
         # including a RuntimeError from the driver's own guards below, or
         # any exception a subclass's setup()/step() raises -- so the whole

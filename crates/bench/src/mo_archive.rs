@@ -578,6 +578,8 @@ mod tests {
             p_m: None,
             p_c_bin: 0.9,
             p_m_bin: None,
+            p_c_cat: 0.9,
+            p_m_cat: None,
         }
     }
 

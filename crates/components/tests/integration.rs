@@ -3,7 +3,7 @@ use sezgi_core::component::Registry;
 use sezgi_core::dist::Distribution;
 use sezgi_core::engine::{Engine, RunConfig};
 use sezgi_core::problem::{Problem, SphereShifted};
-use sezgi_core::space::{Block, BlockValues, SearchSpace};
+use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 use sezgi_problems::{BbobProblem, Tsp};
 
 fn registry() -> Registry {
@@ -1220,4 +1220,115 @@ fn ga_perm_quality_smoke_berlin52_anchored_three_seeds() {
     println!("ga_perm_quality_smoke: 3 seeds total runtime = {elapsed:?}");
     assert!(elapsed.as_secs_f64() < 5.0,
         "3-seed berlin52 quality smoke must stay under 5s release runtime, took {elapsed:?}");
+}
+
+// ---- gen/ga-bin / ga_bin preset (M3-8 Task 2) -- binary operator family,
+// the first single-objective (non-NSGA-II) registry path for `Block::Binary`
+// spaces. Validated on an inline OneMax-shaped toy (per the task brief:
+// diagnostic problems like a public `OneMax` are Task 5's own deliverable,
+// not this task's -- so the toy stays local to this test file, mirroring
+// `SphereShifted`'s own scaffold role for the Float presets above). ----
+
+/// Minimize the number of `false` bits (equivalently: maximize the count of
+/// `true` bits, the classic OneMax target) over a single `Block::Binary { n
+/// }`. All-`true` is the unique global optimum at `best_f = 0.0`.
+struct OneMaxToy { space: SearchSpace }
+impl OneMaxToy {
+    fn new(n: usize) -> Self {
+        Self { space: SearchSpace::new(vec![Block::Binary { n }]).unwrap() }
+    }
+}
+impl Problem for OneMaxToy {
+    fn space(&self) -> &SearchSpace { &self.space }
+    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
+        pop.iter().map(|g| {
+            let BlockValues::Bin(bits) = &g.blocks[0] else {
+                panic!("OneMaxToy expects a Binary block, got {:?}", g.blocks[0])
+            };
+            bits.iter().filter(|&&b| !b).count() as f64
+        }).collect()
+    }
+}
+
+#[test]
+fn gen_ga_bin_converges_on_onemax_via_full_registry_spec_path() {
+    // Built directly from the pinned registry IDs (not `presets::ga_bin`),
+    // per the task brief's requirement to exercise registry+preset wiring
+    // end to end: init/uniform, boundary/clamp, one stage {gen/ga-bin,
+    // replace/mu-plus-lambda}.
+    use sezgi_core::spec::{AlgorithmSpec, ComponentSpec, StageSpec, TerminationSpec};
+    let n = 20usize;
+    let p = OneMaxToy::new(n);
+    let spec = AlgorithmSpec {
+        name: "onemax-ga-bin".into(), pop_size: 40,
+        init: ComponentSpec { kind: "init/uniform".into(), params: serde_json::json!({}) },
+        boundary: ComponentSpec { kind: "boundary/clamp".into(), params: serde_json::json!({}) },
+        stages: vec![StageSpec {
+            generator: ComponentSpec { kind: "gen/ga-bin".into(), params: serde_json::json!({}) },
+            replacer: ComponentSpec { kind: "replace/mu-plus-lambda".into(), params: serde_json::json!({}) },
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget: 20_000, target: None },
+        restart: None,
+    };
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    // OneMax with n=20 and a 20k-evaluation budget is trivial for a fused
+    // two-point-crossover + bit-flip-mutation GA -- anchored to the exact
+    // global optimum (0 false bits), with a >= 1 headroom margin in case a
+    // different seed/build ever lands one bit short.
+    assert!(r.best_f <= 1.0,
+        "gen/ga-bin via the full registry spec path should nearly/fully solve a 20-bit OneMax in 20k evals: best_f={}", r.best_f);
+}
+
+#[test]
+fn presets_ga_bin_converges_on_onemax() {
+    let n = 20usize;
+    let p = OneMaxToy::new(n);
+    let spec = presets::ga_bin(40, 20_000);
+    let e = Engine::from_spec(&spec, &registry(), p.space()).unwrap();
+    let r = e.run(&p, RunConfig { master_seed: 42, run_id: 0 }, None).unwrap();
+    assert!(r.best_f <= 1.0,
+        "presets::ga_bin should nearly/fully solve a 20-bit OneMax in 20k evals: best_f={}", r.best_f);
+}
+
+#[test]
+fn ga_bin_preset_is_a_single_stage_spec_mirroring_ga_perm() {
+    let spec = presets::ga_bin(30, 2000);
+    assert_eq!(spec.name, "ga-bin");
+    assert_eq!(spec.init.kind, "init/uniform");
+    assert_eq!(spec.boundary.kind, "boundary/clamp");
+    assert_eq!(spec.stages.len(), 1);
+    assert_eq!(spec.stages[0].generator.kind, "gen/ga-bin");
+    assert_eq!(spec.stages[0].replacer.kind, "replace/mu-plus-lambda");
+    assert!(spec.stages[0].adapter.is_none());
+}
+
+#[test]
+fn ga_bin_preset_rejected_on_float_only_space() {
+    use sezgi_core::spec::SpecError;
+    let space = SearchSpace::new(vec![Block::Float { lo: 0.0, hi: 1.0, n: 5 }]).unwrap();
+    let spec = presets::ga_bin(20, 2000);
+    match spec.validate(&registry(), &space) {
+        Err(SpecError::UnsupportedBlock { kind, block }) => {
+            assert_eq!(kind, "gen/ga-bin", "init/uniform and boundary/clamp are SupportedBlocks::All, so gen/ga-bin is the first component reported");
+            assert_eq!(block, "float");
+        }
+        other => panic!("expected SpecError::UnsupportedBlock, got {other:?}"),
+    }
+}
+
+#[test]
+fn ga_bin_preset_min_pop_2_enforced_by_spec_validation() {
+    use sezgi_core::spec::SpecError;
+    let space = SearchSpace::new(vec![Block::Binary { n: 10 }]).unwrap();
+    let spec = presets::ga_bin(1, 500); // below min_pop = 2 (tournament selection)
+    match spec.validate(&registry(), &space) {
+        Err(SpecError::PopulationTooSmall { kind, min_pop, pop_size }) => {
+            assert_eq!(kind, "gen/ga-bin");
+            assert_eq!(min_pop, 2);
+            assert_eq!(pop_size, 1);
+        }
+        other => panic!("expected SpecError::PopulationTooSmall, got: {other:?}"),
+    }
 }

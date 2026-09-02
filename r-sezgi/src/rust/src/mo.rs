@@ -497,6 +497,13 @@ fn sz_nsga2_raw(
     let l_u = opt_f64_to_usize("l", l)?;
     let prob = mo_problem_from_str(problem, dim_u, m_u, k_u, l_u)?;
 
+    // p_c_cat/p_m_cat (M3-8 Task 6): mechanical Nsga2Config spillover, kept
+    // INERT this task (binding surface untouched -- see
+    // sezgi_components::nsga2's own module doc, "M3-8 Task 6" section,
+    // "Nsga2Config field spillover"). Fixed defaults (0.9/None), matching
+    // the Rust API's own defaults; these remain internal-only knobs --
+    // exposing them as real, user-tunable `sz_nsga2_raw` parameters is
+    // deferred (no milestone currently owns this work).
     let cfg = Nsga2Config {
         pop_size: f64_to_usize("pop_size", pop_size)?,
         budget: f64_to_u64("budget", budget)?,
@@ -507,6 +514,8 @@ fn sz_nsga2_raw(
         p_m,
         p_c_bin,
         p_m_bin,
+        p_c_cat: 0.9,
+        p_m_cat: None,
     };
 
     let result = if let Some(dir) = log_dir {

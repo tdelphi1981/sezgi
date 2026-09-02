@@ -13,32 +13,55 @@ from sezgi import _sezgi
 #   seed=0) -- the original, frozen BBOB constructor: unchanged.
 #
 # EvalSession.for_problem(problem, budget, log_dir=None, algo_name="custom",
-#   seed=0) -- staticmethod building a session over any continuous (float)
-#   Problem handle: bbob(...), problems.cec2022(...), problems.cec2014(...),
-#   problems.cec2017(...), from_callable(...), or bias.f0(...). Raises
-#   ValueError for problems.tsp(...) (a permutation space, not continuous)
-#   and for log_dir on a from_callable(...)/bias.f0(...) problem: IOH logging
-#   is supported for BBOB, CEC 2022, CEC 2014, and CEC 2017 problems only
-#   (M3-5 widened this from BBOB-only to include CEC 2022, now that the
-#   on-disk IOH record key carries a "suite" discriminator -- see
+#   seed=0) -- staticmethod building a session over any Problem handle:
+#   continuous (bbob(...), problems.cec2022(...), problems.cec2014(...),
+#   problems.cec2017(...), from_callable(...), bias.f0(...)) OR, as of M3-8
+#   Task 7, permutation-typed (problems.tsp(...)). Raises ValueError for
+#   log_dir on a from_callable(...)/bias.f0(...)/problems.tsp(...) problem:
+#   IOH logging is supported for BBOB, CEC 2022, CEC 2014, and CEC 2017
+#   problems only (M3-5 widened this from BBOB-only to include CEC 2022, now
+#   that the on-disk IOH record key carries a "suite" discriminator -- see
 #   read_ioh_records/results_matrix -- so a non-BBOB run no longer silently
 #   merges with a BBOB run at the same (fid, dim, instance, seed, budget);
 #   M3-6 widened it again to CEC 2014/CEC 2017, riding the same suite-aware
-#   machinery). Callable/F0 have no fid identity or known optimum to log
-#   against, so they still raise.
+#   machinery). Callable/F0/Tsp have no fid identity or known optimum to log
+#   against (Tsp has a known optimum but no suite/fid identity), so they
+#   still raise.
+#
+# EvalSession.kind() -> str: "float" for a continuous-problem session,
+#   "permutation" for a problems.tsp(...) session (M3-8 Task 7).
+#
+# EvalSession.random_permutation() -> list[int]: a uniformly random 0-based
+#   tour (a permutation of range(n)), drawn from THIS session's own seeded
+#   RNG stream -- deterministic under the session's `seed`, a fresh draw on
+#   each call. ValueError if kind() == "float" (M3-8 Task 7).
+#
+# evaluate(xs) accepts either shape now: a list of length-dim float rows for
+#   a "float" session, or a list of 0-based tours (permutations of range(n))
+#   for a "permutation" session -- ValueError naming the defect (wrong
+#   length, out-of-range city, repeated city) for an invalid tour.
 #
 # f_opt() now returns float | None (was always float, since only BBOB
 #   existed): None for a problem with no analytically known optimum (e.g.
 #   from_callable(...)); a session built via the BBOB constructor above
-#   always returns a float, unchanged.
+#   always returns a float, unchanged. A problems.tsp(...) session returns
+#   the vendored instance's published optimum.
 #
 # Problem handle accessors, usable on any handle above:
-#   p.dim() -> int: the search space's dimensionality.
+#   p.dim() -> int: the search space's dimensionality (for problems.tsp(...),
+#     the number of cities).
 #   p.bounds() -> (float, float): the uniform (lo, hi) bounds of a
 #     continuous (float) space. ValueError for a non-continuous space (e.g.
 #     problems.tsp(...)'s permutation space).
 #   p.optimum() -> float | None: the problem's known optimum, or None (a
 #     from_callable(...) handle always returns None).
+#
+# sezgi.Algorithm/AlgoContext (py-sezgi/python/sezgi/algo.py, M3-8 Task 7):
+#   AlgoContext now also works over a problems.tsp(...) problem -- ctx.kind
+#   ("float"/"permutation"), ctx.n (same value as ctx.dim, a kind-neutral
+#   name), ctx.random_permutation(), ctx.two_opt(tour, i, j). ctx.bounds is
+#   None and ctx.random_point() raises for a permutation-typed context; see
+#   algo.py's own module/class docstrings for the exact contract.
 #
 # from_callable(f, lo, hi, dim, vectorized=True) -- vectorized fixes f's
 #   calling convention for EVERY consumer of the returned handle (solve()
@@ -242,6 +265,11 @@ presets = SimpleNamespace(
     cmaes_ipop=_preset(_sezgi.preset_cmaes_ipop),
     es_mu_plus_lambda=_preset(_sezgi.preset_es_mu_plus_lambda),
     ga_perm=_preset(_sezgi.preset_ga_perm),
+    # M3-8 Task 9: typed-operator presets, pairing with
+    # problems.onemax/int_quadratic/cat_match below.
+    ga_bin=_preset(_sezgi.preset_ga_bin),
+    ga_int=_preset(_sezgi.preset_ga_int),
+    ga_cat=_preset(_sezgi.preset_ga_cat),
 )
 
 def _paper_package(algo_names, problem_names, results, rope=0.0, samples=20000, seed=1):
@@ -526,6 +554,40 @@ mo = SimpleNamespace(
 # labeled preset -- no problems.* entry point of its own:
 #   sezgi.solve(sezgi.presets.ga_perm(pop_size, budget),
 #               sezgi.problems.tsp("berlin52"), master_seed=...)
+# onemax/int_quadratic/cat_match (M3-8 Task 9): Problem handles for the
+# diagnostic trio (crates/problems/src/diagnostics.rs, M3-8 Task 5) --
+# "diagnostic, not benchmark" (that module's own honest-scope framing):
+# minimal, hand-verifiable, single-global-optimum landscapes that exist to
+# make ga_bin/ga_int/ga_cat reachable and testable from Python, not to serve
+# as research-grade evaluation targets.
+#
+# problems.onemax(n_bits) -> Problem: Block::Binary{n_bits} (Goldberg 1989's
+#   classic GA diagnostic, minimize-the-zero-bit-count re-expression). Known
+#   optimum 0.0 (p.optimum()), at the all-true genotype. Pairs with
+#   presets.ga_bin(pop_size, budget).
+#
+# problems.int_quadratic(lo, hi, n) -> Problem: Block::Int{lo,hi,n}, a
+#   quadratic bowl around a target drawn once, deterministically, from
+#   (lo, hi, n) (see diagnostics.rs's own doc -- no seed argument, per the
+#   Task 5 brief's pinned constructor). Known optimum 0.0. ValueError if
+#   lo >= hi. Pairs with presets.ga_int(pop_size, budget).
+#
+# problems.cat_match(k, n, seed) -> Problem: Block::Categorical{k,n}, a
+#   Hamming-distance-to-target matching problem; seed IS caller-supplied
+#   (unlike int_quadratic). Known optimum 0.0. Pairs with
+#   presets.ga_cat(pop_size, budget).
+#
+# problems.mixed_diagnostic(n_float, n_int, k_cat, n_cat, n_bin) -> Problem
+#   (M3-8 Task 9, NOT one of Task 5's brief-pinned diagnostics): a
+#   Float+Int+Categorical+Binary mixed-space scaffold problem, added solely
+#   so gen/compound (Task 5) is reachable end to end through a
+#   Python-authored, mixed-space TOML AlgorithmSpec -- parse the TOML with
+#   the stdlib's own tomllib into a dict and pass it straight to solve()
+#   (no new solve-side API: solve()'s spec argument already accepts a dict).
+#   Mirrors crates/components/src/compound.rs's own test-local MixedProblem
+#   exactly: Block::Float{-5,5,n_float} + Block::Int{-5,5,n_int} +
+#   Block::Categorical{k_cat,n_cat} + Block::Binary{n_bin}. Not a benchmark;
+#   optimum() is always None (no verified reachable target is claimed).
 problems = SimpleNamespace(
     cec2022=_sezgi.cec2022,
     cec2022_evaluate=_sezgi.cec2022_evaluate,
@@ -539,6 +601,10 @@ problems = SimpleNamespace(
     tsp=_sezgi.tsp,
     tsp_load=_sezgi.tsp_load,
     tsp_tour_length=_sezgi.tsp_tour_length,
+    onemax=_sezgi.onemax,
+    int_quadratic=_sezgi.int_quadratic,
+    cat_match=_sezgi.cat_match,
+    mixed_diagnostic=_sezgi.mixed_diagnostic,
 )
 
 __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_experiment", "presets",

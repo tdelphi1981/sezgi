@@ -209,6 +209,21 @@ SEXP savvy_sz_preset_fpa__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     return handle_result(res);
 }
 
+SEXP savvy_sz_preset_ga_bin__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_ga_bin__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_ga_cat__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_ga_cat__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_preset_ga_int__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
+    SEXP res = savvy_sz_preset_ga_int__ffi(c_arg__pop_size, c_arg__budget);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_preset_ga_perm__impl(SEXP c_arg__pop_size, SEXP c_arg__budget) {
     SEXP res = savvy_sz_preset_ga_perm__ffi(c_arg__pop_size, c_arg__budget);
     return handle_result(res);
@@ -329,6 +344,11 @@ SEXP savvy_sz_solve_bbob__impl(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_ar
     return handle_result(res);
 }
 
+SEXP savvy_sz_solve_cat_match__impl(SEXP c_arg__spec_json, SEXP c_arg__k, SEXP c_arg__n, SEXP c_arg__seed, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
+    SEXP res = savvy_sz_solve_cat_match__ffi(c_arg__spec_json, c_arg__k, c_arg__n, c_arg__seed, c_arg__master_seed, c_arg__run_id);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_solve_cec2014__impl(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
     SEXP res = savvy_sz_solve_cec2014__ffi(c_arg__spec_json, c_arg__fid, c_arg__dim, c_arg__master_seed, c_arg__run_id);
     return handle_result(res);
@@ -341,6 +361,21 @@ SEXP savvy_sz_solve_cec2017__impl(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c
 
 SEXP savvy_sz_solve_cec2022__impl(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
     SEXP res = savvy_sz_solve_cec2022__ffi(c_arg__spec_json, c_arg__fid, c_arg__dim, c_arg__master_seed, c_arg__run_id);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_solve_int_quadratic__impl(SEXP c_arg__spec_json, SEXP c_arg__lo, SEXP c_arg__hi, SEXP c_arg__n, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
+    SEXP res = savvy_sz_solve_int_quadratic__ffi(c_arg__spec_json, c_arg__lo, c_arg__hi, c_arg__n, c_arg__master_seed, c_arg__run_id);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_solve_mixed_diagnostic__impl(SEXP c_arg__spec_toml, SEXP c_arg__n_float, SEXP c_arg__n_int, SEXP c_arg__k_cat, SEXP c_arg__n_cat, SEXP c_arg__n_bin, SEXP c_arg__master_seed) {
+    SEXP res = savvy_sz_solve_mixed_diagnostic__ffi(c_arg__spec_toml, c_arg__n_float, c_arg__n_int, c_arg__k_cat, c_arg__n_cat, c_arg__n_bin, c_arg__master_seed);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_solve_onemax__impl(SEXP c_arg__spec_json, SEXP c_arg__n_bits, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
+    SEXP res = savvy_sz_solve_onemax__ffi(c_arg__spec_json, c_arg__n_bits, c_arg__master_seed, c_arg__run_id);
     return handle_result(res);
 }
 
@@ -434,6 +469,11 @@ SEXP savvy_EvalSession_finish__impl(SEXP self__) {
     return handle_result(res);
 }
 
+SEXP savvy_EvalSession_kind__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_kind__ffi(self__);
+    return handle_result(res);
+}
+
 SEXP savvy_EvalSession_new__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__budget, SEXP c_arg__algo_name, SEXP c_arg__seed, SEXP c_arg__log_dir) {
     SEXP res = savvy_EvalSession_new__ffi(c_arg__fid, c_arg__dim, c_arg__instance, c_arg__budget, c_arg__algo_name, c_arg__seed, c_arg__log_dir);
     return handle_result(res);
@@ -456,6 +496,16 @@ SEXP savvy_EvalSession_new_cec2022__impl(SEXP c_arg__fid, SEXP c_arg__dim, SEXP 
 
 SEXP savvy_EvalSession_new_f0__impl(SEXP c_arg__dim, SEXP c_arg__f0_seed, SEXP c_arg__budget) {
     SEXP res = savvy_EvalSession_new_f0__ffi(c_arg__dim, c_arg__f0_seed, c_arg__budget);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_new_tsp__impl(SEXP c_arg__name, SEXP c_arg__budget, SEXP c_arg__seed) {
+    SEXP res = savvy_EvalSession_new_tsp__ffi(c_arg__name, c_arg__budget, c_arg__seed);
+    return handle_result(res);
+}
+
+SEXP savvy_EvalSession_random_permutation__impl(SEXP self__) {
+    SEXP res = savvy_EvalSession_random_permutation__ffi(self__);
     return handle_result(res);
 }
 
@@ -495,6 +545,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_preset_es_mu_plus_lambda_raw__impl", (DL_FUNC) &savvy_sz_preset_es_mu_plus_lambda_raw__impl, 9},
     {"savvy_sz_preset_firefly__impl", (DL_FUNC) &savvy_sz_preset_firefly__impl, 2},
     {"savvy_sz_preset_fpa__impl", (DL_FUNC) &savvy_sz_preset_fpa__impl, 2},
+    {"savvy_sz_preset_ga_bin__impl", (DL_FUNC) &savvy_sz_preset_ga_bin__impl, 2},
+    {"savvy_sz_preset_ga_cat__impl", (DL_FUNC) &savvy_sz_preset_ga_cat__impl, 2},
+    {"savvy_sz_preset_ga_int__impl", (DL_FUNC) &savvy_sz_preset_ga_int__impl, 2},
     {"savvy_sz_preset_ga_perm__impl", (DL_FUNC) &savvy_sz_preset_ga_perm__impl, 2},
     {"savvy_sz_preset_ga_real__impl", (DL_FUNC) &savvy_sz_preset_ga_real__impl, 2},
     {"savvy_sz_preset_goa__impl", (DL_FUNC) &savvy_sz_preset_goa__impl, 2},
@@ -519,9 +572,13 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_results_matrix_raw__impl", (DL_FUNC) &savvy_sz_results_matrix_raw__impl, 12},
     {"savvy_sz_run_experiment_raw__impl", (DL_FUNC) &savvy_sz_run_experiment_raw__impl, 5},
     {"savvy_sz_solve_bbob__impl", (DL_FUNC) &savvy_sz_solve_bbob__impl, 6},
+    {"savvy_sz_solve_cat_match__impl", (DL_FUNC) &savvy_sz_solve_cat_match__impl, 6},
     {"savvy_sz_solve_cec2014__impl", (DL_FUNC) &savvy_sz_solve_cec2014__impl, 5},
     {"savvy_sz_solve_cec2017__impl", (DL_FUNC) &savvy_sz_solve_cec2017__impl, 5},
     {"savvy_sz_solve_cec2022__impl", (DL_FUNC) &savvy_sz_solve_cec2022__impl, 5},
+    {"savvy_sz_solve_int_quadratic__impl", (DL_FUNC) &savvy_sz_solve_int_quadratic__impl, 6},
+    {"savvy_sz_solve_mixed_diagnostic__impl", (DL_FUNC) &savvy_sz_solve_mixed_diagnostic__impl, 7},
+    {"savvy_sz_solve_onemax__impl", (DL_FUNC) &savvy_sz_solve_onemax__impl, 4},
     {"savvy_sz_solve_tsp__impl", (DL_FUNC) &savvy_sz_solve_tsp__impl, 4},
     {"savvy_sz_stats_bayesian_signed_rank_raw__impl", (DL_FUNC) &savvy_sz_stats_bayesian_signed_rank_raw__impl, 5},
     {"savvy_sz_stats_cliffs_delta__impl", (DL_FUNC) &savvy_sz_stats_cliffs_delta__impl, 2},
@@ -540,11 +597,14 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_EvalSession_evaluate__impl", (DL_FUNC) &savvy_EvalSession_evaluate__impl, 2},
     {"savvy_EvalSession_f_opt__impl", (DL_FUNC) &savvy_EvalSession_f_opt__impl, 1},
     {"savvy_EvalSession_finish__impl", (DL_FUNC) &savvy_EvalSession_finish__impl, 1},
+    {"savvy_EvalSession_kind__impl", (DL_FUNC) &savvy_EvalSession_kind__impl, 1},
     {"savvy_EvalSession_new__impl", (DL_FUNC) &savvy_EvalSession_new__impl, 7},
     {"savvy_EvalSession_new_cec2014__impl", (DL_FUNC) &savvy_EvalSession_new_cec2014__impl, 6},
     {"savvy_EvalSession_new_cec2017__impl", (DL_FUNC) &savvy_EvalSession_new_cec2017__impl, 6},
     {"savvy_EvalSession_new_cec2022__impl", (DL_FUNC) &savvy_EvalSession_new_cec2022__impl, 6},
     {"savvy_EvalSession_new_f0__impl", (DL_FUNC) &savvy_EvalSession_new_f0__impl, 3},
+    {"savvy_EvalSession_new_tsp__impl", (DL_FUNC) &savvy_EvalSession_new_tsp__impl, 3},
+    {"savvy_EvalSession_random_permutation__impl", (DL_FUNC) &savvy_EvalSession_random_permutation__impl, 1},
     {NULL, NULL, 0}
 };
 
