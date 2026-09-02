@@ -2,6 +2,8 @@ pub mod boundary;
 pub mod init;
 pub mod replace;
 pub mod step;
+pub(crate) mod select;
+pub(crate) mod params;
 pub mod de;
 pub mod ga;
 pub mod pso;

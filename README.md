@@ -605,9 +605,12 @@ bindings through the normal spec path (JSON or TOML — the same
       { kind = "gen/ga-bin",  tournament_k = 2, p_c = 0.9 },
     ]
 
-Note the spelling above: `gen/ga-real` (a legacy generator, shared with
-`gen/ga-perm`) parses `pc`, while the M3-8 typed families parse `p_c` —
-unknown keys are silently ignored, so the spelling matters per family.
+Note the spelling shown mixed above: both `pc` and `p_c` are now accepted on
+every family, canonical `p_c` (and `p_m` for the analogous mutation key,
+where a family has one) — `gen/ga-real`/`gen/ox`/`gen/ga-perm` (the legacy
+generators) accept `pc` as an alias for `p_c`, just like the M3-8 typed
+families always did the other way; if a block sets both spellings, the
+canonical key wins.
 
 The `nsga2_run` core gained the same per-block support (a space combining
 any of Float/Int/Categorical/Binary, in any mix — see "Multi-objective

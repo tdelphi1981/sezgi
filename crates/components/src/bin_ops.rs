@@ -79,8 +79,8 @@ use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 /// ## `gen/bin-2pt` / `gen/ga-bin`'s pair loop (mirrors `gen/ox`/
 /// `gen/ga-perm` exactly)
 ///
-/// Tournament selection ([`tournament`], identical structure to
-/// `gen/ga-real`'s/`gen/ox`'s/`gen/ga-perm`'s own `tournament`): draw a
+/// Tournament selection ([`crate::select::tournament`], shared with
+/// `gen/ga-real`'s/`gen/ox`'s/`gen/ga-perm`'s own generators): draw a
 /// candidate, then `tournament_k - 1` more, keeping the best (lowest
 /// fitness) seen. Per pair: tournament for parent 1 (`tournament_k` draws of
 /// `next_below(pop.len())`), THEN tournament for parent 2 (`tournament_k`
@@ -217,17 +217,6 @@ fn bin_values(g: &Genotype) -> &Vec<bool> {
     }
 }
 
-/// Identical structure to `gen/ga-real`'s/`gen/ox`'s/`gen/ga-perm`'s own
-/// `tournament` (mirrored deliberately -- see this module's doc).
-fn tournament(pop: &Population, tournament_k: usize, rng: &mut RngStream) -> usize {
-    let mut best = rng.next_below(pop.len() as u64) as usize;
-    for _ in 1..tournament_k {
-        let c = rng.next_below(pop.len() as u64) as usize;
-        if pop.fitness[c] < pop.fitness[best] { best = c; }
-    }
-    best
-}
-
 pub struct BinTwoPointGenerator {
     pub tournament_k: usize,
     pub p_c: f64,
@@ -238,7 +227,7 @@ impl BinTwoPointGenerator {
         let err = |reason: String| ComponentError::InvalidParams { kind: "gen/bin-2pt".into(), reason };
         let g = Self {
             tournament_k: p.get("tournament_k").and_then(|v| v.as_u64()).unwrap_or(2) as usize,
-            p_c: p.get("p_c").and_then(|v| v.as_f64()).unwrap_or(0.9),
+            p_c: crate::params::resolve(p, "p_c", "pc").and_then(|v| v.as_f64()).unwrap_or(0.9),
         };
         if g.tournament_k == 0 { return Err(err("tournament_k must be >= 1".into())); }
         if !(0.0..=1.0).contains(&g.p_c) { return Err(err(format!("p_c outside [0,1]: {}", g.p_c))); }
@@ -254,8 +243,8 @@ impl Generator for BinTwoPointGenerator {
         assert!(pop.len() >= 2, "gen/bin-2pt requires a population of at least 2 (pop_size={})", pop.len());
         let mut out = Vec::with_capacity(pop.len());
         while out.len() < pop.len() {
-            let i1 = tournament(pop, self.tournament_k, ctx.rng);
-            let i2 = tournament(pop, self.tournament_k, ctx.rng);
+            let i1 = crate::select::tournament(pop, self.tournament_k, ctx.rng);
+            let i2 = crate::select::tournament(pop, self.tournament_k, ctx.rng);
             let p1 = bin_values(&pop.individuals[i1]).clone();
             let p2 = bin_values(&pop.individuals[i2]).clone();
             let (c1, c2) = bin_cross_pair(&p1, &p2, self.p_c, ctx.rng);
@@ -324,7 +313,7 @@ impl GaBinGenerator {
         let err = |reason: String| ComponentError::InvalidParams { kind: "gen/ga-bin".into(), reason };
         let g = Self {
             tournament_k: p.get("tournament_k").and_then(|v| v.as_u64()).unwrap_or(2) as usize,
-            p_c: p.get("p_c").and_then(|v| v.as_f64()).unwrap_or(0.9),
+            p_c: crate::params::resolve(p, "p_c", "pc").and_then(|v| v.as_f64()).unwrap_or(0.9),
             p_m: p.get("p_m").and_then(|v| v.as_f64()),
         };
         if g.tournament_k == 0 { return Err(err("tournament_k must be >= 1".into())); }
@@ -348,8 +337,8 @@ impl Generator for GaBinGenerator {
         let pm = self.p_m.unwrap_or(1.0 / dim as f64);
         let mut out = Vec::with_capacity(pop.len());
         while out.len() < pop.len() {
-            let i1 = tournament(pop, self.tournament_k, ctx.rng);
-            let i2 = tournament(pop, self.tournament_k, ctx.rng);
+            let i1 = crate::select::tournament(pop, self.tournament_k, ctx.rng);
+            let i2 = crate::select::tournament(pop, self.tournament_k, ctx.rng);
             let p1 = bin_values(&pop.individuals[i1]).clone();
             let p2 = bin_values(&pop.individuals[i2]).clone();
             let (mut c1, mut c2) = bin_cross_pair(&p1, &p2, self.p_c, ctx.rng);
@@ -638,6 +627,25 @@ mod tests {
         assert_eq!(g.p_c, 0.9);
     }
 
+    /// `gen/bin-2pt` is an M3-8 typed family (historically parsed only
+    /// `p_c`) -- it now ALSO accepts legacy `pc`, resolving identically to
+    /// the equivalent `p_c` spec (M3-8 deferral cleanup, `params.rs`).
+    #[test]
+    fn bin_two_pt_pc_alias_resolves_identically_to_canonical_p_c() {
+        let legacy = BinTwoPointGenerator::from_params(&serde_json::json!({"pc": 0.42})).unwrap();
+        let canonical = BinTwoPointGenerator::from_params(&serde_json::json!({"p_c": 0.42})).unwrap();
+        assert_eq!(legacy.p_c, canonical.p_c);
+        assert_eq!(legacy.p_c, 0.42);
+    }
+
+    /// When both spellings are present on the same block, canonical `p_c`
+    /// wins outright -- `pc`'s value is never used.
+    #[test]
+    fn bin_two_pt_p_c_wins_over_pc_when_both_present() {
+        let g = BinTwoPointGenerator::from_params(&serde_json::json!({"p_c": 0.42, "pc": 0.99})).unwrap();
+        assert_eq!(g.p_c, 0.42);
+    }
+
     // ==================================================================
     // gen/bit-flip (BitFlipGenerator)
     // ==================================================================
@@ -755,6 +763,25 @@ mod tests {
         assert_eq!(g.tournament_k, 2);
         assert_eq!(g.p_c, 0.9);
         assert_eq!(g.p_m, None); // resolved lazily against L inside generate()
+    }
+
+    /// `gen/ga-bin` is an M3-8 typed family (historically parsed only
+    /// `p_c`) -- it now ALSO accepts legacy `pc`, resolving identically to
+    /// the equivalent `p_c` spec (M3-8 deferral cleanup, `params.rs`).
+    #[test]
+    fn ga_bin_pc_alias_resolves_identically_to_canonical_p_c() {
+        let legacy = GaBinGenerator::from_params(&serde_json::json!({"pc": 0.42})).unwrap();
+        let canonical = GaBinGenerator::from_params(&serde_json::json!({"p_c": 0.42})).unwrap();
+        assert_eq!(legacy.p_c, canonical.p_c);
+        assert_eq!(legacy.p_c, 0.42);
+    }
+
+    /// When both spellings are present on the same block, canonical `p_c`
+    /// wins outright -- `pc`'s value is never used.
+    #[test]
+    fn ga_bin_p_c_wins_over_pc_when_both_present() {
+        let g = GaBinGenerator::from_params(&serde_json::json!({"p_c": 0.42, "pc": 0.99})).unwrap();
+        assert_eq!(g.p_c, 0.42);
     }
 
     #[test]

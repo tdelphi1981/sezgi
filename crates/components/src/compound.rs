@@ -106,13 +106,17 @@
 //!   ]
 //! }
 //! ```
-//! Note the crossover-probability spelling split visible above: the legacy
-//! generators (`gen/ga-real`, `gen/ga-perm`) parse `pc`, while every M3-8
-//! typed family (`gen/ga-bin`/`gen/ga-int`/`gen/ga-cat`) parses `p_c`. Every
-//! `from_params` here is permissive (unknown keys are silently ignored), so
-//! spelling matters per family -- writing `p_c` on a `gen/ga-real` block (or
-//! `pc` on a typed block) silently falls back to the default instead of
-//! erroring.
+//! Note the crossover-probability spelling shown mixed above (`pc` on
+//! `gen/ga-real`, `p_c` on the typed families): both spellings are now
+//! accepted EVERYWHERE, canonical `p_c` (`p_m` for the analogous mutation
+//! key, where a family has one) -- `pc`/`pm` are accepted legacy aliases on
+//! every family, including `gen/ga-real`/`gen/ox`/`gen/ga-perm` (see
+//! `params.rs`'s own doc for the full resolution rule and history). If a
+//! block sets BOTH spellings, the canonical key wins and the legacy key is
+//! ignored outright. Every `from_params` here is still permissive for any
+//! OTHER unknown key (silently ignored), so a genuinely misspelled key
+//! (neither `p_c` nor `pc`) still silently falls back to the default instead
+//! of erroring.
 //!
 //! `blocks` is an ORDERED array, one entry per block of the target space, in
 //! the SAME order `SearchSpace::blocks()` lists them. Each entry deserializes
