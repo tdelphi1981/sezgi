@@ -74,7 +74,14 @@ Methods:
     through `sz_as_problem()`) OR a built-in problem descriptor (see
     [sz_builtin_bbob()]). `log_dir`: NOT supported (see module doc) --
     a non-`NULL` value raises a clear error. Returns an `sz_result`
-    (see [`.sz_wrap_result`]).}
+    (see [`.sz_wrap_result`]). NOTE -- known, INTENTIONAL divergence
+    from `sezgi.Algorithm.run(problem, budget, seed=0, pop_size=50,
+    log_dir=None, ...)` (py-sezgi/python/sezgi/algorithm.py): `pop_size`
+    and `seed` are swapped, and `log_dir` sits last rather than third,
+    kept as-is (not reordered to match) because every anchored test and
+    example already calls `run()` positionally against THIS order --
+    reshuffling would break them for no benefit in a language where
+    both sides are typically called with named arguments anyway.}
 }
 }
 \section{Methods}{

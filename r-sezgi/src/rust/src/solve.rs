@@ -1470,7 +1470,7 @@ struct AbortToken(SEXP);
 /// This token never crosses a real OS-thread boundary. `Engine::run` is
 /// single-threaded (see [`RProblem`]'s own `# Safety` note below, points
 /// 1-3), and [`run_with_r_bridge`]'s `catch_unwind` only unwinds Rust stack
-/// frames WITHIN THAT SAME THREAD, between [`call_r_evaluate`]'s
+/// frames WITHIN THAT SAME THREAD, between [`call_r_evaluate_batch`]'s
 /// `panic::panic_any` call site and `run_with_r_bridge`'s own call to
 /// `catch_unwind` a few frames up the same call stack -- no R frame is ever
 /// crossed by the unwind itself, because the R-side longjmp was already
@@ -1484,7 +1484,7 @@ unsafe impl Send for AbortToken {}
 /// bridge (`Generator::generate` has no `Result` return channel either, so
 /// it needs this exact same wrapper around its own `engine.run(...)`
 /// call). Catches an [`AbortToken`] panic payload -- thrown by
-/// [`call_r_evaluate`] when `FunctionSexp::call` returns
+/// [`call_r_evaluate_batch`] when `FunctionSexp::call` returns
 /// `Err(savvy::Error::Aborted(tok))`, i.e. an R-side error/condition
 /// propagating out of the callback -- and re-raises it as
 /// `Err(savvy::Error::Aborted(tok))`; the generated C shim's own
@@ -1646,6 +1646,42 @@ fn genotype_blocks_to_r_list(blocks: &[BlockValues]) -> savvy::Result<Sexp> {
 ///   `f64_to_*`'s own doc comments document for this file's numeric
 ///   guards.
 fn call_r_evaluate_batch(f: &FunctionSexp, pop: &[Genotype]) -> Vec<f64> {
+    // Fix round (final whole-branch review, item M1): `FunctionArgs::new()`
+    // MUST run FIRST, before `pop_list` is built. `FunctionArgs::new()`
+    // performs a real R allocation (`Rf_cons` for its own `head` pairlist,
+    // then self-protects THAT via `insert_to_preserved_list`) -- the same
+    // anti-pattern class already fixed twice elsewhere on this branch
+    // (T3's generate/initialize TDD pass; `validate_space`'s block
+    // payload, commit `1b7c427`): building `pop_list`, converting it to a
+    // bare `Sexp` via `.into()` (which DROPS `OwnedListSexp`'s own
+    // preserved-list token immediately, as part of that conversion), and
+    // only THEN calling `FunctionArgs::new()` leaves `pop_list`'s whole
+    // 24-block-deep nested structure completely UNPROTECTED while
+    // `FunctionArgs::new()`'s own allocation runs -- under
+    // `gctorture(TRUE)` (which forces a GC on every allocation), that
+    // window is real: reviewer evidence was a 24-block mixed-space
+    // Problem + `random_search(16, 96)` under `gctorture(TRUE)` reliably
+    // crashing (one run aborted R with a "recursive gc invocation"
+    // error, one segfaulted) against the pre-fix build, and completing
+    // cleanly with only this reorder applied.
+    //
+    // The fix: build `args` first (so ITS OWN allocation happens while
+    // there is nothing else pending), THEN build `pop_list` and pass it
+    // DIRECTLY into `args.add(...)` -- never `.into()`-then-hold a bare
+    // `Sexp` across any other code. `args.add`'s own `arg_value.try_into()`
+    // (which performs the SAME `.into()` drop) is immediately followed,
+    // in the SAME expression/statement with no intervening allocation, by
+    // `SETCAR`/`SET_TAG` writing the (now-converted) pointer into the
+    // ALREADY-preserved `args` pairlist structure -- exactly the atomic
+    // "convert-then-immediately-attach" discipline every other Owned*Sexp
+    // use in this function (and in `genotype_blocks_to_r_list`/
+    // `block_values_to_r`, both audited alongside this fix and already
+    // correct: each block's `Owned*Sexp` is built, `.into()`'d, and passed
+    // straight into `set_value` in one expression, with `pop_list`/`out`
+    // themselves alive via their OWN preserved-list token throughout) --
+    // must follow.
+    let mut args = FunctionArgs::new();
+
     let mut pop_list = match OwnedListSexp::new(pop.len(), false) {
         Ok(l) => l,
         Err(e) => panic::panic_any(e.to_string()),
@@ -1659,10 +1695,10 @@ fn call_r_evaluate_batch(f: &FunctionSexp, pop: &[Genotype]) -> Vec<f64> {
             panic::panic_any(e.to_string());
         }
     }
-    let pop_sexp: Sexp = pop_list.into();
-
-    let mut args = FunctionArgs::new();
-    if let Err(e) = args.add("", pop_sexp) {
+    // `pop_list` (still an `OwnedListSexp`, NOT `.into()`'d here) is
+    // passed straight to `add`, which converts and attaches it in one
+    // step -- see the comment above this function's body.
+    if let Err(e) = args.add("", pop_list) {
         panic::panic_any(e.to_string());
     }
     match f.call(args) {
@@ -1852,14 +1888,26 @@ fn sz_solve_r_problem(
     })?;
     let result = run_result.map_err(|e| savvy_err!("{e}"))?;
 
+    // NOTE (final whole-branch review, M1 follow-up): `set_name_and_value`
+    // (savvy 0.10.2) calls `set_name` (which allocates a CHARSXP via
+    // `Rf_mkCharLenCE`) *before* attaching `v` -- so if `v` arrives already
+    // unprotected (e.g. `genotype_to_r`'s multi-block branch already
+    // dropped its `OwnedListSexp` token via `.into()` before returning),
+    // that CHARSXP allocation is an intervening R allocation that can GC
+    // the orphaned value out from under us. This is the exact same
+    // build-then-hold-across-an-allocation anti-pattern fixed above in
+    // `call_r_evaluate_batch`, just inside `set_name_and_value` itself.
+    // `set_value` alone has no such gap (nothing allocates between the
+    // caller's argument construction and its `SET_VECTOR_ELT` attach), so
+    // every field here is attached with `set_value` first and named with
+    // `set_name` second, instead of the single `set_name_and_value` call.
     let mut out = OwnedListSexp::new(3, true)?;
-    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
-    out.set_name_and_value(
-        1,
-        "evals",
-        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
-    )?;
-    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_value(0, OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name(0, "best_f")?;
+    out.set_value(1, OwnedRealSexp::try_from_scalar(result.evals_used as f64)?)?;
+    out.set_name(1, "evals")?;
+    out.set_value(2, genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_name(2, "best_x")?;
 
     Ok(out.into())
 }

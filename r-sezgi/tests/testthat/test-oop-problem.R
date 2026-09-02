@@ -358,3 +358,94 @@ test_that("a batch_evaluate() returning the wrong length errors clearly, not sil
     "length"
   )
 })
+
+# =========================================================================
+# Final whole-branch review, item M1 (MAJOR): `call_r_evaluate_batch`
+# (`solve.rs`) converted its per-generation `pop_list` to a bare `Sexp`
+# (dropping `OwnedListSexp`'s own preserved-list token) BEFORE
+# `FunctionArgs::new()` ran -- and `FunctionArgs::new()` performs a real R
+# allocation (`Rf_cons` for its own `head` pairlist) before `args.add(...)`
+# re-protects the payload by attaching it. The SAME anti-pattern class was
+# already fixed twice elsewhere on this branch (T3's generate/initialize
+# TDD pass; `validate_space`'s block payload, commit `1b7c427`).
+#
+# This regression test reconstructs the reviewer's OWN repro shape
+# (24-block mixed-space Problem -- 6 Float + 6 Int + 6 Categorical + 6
+# Binary blocks -- solved via `sz_preset_random_search(16, 96)` under
+# `gctorture(TRUE)`), and was PROVEN to trip the pre-fix bug by
+# construction: run standalone (outside testthat, to avoid taking the
+# whole test session down) against the installed pre-fix build, a loop of
+# repeated solves in ONE R session crashed on the 4th repetition -- a
+# segfault ("invalid permissions") immediately followed by a bus error
+# ("invalid alignment") -- matching the reviewer's own reported symptom
+# class exactly. A SINGLE solve call is not reliable enough to trip this
+# class of bug (this machine's R build has no strict write barrier, so
+# detection depends on the freed memory actually being reused before it
+# is read back -- a matter of allocator timing, not of the bug being
+# absent) -- hence the repeated-solve loop below, not a single call.
+#
+# Auditing `call_r_evaluate_batch` and its helpers per the review's
+# instruction turned up a SECOND, closely related site while validating
+# the fix above: `sz_solve_r_problem`'s own result-assembly tail called
+# `out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?`
+# -- and savvy 0.10.2's `set_name_and_value` calls `set_name` (which
+# allocates a CHARSXP via `Rf_mkCharLenCE`) BEFORE attaching `v`, so a `v`
+# that arrives already unprotected (as `genotype_to_r`'s multi-block
+# branch does, for exactly the same "OwnedListSexp -> Sexp drops its
+# token" reason as the MAIN bug above) sits unprotected across that
+# CHARSXP allocation too. Same anti-pattern, different call site, one
+# call per SOLVE rather than one call per GENERATION -- which is why it
+# needed far more repetitions to manifest: a standalone repeated-solve
+# script (same 24-block shape, same preset) against a build with ONLY
+# the `call_r_evaluate_batch` reorder applied crashed on the 34th
+# repetition (segfault, "invalid permissions"), proving this second site
+# independently. Fixed in the same commit by splitting every
+# `set_name_and_value` call in `sz_solve_r_problem` into `set_value`
+# (attach first; nothing allocates between argument construction and
+# `SET_VECTOR_ELT`) followed by `set_name` (allocate the CHARSXP only
+# after the value is already reachable through the protected list) --
+# see the comment at that call site in `solve.rs`. A standalone 80-
+# repetition run of the same script against the build with BOTH fixes
+# applied completed every repetition cleanly.
+#
+# The loop below is intentionally kept at a CI-reasonable width (8 reps,
+# ~90s under gctorture on this machine): it reliably re-trips the MAIN
+# bug's rep-4 crash point on any regression, and it exercises the SECOND
+# site's exact code path every repetition too, even though tripping that
+# rarer bug by allocator-timing chance alone would need the much longer
+# (34+ rep) standalone width used to originally find and confirm it, which
+# is impractical to ship as a routine test.
+# =========================================================================
+
+test_that("a large 24-block mixed-space Problem solves correctly across repeated gctorture(TRUE) solves", {
+  gctorture(TRUE)
+  on.exit(gctorture(FALSE))
+
+  LargeMixed <- R6::R6Class("LargeMixed24Torture", inherit = Problem, public = list(
+    space = function() {
+      blocks <- c(
+        replicate(6, sz_float(-5, 5, 1), simplify = FALSE),
+        replicate(6, sz_int(-5L, 5L, 1L), simplify = FALSE),
+        replicate(6, sz_categorical(3L, 1L), simplify = FALSE),
+        replicate(6, sz_binary(1L), simplify = FALSE)
+      )
+      do.call(sz_space, blocks)
+    },
+    evaluate = function(x) {
+      sum(vapply(x, function(b) sum(as.numeric(b)), numeric(1)))
+    }
+  ))
+  prob <- LargeMixed$new()
+  blocks <- sezgi:::.sz_space_to_blocks(prob$space())
+  shim <- sezgi:::.sz_make_evaluate_shim(prob)
+
+  # Repeated solves (not just one) within this same session -- the
+  # pre-fix crash needed a handful of repetitions to manifest reliably on
+  # this machine's allocator (see this block's own comment above).
+  for (rep in seq_len(8)) {
+    spec <- sz_preset_random_search(16, 96)
+    r <- sezgi:::sz_solve_r_problem(spec, blocks, shim, master_seed = as.double(rep), run_id = 0)
+    expect_true(is.finite(r$best_f))
+    expect_length(r$best_x, 24L)
+  }
+})
