@@ -14,7 +14,11 @@ hand-written because their dispatch logic genuinely differs from the
 uniform "one class, one preset" shape -- but both funnel through the SAME
 `_run_spec` helper every generated class uses, so the actual
 spec-building-then-`solve()`-then-wrap-in-`SolveResult` machinery has
-exactly one implementation in this file, not N.
+exactly one call site in this file, not N. The wrap-in-`SolveResult` step
+itself (`_wrap_result`) is a single shared helper in `sezgi.algo`
+(final-review fix 3), imported here rather than reimplemented -- the SAME
+helper `sezgi.algorithm.Algorithm.run` uses, so that translation has
+exactly one implementation across the whole crate, not two.
 
 Every wrapper (GeneticAlgorithm/DifferentialEvolution/NSGA2 included, with
 NSGA2's own documented exception): `__init__(pop_size=<preset's own
@@ -29,24 +33,8 @@ and Rust source (`presets.rs:<lines>`), which carries the algorithm's own
 academic citation (unchanged, in the Rust doc comment).
 """
 import sezgi
-from sezgi.algo import SolveResult
+from sezgi.algo import _wrap_result
 from sezgi.problem import as_native_problem
-
-
-def _wrap_result(algo_name, seed, budget, result, f_opt):
-    """Wraps a raw `sezgi.solve()`/`_sezgi.solve_with_py_generator()`-shaped
-    result dict (`best_f`, `best_x`, `evals_used`, ...) into the EXISTING
-    `sezgi.algo.SolveResult` dataclass -- the same result type
-    `sezgi.Algorithm.run()`/`sezgi.AskTellAlgorithm.solve()` already return
-    (one result shape across every front door in this crate, per this
-    milestone's own design ruling -- see `sezgi.algorithm`'s module doc).
-    """
-    best_f = result["best_f"]
-    return SolveResult(
-        algo=algo_name, seed=seed, budget=budget,
-        evals_used=result["evals_used"], best_x=result["best_x"],
-        best_f=best_f, f_opt=f_opt,
-        gap=None if f_opt is None else best_f - f_opt)
 
 
 def _run_spec(class_name, spec, native, budget, seed, run_id, log_dir):

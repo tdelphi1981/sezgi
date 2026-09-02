@@ -106,6 +106,16 @@ class Space:
     def __eq__(self, other):
         return isinstance(other, Space) and self.blocks == other.blocks
 
+    def __hash__(self):
+        """Consistent with `__eq__`: two `Space`s with equal `blocks` tuples
+        hash equal (final-review INFO fix -- defining `__eq__` without
+        `__hash__` makes Python set `__hash__ = None`, so `Space` was
+        unhashable while the five frozen block dataclasses it composes are
+        all hashable on their own). `blocks` is a tuple of frozen
+        dataclasses, so it is itself hashable whenever every block in it
+        is."""
+        return hash(self.blocks)
+
 
 def as_space(obj) -> Space:
     """Accepts a `Space`, or a bare block (wrapped into a single-block

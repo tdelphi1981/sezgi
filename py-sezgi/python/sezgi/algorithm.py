@@ -20,7 +20,7 @@ RULING A) over `_sezgi.solve_with_py_generator`.
 import abc
 
 from sezgi import _sezgi
-from sezgi.algo import SolveResult
+from sezgi.algo import _wrap_result
 from sezgi.problem import as_native_problem
 
 
@@ -92,7 +92,8 @@ class Algorithm(abc.ABC):
         `ValueError` at build time. Default: no-op (accepts any space)."""
         return None
 
-    def run(self, problem, budget, seed=0, pop_size=50, log_dir=None):
+    def run(self, problem, budget, seed=0, pop_size=50, log_dir=None,
+            run_id=0, name=None):
         """Runs this algorithm's `generate`/`initialize`/`validate_space`
         hooks INSIDE the Rust engine loop.
 
@@ -114,6 +115,18 @@ class Algorithm(abc.ABC):
             subclass, `bias.f0(...)`) -- same support boundary
             `sezgi.solve()` itself has, for the same reason (no fid/
             instance/known-optimum identity to log against).
+        run_id: forwarded to `_sezgi.solve_with_py_generator`'s own
+            `run_id` (default 0, additive -- final-review fix 2). Every
+            builtin wrapper class's own `run()` already exposes this same
+            knob (`sezgi.builtins`); this closes the gap so both front
+            doors agree for a caller doing multi-run experiments.
+        name: optional label overriding `type(self).__name__.lower()` for
+            the result's `algo` field and the engine's own `algo_name`
+            (default `None`, additive -- final-review fix 4). Mirrors
+            `sezgi.AskTellAlgorithm`'s own `name` class-attribute semantics
+            (`self.name or type(self).__name__.lower()`), exposed here as a
+            `run()` parameter since `Algorithm` has no equivalent
+            instance-level override point.
 
         Returns the SAME `SolveResult` dataclass `AskTellAlgorithm.solve()`
         returns (`sezgi.algo.SolveResult`) -- one result shape everywhere,
@@ -138,23 +151,18 @@ class Algorithm(abc.ABC):
         counterpart of Task 2's `PyGenerator`).
         """
         native = as_native_problem(problem)
-        algo_name = type(self).__name__.lower()
+        algo_name = name or type(self).__name__.lower()
 
         overridden = type(self).initialize is not Algorithm.initialize
         initializer = self if overridden else None
 
         result = _sezgi.solve_with_py_generator(
-            self, native, budget, master_seed=seed, run_id=0,
+            self, native, budget, master_seed=seed, run_id=run_id,
             pop_size=pop_size, log_dir=log_dir, initializer=initializer,
             algo_name=algo_name)
 
         f_opt = native.optimum()
-        best_f = result["best_f"]
-        return SolveResult(
-            algo=algo_name, seed=seed, budget=budget,
-            evals_used=result["evals_used"], best_x=result["best_x"],
-            best_f=best_f, f_opt=f_opt,
-            gap=None if f_opt is None else best_f - f_opt)
+        return _wrap_result(algo_name, seed, budget, result, f_opt)
 
 
 class PopulationAlgorithm(Algorithm):
@@ -338,10 +346,12 @@ class LocalSearch(Algorithm):
         NOT control) at `pop_size=1` under `replace/mu-plus-lambda`."""
         return f_new <= f_old
 
-    def run(self, problem, budget, seed=0, pop_size=1, log_dir=None):
-        """Same contract as `Algorithm.run()`, with `pop_size` defaulting
-        to (and REQUIRED to remain) 1 -- see the class docstring. Also
-        RESETS this instance's tracked current-point state
+    def run(self, problem, budget, seed=0, pop_size=1, log_dir=None,
+            run_id=0, name=None):
+        """Same contract as `Algorithm.run()` (including `run_id`/`name`,
+        forwarded unchanged -- final-review fixes 2/4), with `pop_size`
+        defaulting to (and REQUIRED to remain) 1 -- see the class
+        docstring. Also RESETS this instance's tracked current-point state
         (`current_x`/`current_f`) at the START of every call, so the
         SAME `LocalSearch` instance can be `run()` more than once (e.g.
         across seeds) without leaking state from a previous run."""
@@ -352,7 +362,7 @@ class LocalSearch(Algorithm):
         self.current_x = None
         self.current_f = None
         return super().run(problem, budget, seed=seed, pop_size=pop_size,
-                            log_dir=log_dir)
+                            log_dir=log_dir, run_id=run_id, name=name)
 
     def generate(self, pop, ctx):
         """NOT meant to be overridden by a `LocalSearch` subclass

@@ -292,6 +292,25 @@ def test_as_native_problem_raises_type_error_for_anything_else():
         as_native_problem(object())
 
 
+def test_solve_accepts_a_problem_subclass_directly():
+    """Final-review fix 5: sezgi.solve() now routes `problem` through
+    as_native_problem, so a sezgi.Problem subclass instance can be passed
+    directly (not just prob._to_native()) -- bit-identical to the
+    already-anchored compat-path result
+    (test_sphere_problem_solves_via_compat_path_anchored), and a nonsense
+    argument gets as_native_problem's own friendly TypeError instead of
+    pyo3's raw conversion error."""
+    prob = Sphere()
+    spec = sezgi.presets.ga_real(pop_size=20, budget=2000)
+    r_native = sezgi.solve(spec, prob._to_native(), master_seed=1)
+    r_direct = sezgi.solve(spec, prob, master_seed=1)
+    assert r_direct["best_f"] == r_native["best_f"]
+    assert r_direct["best_x"] == r_native["best_x"]
+
+    with pytest.raises(TypeError):
+        sezgi.solve(spec, 42, master_seed=1)
+
+
 # ---------------------------------------------------------------------
 # sezgi.spaces builders: bare-block acceptance, Space composition,
 # validation.
@@ -330,3 +349,18 @@ def test_new_oop_symbols_are_in_dunder_all():
     for name in ("Float", "Int", "Categorical", "Binary", "Permutation",
                  "Space", "Problem", "as_native_problem"):
         assert name in sezgi.__all__, f"{name} missing from sezgi.__all__"
+
+
+def test_builtin_wrapper_classes_are_in_dunder_all():
+    """Final-review fix 1: all 29 builtin wrapper classes (GeneticAlgorithm,
+    DifferentialEvolution, NSGA2, and the 26 table-driven classes) were
+    bound at module scope by T5 but never listed in sezgi.__all__ -- the
+    same defect class this file's own test_new_oop_symbols_are_in_dunder_all
+    exists to catch, which T5 nonetheless missed for all 29 names.
+    Structural (iterates sezgi.builtins.__all__ itself, the module's own
+    single source of truth) rather than a fixed enumeration, so a future
+    class added to builtins.py without also being exported here cannot
+    regress silently again."""
+    for name in sezgi.builtins.__all__:
+        assert name in sezgi.__all__, f"{name} missing from sezgi.__all__"
+    assert "builtins" in sezgi.__all__, "builtins submodule missing from sezgi.__all__"

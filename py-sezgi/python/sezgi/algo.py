@@ -36,6 +36,7 @@ import time
 from dataclasses import dataclass
 
 import sezgi
+from sezgi.problem import as_native_problem
 
 
 class BudgetExhausted(Exception):
@@ -54,6 +55,21 @@ class SolveResult:
     best_f: float
     f_opt: float | None
     gap: float | None
+
+
+def _wrap_result(algo_name, seed, budget, result, f_opt):
+    """Wraps a raw `sezgi.solve()`/`_sezgi.solve_with_py_generator()`-shaped
+    result dict (`best_f`, `best_x`, `evals_used`, ...) into `SolveResult`,
+    computing `gap` the same way every front door does. Final-review fix 3:
+    shared by `sezgi.algorithm.Algorithm.run` and every `sezgi.builtins`
+    wrapper class's `run()` (previously duplicated, character-for-character,
+    in both places -- one implementation now, not two)."""
+    best_f = result["best_f"]
+    return SolveResult(
+        algo=algo_name, seed=seed, budget=budget,
+        evals_used=result["evals_used"], best_x=result["best_x"],
+        best_f=best_f, f_opt=f_opt,
+        gap=None if f_opt is None else best_f - f_opt)
 
 
 class AlgoContext:
@@ -187,16 +203,28 @@ class AskTellAlgorithm(abc.ABC):
     def step(self, ctx): ...
 
     def solve(self, problem, budget, seed, log_dir=None):
+        """problem: routed through `sezgi.as_native_problem` (final-review
+        fix 5, matching `sezgi.solve`/`Algorithm.run`/the builtin wrapper
+        classes): a native `Problem` handle passes through unchanged.
+        Anything not a handle or a `sezgi.Problem` subclass instance raises
+        `as_native_problem`'s own friendly `TypeError`. A `sezgi.Problem`
+        subclass instance itself converts cleanly, but is then rejected by
+        `EvalSession.for_problem` below with its own honest `ValueError`
+        (no ask/tell session type exists for a CallableSpaced problem --
+        a pre-existing Rust-side restriction this fix does not lift, see
+        lib.rs:1753-1770) instead of pyo3's confusing raw conversion error
+        a Problem subclass used to fail with here."""
         algo_name = self.name or type(self).__name__.lower()
+        native = as_native_problem(problem)
         session = sezgi.EvalSession.for_problem(
-            problem, budget, log_dir=log_dir, algo_name=algo_name, seed=seed)
+            native, budget, log_dir=log_dir, algo_name=algo_name, seed=seed)
         kind = session.kind()
         # problem.bounds() raises ValueError for a permutation-typed problem
         # (no uniform (lo, hi) domain -- see PyProblem::bounds's own doc),
         # so it is only called for a Float-typed session; a permutation-
         # typed AlgoContext gets bounds=None (see its own class doc).
-        bounds = problem.bounds() if kind == "float" else None
-        ctx = AlgoContext(session, problem.dim(), bounds, seed, kind)
+        bounds = native.bounds() if kind == "float" else None
+        ctx = AlgoContext(session, native.dim(), bounds, seed, kind)
         # finish() must run exactly once no matter how the run ends --
         # including a RuntimeError from the driver's own guards below, or
         # any exception a subclass's setup()/step() raises -- so the whole

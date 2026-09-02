@@ -95,6 +95,13 @@ def solve(spec, problem, master_seed=0, run_id=0, log_dir=None, algo_name=None):
     """Run an algorithm spec against a problem.
 
     spec: dict (JSON-compatible algorithm spec) or a JSON string.
+    problem: a native `Problem` handle (`sezgi.bbob(...)`, ...) OR a
+        `sezgi.Problem` subclass instance -- both routed through
+        `sezgi.as_native_problem` (final-review fix 5), so a native handle
+        passes through unchanged and a `Problem` subclass is converted the
+        same way `Algorithm.run`/the builtin wrapper classes already do;
+        anything else raises `as_native_problem`'s own friendly `TypeError`
+        instead of pyo3's raw conversion error.
 
     Returns a dict including `best_x`: the best EVALUATED point (paired with
     `best_f`). For most algorithms this always lies within `problem`'s
@@ -105,6 +112,7 @@ def solve(spec, problem, master_seed=0, run_id=0, log_dir=None, algo_name=None):
     """
     if isinstance(spec, dict):
         spec = json.dumps(spec)
+    problem = as_native_problem(problem)
     return _sezgi.solve(spec, problem, master_seed=master_seed, run_id=run_id,
                         log_dir=log_dir, algo_name=algo_name)
 
@@ -700,6 +708,7 @@ from sezgi.algorithm import Algorithm, PopulationAlgorithm, LocalSearch
 # itself does `import sezgi` at module scope, resolved lazily via each
 # class's own run() method, well after this module has finished
 # initializing).
+from sezgi import builtins
 from sezgi.builtins import (
     GeneticAlgorithm, DifferentialEvolution, EvolutionStrategy,
     ParticleSwarm, SimulatedAnnealing, SHADE, LSHADE, CMAES, CMAESIpop,
@@ -709,6 +718,19 @@ from sezgi.builtins import (
     FireflyAlgorithm, BatAlgorithm, FlowerPollination, TLBO, HarrisHawks,
     AntLion, ArtificialBeeColony, GravitationalSearch, NSGA2,
 )
+
+# Final-review fix 1 (2026-09-02): all 29 builtin wrapper classes above
+# (the milestone's headline deliverable) were bound at module scope but
+# never listed in `__all__`, so `from sezgi import *` could not see any of
+# them -- exactly the defect class Task 1's own fix round existed for
+# (test_new_oop_symbols_are_in_dunder_all), which T5 nonetheless missed for
+# all 29 names. Derived programmatically from `sezgi.builtins.__all__`
+# (that module's own single source of truth, already used to
+# table-generate the classes themselves) rather than re-enumerated by hand
+# here, so this exact omission cannot regress silently again. "builtins"
+# (the submodule name) is added alongside "algo"/"recipes" below, which are
+# already listed for the same submodule-reachability reason.
+__all__ += ["builtins"] + list(builtins.__all__)
 
 # M4-1 Task 6: the two "optimize against data" recipes -- sezgi.Problem
 # subclasses over sezgi/recipes.py, following the same

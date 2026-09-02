@@ -239,6 +239,27 @@ def test_run_accepts_native_handle():
     assert result.gap == result.best_f - result.f_opt
 
 
+def test_asktell_solve_problem_subclass_gets_friendly_value_error():
+    """Final-review fix 5: AskTellAlgorithm.solve() now routes `problem`
+    through as_native_problem before handing it to
+    EvalSession.for_problem. A native handle passes through unchanged
+    (test_asktell_algorithm_new_name_works, sezgi.bbob(...), already
+    covers this, unaffected by this fix). A sezgi.Problem subclass
+    instance is converted to its own native CallableSpaced handle, which
+    EvalSession.for_problem then rejects -- ask/tell has no session type
+    for a CallableSpaced problem at all (a pre-existing, honest, Rust-side
+    restriction this fix does NOT touch or attempt to lift, see
+    lib.rs:1753-1770) -- with a specific, self-explanatory ValueError
+    naming "a sezgi.Problem subclass's native handle" and the
+    solve()+presets workaround, rather than pyo3's contradictory raw
+    conversion error ("'Sphere' object cannot be converted to 'Problem'")
+    a Problem subclass instance used to fail with before routing through
+    as_native_problem (that raw TypeError was itself the confusing part:
+    post-conversion, the object literally IS a Problem)."""
+    with pytest.raises(ValueError, match="sezgi.Problem subclass's native handle"):
+        _RandomSearch().solve(Sphere(n=3), budget=30, seed=1)
+
+
 # ---------------------------------------------------------------------
 # RULING B: log_dir wiring (wired end-to-end for BBOB/CEC2022/CEC2014/
 # CEC2017, rejected for anything else -- mirroring solve()'s own boundary).

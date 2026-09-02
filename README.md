@@ -163,11 +163,16 @@ A single-block space passes `x` bare (that block's own value); a
 multi-block `Space(...)` passes `x` as a `tuple` of per-block values, in
 declared order — the same convention `pop.individuals[i]` uses in the
 engine-hosted `Algorithm.generate` hook above.
-`sezgi.as_native_problem(obj)` (used internally by every `.run()`) accepts
-either a `Problem` subclass instance or a native handle (`sezgi.bbob(...)`,
-`sezgi.problems.onemax(...)`, ...), so every built-in class and every
-user-authored `Algorithm` interoperate with both kinds of problem
-uniformly.
+`sezgi.as_native_problem(obj)` accepts either a `Problem` subclass instance
+or a native handle (`sezgi.bbob(...)`, `sezgi.problems.onemax(...)`, ...),
+so every built-in class and every user-authored `Algorithm` interoperate
+with both kinds of problem uniformly. It is used internally by every scalar
+wrapper class's and `Algorithm`'s (and its `PopulationAlgorithm`/
+`LocalSearch` family bases') `.run()`, and by `sezgi.solve()` /
+`AskTellAlgorithm.solve()` (both route their `problem` argument through it
+too) — the one exception is `NSGA2.run`, which takes `mo.nsga2`'s problem
+STRINGS (`"zdt1"`, ...), not a handle or a `Problem` subclass, and so never
+calls `as_native_problem` at all (see "Built-in algorithm classes" below).
 
 ## Built-in algorithm classes (M4-1)
 
