@@ -1010,6 +1010,34 @@ impl PyProblem {
         bounds_of(space)
     }
 
+    /// Per-block kind descriptors for the search space (M4-1 Task 5: added
+    /// as the minimal read-only introspection accessor the `GeneticAlgorithm`
+    /// wrapper's auto-dispatch needs -- `dim()`/`bounds()`/`optimum()` alone
+    /// cannot distinguish an all-Float space from an all-Permutation one).
+    /// Reuses [`space_to_py`]'s existing, already-shipped encoding verbatim
+    /// (same shape the engine-hosted Python callback bridge's `EngineCtx.space`
+    /// already exposes internally, M4-1 Task 2) rather than inventing a
+    /// second block-shape encoding: one dict per block, in `space.blocks()`
+    /// order, `{"kind": "float"/"int"/"categorical"/"binary"/"permutation",
+    /// ...}` -- see `space_to_py`'s own doc for the exact per-kind fields.
+    fn blocks(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
+        let space = match &self.inner {
+            Inner::Bbob(p) => p.space(),
+            Inner::Cec2022(p) => p.space(),
+            Inner::Cec2014(p) => p.space(),
+            Inner::Cec2017(p) => p.space(),
+            Inner::Tsp(p) => p.space(),
+            Inner::OneMax(p) => p.space(),
+            Inner::IntQuadratic(p) => p.space(),
+            Inner::CatMatch(p) => p.space(),
+            Inner::Mixed(p) => p.space(),
+            Inner::Callable { space, .. } => space,
+            Inner::CallableSpaced { space, .. } => space,
+            Inner::F0 { space, .. } => space,
+        };
+        space_to_py(py, space)
+    }
+
     /// The problem's known optimum, or `None` if it has none (a
     /// `from_callable` handle always returns `None`: an arbitrary Python
     /// function has no analytically known optimum; `sezgi.bias.f0(...)`

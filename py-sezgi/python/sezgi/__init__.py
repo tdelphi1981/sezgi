@@ -688,3 +688,21 @@ __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_expe
 from sezgi import algo
 from sezgi.algo import AskTellAlgorithm
 from sezgi.algorithm import Algorithm, PopulationAlgorithm, LocalSearch
+
+# M4-1 Task 5: built-in algorithm wrapper classes (one per
+# crates/components/src/presets.rs builder, table-driven -- see
+# sezgi/builtins.py's own module doc for the full reconciliation) plus
+# NSGA2 (a thin sezgi.mo.nsga2 skin, not a presets.rs builder). Imported
+# last for the same reason as sezgi.algo/sezgi.algorithm above (builtins.py
+# itself does `import sezgi` at module scope, resolved lazily via each
+# class's own run() method, well after this module has finished
+# initializing).
+from sezgi.builtins import (
+    GeneticAlgorithm, DifferentialEvolution, EvolutionStrategy,
+    ParticleSwarm, SimulatedAnnealing, SHADE, LSHADE, CMAES, CMAESIpop,
+    NelderMead, RandomSearch, GreyWolfOptimizer, WhaleOptimization,
+    HarmonySearch, CuckooSearch, GrasshopperOptimization,
+    SineCosineAlgorithm, JAYA, MothFlameOptimization, SalpSwarm,
+    FireflyAlgorithm, BatAlgorithm, FlowerPollination, TLBO, HarrisHawks,
+    AntLion, ArtificialBeeColony, GravitationalSearch, NSGA2,
+)
