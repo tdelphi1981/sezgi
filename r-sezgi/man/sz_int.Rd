@@ -4,14 +4,15 @@
 \alias{sz_int}
 \title{An integer block: `n` coordinates, each in `[lo, hi]` (inclusive).}
 \usage{
-sz_int(lo, hi, n = 1L)
+sz_int(lo, hi, n)
 }
 \arguments{
 \item{lo}{Numeric scalar, the lower bound.}
 
 \item{hi}{Numeric scalar, the upper bound.}
 
-\item{n}{Numeric/integer scalar, the number of coordinates. Default `1L`.}
+\item{n}{Numeric/integer scalar, the number of coordinates. Required --
+`spaces.py`'s `Float.n` has no default either.}
 }
 \value{
 An object of class `c("sz_block_int", "sz_block")` with

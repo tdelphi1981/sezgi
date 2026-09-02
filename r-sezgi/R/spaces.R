@@ -36,11 +36,12 @@
 #'
 #' @param lo Numeric scalar, the lower bound.
 #' @param hi Numeric scalar, the upper bound.
-#' @param n Numeric/integer scalar, the number of coordinates. Default `1L`.
+#' @param n Numeric/integer scalar, the number of coordinates. Required --
+#'   `spaces.py`'s `Float.n` has no default either.
 #' @returns An object of class `c("sz_block_float", "sz_block")` with
 #'   elements `lo`, `hi`, `n`.
 #' @export
-sz_float <- function(lo, hi, n = 1L) {
+sz_float <- function(lo, hi, n) {
   structure(list(lo = lo, hi = hi, n = n), class = c("sz_block_float", "sz_block"))
 }
 
@@ -53,7 +54,7 @@ sz_float <- function(lo, hi, n = 1L) {
 #' @returns An object of class `c("sz_block_int", "sz_block")` with
 #'   elements `lo`, `hi`, `n`.
 #' @export
-sz_int <- function(lo, hi, n = 1L) {
+sz_int <- function(lo, hi, n) {
   structure(list(lo = lo, hi = hi, n = n), class = c("sz_block_int", "sz_block"))
 }
 
@@ -63,11 +64,12 @@ sz_int <- function(lo, hi, n = 1L) {
 #' -- see [sz_float()]'s doc for the no-construction-time-validation note.
 #'
 #' @param k Numeric/integer scalar, the number of categories.
-#' @param n Numeric/integer scalar, the number of genes. Default `1L`.
+#' @param n Numeric/integer scalar, the number of genes. Required --
+#'   `spaces.py`'s `Categorical.n` has no default either.
 #' @returns An object of class `c("sz_block_categorical", "sz_block")` with
 #'   elements `k`, `n`.
 #' @export
-sz_categorical <- function(k, n = 1L) {
+sz_categorical <- function(k, n) {
   structure(list(k = k, n = n), class = c("sz_block_categorical", "sz_block"))
 }
 

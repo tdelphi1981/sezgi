@@ -28,9 +28,12 @@ test_that("sz_float constructs a readable sz_block_float/sz_block object", {
   expect_equal(b$n, 3)
 })
 
-test_that("sz_float defaults n to 1", {
-  b <- sz_float(0, 1)
-  expect_equal(b$n, 1L)
+test_that("sz_float requires n (no default, mirroring spaces.py's Float.n)", {
+  # spaces.py's `Float.n` has no default either -- omitting it is a
+  # Python TypeError (missing required positional argument); the R
+  # mirror is base R's own "argument is missing, with no default" for
+  # the same reason (n is unbound when list(n = n) forces it).
+  expect_error(sz_float(0, 1), '"n"', fixed = TRUE)
 })
 
 test_that("sz_float stores fields verbatim -- no construction-time validation", {
@@ -54,9 +57,8 @@ test_that("sz_int constructs a readable sz_block_int/sz_block object", {
   expect_equal(b$n, 4L)
 })
 
-test_that("sz_int defaults n to 1", {
-  b <- sz_int(0L, 10L)
-  expect_equal(b$n, 1L)
+test_that("sz_int requires n (no default, mirroring spaces.py's Int.n)", {
+  expect_error(sz_int(0L, 10L), '"n"', fixed = TRUE)
 })
 
 # ---- sz_categorical -----------------------------------------------------
@@ -68,9 +70,8 @@ test_that("sz_categorical constructs a readable sz_block_categorical/sz_block ob
   expect_equal(b$n, 6L)
 })
 
-test_that("sz_categorical defaults n to 1", {
-  b <- sz_categorical(3L)
-  expect_equal(b$n, 1L)
+test_that("sz_categorical requires n (no default, mirroring spaces.py's Categorical.n)", {
+  expect_error(sz_categorical(3L), '"n"', fixed = TRUE)
 })
 
 test_that("sz_categorical accepts k < 2 -- no construction-time validation", {

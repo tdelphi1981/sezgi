@@ -4,12 +4,13 @@
 \alias{sz_categorical}
 \title{A categorical block: `n` genes, each a category index in `0..k`.}
 \usage{
-sz_categorical(k, n = 1L)
+sz_categorical(k, n)
 }
 \arguments{
 \item{k}{Numeric/integer scalar, the number of categories.}
 
-\item{n}{Numeric/integer scalar, the number of genes. Default `1L`.}
+\item{n}{Numeric/integer scalar, the number of genes. Required --
+`spaces.py`'s `Categorical.n` has no default either.}
 }
 \value{
 An object of class `c("sz_block_categorical", "sz_block")` with
