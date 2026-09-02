@@ -2535,7 +2535,7 @@ fn mo_evaluate_constraints(
 
 /// `sezgi.mo.nsga2(problem, dim, pop_size, budget, m=None, seed=0,
 /// eta_c=20.0, eta_m=20.0, p_c=0.9, p_m=None, p_c_bin=0.9, p_m_bin=None,
-/// k=None, l=None, log_dir=None, label=None)` -- binds
+/// p_c_cat=0.9, p_m_cat=None, k=None, l=None, log_dir=None, label=None)` -- binds
 /// [`sezgi_components::nsga2::nsga2_run`] (or, when `log_dir` is given,
 /// [`nsga2_run_logged`] -- see below). `eta_c`/`eta_m`/`p_c` default to the
 /// paper's own pinned experimental settings (Deb et al. 2002, Sec. IV.A:
@@ -2566,6 +2566,31 @@ fn mo_evaluate_constraints(
 /// all-Float problem, where they are simply unused) -- no problem-family
 /// gating is added on the Python side, matching the Rust config's own
 /// unconditional-validation design.
+///
+/// `p_c_cat`/`p_m_cat` (M3-8 Task 6, exposed here per the post-M3-8
+/// deferral cleanup): the Categorical-genotype counterparts of `p_c`/
+/// `p_c_bin` and `p_m`/`p_m_bin`, mirroring `p_c_bin`/`p_m_bin`'s own
+/// binding treatment exactly (same paragraph above, s/Binary/Categorical/,
+/// s/all-Binary/`Mixed`/) -- consulted ONLY when `problem` builds a `Mixed`
+/// search space (`Nsga2Config::p_c_cat`'s own doc: a space that genuinely
+/// mixes block kinds, or is a single non-Float/non-Binary kind, AND
+/// contains at least one `Block::Categorical` block). No problem string
+/// reachable via `mo_problem_from_str` today (zdt1-6, dtlz1-9, wfg1-9) ever
+/// builds such a space -- see [`genotype_to_flat_vec`]'s own doc, "no
+/// problem registered here ever constructs one" -- so `p_c_cat`/`p_m_cat`
+/// are, like `p_c_bin`/`p_m_bin` on every non-zdt5 problem, validated but
+/// otherwise inert against the CURRENT catalog; exposed anyway for the same
+/// reason `p_c_bin`/`p_m_bin` are (symmetry with `Nsga2Config`'s own public
+/// field set, and readiness for whatever future problem/generator work
+/// reaches a `Mixed` space through this binding). `p_c_cat` defaults to
+/// `0.9` (`Nsga2Config::p_c_cat`'s own doc: matches `cat_ops.rs`'s
+/// pymoo-0.6.2-verified `gen/cat-ux`/`gen/ga-cat` default, no verified
+/// paper-pinned formula exists for Categorical). `p_m_cat` defaults to
+/// `None`, which the Rust side resolves to `1 / n_cat` (`n_cat` = the
+/// space's total flattened `Block::Categorical` dimension), mirroring
+/// `p_m`/`p_m_bin`'s identical `None`-resolves-to-a-formula design exactly.
+/// Both are passed through UNCONDITIONALLY, same as `p_c_bin`/`p_m_bin`
+/// above.
 ///
 /// `k`/`l` (M3-7 Task 10): wfg-only parameters, forwarded to
 /// [`mo_problem_from_str`] -- see that function's own doc for their
@@ -2609,8 +2634,8 @@ fn mo_evaluate_constraints(
 /// given).
 #[pyfunction]
 #[pyo3(signature = (problem, dim, pop_size, budget, m=None, seed=0, eta_c=20.0, eta_m=20.0,
-                     p_c=0.9, p_m=None, p_c_bin=0.9, p_m_bin=None, k=None, l=None,
-                     log_dir=None, label=None))]
+                     p_c=0.9, p_m=None, p_c_bin=0.9, p_m_bin=None, p_c_cat=0.9, p_m_cat=None,
+                     k=None, l=None, log_dir=None, label=None))]
 #[allow(clippy::too_many_arguments)]
 fn mo_nsga2(
     py: Python<'_>,
@@ -2626,22 +2651,24 @@ fn mo_nsga2(
     p_m: Option<f64>,
     p_c_bin: f64,
     p_m_bin: Option<f64>,
+    p_c_cat: f64,
+    p_m_cat: Option<f64>,
     k: Option<usize>,
     l: Option<usize>,
     log_dir: Option<&str>,
     label: Option<&str>,
 ) -> PyResult<Py<PyDict>> {
     let prob = mo_problem_from_str(problem, dim, m, k, l)?;
-    // p_c_cat/p_m_cat (M3-8 Task 6): mechanical Nsga2Config spillover, kept
-    // INERT this task (binding surface untouched -- see
-    // sezgi_components::nsga2's own module doc, "M3-8 Task 6" section,
-    // "Nsga2Config field spillover"). Fixed defaults (0.9/None), matching
-    // the Rust API's own defaults; these remain internal-only knobs --
-    // exposing them as real, user-tunable `mo_nsga2` parameters is deferred
-    // (no milestone currently owns this work).
+    // p_c_cat/p_m_cat (M3-8 Task 6, exposed by the post-M3-8 deferral
+    // cleanup): real, user-tunable parameters now, threaded through
+    // unconditionally -- see this function's own doc, "p_c_cat/p_m_cat"
+    // section, for why they are currently inert against every problem in
+    // `mo_problem_from_str`'s catalog (no reachable problem builds a
+    // `Mixed` space yet) while still being exposed and validated, mirroring
+    // `p_c_bin`/`p_m_bin`'s own already-shipped treatment exactly.
     let cfg = Nsga2Config {
         pop_size, budget, seed, eta_c, eta_m, p_c, p_m, p_c_bin, p_m_bin,
-        p_c_cat: 0.9, p_m_cat: None,
+        p_c_cat, p_m_cat,
     };
 
     let result = if let Some(dir) = log_dir {

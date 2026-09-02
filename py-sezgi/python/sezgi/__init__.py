@@ -386,11 +386,12 @@ bias = SimpleNamespace(
 
 def _mo_nsga2(problem, dim, pop_size, budget, m=None, seed=0,
               eta_c=20.0, eta_m=20.0, p_c=0.9, p_m=None,
-              p_c_bin=0.9, p_m_bin=None, k=None, l=None,
-              log_dir=None, label=None):
+              p_c_bin=0.9, p_m_bin=None, p_c_cat=0.9, p_m_cat=None,
+              k=None, l=None, log_dir=None, label=None):
     return _sezgi.mo_nsga2(problem, dim, pop_size, budget, m=m, seed=seed,
                            eta_c=eta_c, eta_m=eta_m, p_c=p_c, p_m=p_m,
-                           p_c_bin=p_c_bin, p_m_bin=p_m_bin, k=k, l=l,
+                           p_c_bin=p_c_bin, p_m_bin=p_m_bin,
+                           p_c_cat=p_c_cat, p_m_cat=p_m_cat, k=k, l=l,
                            log_dir=log_dir, label=label)
 
 
@@ -417,8 +418,8 @@ def _mo_pareto_front(problem, dim, n, m=None, k=None, l=None):
 # not apply, or omitted where required, raises ValueError.
 #
 # mo.nsga2(problem, dim, pop_size, budget, m=None, seed=0, eta_c=20.0,
-#   eta_m=20.0, p_c=0.9, p_m=None, p_c_bin=0.9, p_m_bin=None, k=None,
-#   l=None, log_dir=None, label=None) -> dict with keys individuals (list
+#   eta_m=20.0, p_c=0.9, p_m=None, p_c_bin=0.9, p_m_bin=None, p_c_cat=0.9,
+#   p_m_cat=None, k=None, l=None, log_dir=None, label=None) -> dict with keys individuals (list
 #   of float-lists, one per final-population member -- a Binary block's
 #   bits are flattened to 0.0/1.0), objectives (list of float-lists,
 #   parallel to individuals), front0 (list of ints: indices of the final
@@ -430,7 +431,14 @@ def _mo_pareto_front(problem, dim, n, m=None, k=None, l=None):
 #   p_c_bin/p_m_bin are the binary-genotype counterparts (consulted only
 #   for zdt5's all-Binary space); p_c_bin defaults to 0.9 (mirroring p_c;
 #   the paper gives no verified binary-specific default), p_m_bin=None
-#   resolves to 1/l (the paper's own stated binary default). pop_size must
+#   resolves to 1/l (the paper's own stated binary default). p_c_cat/
+#   p_m_cat are the Categorical-genotype counterparts (consulted only for a
+#   Mixed space containing a Categorical block -- no problem string in this
+#   module's own catalog builds one today, so they are currently validated
+#   but inert, exactly like p_c_bin/p_m_bin on every non-zdt5 problem);
+#   p_c_cat defaults to 0.9 (mirroring p_c_bin's own reasoning), p_m_cat=
+#   None resolves to 1/n_cat (n_cat = the space's total flattened
+#   Categorical dimension). pop_size must
 #   be >= 4 AND a multiple of 4 (a KanGAL-faithful tightening of the naive
 #   "even, >= 4" rule) or this raises ValueError. When log_dir is given,
 #   the run is additionally streamed to

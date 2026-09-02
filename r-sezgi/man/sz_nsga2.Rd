@@ -19,6 +19,8 @@ sz_nsga2(
   p_m = NULL,
   p_c_bin = 0.9,
   p_m_bin = NULL,
+  p_c_cat = 0.9,
+  p_m_cat = NULL,
   k = NULL,
   l = NULL,
   log_dir = NULL,
@@ -69,6 +71,23 @@ all-Binary space (zdt5 today).}
 (default) resolves on the Rust side to `1 / l` (`l` = the space's total
 bit count, the paper's own stated binary-coded default) -- only
 consulted for an all-Binary space.}
+
+\item{p_c_cat}{Categorical-genotype crossover probability (post-M3-8
+deferral cleanup). Default `0.9`, mirroring `p_c_bin`'s own default (no
+paper/reference precedent exists for Categorical) -- only consulted
+when `problem` builds a `Mixed` space containing a `Block::Categorical`
+block. No `problem` string accepted here builds one today (zdt1-6,
+dtlz1-9, wfg1-9 are all-Float or, for zdt5, all-Binary), so this is
+currently validated but inert against every reachable problem --
+exposed anyway for symmetry with `p_c_bin`/`p_m_bin`.}
+
+\item{p_m_cat}{Optional per-gene Categorical mutation probability
+(post-M3-8 deferral cleanup). `NULL` (default) resolves on the Rust
+side to `1 / n_cat` (`n_cat` = the space's total flattened
+`Block::Categorical` dimension), mirroring `p_m`/`p_m_bin`'s own
+`NULL`-resolves-to-a-formula design -- only consulted for a `Mixed`
+space containing a Categorical block (currently unreachable through
+this catalog -- see `p_c_cat` above).}
 
 \item{k}{Optional WFG position-related-parameter count. `NULL` (default)
 resolves to the toolkit's own recommended value (`k = 4` for `m = 2`,

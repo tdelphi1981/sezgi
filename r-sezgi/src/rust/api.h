@@ -19,7 +19,7 @@ SEXP savvy_sz_mo_hypervolume_2d__ffi(SEXP c_arg__front, SEXP c_arg__ref_point);
 SEXP savvy_sz_mo_igd__ffi(SEXP c_arg__front, SEXP c_arg__reference_front);
 SEXP savvy_sz_mo_pareto_front_raw__ffi(SEXP c_arg__problem, SEXP c_arg__n, SEXP c_arg__dim, SEXP c_arg__m, SEXP c_arg__k, SEXP c_arg__l);
 SEXP savvy_sz_mo_read_moa__ffi(SEXP c_arg__path, SEXP c_arg__at);
-SEXP savvy_sz_nsga2_raw__ffi(SEXP c_arg__problem, SEXP c_arg__pop_size, SEXP c_arg__budget, SEXP c_arg__seed, SEXP c_arg__eta_c, SEXP c_arg__eta_m, SEXP c_arg__p_c, SEXP c_arg__p_c_bin, SEXP c_arg__dim, SEXP c_arg__m, SEXP c_arg__p_m, SEXP c_arg__p_m_bin, SEXP c_arg__k, SEXP c_arg__l, SEXP c_arg__log_dir, SEXP c_arg__label);
+SEXP savvy_sz_nsga2_raw__ffi(SEXP c_arg__problem, SEXP c_arg__pop_size, SEXP c_arg__budget, SEXP c_arg__seed, SEXP c_arg__eta_c, SEXP c_arg__eta_m, SEXP c_arg__p_c, SEXP c_arg__p_c_bin, SEXP c_arg__p_c_cat, SEXP c_arg__dim, SEXP c_arg__m, SEXP c_arg__p_m, SEXP c_arg__p_m_bin, SEXP c_arg__p_m_cat, SEXP c_arg__k, SEXP c_arg__l, SEXP c_arg__log_dir, SEXP c_arg__label);
 SEXP savvy_sz_per_budget_packages_raw__ffi(SEXP c_arg__algo, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__seed, SEXP c_arg__budget_col, SEXP c_arg__suite, SEXP c_arg__best_f, SEXP c_arg__f_opt, SEXP c_arg__evals, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__master_seed, SEXP c_arg__aggregate);
 SEXP savvy_sz_preset_abc__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);
 SEXP savvy_sz_preset_alo__ffi(SEXP c_arg__pop_size, SEXP c_arg__budget);

@@ -420,10 +420,11 @@ fn nsga2_result_list(r: &MoRunResult) -> savvy::Result<OwnedListSexp> {
 ///
 /// This is the raw savvy-generated binding: every `Option`-typed parameter
 /// (savvy's own "optional args last" requirement) trails the required ones
-/// in `dim, m, p_m, p_m_bin, k, l, log_dir, label` order. The public R entry
-/// point with R-native argument order and defaults is the hand-written
-/// wrapper `sz_nsga2()` in `R/mo.R`, which calls this function -- same
-/// raw/wrapper pattern as `sz_bias_structural()` / `sz_bias_structural_raw()`.
+/// in `dim, m, p_m, p_m_bin, p_m_cat, k, l, log_dir, label` order. The
+/// public R entry point with R-native argument order and defaults is the
+/// hand-written wrapper `sz_nsga2()` in `R/mo.R`, which calls this function
+/// -- same raw/wrapper pattern as `sz_bias_structural()` /
+/// `sz_bias_structural_raw()`.
 ///
 /// @param problem One of `"zdt1"`..`"zdt6"`, `"dtlz1"`..`"dtlz9"`, or
 ///   `"wfg1"`..`"wfg9"`.
@@ -439,6 +440,14 @@ fn nsga2_result_list(r: &MoRunResult) -> savvy::Result<OwnedListSexp> {
 /// @param p_c_bin Binary-genotype crossover probability. Default `0.9`
 ///   (mirrors `p_c`'s own default; only consulted for an all-Binary space,
 ///   i.e. zdt5).
+/// @param p_c_cat Categorical-genotype crossover probability (post-M3-8
+///   deferral cleanup). Default `0.9` (mirrors `p_c_bin`'s own default --
+///   no paper/reference precedent exists for Categorical); only consulted
+///   when `problem` builds a `Mixed` space containing a `Block::Categorical`
+///   block. No problem string in this module's own catalog (zdt1-6,
+///   dtlz1-9, wfg1-9) builds one today, so this is currently validated but
+///   inert against every reachable problem -- exposed anyway for symmetry
+///   with `p_c_bin`/`p_m_bin` and `Nsga2Config`'s own public field set.
 /// @param dim Optional decision-space dimensionality (double, cast to
 ///   `usize`). REQUIRED (may be `NULL`, but the argument itself must be
 ///   supplied) for zdt1-4/6 and dtlz1-9; REJECTED (must be `NULL`) for
@@ -451,6 +460,13 @@ fn nsga2_result_list(r: &MoRunResult) -> savvy::Result<OwnedListSexp> {
 /// @param p_m_bin Optional per-bit binary mutation probability. `NULL`
 ///   resolves on the Rust side to `1 / l` (the paper's own binary-coded
 ///   default); only consulted for an all-Binary space.
+/// @param p_m_cat Optional per-gene Categorical mutation probability
+///   (post-M3-8 deferral cleanup). `NULL` resolves on the Rust side to
+///   `1 / n_cat` (`n_cat` = the space's total flattened `Block::Categorical`
+///   dimension), mirroring `p_m`/`p_m_bin`'s own `NULL`-resolves-to-a-formula
+///   design; only consulted for a `Mixed` space containing a Categorical
+///   block (currently unreachable through this catalog -- see `p_c_cat`
+///   above).
 /// @param k Optional WFG position-related-parameter count. `NULL` resolves
 ///   to the toolkit's own recommended default; wfg-only.
 /// @param l Optional WFG distance-related-parameter count. `NULL` resolves
@@ -482,10 +498,12 @@ fn sz_nsga2_raw(
     eta_m: f64,
     p_c: f64,
     p_c_bin: f64,
+    p_c_cat: f64,
     dim: Option<f64>,
     m: Option<f64>,
     p_m: Option<f64>,
     p_m_bin: Option<f64>,
+    p_m_cat: Option<f64>,
     k: Option<f64>,
     l: Option<f64>,
     log_dir: Option<&str>,
@@ -497,13 +515,13 @@ fn sz_nsga2_raw(
     let l_u = opt_f64_to_usize("l", l)?;
     let prob = mo_problem_from_str(problem, dim_u, m_u, k_u, l_u)?;
 
-    // p_c_cat/p_m_cat (M3-8 Task 6): mechanical Nsga2Config spillover, kept
-    // INERT this task (binding surface untouched -- see
-    // sezgi_components::nsga2's own module doc, "M3-8 Task 6" section,
-    // "Nsga2Config field spillover"). Fixed defaults (0.9/None), matching
-    // the Rust API's own defaults; these remain internal-only knobs --
-    // exposing them as real, user-tunable `sz_nsga2_raw` parameters is
-    // deferred (no milestone currently owns this work).
+    // p_c_cat/p_m_cat (post-M3-8 deferral cleanup): real, user-tunable
+    // parameters now, threaded through unconditionally -- see this
+    // function's own doc, `p_c_cat`/`p_m_cat` sections, for why they are
+    // currently inert against every problem in `mo_problem_from_str`'s
+    // catalog (no reachable problem builds a `Mixed` space yet) while still
+    // being exposed and validated, mirroring `p_c_bin`/`p_m_bin`'s own
+    // already-shipped treatment exactly.
     let cfg = Nsga2Config {
         pop_size: f64_to_usize("pop_size", pop_size)?,
         budget: f64_to_u64("budget", budget)?,
@@ -514,8 +532,8 @@ fn sz_nsga2_raw(
         p_m,
         p_c_bin,
         p_m_bin,
-        p_c_cat: 0.9,
-        p_m_cat: None,
+        p_c_cat,
+        p_m_cat,
     };
 
     let result = if let Some(dir) = log_dir {

@@ -380,6 +380,73 @@ def test_nsga2_zdt5_deterministic_seeded():
     assert r1["individuals"] == r2["individuals"]
 
 
+# ---- sezgi.mo.nsga2: p_c_cat/p_m_cat (Categorical-genotype knobs) ---------
+#
+# `p_c_cat`/`p_m_cat` (post-M3-8 deferral cleanup) are consulted ONLY when
+# `problem` builds a `Mixed` search space containing a `Block::Categorical`
+# block (`Nsga2Config::p_c_cat`'s own doc). `mo_problem_from_str`'s own
+# catalog (zdt1-6, dtlz1-9, wfg1-9) NEVER builds one -- see
+# `genotype_to_flat_vec`'s own doc in `py-sezgi/src/lib.rs`, "no problem
+# registered here ever constructs one". So, unlike `p_c_bin`/`p_m_bin`
+# (exercised via zdt5's real all-Binary space), there is currently no
+# reachable problem through this binding whose *outcome* these two knobs can
+# move -- the tests below instead pin down the two properties that ARE
+# observable today: (1) both knobs are threaded through and unconditionally
+# range-validated (mirroring `p_c_bin`/`p_m_bin`'s own "validated even when
+# unused" design) and (2) they are correctly INERT on every currently
+# reachable problem (an extreme, non-default value changes nothing), which
+# is the precise mirror of `p_c_bin`/`p_m_bin`'s own already-shipped
+# behavior on every problem other than zdt5.
+
+def test_nsga2_p_c_cat_p_m_cat_accepted_and_deterministic_on_zdt1():
+    """Mirrors r-sezgi's own "sz_nsga2 accepts p_c_bin/p_m_bin knobs"
+    acceptance-shape test: non-default values are accepted, the run
+    completes with the usual shape, and a repeat with the same seed is
+    bit-identical."""
+    kwargs = dict(problem="zdt1", dim=5, pop_size=8, budget=200, seed=20260902,
+                   p_c_cat=0.3, p_m_cat=0.05)
+    r1 = sezgi.mo.nsga2(**kwargs)
+    r2 = sezgi.mo.nsga2(**kwargs)
+    assert len(r1["individuals"]) == 8
+    assert all(len(row) == 5 for row in r1["individuals"])
+    assert r1["objectives"] == r2["objectives"]
+    assert r1["individuals"] == r2["individuals"]
+    assert r1["front0"] == r2["front0"]
+    assert r1["evals_used"] == r2["evals_used"]
+
+
+def test_nsga2_omitting_p_c_cat_p_m_cat_matches_explicit_defaults():
+    """Default-equivalence (explicit): a call passing p_c_cat=0.9,
+    p_m_cat=None (the documented defaults) verbatim must reproduce a call
+    that omits them entirely -- byte-identical results."""
+    kwargs = dict(problem="zdt1", dim=5, pop_size=8, budget=200, seed=20260903)
+    r_omitted = sezgi.mo.nsga2(**kwargs)
+    r_explicit = sezgi.mo.nsga2(p_c_cat=0.9, p_m_cat=None, **kwargs)
+    assert r_omitted == r_explicit
+
+
+def test_nsga2_p_c_cat_p_m_cat_are_inert_on_every_reachable_problem():
+    """Since no problem in `mo_problem_from_str`'s catalog ever builds a
+    `Mixed`/Categorical space, wildly non-default p_c_cat/p_m_cat values
+    must produce the EXACT SAME result as the defaults on a reachable
+    problem -- the honest converse of "changes outcome" given today's
+    catalog (see this section's own header comment)."""
+    kwargs = dict(problem="zdt1", dim=5, pop_size=8, budget=200, seed=20260904)
+    r_default = sezgi.mo.nsga2(**kwargs)
+    r_nondefault = sezgi.mo.nsga2(p_c_cat=0.01, p_m_cat=0.99, **kwargs)
+    assert r_default == r_nondefault
+
+
+def test_nsga2_p_c_cat_out_of_range_raises_value_error():
+    with pytest.raises(ValueError, match="p_c_cat"):
+        sezgi.mo.nsga2("zdt1", dim=5, pop_size=8, budget=40, seed=0, p_c_cat=1.5)
+
+
+def test_nsga2_p_m_cat_out_of_range_raises_value_error():
+    with pytest.raises(ValueError, match="p_m_cat"):
+        sezgi.mo.nsga2("zdt1", dim=5, pop_size=8, budget=40, seed=0, p_m_cat=-0.1)
+
+
 # ---- sezgi.mo.nsga2: constrained (DTLZ8/DTLZ9) violations surfacing -------
 
 def test_nsga2_dtlz8_surfaces_violations():

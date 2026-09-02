@@ -598,10 +598,11 @@ NULL
 #'
 #' This is the raw savvy-generated binding: every `Option`-typed parameter
 #' (savvy's own "optional args last" requirement) trails the required ones
-#' in `dim, m, p_m, p_m_bin, k, l, log_dir, label` order. The public R entry
-#' point with R-native argument order and defaults is the hand-written
-#' wrapper `sz_nsga2()` in `R/mo.R`, which calls this function -- same
-#' raw/wrapper pattern as `sz_bias_structural()` / `sz_bias_structural_raw()`.
+#' in `dim, m, p_m, p_m_bin, p_m_cat, k, l, log_dir, label` order. The
+#' public R entry point with R-native argument order and defaults is the
+#' hand-written wrapper `sz_nsga2()` in `R/mo.R`, which calls this function
+#' -- same raw/wrapper pattern as `sz_bias_structural()` /
+#' `sz_bias_structural_raw()`.
 #'
 #' @param problem One of `"zdt1"`..`"zdt6"`, `"dtlz1"`..`"dtlz9"`, or
 #'   `"wfg1"`..`"wfg9"`.
@@ -617,6 +618,14 @@ NULL
 #' @param p_c_bin Binary-genotype crossover probability. Default `0.9`
 #'   (mirrors `p_c`'s own default; only consulted for an all-Binary space,
 #'   i.e. zdt5).
+#' @param p_c_cat Categorical-genotype crossover probability (post-M3-8
+#'   deferral cleanup). Default `0.9` (mirrors `p_c_bin`'s own default --
+#'   no paper/reference precedent exists for Categorical); only consulted
+#'   when `problem` builds a `Mixed` space containing a `Block::Categorical`
+#'   block. No problem string in this module's own catalog (zdt1-6,
+#'   dtlz1-9, wfg1-9) builds one today, so this is currently validated but
+#'   inert against every reachable problem -- exposed anyway for symmetry
+#'   with `p_c_bin`/`p_m_bin` and `Nsga2Config`'s own public field set.
 #' @param dim Optional decision-space dimensionality (double, cast to
 #'   `usize`). REQUIRED (may be `NULL`, but the argument itself must be
 #'   supplied) for zdt1-4/6 and dtlz1-9; REJECTED (must be `NULL`) for
@@ -629,6 +638,13 @@ NULL
 #' @param p_m_bin Optional per-bit binary mutation probability. `NULL`
 #'   resolves on the Rust side to `1 / l` (the paper's own binary-coded
 #'   default); only consulted for an all-Binary space.
+#' @param p_m_cat Optional per-gene Categorical mutation probability
+#'   (post-M3-8 deferral cleanup). `NULL` resolves on the Rust side to
+#'   `1 / n_cat` (`n_cat` = the space's total flattened `Block::Categorical`
+#'   dimension), mirroring `p_m`/`p_m_bin`'s own `NULL`-resolves-to-a-formula
+#'   design; only consulted for a `Mixed` space containing a Categorical
+#'   block (currently unreachable through this catalog -- see `p_c_cat`
+#'   above).
 #' @param k Optional WFG position-related-parameter count. `NULL` resolves
 #'   to the toolkit's own recommended default; wfg-only.
 #' @param l Optional WFG distance-related-parameter count. `NULL` resolves
@@ -649,8 +665,8 @@ NULL
 #' or any [`sezgi_components::nsga2::Nsga2Error`] / `MoRunLoggedError`
 #' (including `pop_size` failing the `>= 4 && pop_size % 4 == 0` check).
 #' @noRd
-`sz_nsga2_raw` <- function(`problem`, `pop_size`, `budget`, `seed`, `eta_c`, `eta_m`, `p_c`, `p_c_bin`, `dim` = NULL, `m` = NULL, `p_m` = NULL, `p_m_bin` = NULL, `k` = NULL, `l` = NULL, `log_dir` = NULL, `label` = NULL) {
-  .Call(savvy_sz_nsga2_raw__impl, `problem`, `pop_size`, `budget`, `seed`, `eta_c`, `eta_m`, `p_c`, `p_c_bin`, `dim`, `m`, `p_m`, `p_m_bin`, `k`, `l`, `log_dir`, `label`)
+`sz_nsga2_raw` <- function(`problem`, `pop_size`, `budget`, `seed`, `eta_c`, `eta_m`, `p_c`, `p_c_bin`, `p_c_cat`, `dim` = NULL, `m` = NULL, `p_m` = NULL, `p_m_bin` = NULL, `p_m_cat` = NULL, `k` = NULL, `l` = NULL, `log_dir` = NULL, `label` = NULL) {
+  .Call(savvy_sz_nsga2_raw__impl, `problem`, `pop_size`, `budget`, `seed`, `eta_c`, `eta_m`, `p_c`, `p_c_bin`, `p_c_cat`, `dim`, `m`, `p_m`, `p_m_bin`, `p_m_cat`, `k`, `l`, `log_dir`, `label`)
 }
 
 #' Builds one `sezgi_stats::PaperPackage` PER DISTINCT BUDGET present in a
