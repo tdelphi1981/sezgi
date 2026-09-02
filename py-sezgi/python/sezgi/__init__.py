@@ -634,6 +634,8 @@ problems = SimpleNamespace(
 __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_experiment", "presets",
            "stats", "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf",
            "coco_export", "bias", "mo", "problems", "Algorithm", "AskTellAlgorithm", "algo",
+           # M4-1 Task 4: the two family bases over sezgi.Algorithm.
+           "PopulationAlgorithm", "LocalSearch",
            # M4-1 Task 1 (fix round 1): the new space builders / Problem ABC
            # surface. "as_space" is deliberately excluded -- it is a
            # problem.py-internal helper (used by Problem._to_native()), not
@@ -672,6 +674,17 @@ __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_expe
 # attribute access on the FULL `sezgi` package only happens inside
 # AskTellAlgorithm.solve()/Algorithm.run(), at call time, well after this
 # module has finished initializing).
+# - sezgi.PopulationAlgorithm / sezgi.LocalSearch (NEW, M4-1 Task 4,
+#   py-sezgi/python/sezgi/algorithm.py): family bases over sezgi.Algorithm
+#   with sensible defaults. PopulationAlgorithm: select(pop, k, ctx)
+#   (default k-fold binary tournament, size 2) + vary(parents, ctx)
+#   (REQUIRED) -- generate() is composed from both (does not override
+#   initialize()). LocalSearch: neighbor(x, ctx) (REQUIRED) + accept(f_old,
+#   f_new, ctx) (default greedy) -- pop_size=1 semantics, current_x/
+#   current_f instance state; see algorithm.py's own class docstrings for
+#   the exact select() draw pattern and the accept() design (what it does
+#   and does not control given replace/mu-plus-lambda's own behavior at
+#   pop_size=1).
 from sezgi import algo
 from sezgi.algo import AskTellAlgorithm
-from sezgi.algorithm import Algorithm
+from sezgi.algorithm import Algorithm, PopulationAlgorithm, LocalSearch

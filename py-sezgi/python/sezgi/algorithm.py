@@ -155,3 +155,236 @@ class Algorithm(abc.ABC):
             evals_used=result["evals_used"], best_x=result["best_x"],
             best_f=best_f, f_opt=f_opt,
             gap=None if f_opt is None else best_f - f_opt)
+
+
+class PopulationAlgorithm(Algorithm):
+    """Family base for population-style algorithms (GA/DE/ES-shaped): a
+    subclass implements `vary(self, parents, ctx)` (REQUIRED -- turns a
+    parent pool into offspring) and may optionally override
+    `select(self, pop, k, ctx)` (default: k-fold binary tournament,
+    tournament size 2, minimization). `generate(self, pop, ctx)` is NOT
+    meant to be overridden by a subclass of this base -- it is composed
+    here from `select` + `vary` (see `generate`'s own docstring for the
+    exact arity contract). Does NOT override `initialize`: a
+    `PopulationAlgorithm` subclass that itself does not override
+    `initialize` inherits `Algorithm`'s own override-detection default
+    (the engine's Rust `init/uniform` path runs, with no Python call for
+    `initialize` at all) -- exactly like any other `Algorithm` subclass;
+    this base adds no special-casing there.
+
+    Hook taxonomy modeled after pymoo 0.6.2 (Apache-2.0) and jMetal v7.5
+    (MIT) selection/variation operator split, same attribution as the
+    module docstring above.
+    """
+
+    def select(self, pop, k, ctx):
+        """Default: k-fold binary tournament selection (tournament size
+        2; minimization -- lower fitness wins).
+
+        For each of the `k` requested parent slots, INDEPENDENTLY draws
+        exactly two values from `ctx.rng` (with `n = len(pop.individuals)`):
+
+            i = ctx.rng.next_below(n)
+            j = ctx.rng.next_below(n - 1); if j >= i: j += 1      (n > 1)
+
+        This is the standard "index-shift" trick for drawing two
+        DISTINCT indices from `[0, n)` using exactly two draws and no
+        rejection/retry loop -- the draw count per slot is always
+        EXACTLY 2 for n > 1, so the whole sequence is hand-traceable
+        given a fixed RNG seed and a known `n`. The individuals at `i`
+        and `j` then "fight": `pop.fitness[i] <= pop.fitness[j]` wins as
+        `i` -- this is also the EXACT tie-break rule: on an exact tie,
+        the first-drawn contestant (`i`) always wins, never `j`. `n == 1`
+        (a population of one) is a degenerate edge case with no second
+        index to draw: only `i = ctx.rng.next_below(1)` (always `0`) is
+        drawn, and `i` wins trivially, costing 1 draw instead of 2.
+
+        Returns a list of exactly `k` parents (`pop.individuals` entries,
+        one per slot, in slot order) -- ties/duplicates across slots are
+        possible and expected, exactly like any other tournament
+        selection scheme.
+        """
+        n = len(pop.individuals)
+        parents = []
+        for _ in range(k):
+            i = ctx.rng.next_below(n)
+            if n > 1:
+                j = ctx.rng.next_below(n - 1)
+                if j >= i:
+                    j += 1
+                winner = i if pop.fitness[i] <= pop.fitness[j] else j
+            else:
+                winner = i
+            parents.append(pop.individuals[winner])
+        return parents
+
+    @abc.abstractmethod
+    def vary(self, parents, ctx):
+        """REQUIRED: turn a parent pool (a list of `len(parents)`
+        genotypes, the SAME bare/tuple convention as `pop.individuals` --
+        see the module docstring) into this generation's offspring (an
+        iterable of x-values, same convention). Offspring COUNT is
+        entirely this method's own choice, independent of
+        `len(parents)` -- e.g. a DE-style `vary` can consume
+        `len(parents) == len(pop)` parents and still emit exactly
+        `len(pop)` offspring (one mutant per target index), while a
+        crossover-pair `vary` might consume the same `k` parents two at a
+        time and emit `k // 2 * 2` offspring."""
+        raise NotImplementedError
+
+    def generate(self, pop, ctx):
+        """Composes `select()` then `vary()` -- NOT meant to be
+        overridden by a `PopulationAlgorithm` subclass (override
+        `select`/`vary` instead).
+
+        Arity contract (PINNED): always calls
+        `self.select(pop, len(pop.individuals), ctx)` -- i.e. the
+        requested `k` is the CURRENT population's own size, one
+        tournament result per current member (the standard "mating pool"
+        convention: a full-size parent pool, not a fixed pair). The
+        resulting `parents` list (always exactly `len(pop.individuals)`
+        entries) is passed to `self.vary(parents, ctx)` UNCHANGED, and
+        `vary`'s return value is returned UNCHANGED as this generation's
+        offspring -- offspring count is entirely `vary`'s own choice (see
+        `vary`'s own docstring), never checked against `len(parents)` or
+        `pop.len()`.
+        """
+        parents = self.select(pop, len(pop.individuals), ctx)
+        return self.vary(parents, ctx)
+
+
+class LocalSearch(Algorithm):
+    """Family base for single-trajectory local search (hill-climbing/
+    SA-shaped): a subclass implements `neighbor(self, x, ctx)` (REQUIRED
+    -- proposes one perturbed candidate from the current point) and may
+    optionally override `accept(self, f_old, f_new, ctx)` (default:
+    greedy, `f_new <= f_old`). Designed for `pop_size=1` (a population of
+    exactly one point) -- `run()` is overridden here to default AND
+    ENFORCE `pop_size=1` (`ValueError` otherwise): this base's whole
+    design only makes sense for a single search trajectory, not a
+    population.
+
+    ACCEPT() DESIGN (read carefully -- this is not the naive reading of
+    "accept decides whether the engine keeps the point"):
+
+    This base runs over the engine's default `replace/mu-plus-lambda`
+    replacer (`Algorithm.run`'s own default). At `pop_size=1` (mu=1),
+    with `generate()` here always returning exactly ONE offspring
+    (lambda=1 for this base), that replacer ALWAYS keeps the
+    strictly-better (or, on an exact tie, the OLD) of {current, neighbor}
+    as the NEXT call's `pop.individuals[0]`/`pop.fitness[0]` -- this is a
+    structural, UNCONDITIONAL guarantee of `replace/mu-plus-lambda`
+    itself (drains the pool, sorts, truncates to `mu`), not a decision
+    `accept()` makes. Two direct consequences:
+
+    1. `pop.fitness[0]`, as read by THIS base on the call following a
+       `neighbor()` proposal, is ALWAYS `<= f_old` (the fitness this
+       base proposed that neighbor from). `accept()` can therefore
+       NEVER actually be called with an `f_new` that is objectively
+       WORSE than `f_old` -- the replacer has already filtered that
+       case out before Python ever sees the population again. A worse
+       neighbor's exact fitness value is not even recoverable: the base
+       can tell a neighbor LOST (because `pop.individuals[0]` still
+       equals its own previously-tracked point, not the neighbor it
+       proposed), but the lost neighbor's own fitness is never
+       surfaced back to Python by this bridge. **This base's `accept()`
+       therefore cannot implement true simulated-annealing-style
+       "sometimes accept a worse move" semantics -- that would require
+       intercepting the replacer's own decision, which this design
+       deliberately does NOT attempt** (fighting the replacer -- e.g.
+       trying to smuggle a worse point back into the reported
+       population -- is not attempted; `replace/mu-plus-lambda` would
+       simply overrule it again on the very next comparison anyway).
+    2. Given (1), the DEFAULT `accept` (`f_new <= f_old`) is a
+       TAUTOLOGY over every `(f_old, f_new)` pair this base can ever
+       actually present to it -- it is ALWAYS true, faithfully
+       mirroring (not fighting) what `replace/mu-plus-lambda` already
+       unconditionally enforces at `pop_size=1`. This is intentional
+       and documented rather than hidden: for the default
+       configuration, `accept()`'s call is a confirmation of the
+       engine's own greedy behavior, not an independent gate.
+
+    What `accept()` DOES meaningfully control: whether this base's OWN
+    internally-tracked anchor (`self.current_x`/`self.current_f`, the
+    point the NEXT `neighbor()` call is proposed from) ADVANCES to match
+    the engine's already-decided outcome, or stays where it was. A
+    stricter-than-default `accept` (e.g. `f_new < f_old`, REJECTING an
+    exact tie that the engine's own population has already moved to)
+    makes the base re-propose `neighbor()` from the SAME previous anchor
+    again on the next call, even though `pop.individuals[0]` itself has
+    already moved -- i.e. `accept()` governs this base's own SEARCH
+    TRAJECTORY (what x seeds the next `neighbor()` call), never
+    population membership (which the replacer alone decides,
+    unconditionally, at `pop_size=1`). This is the "return the accepted
+    point as the next proposal base" design: `accept()` returning
+    `False` means "propose from `current_x` again", never an attempt to
+    veto or override what the engine's own population already contains.
+    """
+
+    current_x = None
+    current_f = None
+
+    @abc.abstractmethod
+    def neighbor(self, x, ctx):
+        """REQUIRED: propose ONE perturbed candidate from the current
+        point `x` (the SAME bare/tuple convention as `pop.individuals` --
+        see the module docstring). Returns a SINGLE x-value (NOT a list
+        -- `generate()` wraps it into the required one-offspring list)."""
+        raise NotImplementedError
+
+    def accept(self, f_old, f_new, ctx):
+        """Default: greedy (`f_new <= f_old`). See the class docstring's
+        ACCEPT() DESIGN note for exactly what this controls (and does
+        NOT control) at `pop_size=1` under `replace/mu-plus-lambda`."""
+        return f_new <= f_old
+
+    def run(self, problem, budget, seed=0, pop_size=1, log_dir=None):
+        """Same contract as `Algorithm.run()`, with `pop_size` defaulting
+        to (and REQUIRED to remain) 1 -- see the class docstring. Also
+        RESETS this instance's tracked current-point state
+        (`current_x`/`current_f`) at the START of every call, so the
+        SAME `LocalSearch` instance can be `run()` more than once (e.g.
+        across seeds) without leaking state from a previous run."""
+        if pop_size != 1:
+            raise ValueError(
+                "LocalSearch requires pop_size=1 (a single search "
+                f"trajectory) -- got pop_size={pop_size}")
+        self.current_x = None
+        self.current_f = None
+        return super().run(problem, budget, seed=seed, pop_size=pop_size,
+                            log_dir=log_dir)
+
+    def generate(self, pop, ctx):
+        """NOT meant to be overridden by a `LocalSearch` subclass
+        (override `neighbor`/`accept` instead). See the class
+        docstring's ACCEPT() DESIGN note for the full reasoning; summary:
+
+        First call (`self.current_x is None`): adopts the initial
+        population's own single member
+        (`pop.individuals[0]`/`pop.fitness[0]`, produced by whatever
+        `initialize()` path is in effect -- the inherited Rust
+        `init/uniform` default, unless this subclass itself overrides
+        `initialize()`) as the starting anchor.
+
+        Every later call: `pop.individuals[0]`/`pop.fitness[0]` reflect
+        `replace/mu-plus-lambda`'s own already-greedy choice between the
+        PREVIOUS `current_x` and the neighbor this method proposed last
+        call (see the class docstring) -- calls
+        `self.accept(self.current_f, pop.fitness[0], ctx)`; if `True`,
+        ADVANCES this instance's own anchor to match
+        (`self.current_x, self.current_f = pop.individuals[0],
+        pop.fitness[0]`); if `False`, leaves the anchor unchanged (the
+        next `neighbor()` is proposed from the SAME point again).
+
+        Either way, returns exactly one offspring:
+        `[self.neighbor(self.current_x, ctx)]`.
+        """
+        if self.current_x is None:
+            self.current_x = pop.individuals[0]
+            self.current_f = float(pop.fitness[0])
+        else:
+            f_candidate = float(pop.fitness[0])
+            if self.accept(self.current_f, f_candidate, ctx):
+                self.current_x = pop.individuals[0]
+                self.current_f = f_candidate
+        return [self.neighbor(self.current_x, ctx)]
