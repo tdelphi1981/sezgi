@@ -288,9 +288,45 @@ NULL
 #' point, wiring the instance through T3's `sz_solve_r_generator`/
 #' `sz_solve_r_generator_bbob` bridge.
 #'
-#' See this file's own module doc (top of `R/algorithm.R`) for the exact
-#' `pop`/`ctx` shape, the override-detection spelling, and the `log_dir`
-#' rejection rationale.
+#' `pop` (handed to `generate()`/a `PopulationAlgorithm`'s `select()`/
+#' `vary()`/a `LocalSearch`'s `neighbor()`) is `list(x, f)`: `f` is a
+#' numeric vector, the current population's fitness values, one entry per
+#' individual. `x` is an n x dim numeric MATRIX (rows = individuals) for a
+#' SINGLE-Float-block space (the ergonomic, common case -- `pop$x[i, ]`,
+#' `ncol(pop$x)`); for every OTHER space shape (multi-block, or a single
+#' NON-Float block -- Int/Categorical/Binary/Permutation), `x` is instead
+#' a plain (unnamed) `list` of per-individual values, one entry per
+#' individual (bare for a single block, a further per-block `list` for
+#' multiple blocks) -- the SAME single-vs-multi-block convention
+#' `Problem$evaluate(x)`'s own `x` argument already uses. A
+#' `generate()`/`vary()`/`neighbor()` return value mirrors this: a matrix
+#' (only meaningful when `pop$x` was itself a matrix) or a plain `list` of
+#' offspring x-values.
+#'
+#' `ctx` is an `environment` with `$rng` (an already-wrapped RNG handle --
+#' `ctx$rng$next_f64()` (a double in `[0, 1)`), `ctx$rng$next_below(n)` (an
+#' integer-valued double in `[0, n)`), `ctx$rng$split(child_id)` (an
+#' independent child stream)), `$iteration` (a double, the engine's own
+#' 0-based generation counter -- always `0` for an `initialize_population()`
+#' call), and `$space` (the block-descriptor `list` for the space being
+#' solved -- one entry per block, each a named `list` with a `type` field
+#' plus that block's own fields; the SAME shape `validate_space(space)`'s
+#' own `space` argument uses).
+#'
+#' Override-detection caveat: `initialize_population`/`validate_space` are
+#' detected as overridden by comparing the resolved method against this
+#' class's own declared default at the CLASS level (body + formals,
+#' ignoring environment -- see `R/algorithm.R`'s own module doc for the
+#' exact spelling) -- a subclass method whose body happens to be
+#' byte-identical to the base default (e.g. a copy-pasted `stop(...)` call
+#' with the same message) is therefore treated as NOT overridden even
+#' though it was technically redeclared; harmless today since both
+#' defaults are no-op-equivalent (`initialize_population`'s default always
+#' errors if ever reached, `validate_space`'s default always accepts), but
+#' worth knowing.
+#'
+#' See this file's own module doc (top of `R/algorithm.R`) for the full
+#' rationale behind these choices and the `log_dir` rejection.
 #'
 #' Methods:
 #' \describe{
@@ -411,6 +447,22 @@ Algorithm <- R6::R6Class("Algorithm",
 #' two-fixed-draw index-shift tournament formula (ported verbatim below,
 #' with its own determinism comment).
 #'
+#' `pop` (handed to `select()`/`generate()`) is `list(x, f)`: `f` is a
+#' numeric vector of per-individual fitness values; `x` is an n x dim
+#' numeric MATRIX (rows = individuals) for a SINGLE-Float-block space, or
+#' a plain (unnamed) `list` of per-individual values otherwise (bare for a
+#' single non-Float block, a further per-block `list` for multiple
+#' blocks) -- the SAME single-vs-multi-block convention `Problem$
+#' evaluate(x)`'s own `x` uses. `vary()`'s return value mirrors this (a
+#' matrix or a `list`). `ctx` is an `environment` with `$rng` (a wrapped
+#' RNG handle -- `$rng$next_f64()`/`$rng$next_below(n)`/`$rng$split
+#' (child_id)`), `$iteration` (a double), and `$space` (the block-
+#' descriptor `list` for the space being solved). See [Algorithm]'s own
+#' doc for the full detail on both, and for the override-detection
+#' caveat that applies to any `initialize_population`/`validate_space`
+#' override this subclass adds (a body byte-identical to `Algorithm`'s
+#' own default is treated as NOT overridden, even if redeclared).
+#'
 #' Methods:
 #' \describe{
 #'   \item{`select(pop, k, ctx)`}{Default: k-fold binary tournament
@@ -493,6 +545,26 @@ PopulationAlgorithm <- R6::R6Class("PopulationAlgorithm",
 #'
 #' Mirrors `sezgi.LocalSearch` (`py-sezgi/python/sezgi/algorithm.py`,
 #' M4-1 Task 4) exactly, including its honest structural limitation:
+#'
+#' `pop` (handed to `generate()`, which itself calls `neighbor()`/
+#' `accept()`) is `list(x, f)`, at `pop_size = 1` always a single
+#' individual: `f` is a length-1 numeric vector, the current point's
+#' fitness; `x` is a length-1 x dim numeric MATRIX (a single row) for a
+#' SINGLE-Float-block space (`x[1, ]` is the current point), or a
+#' length-1 `list` otherwise (`x[[1]]` is the current point, bare for a
+#' single non-Float block, a further per-block `list` for multiple
+#' blocks) -- the SAME single-vs-multi-block convention `Problem$
+#' evaluate(x)`'s own `x` uses (`.sz_pop_at(pop, 1)`, used internally by
+#' `generate()` below, abstracts over both shapes). `neighbor()`'s return
+#' value is a SINGLE x-value in that same convention (NOT a list --
+#' `generate()` wraps it). `ctx` is an `environment` with `$rng` (a
+#' wrapped RNG handle -- `$rng$next_f64()`/`$rng$next_below(n)`/`$rng$
+#' split(child_id)`), `$iteration` (a double), and `$space` (the block-
+#' descriptor `list` for the space being solved). See [Algorithm]'s own
+#' doc for the full detail on both, and for the override-detection
+#' caveat that applies to any `initialize_population`/`validate_space`
+#' override this subclass adds (a body byte-identical to `Algorithm`'s
+#' own default is treated as NOT overridden, even if redeclared).
 #'
 #' ACCEPT() DESIGN (read carefully -- this is not the naive reading of
 #' "accept decides whether the engine keeps the point"): this base runs

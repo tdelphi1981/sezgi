@@ -16,6 +16,26 @@ otherwise).
 Mirrors `sezgi.LocalSearch` (`py-sezgi/python/sezgi/algorithm.py`,
 M4-1 Task 4) exactly, including its honest structural limitation:
 
+`pop` (handed to `generate()`, which itself calls `neighbor()`/
+`accept()`) is `list(x, f)`, at `pop_size = 1` always a single
+individual: `f` is a length-1 numeric vector, the current point's
+fitness; `x` is a length-1 x dim numeric MATRIX (a single row) for a
+SINGLE-Float-block space (`x[1, ]` is the current point), or a
+length-1 `list` otherwise (`x[[1]]` is the current point, bare for a
+single non-Float block, a further per-block `list` for multiple
+blocks) -- the SAME single-vs-multi-block convention `Problem$
+evaluate(x)`'s own `x` uses (`.sz_pop_at(pop, 1)`, used internally by
+`generate()` below, abstracts over both shapes). `neighbor()`'s return
+value is a SINGLE x-value in that same convention (NOT a list --
+`generate()` wraps it). `ctx` is an `environment` with `$rng` (a
+wrapped RNG handle -- `$rng$next_f64()`/`$rng$next_below(n)`/`$rng$
+split(child_id)`), `$iteration` (a double), and `$space` (the block-
+descriptor `list` for the space being solved). See [Algorithm]'s own
+doc for the full detail on both, and for the override-detection
+caveat that applies to any `initialize_population`/`validate_space`
+override this subclass adds (a body byte-identical to `Algorithm`'s
+own default is treated as NOT overridden, even if redeclared).
+
 ACCEPT() DESIGN (read carefully -- this is not the naive reading of
 "accept decides whether the engine keeps the point"): this base runs
 over the engine's default `replace/mu-plus-lambda` replacer. At

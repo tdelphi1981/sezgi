@@ -17,6 +17,22 @@ algorithm.py`, M4-1 Task 4) exactly, including the PROVEN-uniform
 two-fixed-draw index-shift tournament formula (ported verbatim below,
 with its own determinism comment).
 
+`pop` (handed to `select()`/`generate()`) is `list(x, f)`: `f` is a
+numeric vector of per-individual fitness values; `x` is an n x dim
+numeric MATRIX (rows = individuals) for a SINGLE-Float-block space, or
+a plain (unnamed) `list` of per-individual values otherwise (bare for a
+single non-Float block, a further per-block `list` for multiple
+blocks) -- the SAME single-vs-multi-block convention `Problem$
+evaluate(x)`'s own `x` uses. `vary()`'s return value mirrors this (a
+matrix or a `list`). `ctx` is an `environment` with `$rng` (a wrapped
+RNG handle -- `$rng$next_f64()`/`$rng$next_below(n)`/`$rng$split
+(child_id)`), `$iteration` (a double), and `$space` (the block-
+descriptor `list` for the space being solved). See [Algorithm]'s own
+doc for the full detail on both, and for the override-detection
+caveat that applies to any `initialize_population`/`validate_space`
+override this subclass adds (a body byte-identical to `Algorithm`'s
+own default is treated as NOT overridden, even if redeclared).
+
 Methods:
 \describe{
   \item{`select(pop, k, ctx)`}{Default: k-fold binary tournament
