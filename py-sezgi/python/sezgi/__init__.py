@@ -643,7 +643,10 @@ __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_expe
            # reachable as sezgi.spaces.as_space), so it has no place in an
            # __all__ that only lists names this module actually binds.
            "Float", "Int", "Categorical", "Binary", "Permutation", "Space",
-           "as_native_problem"]
+           "as_native_problem",
+           # M4-1 Task 6: the two data recipes (sezgi.recipes) plus the
+           # module itself.
+           "recipes", "FeatureSelection", "MixedTuning"]
 
 
 # Algorithm-authoring surfaces:
@@ -706,3 +709,15 @@ from sezgi.builtins import (
     FireflyAlgorithm, BatAlgorithm, FlowerPollination, TLBO, HarrisHawks,
     AntLion, ArtificialBeeColony, GravitationalSearch, NSGA2,
 )
+
+# M4-1 Task 6: the two "optimize against data" recipes -- sezgi.Problem
+# subclasses over sezgi/recipes.py, following the same
+# "import the module last, re-export its public names" convention as
+# sezgi.algo/sezgi.algorithm/sezgi.builtins above (recipes.py itself only
+# touches numpy at import time -- no `import sezgi` there -- but kept in
+# this same tail block for house-style consistency: every class-first
+# surface built on top of sezgi.Problem/sezgi.Space is imported here, in
+# the same place). sezgi.recipes remains reachable as its own submodule
+# too (`import sezgi.recipes`), matching sezgi.builtins's own precedent.
+from sezgi import recipes
+from sezgi.recipes import FeatureSelection, MixedTuning
