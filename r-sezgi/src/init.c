@@ -379,6 +379,11 @@ SEXP savvy_sz_solve_onemax__impl(SEXP c_arg__spec_json, SEXP c_arg__n_bits, SEXP
     return handle_result(res);
 }
 
+SEXP savvy_sz_solve_r_problem__impl(SEXP c_arg__spec_json, SEXP c_arg__blocks, SEXP c_arg__evaluate, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
+    SEXP res = savvy_sz_solve_r_problem__ffi(c_arg__spec_json, c_arg__blocks, c_arg__evaluate, c_arg__master_seed, c_arg__run_id);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_solve_tsp__impl(SEXP c_arg__spec_json, SEXP c_arg__name, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
     SEXP res = savvy_sz_solve_tsp__ffi(c_arg__spec_json, c_arg__name, c_arg__master_seed, c_arg__run_id);
     return handle_result(res);
@@ -579,6 +584,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_solve_int_quadratic__impl", (DL_FUNC) &savvy_sz_solve_int_quadratic__impl, 6},
     {"savvy_sz_solve_mixed_diagnostic__impl", (DL_FUNC) &savvy_sz_solve_mixed_diagnostic__impl, 7},
     {"savvy_sz_solve_onemax__impl", (DL_FUNC) &savvy_sz_solve_onemax__impl, 4},
+    {"savvy_sz_solve_r_problem__impl", (DL_FUNC) &savvy_sz_solve_r_problem__impl, 5},
     {"savvy_sz_solve_tsp__impl", (DL_FUNC) &savvy_sz_solve_tsp__impl, 4},
     {"savvy_sz_stats_bayesian_signed_rank_raw__impl", (DL_FUNC) &savvy_sz_stats_bayesian_signed_rank_raw__impl, 5},
     {"savvy_sz_stats_cliffs_delta__impl", (DL_FUNC) &savvy_sz_stats_cliffs_delta__impl, 2},

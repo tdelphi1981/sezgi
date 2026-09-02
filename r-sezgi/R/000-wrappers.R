@@ -1518,6 +1518,59 @@ NULL
   .Call(savvy_sz_solve_onemax__impl, `spec_json`, `n_bits`, `master_seed`, `run_id`)
 }
 
+#' R-callable Problem bridge (M4-2 Task 2) -- lets an R6 `Problem`
+#' subclass instance (via `.sz_make_evaluate_shim(prob)`, `R/problem.R`)
+#' be solved by the SAME engine every other `sz_solve_*` binding uses.
+#' INTERNAL entry point -- not exported (`R/problem.R` is this task's sole
+#' R-facing surface; there is no `sz_solve_problem()` convenience wrapper
+#' yet -- a later task's wrapper-class `$run()` methods are expected to
+#' call this directly, the same way `sz_preset_es_mu_plus_lambda_raw` is
+#' called only from its own hand-written R wrapper).
+#'
+#' Body, per research doc §C3: build a [`Preserved`] guard on `evaluate`
+#' -> build [`RProblem`] -> [`registry()`] -> `Engine::from_spec` ->
+#' [`run_with_r_bridge`]`(|| engine.run(...))` -> return the SAME 3-field
+#' list every other `sz_solve_*` returns.
+#'
+#' DEVIATION from this task's own brief sketch: there is no separate
+#' `budget` parameter. Every OTHER `sz_solve_*` binding in this file takes
+#' `spec_json` alone and reads the run's budget from `AlgorithmSpec::
+#' termination.budget` (already baked in by whichever `sz_preset_*()`
+#' built `spec_json`, e.g. `sz_preset_gwo(pop_size, budget)`) -- a second,
+#' redundant `budget` input here would depart from that established
+#' convention for no benefit (nothing in `Engine::run`'s own signature
+#' even has a place to put it) -- see this task's own report for the full
+#' rationale.
+#'
+#' @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_gwo()`).
+#' @param blocks The flat block-list `.sz_space_to_blocks()` produces
+#'   (`R/spaces.R`) -- one named list per block (`type` + that block's own
+#'   numeric fields). Rebuilt into a `SearchSpace` here; `lo >= hi` is
+#'   rejected at THIS point (`SearchSpace::new`), not at `sz_float()`/
+#'   `sz_int()` construction time (Task 1 ruling).
+#' @param evaluate `.sz_make_evaluate_shim(prob)`'s return value -- an R
+#'   closure of one argument, called once PER INDIVIDUAL with a `list` of
+#'   per-block typed vectors (Float->double, Int->integer,
+#'   Categorical->integer category indices, Binary->logical,
+#'   Permutation->integer 0-based -- see [`block_values_to_r`]'s doc for
+#'   the full table), one entry per block in space order; must return a
+#'   numeric scalar.
+#' @param master_seed Master RNG seed.
+#' @param run_id Run id (mixed into the seed for independent replicate
+#'   streams).
+#' @returns A named list with `best_f` (double), `evals` (double), and
+#'   `best_x` (see [`genotype_to_r`]'s doc for the type mapping).
+#'
+#' # Errors
+#' A savvy error for an invalid `spec_json`/`blocks` shape, `lo >= hi` in
+#' any Float/Int block, any [`sezgi_core::engine`] run error, OR -- via
+#' [`run_with_r_bridge`] -- the R condition `evaluate` itself raised,
+#' re-raised UNCHANGED in the R session.
+#' @noRd
+`sz_solve_r_problem` <- function(`spec_json`, `blocks`, `evaluate`, `master_seed`, `run_id`) {
+  .Call(savvy_sz_solve_r_problem__impl, `spec_json`, `blocks`, `evaluate`, `master_seed`, `run_id`)
+}
+
 #' Runs an algorithm spec on a TSPLIB VENDORED instance (`"berlin52"`,
 #' `"eil51"`, `"st70"` -- via [`Tsp::vendored`]; UNLIKE `sz_tsp_load()`/
 #' `sz_tsp_tour_length()` in `problems.rs`, raw TSPLIB text is not accepted

@@ -1,5 +1,6 @@
 use savvy::{
-    savvy, savvy_err, OwnedIntegerSexp, OwnedListSexp, OwnedLogicalSexp, OwnedRealSexp, Sexp,
+    ffi::SEXP, savvy, savvy_err, FunctionArgs, FunctionSexp, ListSexp, NumericSexp,
+    OwnedIntegerSexp, OwnedListSexp, OwnedLogicalSexp, OwnedRealSexp, Sexp, StringSexp,
 };
 use sezgi_components::{presets, register_builtins};
 use sezgi_core::component::Registry;
@@ -9,6 +10,7 @@ use sezgi_core::problem::Problem;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 use sezgi_core::spec::AlgorithmSpec;
 use sezgi_problems::{BbobProblem, CatMatch, Cec2014, Cec2017, Cec2022, IntQuadratic, OneMax, Tsp};
+use std::panic;
 
 /// Casts a non-negative-checked, WHOLE-NUMBER-checked `f64` (as passed
 /// from R, which has no native unsigned integer type) to `u64`, rejecting
@@ -741,10 +743,16 @@ impl Problem for MixedDiagnostic {
 ///   file's own `sz_mo_read_moa`'s `MoArchiveGenotype::Binary ->
 ///   OwnedLogicalSexp` precedent (`mo.rs`) rather than a 0/1 numeric
 ///   encoding.
-/// - `Perm` is unreachable from this helper's four callers (none of
-///   onemax/int_quadratic/cat_match/mixed_diagnostic ever build a
-///   Permutation block) -- `unreachable!()` rather than a silent, wrong
-///   conversion.
+/// - `Perm` -> an integer vector (`OwnedIntegerSexp`), each `u32` gene cast
+///   to `i32`, 0-BASED (NOT `sz_solve_tsp`'s own 1-based tour convention --
+///   this generic helper mirrors py-sezgi's `block_value_to_py`'s
+///   `Perm -> list[int]` exactly, `py-sezgi/src/lib.rs`, which is also
+///   0-based). Unreachable from this helper's original four callers (none
+///   of onemax/int_quadratic/cat_match/mixed_diagnostic ever build a
+///   Permutation block), but reachable from its FIFTH caller added in M4-2
+///   Task 2 (the R-callable `Problem` bridge's `evaluate` shim, via
+///   [`genotype_blocks_to_r_list`]): an R6 `Problem` subclass's `space()`
+///   may legally include an `sz_permutation()` block.
 fn block_values_to_r(bv: &BlockValues) -> savvy::Result<Sexp> {
     Ok(match bv {
         BlockValues::Float(xs) => OwnedRealSexp::try_from_slice(xs.as_slice())?.into(),
@@ -755,10 +763,9 @@ fn block_values_to_r(bv: &BlockValues) -> savvy::Result<Sexp> {
             OwnedIntegerSexp::try_from_iter(xs.iter().map(|&x| x as i32))?.into()
         }
         BlockValues::Bin(xs) => OwnedLogicalSexp::try_from_slice(xs.as_slice())?.into(),
-        BlockValues::Perm(_) => unreachable!(
-            "block_values_to_r's four callers (onemax/int_quadratic/cat_match/mixed_diagnostic) \
-             never build a Permutation block -- sz_solve_tsp has its own dedicated conversion"
-        ),
+        BlockValues::Perm(xs) => {
+            OwnedIntegerSexp::try_from_iter(xs.iter().map(|&x| x as i32))?.into()
+        }
     })
 }
 
@@ -1393,6 +1400,402 @@ fn sz_solve_mixed_diagnostic(
             None,
         )
         .map_err(|e| savvy_err!("{e}"))?;
+
+    let mut out = OwnedListSexp::new(3, true)?;
+    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name_and_value(
+        1,
+        "evals",
+        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
+    )?;
+    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+
+    Ok(out.into())
+}
+
+// ===========================================================================
+// M4-2 Task 2: R-callable problem bridge -- lets an R6 `Problem` subclass
+// instance (`R/problem.R`) be solved by the SAME `Engine` every other
+// `sz_solve_*` binding uses, closing the long-standing "R callable-objective
+// sessions" deferral (`docs/DECISIONS.md:839-845`). Mirrors py-sezgi's
+// `solve_with_py_generator`/`from_callable_spaced` shape
+// (`py-sezgi/src/lib.rs`), but with R's own GC-protection and
+// error-propagation design -- see this milestone's research doc
+// (`docs/superpowers/research/2026-09-02-r-class-front-door.md`) §C1-§C4.
+// ===========================================================================
+
+/// RAII guard over `savvy::protect::{insert,release}_from_preserved_list` --
+/// the ONLY way this milestone's code holds a SEXP across a nested
+/// `Rf_eval` (research doc §C1). A bare `FunctionSexp`/raw `SEXP` field is
+/// NOT itself protected from R's GC: `FunctionSexp` is a newtype over a raw
+/// pointer with no `Drop` impl, and while R protects a `.Call` argument for
+/// the duration of that call, that protection does not extend across a
+/// LATER nested `Rf_eval` inside `Engine::run`'s own generation loop.
+/// `obj` is the raw pointer this guard protects (exposed so a caller can
+/// hand it to a struct -- [`RProblem`] -- that must outlive this guard's
+/// own stack frame while remaining bounded by it); `token` is the
+/// continuation handle `release_from_preserved_list` needs to release it.
+struct Preserved {
+    obj: SEXP,
+    token: SEXP,
+}
+
+impl Preserved {
+    fn new(obj: SEXP) -> Self {
+        let token = savvy::protect::insert_to_preserved_list(obj);
+        Self { obj, token }
+    }
+}
+
+impl Drop for Preserved {
+    fn drop(&mut self) {
+        savvy::protect::release_from_preserved_list(self.token);
+    }
+}
+
+/// Panic payload carrying R's `R_UnwindProtect` continuation token
+/// (research doc §C3). `savvy::Error` itself is NOT `Send` (its `Aborted`
+/// variant holds a `SEXP`, and Rust does not derive `Send` per-variant), so
+/// this thin wrapper is what actually crosses `panic::panic_any`/
+/// `catch_unwind` -- the same role `AbortToken`/`throw_r_error` play in the
+/// research doc's compile-verified probe.
+struct AbortToken(SEXP);
+
+/// # Safety
+///
+/// This token never crosses a real OS-thread boundary. `Engine::run` is
+/// single-threaded (see [`RProblem`]'s own `# Safety` note below, points
+/// 1-3), and [`run_with_r_bridge`]'s `catch_unwind` only unwinds Rust stack
+/// frames WITHIN THAT SAME THREAD, between [`call_r_evaluate`]'s
+/// `panic::panic_any` call site and `run_with_r_bridge`'s own call to
+/// `catch_unwind` a few frames up the same call stack -- no R frame is ever
+/// crossed by the unwind itself, because the R-side longjmp was already
+/// intercepted at the `R_UnwindProtect` boundary INSIDE
+/// `FunctionSexp::call` (research doc §C3), well before this panic is
+/// thrown.
+unsafe impl Send for AbortToken {}
+
+/// Shared `catch_unwind` wrapper (research doc §C3) -- consumed by T2's
+/// [`sz_solve_r_problem`] and reserved for T3's engine-hosted generator
+/// bridge (`Generator::generate` has no `Result` return channel either, so
+/// it needs this exact same wrapper around its own `engine.run(...)`
+/// call). Catches an [`AbortToken`] panic payload -- thrown by
+/// [`call_r_evaluate`] when `FunctionSexp::call` returns
+/// `Err(savvy::Error::Aborted(tok))`, i.e. an R-side error/condition
+/// propagating out of the callback -- and re-raises it as
+/// `Err(savvy::Error::Aborted(tok))`; the generated C shim's own
+/// `handle_result` then calls `R_ContinueUnwind(tok)` (savvy-bindgen
+/// `src/codegen/c.rs:162-187`, `savvy::handle_error`,
+/// `src/lib.rs:131-136`), re-raising the ORIGINAL R condition -- class,
+/// message, call, custom condition classes and all -- UNCHANGED in the R
+/// session. Any OTHER panic payload (a malformed `evaluate()` return
+/// value, a core `assert!`/`unreachable!()`, or any other error converted
+/// to a `String` at its own throw site, since `savvy::Error` is not
+/// `Send`) is converted to a plain savvy error message instead.
+fn run_with_r_bridge<T>(f: impl FnOnce() -> T) -> savvy::Result<T> {
+    match panic::catch_unwind(panic::AssertUnwindSafe(f)) {
+        Ok(v) => Ok(v),
+        Err(payload) => match payload.downcast::<AbortToken>() {
+            Ok(tok) => Err(savvy::Error::Aborted(tok.0)),
+            Err(payload) => {
+                let msg = payload
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "unknown panic in an R callback".to_string());
+                Err(savvy_err!("{}", msg))
+            }
+        },
+    }
+}
+
+/// Parses `blocks` -- the flat R `list` `.sz_space_to_blocks()` produces
+/// (`R/spaces.R`: one entry per block, each a named `list` with a `type`
+/// field plus that block's own numeric fields) -- into a `Vec<Block>`, the
+/// same way [`MixedDiagnostic::new`] constructs `Block` values by hand,
+/// just driven by R-supplied data instead of fixed literals.
+/// `SearchSpace::new` (called by [`sz_solve_r_problem`] right after this)
+/// is where an invalid `lo >= hi` bound is actually rejected -- mirroring
+/// every other `sz_solve_*` binding's "bound checking happens at solve
+/// time, not at builder time" convention (`R/spaces.R`'s own module doc).
+///
+/// Int block `lo`/`hi` are read as `f64` (not narrowed to `i32`) -- see
+/// `.sz_block_to_list`'s own doc (`R/spaces.R`, this task's fix) for why:
+/// `Block::Int`'s bounds are `i64` (`crates/core/src/space.rs`), and
+/// [`f64_to_i64`] below performs the exact same f64->i64 cast/whole-number
+/// check `sz_solve_int_quadratic`'s own `lo`/`hi` params already use.
+fn blocks_from_r(blocks: &ListSexp) -> savvy::Result<Vec<Block>> {
+    let mut out = Vec::with_capacity(blocks.len());
+    for i in 0..blocks.len() {
+        let elt = blocks
+            .get_by_index(i)
+            .ok_or_else(|| savvy_err!("blocks[[{}]] is missing", i + 1))?;
+        let entry: ListSexp = elt.try_into()?;
+
+        let get_num = |name: &str| -> savvy::Result<f64> {
+            let s = entry
+                .get(name)
+                .ok_or_else(|| savvy_err!("blocks[[{}]] missing '{}'", i + 1, name))?;
+            let num: NumericSexp = s.try_into()?;
+            num.as_slice_f64()
+                .first()
+                .copied()
+                .ok_or_else(|| savvy_err!("blocks[[{}]].{} is empty", i + 1, name))
+        };
+
+        let type_sexp = entry
+            .get("type")
+            .ok_or_else(|| savvy_err!("blocks[[{}]] missing 'type'", i + 1))?;
+        let type_str: StringSexp = type_sexp.try_into()?;
+        let kind = type_str
+            .iter()
+            .next()
+            .ok_or_else(|| savvy_err!("blocks[[{}]].type is empty", i + 1))?;
+
+        let block = match kind {
+            "float" => Block::Float {
+                lo: get_num("lo")?,
+                hi: get_num("hi")?,
+                n: f64_to_usize("n", get_num("n")?)?,
+            },
+            "int" => Block::Int {
+                lo: f64_to_i64("lo", get_num("lo")?)?,
+                hi: f64_to_i64("hi", get_num("hi")?)?,
+                n: f64_to_usize("n", get_num("n")?)?,
+            },
+            "categorical" => Block::Categorical {
+                k: f64_to_u32("k", get_num("k")?)?,
+                n: f64_to_usize("n", get_num("n")?)?,
+            },
+            "binary" => Block::Binary {
+                n: f64_to_usize("n", get_num("n")?)?,
+            },
+            "permutation" => Block::Permutation {
+                n: f64_to_usize("n", get_num("n")?)?,
+            },
+            other => {
+                return Err(savvy_err!(
+                    "blocks[[{}]]: unknown block type '{}' \
+                     (expected float|int|categorical|binary|permutation)",
+                    i + 1,
+                    other
+                ));
+            }
+        };
+        out.push(block);
+    }
+    Ok(out)
+}
+
+/// Converts a full genotype into the ALWAYS-a-list shape
+/// `.sz_make_evaluate_shim()`'s R closure expects as its single argument --
+/// one entry per block, in space order, each already typed by
+/// [`block_values_to_r`]. UNLIKE [`genotype_to_r`] (which bare-unwraps a
+/// single-block genotype for `sz_solve_*`'s own `best_x` return value),
+/// this ALWAYS returns a list, even for a single block -- it is the R-side
+/// shim (`R/problem.R`'s `.sz_make_evaluate_shim`), not this function, that
+/// decides bare-vs-list for `evaluate(x)`'s own `x` argument, so the wire
+/// shape built here needs to stay uniform for the shim to dispatch on
+/// `length(blocks)`.
+fn genotype_blocks_to_r_list(blocks: &[BlockValues]) -> savvy::Result<Sexp> {
+    let mut out = OwnedListSexp::new(blocks.len(), false)?;
+    for (i, b) in blocks.iter().enumerate() {
+        out.set_value(i, block_values_to_r(b)?)?;
+    }
+    Ok(out.into())
+}
+
+/// Calls the R-side `evaluate` shim (`.sz_make_evaluate_shim(prob)`'s
+/// return value, `R/problem.R`) with ONE individual's genotype, reshaped by
+/// [`genotype_blocks_to_r_list`], and extracts the returned numeric scalar.
+///
+/// Every error path is thrown via `panic::panic_any`, NEVER by returning a
+/// sentinel/empty value (research doc §C3's documented hazard: signalling
+/// an error by returning no offspring/result is an INFINITE HANG, not an
+/// error, because `Evaluator::evaluate` on an empty slice trivially
+/// succeeds with zero cost). Specifically:
+/// - `Err(savvy::Error::Aborted(tok))` (an R-side error/condition
+///   propagating out of `prob$evaluate(x)` itself, via `FunctionSexp::
+///   call`'s own `unwind_protect`) becomes `panic::panic_any(AbortToken
+///   (tok))`, so [`run_with_r_bridge`]'s `catch_unwind` can re-raise the
+///   ORIGINAL R condition unchanged.
+/// - Any OTHER error (a malformed return value -- not a numeric scalar --
+///   or any other savvy error at the FFI boundary itself) is thrown as a
+///   plain `String` payload instead (`savvy::Error` is not `Send`, so its
+///   message is captured into an owned `String` first); `run_with_r_bridge`
+///   converts that into a plain savvy error message.
+fn call_r_evaluate(f: &FunctionSexp, g: &Genotype) -> f64 {
+    let blocks_sexp = match genotype_blocks_to_r_list(&g.blocks) {
+        Ok(s) => s,
+        Err(e) => panic::panic_any(e.to_string()),
+    };
+    let mut args = FunctionArgs::new();
+    if let Err(e) = args.add("", blocks_sexp) {
+        panic::panic_any(e.to_string());
+    }
+    match f.call(args) {
+        Ok(eval_result) => {
+            let sexp: Sexp = eval_result.into();
+            let num: NumericSexp = match sexp.try_into() {
+                Ok(n) => n,
+                Err(e) => panic::panic_any(format!(
+                    "Problem$evaluate(x) must return a numeric scalar: {e}"
+                )),
+            };
+            let slice = num.as_slice_f64();
+            if slice.len() != 1 {
+                panic::panic_any(format!(
+                    "Problem$evaluate(x) must return a numeric scalar, got length {}",
+                    slice.len()
+                ));
+            }
+            slice[0]
+        }
+        Err(savvy::Error::Aborted(tok)) => panic::panic_any(AbortToken(tok)),
+        Err(e) => panic::panic_any(e.to_string()),
+    }
+}
+
+/// A [`Problem`] implementation over an R6 `Problem` subclass instance,
+/// evaluated via a callback into R (`evaluate`, `.sz_make_evaluate_shim`'s
+/// return value -- `R/problem.R`). `evaluate` is a bare, UNPROTECTED
+/// `SEXP` -- protection across `Engine::run`'s nested `Rf_eval` calls is
+/// the CALLER's job: [`sz_solve_r_problem`] holds a [`Preserved`] guard
+/// over the exact same pointer for the whole call, so this struct never
+/// needs to (and, being `unsafe impl Send + Sync`, never runs a `Drop` the
+/// engine could observe from a wrong thread anyway).
+struct RProblem {
+    evaluate: SEXP,
+    space: SearchSpace,
+}
+
+/// # Safety
+///
+/// `SEXP` is `*mut c_void` (`savvy-ffi`) and therefore neither `Send` nor
+/// `Sync` by default; `Problem: Send + Sync` (`crates/core/src/
+/// problem.rs:3`) requires it anyway. This is sound because:
+///
+/// 1. `Engine::run` is single-threaded (`crates/core/src/engine.rs:
+///    149-240`, zero threading deps in `crates/core/Cargo.toml`).
+/// 2. The only parallel path (`sz_run_experiment` -> `crates/bench`) is
+///    driven by TOML specs that structurally cannot name a synthetic R
+///    kind or carry a SEXP.
+/// 3. The registry, engine, and guard never escape the `.Call` frame.
+unsafe impl Send for RProblem {}
+
+/// # Safety
+/// See the `Send` impl's `# Safety` note immediately above -- the same
+/// three-point justification applies verbatim.
+unsafe impl Sync for RProblem {}
+
+impl Problem for RProblem {
+    fn space(&self) -> &SearchSpace {
+        &self.space
+    }
+
+    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
+        // No closure is registered with the `Registry` in this bridge
+        // (unlike Task 3's engine-hosted generator bridge, where
+        // `reg.register_generator(name, move |_params| ...)` will need
+        // `let held = &wrapper;` inside the closure to force whole-struct
+        // capture -- research doc §C1's documented Rust-2021
+        // disjoint-capture gotcha), so that gotcha does not arise HERE:
+        // `self.evaluate` is read once, directly, with no `move` closure
+        // capturing it disjointly.
+        let f = FunctionSexp(self.evaluate);
+        pop.iter().map(|g| call_r_evaluate(&f, g)).collect()
+    }
+}
+
+/// R-callable Problem bridge (M4-2 Task 2) -- lets an R6 `Problem`
+/// subclass instance (via `.sz_make_evaluate_shim(prob)`, `R/problem.R`)
+/// be solved by the SAME engine every other `sz_solve_*` binding uses.
+/// INTERNAL entry point -- not exported (`R/problem.R` is this task's sole
+/// R-facing surface; there is no `sz_solve_problem()` convenience wrapper
+/// yet -- a later task's wrapper-class `$run()` methods are expected to
+/// call this directly, the same way `sz_preset_es_mu_plus_lambda_raw` is
+/// called only from its own hand-written R wrapper).
+///
+/// Body, per research doc §C3: build a [`Preserved`] guard on `evaluate`
+/// -> build [`RProblem`] -> [`registry()`] -> `Engine::from_spec` ->
+/// [`run_with_r_bridge`]`(|| engine.run(...))` -> return the SAME 3-field
+/// list every other `sz_solve_*` returns.
+///
+/// DEVIATION from this task's own brief sketch: there is no separate
+/// `budget` parameter. Every OTHER `sz_solve_*` binding in this file takes
+/// `spec_json` alone and reads the run's budget from `AlgorithmSpec::
+/// termination.budget` (already baked in by whichever `sz_preset_*()`
+/// built `spec_json`, e.g. `sz_preset_gwo(pop_size, budget)`) -- a second,
+/// redundant `budget` input here would depart from that established
+/// convention for no benefit (nothing in `Engine::run`'s own signature
+/// even has a place to put it) -- see this task's own report for the full
+/// rationale.
+///
+/// @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_gwo()`).
+/// @param blocks The flat block-list `.sz_space_to_blocks()` produces
+///   (`R/spaces.R`) -- one named list per block (`type` + that block's own
+///   numeric fields). Rebuilt into a `SearchSpace` here; `lo >= hi` is
+///   rejected at THIS point (`SearchSpace::new`), not at `sz_float()`/
+///   `sz_int()` construction time (Task 1 ruling).
+/// @param evaluate `.sz_make_evaluate_shim(prob)`'s return value -- an R
+///   closure of one argument, called once PER INDIVIDUAL with a `list` of
+///   per-block typed vectors (Float->double, Int->integer,
+///   Categorical->integer category indices, Binary->logical,
+///   Permutation->integer 0-based -- see [`block_values_to_r`]'s doc for
+///   the full table), one entry per block in space order; must return a
+///   numeric scalar.
+/// @param master_seed Master RNG seed.
+/// @param run_id Run id (mixed into the seed for independent replicate
+///   streams).
+/// @returns A named list with `best_f` (double), `evals` (double), and
+///   `best_x` (see [`genotype_to_r`]'s doc for the type mapping).
+///
+/// # Errors
+/// A savvy error for an invalid `spec_json`/`blocks` shape, `lo >= hi` in
+/// any Float/Int block, any [`sezgi_core::engine`] run error, OR -- via
+/// [`run_with_r_bridge`] -- the R condition `evaluate` itself raised,
+/// re-raised UNCHANGED in the R session.
+/// @noRd
+#[savvy]
+fn sz_solve_r_problem(
+    spec_json: &str,
+    blocks: ListSexp,
+    evaluate: FunctionSexp,
+    master_seed: f64,
+    run_id: f64,
+) -> savvy::Result<Sexp> {
+    let spec = AlgorithmSpec::from_json(spec_json).map_err(|e| savvy_err!("{e}"))?;
+    let reg = registry();
+
+    let block_vec = blocks_from_r(&blocks)?;
+    let space = SearchSpace::new(block_vec).map_err(|e| savvy_err!("{e}"))?;
+
+    let master_seed_u = f64_to_u64("master_seed", master_seed)?;
+    let run_id_u = f64_to_u64("run_id", run_id)?;
+
+    // Preserved guard (research doc §C1): the ONLY thing keeping
+    // `evaluate` alive across `engine.run`'s nested `Rf_eval` calls --
+    // `RProblem` itself holds only the bare, unprotected SEXP.
+    let guard = Preserved::new(evaluate.0);
+    let problem = RProblem {
+        evaluate: guard.obj,
+        space,
+    };
+
+    let engine =
+        Engine::from_spec(&spec, &reg, problem.space()).map_err(|e| savvy_err!("{e}"))?;
+
+    let run_result = run_with_r_bridge(|| {
+        engine.run(
+            &problem,
+            RunConfig {
+                master_seed: master_seed_u,
+                run_id: run_id_u,
+            },
+            None,
+        )
+    })?;
+    let result = run_result.map_err(|e| savvy_err!("{e}"))?;
 
     let mut out = OwnedListSexp::new(3, true)?;
     out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;

@@ -196,12 +196,26 @@ print.sz_space <- function(x, ...) {
 #' @returns A named `list` with a `type` field plus that block's own
 #'   numeric fields, coerced to the types `Block`'s `Deserialize` impl
 #'   expects.
+#'
+#' M4-2 Task 2 fix: the Int branch's `lo`/`hi` used to go through
+#' `as.integer()` (R's 32-bit integer type), silently narrowing
+#' `Block::Int`'s `i64` bounds (`crates/core/src/space.rs`) for any value
+#' outside `[-2147483647, 2147483647]` (`as.integer()` produces `NA` with a
+#' warning past that range, which would then round-trip as a wrong/missing
+#' bound). Widened to `as.double()` -- matching the Float branch's own
+#' coercion, and matching how `sz_solve_int_quadratic()`'s `lo`/`hi`
+#' params already cross the same FFI boundary (`f64` all the way, cast to
+#' `i64` on the Rust side via `f64_to_i64`) -- so the full practical `i64`
+#' range round-trips exactly (a `double` has 53 bits of exact integer
+#' precision, comfortably more than this crate's own Int-typed
+#' diagnostics/presets ever need). `n` stays `as.integer()`: it is a
+#' `usize` dimension count, never expected to approach either limit.
 #' @noRd
 .sz_block_to_list <- function(b) {
   if (inherits(b, "sz_block_float")) {
     list(type = "float", lo = as.double(b$lo), hi = as.double(b$hi), n = as.integer(b$n))
   } else if (inherits(b, "sz_block_int")) {
-    list(type = "int", lo = as.integer(b$lo), hi = as.integer(b$hi), n = as.integer(b$n))
+    list(type = "int", lo = as.double(b$lo), hi = as.double(b$hi), n = as.integer(b$n))
   } else if (inherits(b, "sz_block_categorical")) {
     list(type = "categorical", k = as.integer(b$k), n = as.integer(b$n))
   } else if (inherits(b, "sz_block_binary")) {
