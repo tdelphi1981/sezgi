@@ -2,8 +2,22 @@
 import json
 from types import SimpleNamespace
 
-from sezgi._sezgi import Problem, EvalSession, bbob, from_callable
+from sezgi._sezgi import EvalSession, bbob, from_callable
 from sezgi import _sezgi
+
+# M4-1 Task 1: `sezgi.Problem` is now the subclassable Python ABC
+# (`py-sezgi/python/sezgi/problem.py`), NOT the native `#[pyclass]` handle
+# type that `bbob(...)`/`problems.onemax(...)`/`from_callable(...)` return
+# -- that native type is still fully reachable (as `sezgi._sezgi.Problem`;
+# `problem.py`'s `as_native_problem` uses it directly), just no longer
+# aliased under this same top-level name. No existing test or example
+# referenced `sezgi.Problem` before this task (verified), so this is a
+# name-repurposing, not a behavior change to anything working code already
+# depended on. See `docs/superpowers/research/2026-09-02-python-oop-front-
+# door.md` §E1 and this task's own report for the rationale (ruling 1: the
+# new class hierarchy is meant to become THE documented `Problem` symbol).
+from sezgi.problem import Problem, as_native_problem
+from sezgi.spaces import Float, Int, Categorical, Binary, Permutation, Space
 
 
 # EvalSession / Problem surface (M3-4 Task 1): EvalSession's ask/tell core

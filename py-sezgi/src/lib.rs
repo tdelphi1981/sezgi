@@ -1,7 +1,7 @@
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyDict, PyList, PyTuple};
 use sezgi_bench::{
     coco_export as bench_coco_export, default_targets as bench_default_targets,
     ecdf as bench_ecdf, ecdf_per_algo as bench_ecdf_per_algo, ioh_records as bench_ioh_records,
@@ -87,6 +87,23 @@ enum Inner {
     /// `None` accordingly -- no verified target is claimed.
     Mixed(MixedDiagnostic),
     Callable { f: Py<PyAny>, space: SearchSpace, vectorized: bool },
+    /// M4-1 Task 1: `_sezgi.from_callable_spaced(f, space_json, vectorized,
+    /// optimum)` -- the block-typed widening of [`Inner::Callable`]/
+    /// [`from_callable`], for `sezgi.Problem` subclasses
+    /// (`py-sezgi/python/sezgi/problem.py`). Unlike `Inner::Callable`
+    /// (always a single `Block::Float` space, `from_callable`'s only
+    /// caller), `space` here may be ANY [`SearchSpace`] -- single- or
+    /// multi-block, any [`Block`] kind -- so it is kept as its OWN variant/
+    /// calling function ([`call_callable_spaced`]) rather than widening
+    /// [`call_callable`] in place: the two callbacks' Python calling
+    /// conventions genuinely differ (one 2-D numpy array per population vs.
+    /// a per-individual bare-or-tuple value, see [`genotype_to_py`]'s doc),
+    /// and keeping them separate means `from_callable`'s existing, frozen,
+    /// widely-tested convention is untouched byte-for-byte by this task.
+    /// `optimum` is the Python `Problem.optimum()` value (`None` by
+    /// default) plumbed straight to `PyProblem::optimum()` -- see this
+    /// task's own report for the design decision.
+    CallableSpaced { f: Py<PyAny>, space: SearchSpace, vectorized: bool, optimum: Option<f64> },
     /// `sezgi.bias.f0(dim, seed)` -- the BIAS-toolbox null problem
     /// ([`F0Random`]). `dim`/`seed` are stored (not an `F0Random` instance
     /// itself) so `for_problem`/`solve()` can rebuild a fresh, independently
@@ -220,6 +237,225 @@ fn call_callable(f: &Py<PyAny>, vectorized: bool, pop: &[Genotype]) -> Vec<f64> 
     })
 }
 
+// ---------------------------------------------------------------------
+// M4-1 Task 1: Genotype <-> Python conversion helpers, and the block-typed
+// callable-problem bridge (`from_callable_spaced`) built on top of them.
+//
+// PINNED conversion table (genotype block -> Python, reused verbatim by
+// Task 2 for population views/offspring -- see each function's own doc):
+//   Block::Float        -> list[float]
+//   Block::Int          -> list[int]
+//   Block::Categorical   -> list[int]   (category INDICES 0..k, no label)
+//   Block::Binary        -> list[bool]
+//   Block::Permutation    -> list[int]
+// (Matches `solve()`'s own `best_x` conversion below byte-for-byte -- ONE
+// table, used everywhere a Genotype's block crosses into Python; `solve()`
+// now calls the same [`block_value_to_py`] instead of a local duplicate.)
+// ---------------------------------------------------------------------
+
+/// Converts one [`BlockValues`] block to its pinned Python type (see the
+/// module-level table above). Shared by `solve()`'s `best_x` conversion
+/// (M3-8 Task 9) and [`genotype_to_py`] (M4-1 Task 1's callable bridge).
+pub(crate) fn block_value_to_py(py: Python<'_>, bv: &BlockValues) -> PyResult<Py<PyAny>> {
+    Ok(match bv {
+        BlockValues::Float(xs) => PyList::new(py, xs)?.into_any().unbind(),
+        BlockValues::Perm(xs) => PyList::new(py, xs)?.into_any().unbind(),
+        BlockValues::Int(xs) => PyList::new(py, xs)?.into_any().unbind(),
+        BlockValues::Cat(xs) => PyList::new(py, xs)?.into_any().unbind(),
+        BlockValues::Bin(xs) => PyList::new(py, xs)?.into_any().unbind(),
+    })
+}
+
+/// Converts a whole [`Genotype`] to the Python `x` passed to
+/// `sezgi.Problem.evaluate`/`batch_evaluate` (M4-1 Task 1 pinned
+/// convention, brief-mandated): a SINGLE-block genotype's `x` is that one
+/// block's own converted value, passed BARE (via [`block_value_to_py`]); a
+/// MULTI-block genotype's `x` is a Python TUPLE of per-block converted
+/// values, in `g.blocks`' order (== `SearchSpace::blocks()` order, since
+/// every `Genotype` this crate builds has one entry per space block).
+pub(crate) fn genotype_to_py(py: Python<'_>, g: &Genotype) -> PyResult<Py<PyAny>> {
+    if g.blocks.len() == 1 {
+        block_value_to_py(py, &g.blocks[0])
+    } else {
+        let items = g.blocks.iter()
+            .map(|b| block_value_to_py(py, b))
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok(PyTuple::new(py, items)?.into_any().unbind())
+    }
+}
+
+/// Converts a Python value back into one [`BlockValues`] block, validated
+/// against `block`'s own kind and arity. The reverse of
+/// [`block_value_to_py`] -- M4-1 Task 1 pins this helper's shape and
+/// visibility for Task 2 (a Python-authored generator's offspring/
+/// population-view bridge) to consume; NOT called anywhere in this task's
+/// own code paths yet (`evaluate`/`batch_evaluate` only ever return a
+/// scalar fitness, never a genotype), hence `#[allow(dead_code)]` --
+/// deliberate, not an oversight.
+///
+/// # Errors
+/// The original extraction `PyErr` (a `TypeError` for a value of the wrong
+/// Python type, e.g. `non-float`) or a `ValueError` for a length mismatch
+/// or -- for a `Float` block only -- a non-finite entry (`NaN`/`inf`):
+/// "non-finite where finite required", since [`SearchSpace::validate`]
+/// (`crates/core/src/space.rs`) requires every `Float` block value to be
+/// finite, so a Python-authored value must fail loudly here rather than
+/// silently reach the engine.
+#[allow(dead_code)]
+pub(crate) fn block_value_from_py(block: &Block, obj: &Bound<'_, PyAny>) -> PyResult<BlockValues> {
+    fn check_len<T>(kind: &str, xs: &[T], n: usize) -> PyResult<()> {
+        if xs.len() != n {
+            return Err(PyValueError::new_err(format!(
+                "{kind} block: expected {n} values, got {}", xs.len())));
+        }
+        Ok(())
+    }
+    match *block {
+        Block::Float { n, .. } => {
+            let xs: Vec<f64> = obj.extract()?;
+            check_len("Float", &xs, n)?;
+            if let Some(bad) = xs.iter().find(|x| !x.is_finite()) {
+                return Err(PyValueError::new_err(format!(
+                    "Float block: non-finite value {bad} (finite required)")));
+            }
+            Ok(BlockValues::Float(xs))
+        }
+        Block::Int { n, .. } => {
+            let xs: Vec<i64> = obj.extract()?;
+            check_len("Int", &xs, n)?;
+            Ok(BlockValues::Int(xs))
+        }
+        Block::Categorical { n, .. } => {
+            let xs: Vec<u32> = obj.extract()?;
+            check_len("Categorical", &xs, n)?;
+            Ok(BlockValues::Cat(xs))
+        }
+        Block::Binary { n } => {
+            let xs: Vec<bool> = obj.extract()?;
+            check_len("Binary", &xs, n)?;
+            Ok(BlockValues::Bin(xs))
+        }
+        Block::Permutation { n } => {
+            let xs: Vec<u32> = obj.extract()?;
+            check_len("Permutation", &xs, n)?;
+            Ok(BlockValues::Perm(xs))
+        }
+    }
+}
+
+/// Converts a Python `x` (as produced by [`genotype_to_py`]: bare for a
+/// single-block space, a tuple of per-block values for a multi-block one)
+/// back into a [`Genotype`] over `space`. Reserved for Task 2, same as
+/// [`block_value_from_py`] -- `#[allow(dead_code)]` is deliberate.
+///
+/// # Errors
+/// A `ValueError` if a multi-block space's `x` is not a tuple of the
+/// expected arity, or (per block) whatever [`block_value_from_py`] returns.
+#[allow(dead_code)]
+pub(crate) fn genotype_from_py(space: &SearchSpace, obj: &Bound<'_, PyAny>) -> PyResult<Genotype> {
+    let blocks = space.blocks();
+    if blocks.len() == 1 {
+        Ok(Genotype { blocks: vec![block_value_from_py(&blocks[0], obj)?] })
+    } else {
+        let tup: &Bound<'_, PyTuple> = obj.downcast().map_err(|_| PyValueError::new_err(format!(
+            "expected a tuple of {} per-block values for this multi-block space, \
+             got a non-tuple value", blocks.len())))?;
+        if tup.len() != blocks.len() {
+            return Err(PyValueError::new_err(format!(
+                "expected a tuple of {} per-block values, got {}", blocks.len(), tup.len())));
+        }
+        let bvs = blocks.iter().zip(tup.iter())
+            .map(|(b, item)| block_value_from_py(b, &item))
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok(Genotype { blocks: bvs })
+    }
+}
+
+/// Calling convention for `from_callable_spaced(...)` handles
+/// ([`Inner::CallableSpaced`], M4-1 Task 1) -- follows the SAME GIL-
+/// acquisition/panic-on-exception PATTERN as [`call_callable`] (reuse, not
+/// a fork: every `Err` -> `panic::panic_any` -> `catch_unwind` step below
+/// mirrors that function line for line), but a DIFFERENT wire format, since
+/// this bridge accepts any [`SearchSpace`] (not Float-only): each
+/// individual's `x` is built via [`genotype_to_py`] (bare for a single-
+/// block space, a tuple of per-block values for a multi-block space).
+///
+/// - `vectorized=true`: `f` is called ONCE per `evaluate_batch` call, with
+///   the WHOLE population as a single Python `list` of per-individual `x`
+///   values (`[x_0, x_1, ..., x_{n-1}]`), and must return `n` fitness
+///   values (a numpy 1-D array or a plain list of floats) -- this is the
+///   convention `sezgi.Problem._to_native()` uses, calling
+///   `self.batch_evaluate` (default: loop `self.evaluate`, so a subclass
+///   that only overrides `evaluate` still works correctly here).
+/// - `vectorized=false`: `f` is called ONCE PER INDIVIDUAL with that
+///   individual's own `x` value, and must return a scalar `float`.
+///
+/// Malformed returns (wrong type -- "non-float") surface as the ORIGINAL
+/// Python exception (a `TypeError` from a failed `extract`, etc.), thrown
+/// via `panic::panic_any(PyErr)` and re-raised unchanged by
+/// `run_with_bridge`'s `catch_unwind` -- identical to [`call_callable`]'s
+/// own exception-propagation pattern (§F3 of the M4-1 research doc).
+fn call_callable_spaced(f: &Py<PyAny>, vectorized: bool, pop: &[Genotype]) -> Vec<f64> {
+    Python::with_gil(|py| {
+        if vectorized {
+            let xs: Vec<Py<PyAny>> = pop.iter().map(|g| match genotype_to_py(py, g) {
+                Ok(x) => x,
+                Err(e) => panic::panic_any(e),
+            }).collect();
+            let list = match PyList::new(py, xs) {
+                Ok(l) => l,
+                Err(e) => panic::panic_any(e),
+            };
+            let out = match f.call1(py, (list,)) {
+                Ok(o) => o,
+                // A Python exception inside the callback is thrown here as
+                // a panic; `catch_unwind` inside `run_with_bridge` downcasts
+                // it and returns it to the caller as the original exception.
+                Err(e) => panic::panic_any(e),
+            };
+            let bound = out.bind(py);
+            if let Ok(ro) = bound.extract::<PyReadonlyArray1<f64>>() {
+                ro.as_array().iter().copied().collect()
+            } else {
+                match bound.extract::<Vec<f64>>() {
+                    Ok(v) => v,
+                    Err(e) => panic::panic_any(e),
+                }
+            }
+        } else {
+            pop.iter().map(|g| {
+                let x = match genotype_to_py(py, g) {
+                    Ok(x) => x,
+                    Err(e) => panic::panic_any(e),
+                };
+                let out = match f.call1(py, (x,)) {
+                    Ok(o) => o,
+                    Err(e) => panic::panic_any(e),
+                };
+                match out.extract::<f64>(py) {
+                    Ok(v) => v,
+                    Err(e) => panic::panic_any(e),
+                }
+            }).collect()
+        }
+    })
+}
+
+/// Borrowed [`Problem`] wrapper around a `from_callable_spaced(...)` handle
+/// (M4-1 Task 1), used by `solve()` only -- mirrors [`CallableProblem`]
+/// exactly except for its calling convention (see
+/// [`call_callable_spaced`]'s doc). No owned counterpart exists: unlike
+/// `Inner::Callable`, `Inner::CallableSpaced` is rejected up front by
+/// `EvalSession.for_problem` (no ask/tell session type exists yet for a
+/// non-Float or multi-block space; see that method's own doc), so nothing
+/// needs a `'static` `Box<dyn Problem>` over this bridge in this task.
+struct SpacedCallableProblem<'a> { f: &'a Py<PyAny>, space: &'a SearchSpace, vectorized: bool }
+
+impl Problem for SpacedCallableProblem<'_> {
+    fn space(&self) -> &SearchSpace { self.space }
+    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> { call_callable_spaced(self.f, self.vectorized, pop) }
+}
+
 /// Borrowed [`Problem`] wrapper around a `from_callable(...)` handle, used
 /// by `solve()` (which runs synchronously and can borrow the `PyProblem`'s
 /// own fields for the run's lifetime). Calling convention: see
@@ -290,6 +526,7 @@ impl PyProblem {
             Inner::CatMatch(p) => p.space().dim(),
             Inner::Mixed(p) => p.space().dim(),
             Inner::Callable { space, .. } => space.dim(),
+            Inner::CallableSpaced { space, .. } => space.dim(),
             Inner::F0 { space, .. } => space.dim(),
         }
     }
@@ -311,6 +548,7 @@ impl PyProblem {
             Inner::CatMatch(p) => p.space(),
             Inner::Mixed(p) => p.space(),
             Inner::Callable { space, .. } => space,
+            Inner::CallableSpaced { space, .. } => space,
             Inner::F0 { space, .. } => space,
         };
         bounds_of(space)
@@ -335,6 +573,12 @@ impl PyProblem {
             // -- see its own doc.
             Inner::Mixed(_) => None,
             Inner::Callable { .. } => None,
+            // M4-1 Task 1: unlike Inner::Callable (always None -- an
+            // arbitrary Python function has no analytically known optimum),
+            // a sezgi.Problem subclass may override `optimum()`; that value
+            // is plumbed through from_callable_spaced(...) and surfaced
+            // here -- see this task's report for the design decision.
+            Inner::CallableSpaced { optimum, .. } => *optimum,
             Inner::F0 { .. } => None,
         }
     }
@@ -388,6 +632,40 @@ fn from_callable(f: Py<PyAny>, lo: f64, hi: f64, dim: usize, vectorized: bool) -
     let space = SearchSpace::new(vec![Block::Float { lo, hi, n: dim }])
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(PyProblem { inner: Inner::Callable { f, space, vectorized } })
+}
+
+/// `_sezgi.from_callable_spaced(f, space_json, vectorized=True,
+/// optimum=None)` -- M4-1 Task 1's block-typed widening of
+/// `from_callable`: a [`Problem`] handle wrapping a Python callable `f`
+/// over ANY [`SearchSpace`] (Float/Int/Categorical/Binary/Permutation
+/// blocks, single- or multi-block), not just a single Float block.
+///
+/// INTERNAL -- not re-exported from `sezgi/__init__.py`'s public namespace
+/// (only accessible as `sezgi._sezgi.from_callable_spaced`); `sezgi.Problem
+/// ._to_native()` (`py-sezgi/python/sezgi/problem.py`) is the sole intended
+/// caller. `space_json` is a JSON array of blocks in `Block`'s own serde
+/// wire shape (`#[serde(tag = "type", rename_all = "snake_case")]`,
+/// `crates/core/src/space.rs`), e.g. `[{"type":"float","lo":-5.0,
+/// "hi":5.0,"n":3}]` -- built by `sezgi.spaces.Space._to_json()`; reusing
+/// `Block`'s own `Deserialize` impl needs no new Rust-side space-parsing
+/// code. `optimum` is plumbed straight to the returned handle's
+/// `.optimum()` (see [`Inner::CallableSpaced`]'s doc for why). See
+/// [`call_callable_spaced`] for `f`'s exact calling convention.
+///
+/// # Errors
+/// `ValueError` if `space_json` fails to parse as `Vec<Block>`, or if the
+/// resulting blocks are rejected by [`SearchSpace::new`] (e.g. a `Float`/
+/// `Int` block with `lo >= hi`).
+#[pyfunction]
+#[pyo3(signature = (f, space_json, vectorized=true, optimum=None))]
+fn from_callable_spaced(f: Py<PyAny>, space_json: &str, vectorized: bool, optimum: Option<f64>)
+    -> PyResult<PyProblem>
+{
+    let blocks: Vec<Block> = serde_json::from_str(space_json)
+        .map_err(|e| PyValueError::new_err(format!("invalid space_json: {e}")))?;
+    let space = SearchSpace::new(blocks)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(PyProblem { inner: Inner::CallableSpaced { f, space, vectorized, optimum } })
 }
 
 /// `sezgi.bias.f0(dim, seed)` -- a [`Problem`] handle for
@@ -988,13 +1266,23 @@ impl PyEvalSession {
         // these typed families). Rejected up front with an honest message
         // rather than silently mis-building a Float-typed EvalSession over a
         // non-Float space.
+        // M4-1 Task 1: Inner::CallableSpaced (from_callable_spaced(...), the
+        // block-typed callable bridge under sezgi.Problem) is rejected the
+        // same way -- no ask/tell session type exists for a non-Float or
+        // multi-block space, and even a single-Float-block CallableSpaced
+        // handle would need a different Evaluator-facing calling convention
+        // (bare-x-per-individual via genotype_to_py) than EvalSession's own
+        // plain-row `evaluate(xs)` surface expects; out of this task's
+        // scope (see the report).
         if matches!(&problem.inner,
-            Inner::OneMax(_) | Inner::IntQuadratic(_) | Inner::CatMatch(_) | Inner::Mixed(_)) {
+            Inner::OneMax(_) | Inner::IntQuadratic(_) | Inner::CatMatch(_) | Inner::Mixed(_)
+            | Inner::CallableSpaced { .. }) {
             return Err(PyValueError::new_err(
                 "EvalSession.for_problem is not currently supported for onemax(...)/\
-                 int_quadratic(...)/cat_match(...)/mixed_diagnostic(...) problems (no \
-                 ask/tell session type exists yet for Binary/Int/Categorical/mixed-typed \
-                 spaces); use sezgi.solve(...) with presets.ga_bin/ga_int/ga_cat instead"));
+                 int_quadratic(...)/cat_match(...)/mixed_diagnostic(...)/a sezgi.Problem \
+                 subclass's native handle (no ask/tell session type exists yet for \
+                 Binary/Int/Categorical/mixed-typed spaces); use sezgi.solve(...) with \
+                 presets.ga_bin/ga_int/ga_cat instead"));
         }
 
         let (boxed, meta): (Box<dyn Problem>, SessionMeta) = match &problem.inner {
@@ -1091,7 +1379,8 @@ impl PyEvalSession {
             // Handled and returned above -- this match is unreachable for
             // Inner::Tsp, but the match must still be exhaustive.
             Inner::Tsp(_) => unreachable!("Inner::Tsp is handled and returned before this match"),
-            Inner::OneMax(_) | Inner::IntQuadratic(_) | Inner::CatMatch(_) | Inner::Mixed(_) =>
+            Inner::OneMax(_) | Inner::IntQuadratic(_) | Inner::CatMatch(_) | Inner::Mixed(_)
+            | Inner::CallableSpaced { .. } =>
                 unreachable!("rejected and returned before this match"),
         };
 
@@ -1286,6 +1575,18 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
             // batch via Python::with_gil (standard PyO3 pattern).
             (run_with_bridge(py, || run(&cp, None))?, None)
         }
+        // M4-1 Task 1: from_callable_spaced(...)'s block-typed handle --
+        // same shape as Inner::Callable (log_dir rejected, same reason: no
+        // fid identity), routed through SpacedCallableProblem instead
+        // (different Python calling convention, see call_callable_spaced).
+        Inner::CallableSpaced { f, space, vectorized, .. } => {
+            if log_dir.is_some() {
+                return Err(PyValueError::new_err(
+                    "log_dir is only supported for builtin (bbob) problems"));
+            }
+            let cp = SpacedCallableProblem { f, space, vectorized: *vectorized };
+            (run_with_bridge(py, || run(&cp, None))?, None)
+        }
         // sezgi decision (M3-5 scope ruling 2, fix round 1): CEC 2022 is
         // solve()-eligible (Inner::Cec2022) additively -- same shape as
         // Inner::Bbob, IOH logging included. Widened alongside
@@ -1423,21 +1724,16 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
     //   above -- the natural generalization that preserves block structure
     //   rather than collapsing every block into one ambiguously-typed flat
     //   list.
-    fn block_values_to_py(py: Python<'_>, bv: &BlockValues) -> PyResult<Py<PyAny>> {
-        Ok(match bv {
-            BlockValues::Float(xs) => PyList::new(py, xs)?.into_any().unbind(),
-            BlockValues::Perm(xs) => PyList::new(py, xs)?.into_any().unbind(),
-            BlockValues::Int(xs) => PyList::new(py, xs)?.into_any().unbind(),
-            BlockValues::Cat(xs) => PyList::new(py, xs)?.into_any().unbind(),
-            BlockValues::Bin(xs) => PyList::new(py, xs)?.into_any().unbind(),
-        })
-    }
+    // M4-1 Task 1: this used to be a `solve()`-local `fn block_values_to_py`
+    // (byte-identical body) -- now factored to module scope as
+    // `block_value_to_py`, shared with the block-typed callable bridge's
+    // `x` construction (`genotype_to_py`). Same output, same call sites.
     let best_x_py: Py<PyAny> = if result.best_x.blocks.len() == 1 {
-        block_values_to_py(py, &result.best_x.blocks[0])?
+        block_value_to_py(py, &result.best_x.blocks[0])?
     } else {
         let blocks = PyList::empty(py);
         for b in &result.best_x.blocks {
-            blocks.append(block_values_to_py(py, b)?)?;
+            blocks.append(block_value_to_py(py, b)?)?;
         }
         blocks.into_any().unbind()
     };
@@ -3032,6 +3328,7 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEvalSession>()?;
     m.add_function(wrap_pyfunction!(bbob, m)?)?;
     m.add_function(wrap_pyfunction!(from_callable, m)?)?;
+    m.add_function(wrap_pyfunction!(from_callable_spaced, m)?)?;
     m.add_function(wrap_pyfunction!(bias_f0, m)?)?;
     m.add_function(wrap_pyfunction!(cec2022, m)?)?;
     m.add_function(wrap_pyfunction!(cec2022_evaluate, m)?)?;
