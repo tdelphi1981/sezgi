@@ -3,6 +3,7 @@
 S3method("$<-",savvy_sezgi__sealed)
 S3method("[[<-",savvy_sezgi__sealed)
 S3method(print,"sezgi::EvalSession__bundle")
+S3method(print,"sezgi::SzRng__bundle")
 S3method(print,sz_block)
 S3method(print,sz_space)
 export(Problem)

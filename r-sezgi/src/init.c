@@ -379,6 +379,16 @@ SEXP savvy_sz_solve_onemax__impl(SEXP c_arg__spec_json, SEXP c_arg__n_bits, SEXP
     return handle_result(res);
 }
 
+SEXP savvy_sz_solve_r_generator__impl(SEXP c_arg__generate, SEXP c_arg__blocks, SEXP c_arg__evaluate, SEXP c_arg__budget, SEXP c_arg__master_seed, SEXP c_arg__run_id, SEXP c_arg__pop_size, SEXP c_arg__init_kind, SEXP c_arg__replacer_kind, SEXP c_arg__initializer, SEXP c_arg__validate_space, SEXP c_arg__algo_name) {
+    SEXP res = savvy_sz_solve_r_generator__ffi(c_arg__generate, c_arg__blocks, c_arg__evaluate, c_arg__budget, c_arg__master_seed, c_arg__run_id, c_arg__pop_size, c_arg__init_kind, c_arg__replacer_kind, c_arg__initializer, c_arg__validate_space, c_arg__algo_name);
+    return handle_result(res);
+}
+
+SEXP savvy_sz_solve_r_generator_bbob__impl(SEXP c_arg__generate, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__budget, SEXP c_arg__master_seed, SEXP c_arg__run_id, SEXP c_arg__pop_size, SEXP c_arg__init_kind, SEXP c_arg__replacer_kind, SEXP c_arg__initializer, SEXP c_arg__validate_space, SEXP c_arg__algo_name) {
+    SEXP res = savvy_sz_solve_r_generator_bbob__ffi(c_arg__generate, c_arg__fid, c_arg__dim, c_arg__instance, c_arg__budget, c_arg__master_seed, c_arg__run_id, c_arg__pop_size, c_arg__init_kind, c_arg__replacer_kind, c_arg__initializer, c_arg__validate_space, c_arg__algo_name);
+    return handle_result(res);
+}
+
 SEXP savvy_sz_solve_r_problem__impl(SEXP c_arg__spec_json, SEXP c_arg__blocks, SEXP c_arg__evaluate, SEXP c_arg__master_seed, SEXP c_arg__run_id) {
     SEXP res = savvy_sz_solve_r_problem__ffi(c_arg__spec_json, c_arg__blocks, c_arg__evaluate, c_arg__master_seed, c_arg__run_id);
     return handle_result(res);
@@ -514,6 +524,26 @@ SEXP savvy_EvalSession_random_permutation__impl(SEXP self__) {
     return handle_result(res);
 }
 
+SEXP savvy_SzRng_from_master__impl(SEXP c_arg__master_seed, SEXP c_arg__path) {
+    SEXP res = savvy_SzRng_from_master__ffi(c_arg__master_seed, c_arg__path);
+    return handle_result(res);
+}
+
+SEXP savvy_SzRng_next_below__impl(SEXP self__, SEXP c_arg__n) {
+    SEXP res = savvy_SzRng_next_below__ffi(self__, c_arg__n);
+    return handle_result(res);
+}
+
+SEXP savvy_SzRng_next_f64__impl(SEXP self__) {
+    SEXP res = savvy_SzRng_next_f64__ffi(self__);
+    return handle_result(res);
+}
+
+SEXP savvy_SzRng_split__impl(SEXP self__, SEXP c_arg__child_id) {
+    SEXP res = savvy_SzRng_split__ffi(self__, c_arg__child_id);
+    return handle_result(res);
+}
+
 
 static const R_CallMethodDef CallEntries[] = {
     {"savvy_sezgi_version__impl", (DL_FUNC) &savvy_sezgi_version__impl, 0},
@@ -584,6 +614,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_sz_solve_int_quadratic__impl", (DL_FUNC) &savvy_sz_solve_int_quadratic__impl, 6},
     {"savvy_sz_solve_mixed_diagnostic__impl", (DL_FUNC) &savvy_sz_solve_mixed_diagnostic__impl, 7},
     {"savvy_sz_solve_onemax__impl", (DL_FUNC) &savvy_sz_solve_onemax__impl, 4},
+    {"savvy_sz_solve_r_generator__impl", (DL_FUNC) &savvy_sz_solve_r_generator__impl, 12},
+    {"savvy_sz_solve_r_generator_bbob__impl", (DL_FUNC) &savvy_sz_solve_r_generator_bbob__impl, 13},
     {"savvy_sz_solve_r_problem__impl", (DL_FUNC) &savvy_sz_solve_r_problem__impl, 5},
     {"savvy_sz_solve_tsp__impl", (DL_FUNC) &savvy_sz_solve_tsp__impl, 4},
     {"savvy_sz_stats_bayesian_signed_rank_raw__impl", (DL_FUNC) &savvy_sz_stats_bayesian_signed_rank_raw__impl, 5},
@@ -611,6 +643,10 @@ static const R_CallMethodDef CallEntries[] = {
     {"savvy_EvalSession_new_f0__impl", (DL_FUNC) &savvy_EvalSession_new_f0__impl, 3},
     {"savvy_EvalSession_new_tsp__impl", (DL_FUNC) &savvy_EvalSession_new_tsp__impl, 3},
     {"savvy_EvalSession_random_permutation__impl", (DL_FUNC) &savvy_EvalSession_random_permutation__impl, 1},
+    {"savvy_SzRng_from_master__impl", (DL_FUNC) &savvy_SzRng_from_master__impl, 2},
+    {"savvy_SzRng_next_below__impl", (DL_FUNC) &savvy_SzRng_next_below__impl, 2},
+    {"savvy_SzRng_next_f64__impl", (DL_FUNC) &savvy_SzRng_next_f64__impl, 1},
+    {"savvy_SzRng_split__impl", (DL_FUNC) &savvy_SzRng_split__impl, 2},
     {NULL, NULL, 0}
 };
 
