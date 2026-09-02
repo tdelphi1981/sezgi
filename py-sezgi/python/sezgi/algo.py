@@ -1,10 +1,18 @@
 """Subclassable algorithm authoring over the EvalSession ask/tell core.
 
-M3-4 Task 2: `sezgi.Algorithm` is the pure-Python ABC that later M3-4 tasks
-port 17 example algorithms onto (with bit-exact RNG parity against existing
-pure scripts). A subclass implements `setup(ctx)`/`step(ctx)`; `solve()`
-drives the setup/step loop over an `AlgoContext` until the budget is
-exhausted and returns a `SolveResult`.
+M3-4 Task 2: `AskTellAlgorithm` (renamed from `Algorithm`, M4-1 Task 3 --
+see the class's own docstring note) is the pure-Python ABC that later M3-4
+tasks port 17 example algorithms onto (with bit-exact RNG parity against
+existing pure scripts). A subclass implements `setup(ctx)`/`step(ctx)`;
+`solve()` drives the setup/step loop over an `AlgoContext` until the budget
+is exhausted and returns a `SolveResult`.
+
+M4-1 Task 3: the top-level `sezgi.Algorithm` name was repurposed for the
+NEW engine-hosted class-first base (`sezgi/algorithm.py`) -- this module's
+own ask/tell base is renamed `AskTellAlgorithm`, with a module-level
+`Algorithm = AskTellAlgorithm` compat alias kept below (so `sezgi.algo.
+Algorithm` -- the old import path -- still resolves, just no longer the
+top-level `sezgi.Algorithm` binding).
 
 M3-4 Task 3: `bbob_records` provides a multi-scenario sweep helper that records
 runs in the same shape as `run_experiment`, allowing custom Algorithm instances
@@ -159,8 +167,16 @@ class AlgoContext:
         return self._session.evaluate(points)
 
 
-class Algorithm(abc.ABC):
-    """Subclass, implement setup() and step(), call solve()."""
+class AskTellAlgorithm(abc.ABC):
+    """Subclass, implement setup() and step(), call solve().
+
+    M4-1 Task 3 rename: this class was `sezgi.Algorithm` through M3-4/M3-8;
+    the top-level `sezgi.Algorithm` name now binds the NEW engine-hosted
+    class-first base (`sezgi/algorithm.py`, `Algorithm.generate(pop, ctx)`
+    run INSIDE the Rust engine loop) instead. This class is unchanged in
+    every other respect -- same setup()/step()/solve() contract, same
+    `AlgoContext`, same `SolveResult`. See the module-level `Algorithm =
+    AskTellAlgorithm` compat alias below for the old import path."""
 
     name = None  # default resolves to cls.__name__.lower()
 
@@ -215,13 +231,21 @@ class Algorithm(abc.ABC):
         return result
 
 
+# M4-1 Task 3: compat alias -- `sezgi.algo.Algorithm` (the pre-rename import
+# path) still resolves to this class, unchanged. The top-level `sezgi.
+# Algorithm` binding itself now points to the NEW engine-hosted base
+# (`sezgi/algorithm.py`) instead -- see `AskTellAlgorithm`'s own docstring
+# note and `sezgi/__init__.py`'s Algorithm-authoring-surfaces comment.
+Algorithm = AskTellAlgorithm
+
+
 def bbob_records(factory, fids, dims, instances, seeds, budget, log_dir=None):
     """BBOB-scenario sweep helper that records runs in stats-pipeline shape.
 
-    Runs an algorithm across a multi-scenario sweep (combinations of BBOB
-    functions, dimensions, instances, and seeds) and records results in the
-    same dict shape as `run_experiment`: (algo, fid, dim, instance, seed,
-    budget, best_f, f_opt, gap, evals_used, wall_secs).
+    Runs an AskTellAlgorithm across a multi-scenario sweep (combinations of
+    BBOB functions, dimensions, instances, and seeds) and records results in
+    the same dict shape as `run_experiment`: (algo, fid, dim, instance,
+    seed, budget, best_f, f_opt, gap, evals_used, wall_secs).
 
     The record-key contract matches `run_experiment` (see its own docstring
     in `sezgi.__init__`), allowing this helper's output to mix freely with
@@ -231,8 +255,8 @@ def bbob_records(factory, fids, dims, instances, seeds, budget, log_dir=None):
     can flip depending on which evaluation budget is examined (documented in
     `per_budget_packages`), motivating multi-budget reporting as the default.
 
-    factory: zero-arg callable returning a FRESH Algorithm instance per run
-        (a bare Algorithm subclass works).
+    factory: zero-arg callable returning a FRESH AskTellAlgorithm instance
+        per run (a bare AskTellAlgorithm subclass works).
     fids: list of BBOB function IDs (1..24).
     dims: list of dimensions.
     instances: list of BBOB instances (1..).

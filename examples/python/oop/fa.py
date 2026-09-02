@@ -1,6 +1,6 @@
 """OOP twin of examples/python/fa.py -- same math, same RNG draw order.
 
-Port of the pure-Python Firefly Algorithm script onto sezgi.Algorithm. The
+Port of the pure-Python Firefly Algorithm script onto sezgi.AskTellAlgorithm. The
 pure script (and the Rust module doc it cites) remains the provenance for
 the update equations and the hybrid live/frozen quirk; this file
 re-derives NOTHING and must reproduce the pure script's evals_used/best_f/
@@ -35,7 +35,7 @@ def clamp(x, lo, hi):
     return lo if x < lo else hi if x > hi else x
 
 
-class Fa(sezgi.Algorithm):
+class Fa(sezgi.AskTellAlgorithm):
     name = "fa"
 
     def setup(self, ctx):

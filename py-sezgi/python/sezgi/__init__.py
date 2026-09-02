@@ -70,7 +70,9 @@ from sezgi.spaces import Float, Int, Categorical, Binary, Permutation, Space
 #   p.optimum() -> float | None: the problem's known optimum, or None (a
 #     from_callable(...) handle always returns None).
 #
-# sezgi.Algorithm/AlgoContext (py-sezgi/python/sezgi/algo.py, M3-8 Task 7):
+# sezgi.AskTellAlgorithm/AlgoContext (py-sezgi/python/sezgi/algo.py, M3-8
+#   Task 7; class renamed from sezgi.Algorithm at M4-1 Task 3 -- see the
+#   "Algorithm-authoring surfaces" comment near the bottom of this file):
 #   AlgoContext now also works over a problems.tsp(...) problem -- ctx.kind
 #   ("float"/"permutation"), ctx.n (same value as ctx.dim, a kind-neutral
 #   name), ctx.random_permutation(), ctx.two_opt(tour, i, j). ctx.bounds is
@@ -631,7 +633,7 @@ problems = SimpleNamespace(
 
 __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_experiment", "presets",
            "stats", "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf",
-           "coco_export", "bias", "mo", "problems", "Algorithm", "algo",
+           "coco_export", "bias", "mo", "problems", "Algorithm", "AskTellAlgorithm", "algo",
            # M4-1 Task 1 (fix round 1): the new space builders / Problem ABC
            # surface. "as_space" is deliberately excluded -- it is a
            # problem.py-internal helper (used by Problem._to_native()), not
@@ -642,12 +644,34 @@ __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_expe
            "as_native_problem"]
 
 
-# Algorithm-authoring surface (M3-4 Task 2): sezgi.Algorithm is the pure-
-# Python ABC for subclassing an algorithm's setup()/step() over the
-# EvalSession ask/tell core. sezgi.algo also exposes AlgoContext,
-# SolveResult, BudgetExhausted for direct import. Imported last since
-# sezgi/algo.py itself does `import sezgi` (module-level attribute access
-# happens only inside Algorithm.solve(), at call time, well after this
+# Algorithm-authoring surfaces:
+#
+# - sezgi.AskTellAlgorithm (formerly the top-level sezgi.Algorithm, M3-4
+#   Task 2, renamed M4-1 Task 3): the pure-Python ABC for subclassing an
+#   algorithm's setup()/step() over the EvalSession ask/tell core
+#   (py-sezgi/python/sezgi/algo.py). sezgi.algo also exposes AlgoContext,
+#   SolveResult, BudgetExhausted for direct import, plus a module-level
+#   `Algorithm = AskTellAlgorithm` compat alias (see algo.py's own
+#   docstring note) -- `sezgi.algo.Algorithm` still resolves to this same
+#   class.
+#
+# - sezgi.Algorithm (NEW, M4-1 Task 3, py-sezgi/python/sezgi/algorithm.py):
+#   REPURPOSES the top-level `Algorithm` name for the engine-hosted
+#   class-first base -- `generate(self, pop, ctx)` (required),
+#   `initialize(self, n, ctx)` / `validate_space(self, space)` (optional),
+#   `run(problem, budget, seed=0, pop_size=50, log_dir=None)`, running
+#   INSIDE the Rust engine loop via `_sezgi.solve_with_py_generator` (Task
+#   2's `PyGenerator` bridge, Task 3's `PyInitializer` bridge). Same
+#   name-repurposing precedent as Task 1's `sezgi.Problem` (this
+#   milestone) -- no existing test/example imported the OLD `sezgi.
+#   Algorithm` binding after this task's own enumerated import updates
+#   moved every one of them onto `sezgi.AskTellAlgorithm`.
+#
+# Imported last since both sezgi/algo.py and sezgi/algorithm.py themselves
+# import sezgi-package submodules at their own top level (module-level
+# attribute access on the FULL `sezgi` package only happens inside
+# AskTellAlgorithm.solve()/Algorithm.run(), at call time, well after this
 # module has finished initializing).
 from sezgi import algo
-from sezgi.algo import Algorithm
+from sezgi.algo import AskTellAlgorithm
+from sezgi.algorithm import Algorithm

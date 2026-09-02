@@ -1,6 +1,6 @@
 """OOP twin of examples/python/cs.py -- same math, same RNG draw order.
 
-Port of the pure-Python Cuckoo Search script onto sezgi.Algorithm. The pure
+Port of the pure-Python Cuckoo Search script onto sezgi.AskTellAlgorithm. The pure
 script (and the Rust module doc it cites) remains the provenance for the
 update equations; this file re-derives NOTHING and must reproduce the pure
 script's evals_used/best_f/gap output bit-for-bit at the same seed --
@@ -55,7 +55,7 @@ def abandon_order(fitness, pa):
     return order[:k]
 
 
-class Cs(sezgi.Algorithm):
+class Cs(sezgi.AskTellAlgorithm):
     name = "cs"
 
     def setup(self, ctx):

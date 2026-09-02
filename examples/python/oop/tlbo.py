@@ -1,7 +1,7 @@
 """OOP twin of examples/python/tlbo.py -- same math, same RNG draw order.
 
 Port of the pure-Python Teaching-Learning-Based Optimization script onto
-sezgi.Algorithm. The pure script (and the Rust module doc it cites) remains
+sezgi.AskTellAlgorithm. The pure script (and the Rust module doc it cites) remains
 the provenance for the update equations; this file re-derives NOTHING and
 must reproduce the pure script's evals_used/best_f/gap output bit-for-bit
 at the same seed -- enforced by py-sezgi/tests/test_examples_oop_parity.py.
@@ -34,7 +34,7 @@ def clamp(x, lo, hi):
     return lo if x < lo else hi if x > hi else x
 
 
-class Tlbo(sezgi.Algorithm):
+class Tlbo(sezgi.AskTellAlgorithm):
     name = "tlbo"
 
     def setup(self, ctx):

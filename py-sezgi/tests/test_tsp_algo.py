@@ -1,6 +1,6 @@
 """M3-8 Task 7: permutation and TSP authoring in the Python Algorithm ABC.
 
-Widens EvalSession.for_problem/sezgi.Algorithm from Float-only to also
+Widens EvalSession.for_problem/sezgi.AskTellAlgorithm from Float-only to also
 cover permutation-typed problems (sezgi.problems.tsp(...)), per the
 approved scope ruling's exact minimal surface:
   - EvalSession.kind() -> "float" | "permutation"
@@ -295,7 +295,7 @@ def test_two_opt_result_stays_a_valid_permutation():
 # AlgoContext (kind/n/bounds/random_permutation/two_opt/evaluate).
 # ---------------------------------------------------------------------
 
-class RandomRestartTwoOpt(sezgi.Algorithm):
+class RandomRestartTwoOpt(sezgi.AskTellAlgorithm):
     """Toy permutation-typed algorithm: one random tour per step, plus one
     first-improvement 2-opt probe from an adjacent segment -- just enough to
     exercise the whole permutation surface end-to-end through solve()."""
@@ -329,7 +329,7 @@ def test_algo_context_permutation_surface_via_solve():
 def test_algo_context_permutation_random_point_raises():
     seen = {}
 
-    class Probe(sezgi.Algorithm):
+    class Probe(sezgi.AskTellAlgorithm):
         def setup(self, ctx):
             seen["kind"] = ctx.kind
             seen["n"] = ctx.n

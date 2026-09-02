@@ -24,8 +24,12 @@ use sezgi_components::{presets, register_builtins};
 // callback bridge); `Population` added for `Generator::generate`'s own
 // signature; `ComponentSpec`/`StageSpec`/`TerminationSpec` added for
 // `solve_with_py_generator`'s single-stage `AlgorithmSpec` assembly.
+// M4-1 Task 3: `Initializer` added for `PyInitializer` (RULING A -- the
+// engine-hosted counterpart of `PyGenerator`, letting `sezgi.Algorithm.
+// initialize(self, n, ctx)` actually run Python code when a subclass
+// overrides it).
 use sezgi_core::component::{
-    ComponentError, ComponentMeta, Ctx, Generator, Registry, SupportedBlocks,
+    ComponentError, ComponentMeta, Ctx, Generator, Initializer, Registry, SupportedBlocks,
 };
 use sezgi_core::dist::Distribution;
 use sezgi_core::engine::{Engine, RunConfig};
@@ -800,6 +804,111 @@ impl Generator for PyGenerator {
                     reason: e.to_string(),
                 })
         })
+    }
+}
+
+/// M4-1 Task 3 (RULING A): a Python-authored [`Initializer`] running INSIDE
+/// the Rust engine loop -- the `PyGenerator` pattern (above), mirrored
+/// MECHANICALLY for the `Initializer` trait (`crates/core/src/component.rs`):
+/// same GIL-per-call protocol, same clone-out/write-back RNG handoff on
+/// `ctx.rng`, same [`space_to_py`]/[`genotype_from_py`] conversion helpers,
+/// same honest per-item error naming. `callback` is a live Python object
+/// with an `initialize(n, ctx)` method (required for this wrapper to ever be
+/// constructed -- see [`solve_with_py_generator`]'s `initializer` argument,
+/// the only call site).
+///
+/// Differences from [`PyGenerator`], both following directly from
+/// `Initializer`'s own (narrower) trait shape
+/// (`crates/core/src/component.rs:72-75`): no `pop`/`fitness` argument (there
+/// is no population yet -- only `n`, the target population size), and no
+/// `validate_space` hook (the trait doesn't have one; `Generator`'s is a
+/// Generator-only build-time veto addition, M3-8).
+///
+/// **RNG protocol**: identical to `PyGenerator::generate`'s own -- `ctx.rng`
+/// (here, the engine's dedicated init stream, `RngStream::from_master
+/// (master_seed, &[run_id, 0])`, `crates/core/src/engine.rs:92,109-113`) is
+/// cloned out into an owned [`PyRng`], handed to the callback via
+/// [`EngineCtx::rng`], and its final state is written back into `*ctx.rng`
+/// immediately after the callback returns.
+///
+/// **Return-value conversion**: the callback's return value is iterated and
+/// each item converted via [`genotype_from_py`] against `ctx.space`, using
+/// the SAME per-individual convention `pop.individuals`/generator offspring
+/// use (bare for a single-block space, a tuple of per-block values for a
+/// multi-block one). A malformed item raises a `ValueError` naming the
+/// offending index (`"py/initializer: individual[<index>]: malformed value
+/// -- <reason>"`), and a Python exception raised inside `initialize()`
+/// itself is re-thrown UNCHANGED -- identical propagation pattern to
+/// [`PyGenerator`] (`panic::panic_any(PyErr)`, caught by `run_with_bridge`'s
+/// `catch_unwind`).
+struct PyInitializer { callback: Py<PyAny> }
+
+impl Initializer for PyInitializer {
+    fn initialize(&self, n: usize, ctx: &mut Ctx) -> Vec<Genotype> {
+        Python::with_gil(|py| {
+            let space_list = match space_to_py(py, ctx.space) {
+                Ok(s) => s,
+                Err(e) => panic::panic_any(e),
+            };
+            let py_rng = match Py::new(py, PyRng { inner: ctx.rng.clone() }) {
+                Ok(r) => r,
+                Err(e) => panic::panic_any(e),
+            };
+            let engine_ctx = match Py::new(py, EngineCtx {
+                iteration: ctx.iteration,
+                space: space_list,
+                rng: py_rng.clone_ref(py),
+            }) {
+                Ok(c) => c,
+                Err(e) => panic::panic_any(e),
+            };
+
+            let out = match self.callback.call_method1(py, "initialize", (n, engine_ctx)) {
+                Ok(o) => o,
+                // A Python exception raised inside the callback's own
+                // initialize() is thrown here as a panic; `catch_unwind`
+                // inside `run_with_bridge` downcasts it and returns it to
+                // the caller as the original exception, unchanged.
+                Err(e) => panic::panic_any(e),
+            };
+
+            // Write the RNG's final state back into the engine's own
+            // stream right away -- see this impl's own doc for why this
+            // happens BEFORE individual conversion (mirrors PyGenerator).
+            *ctx.rng = py_rng.borrow(py).inner.clone();
+
+            let bound = out.bind(py);
+            let iter = match bound.try_iter() {
+                Ok(it) => it,
+                Err(e) => panic::panic_any(PyValueError::new_err(format!(
+                    "py/initializer: initialize() must return an iterable of individual \
+                     x-values (bare for a single-block space, a tuple of per-block \
+                     values for a multi-block space); got a non-iterable value: {e}"))),
+            };
+            let mut individuals = Vec::new();
+            for (i, item) in iter.enumerate() {
+                let item = match item {
+                    Ok(it) => it,
+                    Err(e) => panic::panic_any(e),
+                };
+                match genotype_from_py(ctx.space, &item) {
+                    Ok(g) => individuals.push(g),
+                    Err(e) => panic::panic_any(PyValueError::new_err(format!(
+                        "py/initializer: individual[{i}]: malformed value -- {e}"))),
+                }
+            }
+            individuals
+        })
+    }
+
+    fn meta(&self) -> ComponentMeta {
+        // SupportedBlocks::All: same reasoning as PyGenerator::meta -- an
+        // arbitrary Python-authored initializer may handle any space; there
+        // is no build-time veto hook on Initializer to defer to (unlike
+        // Generator's validate_space), so a space mismatch surfaces only on
+        // the first (and only) initialize() call, via a malformed-value
+        // ValueError or whatever the callback itself raises.
+        ComponentMeta::new("py/initializer", SupportedBlocks::All)
     }
 }
 
@@ -2164,22 +2273,58 @@ fn problem_space(inner: &Inner) -> &SearchSpace {
 ///
 /// Returns the SAME result-dict shape `solve()` returns: `best_f` (float),
 /// `best_x` (via [`best_x_to_py`] -- the identical typed-result-genotype
-/// convention), `evals_used` (int), `iterations` (int). `log_dir` is
-/// accepted for signature symmetry with `solve()` but rejected if given
-/// (`ValueError`) -- IOH logging is out of this task's scope.
+/// convention), `evals_used` (int), `iterations` (int), plus
+/// `skipped_empty_runs` (int) whenever `log_dir` is given (mirroring
+/// `solve()`'s own conditional key -- see below).
+///
+/// M4-1 Task 3 additions (RULING A / RULING B, this milestone's controller
+/// rulings on Task 2's own report):
+///
+/// - `initializer` (`Option<Py<PyAny>>`, default `None`): a Python object
+///   with an `initialize(n, ctx)` method, mirroring `callback`'s own
+///   `generate(pop, ctx)` shape -- registered under `"py/initializer"`
+///   ([`PyInitializer`], the MECHANICAL `Initializer`-trait counterpart of
+///   [`PyGenerator`]) and forced as the spec's `init.kind`, IGNORING
+///   `init_kind` when given (the two are mutually exclusive: pass a
+///   Rust-builtin `init_kind` string OR a Python `initializer` callback,
+///   never both meaningfully). `None` (the default -- no override) leaves
+///   `init_kind`'s own documented meaning byte-for-byte unchanged from Task
+///   2 (default `"init/uniform"`, the pure-Rust init path, no Python call
+///   involved) -- `sezgi.Algorithm.run` only ever passes `initializer` when
+///   a subclass overrides `initialize` (detected via function-identity
+///   comparison against the base class, see `algorithm.py`).
+/// - `algo_name` (`Option<&str>`, default `None`): the IOH-archive algorithm
+///   label when `log_dir` is given; resolves to `spec.name` ("py/generator")
+///   when omitted, same fallback shape as `solve()`'s own `algo_name`
+///   parameter.
+/// - `log_dir`: RULING B -- wired end-to-end (no longer unconditionally
+///   rejected) for the SAME four problem families `solve()` itself logs
+///   (`Inner::Bbob`/`Inner::Cec2022`/`Inner::Cec2014`/`Inner::Cec2017`),
+///   mirroring `solve()`'s own per-variant `IohLogger::new` +
+///   `start_run_with` + `finish()` sequence exactly (this was mechanical:
+///   `log_dir` never flowed through `RunConfig` in either function -- it is
+///   a wholly separate `EvalObserver`-based path in both). Every other
+///   `problem` variant (TSP, the typed diagnostics, `from_callable`,
+///   `from_callable_spaced`, `bias.f0`) still rejects `log_dir` with a
+///   `ValueError`, same reason `solve()` rejects it for those variants (no
+///   fid/instance/known-optimum identity to log against).
 ///
 /// # Errors
-/// `ValueError` if `log_dir` is given, if `init_kind`/`replacer_kind` name
-/// an unknown component kind or one incompatible with `problem`'s space
+/// `ValueError` if `log_dir` is given for a problem variant that doesn't
+/// support IOH logging (see above), if `init_kind`/`replacer_kind` name an
+/// unknown component kind or one incompatible with `problem`'s space
 /// (surfaced via [`AlgorithmSpec::validate`]/`Engine::from_spec`, same as
 /// any other spec-validation failure in this crate), or if the run itself
 /// fails (budget-smaller-than-population, etc. -- same [`EngineError`]
 /// mapping `solve()` uses). A Python exception raised inside the
-/// callback's own `generate`/`validate_space`, or a malformed-offspring
-/// error, propagates as described on [`PyGenerator`]'s own doc.
+/// callback's own `generate`/`validate_space`, or the `initializer`
+/// callback's own `initialize`, or a malformed-offspring/malformed-individual
+/// error, propagates as described on [`PyGenerator`]'s/[`PyInitializer`]'s
+/// own doc.
 #[pyfunction]
 #[pyo3(signature = (callback, problem, budget, master_seed=0, run_id=0, pop_size=20,
-                     log_dir=None, init_kind="init/uniform", replacer_kind="replace/mu-plus-lambda"))]
+                     log_dir=None, init_kind="init/uniform", replacer_kind="replace/mu-plus-lambda",
+                     initializer=None, algo_name=None))]
 #[allow(clippy::too_many_arguments)]
 fn solve_with_py_generator(
     py: Python<'_>,
@@ -2192,12 +2337,9 @@ fn solve_with_py_generator(
     log_dir: Option<&str>,
     init_kind: &str,
     replacer_kind: &str,
+    initializer: Option<Py<PyAny>>,
+    algo_name: Option<&str>,
 ) -> PyResult<Py<PyDict>> {
-    if log_dir.is_some() {
-        return Err(PyValueError::new_err(
-            "log_dir is not currently supported for solve_with_py_generator"));
-    }
-
     let mut reg = registry();
     reg.register_generator("py/generator", move |_params| {
         Python::with_gil(|py| {
@@ -2205,10 +2347,25 @@ fn solve_with_py_generator(
         })
     });
 
+    // RULING A: see this function's own doc -- `initializer` given forces
+    // "py/initializer" regardless of `init_kind`; `initializer` absent
+    // (the default) leaves `init_kind` in full, unchanged control, exactly
+    // reproducing Task 2's own pure-Rust-default behavior.
+    let init_kind_for_spec: String = if let Some(init_cb) = initializer {
+        reg.register_initializer("py/initializer", move |_params| {
+            Python::with_gil(|py| {
+                Ok(Box::new(PyInitializer { callback: init_cb.clone_ref(py) }) as Box<dyn Initializer>)
+            })
+        });
+        "py/initializer".to_string()
+    } else {
+        init_kind.to_string()
+    };
+
     let spec = AlgorithmSpec {
         name: "py/generator".into(),
         pop_size,
-        init: ComponentSpec { kind: init_kind.into(), params: serde_json::json!({}) },
+        init: ComponentSpec { kind: init_kind_for_spec, params: serde_json::json!({}) },
         boundary: ComponentSpec { kind: "boundary/clamp".into(), params: serde_json::json!({}) },
         stages: vec![StageSpec {
             generator: ComponentSpec { kind: "py/generator".into(), params: serde_json::json!({}) },
@@ -2224,38 +2381,101 @@ fn solve_with_py_generator(
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
     let cfg = RunConfig { master_seed, run_id };
 
-    let result = run_with_bridge(py, || {
-        let r = match &problem.inner {
-            Inner::Bbob(p) => engine.run(p, cfg, None),
-            Inner::Cec2022(p) => engine.run(p, cfg, None),
-            Inner::Cec2014(p) => engine.run(p, cfg, None),
-            Inner::Cec2017(p) => engine.run(p, cfg, None),
-            Inner::Tsp(p) => engine.run(p, cfg, None),
-            Inner::OneMax(p) => engine.run(p, cfg, None),
-            Inner::IntQuadratic(p) => engine.run(p, cfg, None),
-            Inner::CatMatch(p) => engine.run(p, cfg, None),
-            Inner::Mixed(p) => engine.run(p, cfg, None),
-            Inner::Callable { f, space, vectorized } => {
-                let cp = CallableProblem { f, space, vectorized: *vectorized };
-                engine.run(&cp, cfg, None)
+    // RULING B: log_dir wiring, mirroring solve()'s own per-variant
+    // IohLogger sequence exactly (see this function's own doc) -- only for
+    // the same four loggable problem families solve() itself supports.
+    let (result, skipped_empty_runs_opt) = if let Some(dir) = log_dir {
+        let name = algo_name.unwrap_or(&spec.name).to_string();
+        match &problem.inner {
+            Inner::Bbob(p) => {
+                let mut lg = IohLogger::new(Path::new(dir), &name,
+                    SUITE_BBOB, p.fid(), p.name(), p.space().dim());
+                let obs = lg.start_run_with(p.instance, master_seed, p.f_opt(), budget);
+                let r = run_with_bridge(py, || {
+                    engine.run(p, cfg, Some(Box::new(obs)))
+                        .map_err(|e| PyValueError::new_err(e.to_string()))
+                })?;
+                let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                (r, Some(fin.skipped_empty_runs as u64))
             }
-            Inner::CallableSpaced { f, space, vectorized, .. } => {
-                let cp = SpacedCallableProblem { f, space, vectorized: *vectorized };
-                engine.run(&cp, cfg, None)
+            Inner::Cec2022(p) => {
+                let scenario_name = format!("cec2022-f{}", p.fid());
+                let mut lg = IohLogger::new(Path::new(dir), &name,
+                    "sezgi-cec2022", p.fid(), &scenario_name, p.space().dim());
+                let obs = lg.start_run_with(1, master_seed, p.f_star(), budget);
+                let r = run_with_bridge(py, || {
+                    engine.run(p, cfg, Some(Box::new(obs)))
+                        .map_err(|e| PyValueError::new_err(e.to_string()))
+                })?;
+                let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                (r, Some(fin.skipped_empty_runs as u64))
             }
-            Inner::F0 { dim, seed, .. } => {
-                let p = F0Random::new(*dim, *seed);
-                engine.run(&p, cfg, None)
+            Inner::Cec2014(p) => {
+                let scenario_name = format!("cec2014-f{}", p.fid());
+                let mut lg = IohLogger::new(Path::new(dir), &name,
+                    "sezgi-cec2014", p.fid(), &scenario_name, p.space().dim());
+                let obs = lg.start_run_with(1, master_seed, p.f_star(), budget);
+                let r = run_with_bridge(py, || {
+                    engine.run(p, cfg, Some(Box::new(obs)))
+                        .map_err(|e| PyValueError::new_err(e.to_string()))
+                })?;
+                let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                (r, Some(fin.skipped_empty_runs as u64))
             }
-        };
-        r.map_err(|e| PyValueError::new_err(e.to_string()))
-    })?;
+            Inner::Cec2017(p) => {
+                let scenario_name = format!("cec2017-f{}", p.fid());
+                let mut lg = IohLogger::new(Path::new(dir), &name,
+                    "sezgi-cec2017", p.fid(), &scenario_name, p.space().dim());
+                let obs = lg.start_run_with(1, master_seed, p.f_star(), budget);
+                let r = run_with_bridge(py, || {
+                    engine.run(p, cfg, Some(Box::new(obs)))
+                        .map_err(|e| PyValueError::new_err(e.to_string()))
+                })?;
+                let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                (r, Some(fin.skipped_empty_runs as u64))
+            }
+            _ => return Err(PyValueError::new_err(
+                "log_dir is only supported for bbob/cec2022/cec2014/cec2017 problems \
+                 for solve_with_py_generator (mirrors solve()'s own IOH-logging support)")),
+        }
+    } else {
+        let r = run_with_bridge(py, || {
+            let r = match &problem.inner {
+                Inner::Bbob(p) => engine.run(p, cfg, None),
+                Inner::Cec2022(p) => engine.run(p, cfg, None),
+                Inner::Cec2014(p) => engine.run(p, cfg, None),
+                Inner::Cec2017(p) => engine.run(p, cfg, None),
+                Inner::Tsp(p) => engine.run(p, cfg, None),
+                Inner::OneMax(p) => engine.run(p, cfg, None),
+                Inner::IntQuadratic(p) => engine.run(p, cfg, None),
+                Inner::CatMatch(p) => engine.run(p, cfg, None),
+                Inner::Mixed(p) => engine.run(p, cfg, None),
+                Inner::Callable { f, space, vectorized } => {
+                    let cp = CallableProblem { f, space, vectorized: *vectorized };
+                    engine.run(&cp, cfg, None)
+                }
+                Inner::CallableSpaced { f, space, vectorized, .. } => {
+                    let cp = SpacedCallableProblem { f, space, vectorized: *vectorized };
+                    engine.run(&cp, cfg, None)
+                }
+                Inner::F0 { dim, seed, .. } => {
+                    let p = F0Random::new(*dim, *seed);
+                    engine.run(&p, cfg, None)
+                }
+            };
+            r.map_err(|e| PyValueError::new_err(e.to_string()))
+        })?;
+        (r, None)
+    };
 
     let d = PyDict::new(py);
     d.set_item("best_f", result.best_f)?;
     d.set_item("best_x", best_x_to_py(py, &result.best_x)?)?;
     d.set_item("evals_used", result.evals_used)?;
     d.set_item("iterations", result.iterations)?;
+    if let Some(skipped) = skipped_empty_runs_opt {
+        d.set_item("skipped_empty_runs", skipped)?;
+    }
     Ok(d.into())
 }
 

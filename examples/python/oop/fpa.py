@@ -1,7 +1,7 @@
 """OOP twin of examples/python/fpa.py -- same math, same RNG draw order.
 
 Port of the pure-Python Flower Pollination Algorithm script onto
-sezgi.Algorithm. The pure script (and the Rust module doc it cites) remains
+sezgi.AskTellAlgorithm. The pure script (and the Rust module doc it cites) remains
 the provenance for the update equations, including the two verified
 deltas (the `u > p` GLOBAL-branch orientation and the local branch's j/k
 distinct-from-each-other-only indices); this file re-derives NOTHING and
@@ -73,7 +73,7 @@ def clamp(x, lo, hi):
     return lo if x < lo else hi if x > hi else x
 
 
-class Fpa(sezgi.Algorithm):
+class Fpa(sezgi.AskTellAlgorithm):
     name = "fpa"
 
     def setup(self, ctx):

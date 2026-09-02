@@ -1,16 +1,19 @@
-"""M3-4 Task 2: sezgi.Algorithm ABC, AlgoContext, and the setup/step driver.
+"""M3-4 Task 2: sezgi.AskTellAlgorithm ABC (renamed from sezgi.Algorithm,
+M4-1 Task 3 -- see sezgi/algo.py's own docstring note), AlgoContext, and the
+setup/step driver.
 
 Exercises the pure-Python algorithm-authoring surface over T1's generalized
-EvalSession ask/tell core: subclass sezgi.Algorithm, implement setup()/step(),
-call solve(). RandomSearch below is the reference toy subclass used
-throughout (and by later M3-4 tasks porting real algorithms onto this ABC).
+EvalSession ask/tell core: subclass sezgi.AskTellAlgorithm, implement
+setup()/step(), call solve(). RandomSearch below is the reference toy
+subclass used throughout (and by later M3-4 tasks porting real algorithms
+onto this ABC).
 """
 import pytest
 import sezgi
 from sezgi.algo import AlgoContext, BudgetExhausted, SolveResult
 
 
-class RandomSearch(sezgi.Algorithm):
+class RandomSearch(sezgi.AskTellAlgorithm):
     """Uniform random search: one batch of `batch` points per step."""
     def __init__(self, batch=10):
         self.batch = batch
@@ -54,7 +57,7 @@ def test_partial_final_batch_stops_cleanly():
     assert res.evals_used == 90
 
 def test_no_progress_step_raises():
-    class Lazy(sezgi.Algorithm):
+    class Lazy(sezgi.AskTellAlgorithm):
         def setup(self, ctx): ctx.evaluate([ctx.random_point()])
         def step(self, ctx): pass  # consumes nothing
     with pytest.raises(RuntimeError, match="consumed no budget"):
@@ -66,7 +69,7 @@ def test_solve_error_path_still_finishes_ioh_archive(tmp_path):
     archive. Reuses the no-progress RuntimeError guard as the error path,
     but with log_dir set -- the setup() eval is already logged before
     step() triggers the guard, so a *.dat file must exist afterward."""
-    class Lazy(sezgi.Algorithm):
+    class Lazy(sezgi.AskTellAlgorithm):
         def setup(self, ctx): ctx.evaluate([ctx.random_point()])
         def step(self, ctx): pass  # consumes nothing -> RuntimeError
     with pytest.raises(RuntimeError, match="consumed no budget"):
@@ -75,7 +78,7 @@ def test_solve_error_path_still_finishes_ioh_archive(tmp_path):
     assert any(tmp_path.rglob("*.dat")), "IOH archive lost on the error path"
 
 def test_setup_alone_never_evaluating_raises():
-    class Never(sezgi.Algorithm):
+    class Never(sezgi.AskTellAlgorithm):
         def setup(self, ctx): pass
         def step(self, ctx): pass
     with pytest.raises(RuntimeError):
@@ -83,7 +86,7 @@ def test_setup_alone_never_evaluating_raises():
 
 def test_ctx_surface():
     seen = {}
-    class Probe(sezgi.Algorithm):
+    class Probe(sezgi.AskTellAlgorithm):
         def setup(self, ctx):
             seen["dim"], seen["bounds"] = ctx.dim, ctx.bounds
             seen["budget"] = ctx.budget
@@ -107,7 +110,7 @@ def test_custom_name_and_log_dir(tmp_path):
 
 def test_abstract_methods_enforced():
     with pytest.raises(TypeError):
-        sezgi.Algorithm()  # abstract
+        sezgi.AskTellAlgorithm()  # abstract
 
 
 def test_bbob_records_shape_and_mixing():
@@ -133,7 +136,7 @@ def test_bbob_records_shape_and_mixing():
     # Two behaviorally identical algorithms produce all-zero per-problem differences,
     # which per_budget_packages rejects (n_effective = 0). The second algorithm
     # must therefore genuinely differ in search behavior.
-    class HillClimber(sezgi.Algorithm):
+    class HillClimber(sezgi.AskTellAlgorithm):
         """Simple local-perturbation hill-climber: evaluate a random point,
         then iteratively perturb the best point found so far."""
         name = "hillclimber"
@@ -277,7 +280,7 @@ def test_no_collision_bbob_vs_cec2022_same_fid(tmp_path):
     # the M3-4 final review's exact collision scenario as a regression test:
     # one BBOB f1 d10 run and one cec2022 f1 d10 run, same algo/seed/budget,
     # logged into the same tree; read back and build the matrix.
-    class RS(sezgi.Algorithm):
+    class RS(sezgi.AskTellAlgorithm):
         def setup(self, ctx): ctx.evaluate([ctx.random_point() for _ in range(10)])
         def step(self, ctx): ctx.evaluate([ctx.random_point() for _ in range(10)])
     RS().solve(sezgi.bbob(1, 10, 1), budget=30, seed=1, log_dir=str(tmp_path))
