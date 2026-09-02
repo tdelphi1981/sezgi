@@ -19,7 +19,9 @@ Covers the brief's own pinned test list:
     best_x) at the same seed, for ga_real, de_rand_1, pso, and hho (a
     fourth representative beyond the brief's pinned three) -- proves the
     wrapper adds nothing over the compat internals it calls.
-(d) NSGA2 class == mo.nsga2 direct-call equivalence on one seeded run.
+(d) NSGA2 class == mo.nsga2 direct-call equivalence on one seeded run,
+    including a WFG-specific anchor (fix round 1) proving k/l flow through
+    the wrapper unchanged.
 """
 import pytest
 import sezgi
@@ -322,3 +324,26 @@ def test_nsga2_class_equals_mo_nsga2_with_defaults():
     wrapper_result = n.run("dtlz2", 5, 40, m=3, seed=2)
     direct_result = sezgi.mo.nsga2("dtlz2", 5, 8, 40, m=3, seed=2)
     assert wrapper_result == direct_result
+
+
+def test_nsga2_class_equals_mo_nsga2_on_wfg_with_explicit_k_l():
+    """WFG-specific anchor (fix round 1, coordinator review): zdt1/dtlz2
+    above never exercise k/l (both REJECTED for zdt/dtlz per mo.nsga2's
+    own doc -- only wfg1-9 accept them, dim itself must be None, derived
+    from k+l). Uses non-default k/l (6, 10) rather than the toolkit's own
+    recommended defaults (k=4 for m=2, l=20) so this test cannot pass by
+    coincidentally ignoring them."""
+    n = sezgi.NSGA2(pop_size=8)
+    wrapper_result = n.run("wfg1", None, 40, m=2, seed=3, k=6, l=10)
+    direct_result = sezgi.mo.nsga2("wfg1", None, 8, 40, m=2, seed=3, k=6, l=10)
+    assert wrapper_result == direct_result
+
+
+def test_nsga2_wfg_k_l_actually_change_the_result():
+    """Proves k/l genuinely flow through the wrapper into the run (not
+    silently dropped): the SAME seed with different k/l must NOT produce
+    the same objectives."""
+    n = sezgi.NSGA2(pop_size=8)
+    result_a = n.run("wfg1", None, 40, m=2, seed=3, k=6, l=10)
+    result_b = n.run("wfg1", None, 40, m=2, seed=3, k=4, l=20)
+    assert result_a["objectives"] != result_b["objectives"]
