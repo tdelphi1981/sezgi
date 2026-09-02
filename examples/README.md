@@ -454,3 +454,46 @@ assertion or printed number affected. `tsp_two_opt.py`'s own output
 `README.md`'s "Write your own algorithm, ask/tell style (Python)" and
 "Typed operators, mixed spaces, and diagnostic problems (M3-8)" sections)
 is unchanged.
+
+## Class-first authoring + a data recipe (R) (M4-2)
+
+Three more worked examples, the R twins of the three above, over the NEW
+engine-hosted class-first surface (`sezgi::Algorithm`/`PopulationAlgorithm`/
+`LocalSearch`, R6 classes — NOT the `sz_algorithm`/`sz_algo_solve` ask/tell
+surface the "R authoring example (M3-5)" section above uses) plus one data
+recipe. See the main `README.md`'s "Author your own algorithm (R,
+class-first)" and "Data recipes: feature selection (R)" sections for the
+full walkthroughs.
+
+| Example | Base | Files | What it demonstrates |
+|---|---|---|---|
+| DE/rand/1-shaped mutation | `PopulationAlgorithm` (overrides only `vary()`) | `r/oop/custom_de_variant.R` | A `vary()` override producing DE/rand/1-shaped offspring (`r1 + F*(r2-r3)`, `F=0.5`, three independent donor draws per offspring slot via `ctx$rng$next_below()`, no separate crossover step); the default `select()` (seeded binary tournament) is left in place. Runs on `sz_builtin_bbob(1, 10, 1)`. |
+| Perturbation local search | `LocalSearch` (overrides only `neighbor()`) | `r/oop/custom_local_search.R` | A per-coordinate uniform-perturbation `neighbor()` override (`[-0.3, 0.3]` via `ctx$rng$next_f64()`); the default `accept()` (greedy) is left in place, `pop_size = 1`. Runs on `sz_builtin_bbob(1, 10, 1)`. |
+| Feature selection | `Problem` subclass (`FeatureSelection`) + `GeneticAlgorithm` Binary auto-dispatch | `r/oop/feature_selection.R` | A binary-mask feature-selection objective (`scorer(X[, mask, drop = FALSE], y) + penalty*popcount/n_features`) recovering a known 3-column informative subset from a fixed synthetic 20x8 dataset (an OLS-residual-sum-of-squares `scorer`, pure base R, no external package), via `GeneticAlgorithm`'s Binary space-kind auto-dispatch — no manual preset choice. The dataset is an INDEPENDENT R derivation (`set.seed()`/`rnorm()`), not the Python twin's own numpy fixture, so its `best_f` differs from `feature_selection.py`'s. |
+
+Like `tsp_two_opt.R` above, `custom_de_variant.R`/`custom_local_search.R`
+sit OUTSIDE the 17-pair OOP-twin parity gate (no pure-script counterpart
+exists to reproduce) — each gets its own anchored `stopifnot()` at the end
+of the script; `feature_selection.R` is gated by
+`r-sezgi/tests/testthat/test-oop-recipes.R` (including a full `2^8 =
+256`-mask brute-force cross-check that the recovered mask is the unique
+global minimum) and its own `stopifnot(recovered)`.
+
+Run:
+
+    Rscript examples/r/oop/custom_de_variant.R
+    Rscript examples/r/oop/custom_local_search.R
+    Rscript examples/r/oop/feature_selection.R
+
+Live output (measured by running all three scripts from the repo root,
+against the INSTALLED package):
+
+    custom_de_variant (oop): evals_used=2000 best_f=-59.3946
+    custom_local_search (oop): evals_used=2000 best_f=-84.3232
+    feature_selection (oop): evals_used=200 best_f=0.6562182758 popcount=3 mask=01010010 recovered=TRUE
+
+**`gwo.R`/`tsp_two_opt.R` above are unaffected by M4-2** — they exercise
+the SEPARATE, unchanged `sz_algorithm`/`sz_algo_solve` ask/tell surface
+(M4-2 ruling 5: no rename, no name collision to resolve, unlike Python's
+`AskTellAlgorithm` rename). No existing R example's printed numbers
+changed this milestone.

@@ -227,9 +227,12 @@ directly when you need:
   Anytime analysis, Bias scanning, Multi-objective, CEC suites, TSP,
   Typed operators) is written against `solve()`/`presets.*` directly,
   unchanged by this milestone.
-- **R** — the class-first surface documented above is Python-only this
-  milestone; R keeps `sz_solve_*`/`sz_preset_*`/`sz_algorithm` (see
-  "Quickstart (R)" and "Write your own algorithm (R) (M3-5)" below).
+- **R spec files** — R has its own mirror of this class-first surface
+  (M4-2 — see "Author your own algorithm (R, class-first)" below), built
+  over the SAME `sz_solve_*`/`sz_preset_*` compat internals; `sz_solve_*`/
+  `sz_preset_*`/`sz_algorithm` remain R's own persistable-spec path (see
+  "Internals & spec files (R)" and "Write your own algorithm (R) (M3-5)"
+  below).
 
 `solve()`/`presets.*` are not deprecated and are not scheduled for removal
 — they stay compat internals for spec files, benchmarking, and R, per
@@ -386,6 +389,274 @@ same spec and seed):
 
 `sz_results_matrix(records, budget)` is available separately if you need
 just the `(algo_names, problem_labels, matrix)` triple for one budget.
+
+R also has a class-first surface now (M4-2, mirroring Python's — see
+"Author your own algorithm (R, class-first)" below): every preset has a
+configurable R6 class, and `sezgi::Problem`/`sezgi::Algorithm` are
+subclassable bases. `sz_solve_*`/`sz_preset_*`/`sz_algorithm` above remain
+fully supported — see "Internals & spec files (R)" further down.
+
+## Author your own algorithm (R, class-first) (M4-2)
+
+Subclass `sezgi::Algorithm` (an R6 base, via `R6::R6Class(..., inherit =
+Algorithm, ...)`) and override `generate(pop, ctx)` — like Python's
+`sezgi.Algorithm`, it runs INSIDE the Rust engine loop as a real
+`Generator` component (an R closure captured into the per-call component
+registry, not an R-owned loop): the engine still owns the budget, boundary
+repair, evaluation, and logging. `pop` is `list(x, f)`: `f` is the current
+population's fitness (a numeric vector); `x` is an n×dim numeric **matrix**
+(rows = individuals) for a single-Float-block space — the common,
+ergonomic case — and falls back to a plain `list` of per-individual values
+(the same bare/list convention `Problem$evaluate(x)` uses) for every other
+space shape. **This `pop$x`-is-a-matrix convenience is a deliberate
+R-idiomatic divergence from Python's `PopView`, which is always a plain
+list** — see `r-sezgi/R/algorithm.R`'s own class doc for the exact rule.
+`ctx$rng` (`next_f64()`, `next_below(n)`, `split(child_id)`) draws from the
+SAME house `RngStream` a Rust generator would use, so an R-authored
+algorithm is exactly as reproducible as a built-in one — same seed,
+byte-identical run. `generate` is the only required hook;
+`initialize_population`/`validate_space` are optional (default: the
+engine's own `init/uniform`, no build-time veto):
+
+    library(sezgi)
+
+    RandomMutation <- R6::R6Class("RandomMutation",
+      inherit = Algorithm,
+      public = list(
+        generate = function(pop, ctx) {
+          n <- nrow(pop$x); d <- ncol(pop$x)
+          out <- pop$x
+          for (i in seq_len(n)) {
+            j <- ctx$rng$next_below(as.double(d)) + 1
+            out[i, j] <- out[i, j] + ctx$rng$next_f64() - 0.5
+          }
+          out
+        }
+      )
+    )
+
+    result <- RandomMutation$new()$run(sz_builtin_bbob(1, 5, 1),
+                                        budget = 2000, seed = 42, pop_size = 20)
+    cat(sprintf("evals_used=%d best_f=%.6g\n", result$evals_used, result$best_f))
+
+Output (live-run):
+
+    evals_used=2000 best_f=-125.949
+
+**Naming divergence (RULING 8):** the population-initializer hook is
+`initialize_population(n, space, ctx)`, **not** `initialize` — R6 reserves
+`$initialize` for the constructor, so Python's `initialize(n, ctx)` hook
+name cannot be reused here. This is a deliberate, documented divergence
+from the Python surface, not an oversight.
+
+`sezgi::PopulationAlgorithm` (adds `select(pop, k, ctx)`/`vary(parents,
+ctx)`, default `select` a seeded binary tournament) and
+`sezgi::LocalSearch` (adds `neighbor(x, ctx)`/`accept(f_old, f_new, ctx)`,
+default `accept` greedy, runs at `pop_size = 1`) are two family bases over
+the same `Algorithm`, mirroring Python's identical two bases (same
+pymoo/jMetal-modeled hook taxonomy — see `docs/DECISIONS.md`'s M4-1
+record for the attribution). `examples/r/oop/custom_de_variant.R`
+overrides only `vary()` on `PopulationAlgorithm`; `examples/r/oop/
+custom_local_search.R` overrides only `neighbor()` on `LocalSearch`. Like
+Python, **`LocalSearch$accept()` cannot express true SA-style "sometimes
+accept a worse move"** — the default `replace/mu-plus-lambda` replacer has
+already filtered out any worse candidate before R ever sees the population
+again at `pop_size = 1`; see `r-sezgi/R/algorithm.R`'s own class doc
+("ACCEPT() DESIGN") for the full structural argument.
+
+**`log_dir` is honestly rejected, not silently ignored.** Unlike Python
+(where `Algorithm.run(..., log_dir=...)` wires IOH logging through),
+r-sezgi's engine-hosted generator bridge (`sz_solve_r_generator`/
+`sz_solve_r_generator_bbob`) has no `log_dir` parameter at all — there is
+no R-side logging path to wire `run()`'s own `log_dir` through this
+milestone. A non-`NULL` `log_dir` raises a clear error naming the gap
+rather than being silently swallowed.
+
+**Only one built-in problem descriptor exists: `sz_builtin_bbob(fid, dim,
+instance = 1)`.** r-sezgi has no general native-problem-handle type the
+way Python's `as_native_problem()` does, so `Algorithm$run()`'s `problem`
+argument is EITHER an `sz_builtin_bbob()` descriptor OR a `Problem`
+subclass instance (see "Define your own problem" below) — no
+CEC2014/CEC2017/CEC2022/TSP/onemax native form exists for the class
+surface. **`sz_builtin_bbob()` also has no known-optimum accessor**, so
+`f_opt`/`gap` on the returned `sz_result` are always `NULL` for that path
+(`gap` was omitted from the example above for exactly this reason) —
+unlike Python's `sezgi.bbob(...)`, which does carry a known optimum. A
+`Problem` subclass's own `optimum()` is used for `f_opt`/`gap` on the
+other path.
+
+Spec persistence is deliberately absent on this path, same as Python: an
+R-authored algorithm is a live callback captured per-call by the Rust
+component registry — process-local, with no wire format
+`AlgorithmSpec::to_toml()`/`to_json()` can express. `sz_solve_*`/
+`sz_preset_*`/`sz_algorithm` remain the only path that produces a
+persistable, shareable spec file (see "Internals & spec files (R)" below).
+
+## Data recipes: feature selection (R) (M4-2)
+
+`FeatureSelection$new(X, y, scorer, penalty = 0)` (an R6 class, inherits
+`Problem`) mirrors `sezgi.recipes.FeatureSelection` exactly: `space()` is
+`sz_binary(ncol(X))`, `evaluate(mask)` is `scorer(X[, mask, drop = FALSE],
+y) + penalty * (popcount / n_features)` (minimize; an empty mask returns
+`Inf` without ever calling `scorer`). Data enters through the objective —
+no ML framework dependency; `scorer` is any function `(X_sub, y) ->
+numeric(1)`. Paired with `GeneticAlgorithm`'s Binary auto-dispatch, this
+recovers a known informative-column subset from a synthetic dataset
+(`examples/r/oop/feature_selection.R`: an independently-derived — not
+copied from the Python twin's own seed/columns — fixed 20×8 matrix, 3
+informative columns, an OLS-residual-sum-of-squares scorer, `penalty =
+0.3`):
+
+    Rscript examples/r/oop/feature_selection.R
+
+Output (live-run):
+
+    feature_selection (oop): evals_used=200 best_f=0.6562182758 popcount=3 mask=01010010 recovered=TRUE
+
+`mask=01010010` sets exactly bits 2, 4, 7 (1-based R column indices) — the
+dataset's own informative columns; `recovered=TRUE` confirms the search
+found the unique global minimum (independently cross-checked by a full
+256-mask brute-force enumeration in `r-sezgi/tests/testthat/
+test-oop-recipes.R`). `best_f` differs from the Python twin's own number —
+the two datasets are independent derivations (base-R `rnorm()` vs. numpy),
+not a shared fixture, so no cross-language numeric anchor is claimed here.
+
+`MixedTuning$new(space, objective)` is the general-purpose sibling — a
+one-line `Problem` binding an arbitrary objective over an arbitrary
+declared space. A single-kind (e.g. Float-only) space runs through
+`GeneticAlgorithm`'s own auto-dispatch directly; a genuinely **Mixed**
+space (more than one distinct block kind) has no `ga_*` preset to
+dispatch to, so it needs a hand-built `gen/compound` spec passed to
+`sezgi:::sz_solve_r_problem()` directly — the same workaround
+`GeneticAlgorithm` itself needs (see "Built-in algorithm classes (R)"
+below). **`sz_solve_r_problem()`'s `spec_json` parameter accepts JSON
+only** (not TOML) — this is specific to that one entry point, not a
+statement about R generally: `sz_solve_mixed_diagnostic` (M3-8) is a
+pre-existing TOML-accepting export elsewhere in r-sezgi. The hand-built
+spec for a Mixed `MixedTuning` run is therefore written as an equivalent
+JSON literal, not TOML.
+
+## Define your own problem: Problem subclassing (R) (M4-2)
+
+`sezgi::Problem` is an R6 base over the new R-callable problem bridge
+(`sz_solve_r_problem`, closing the long-standing "R callable-objective
+sessions" deferral — see `docs/DECISIONS.md`'s M4-2 record): subclass it
+and override `evaluate(x)` and `space()` (both required — the defaults
+`stop()` with a "not implemented" message); `optimum()` (default `NULL`)
+and `batch_evaluate(xs)` (default: loop `evaluate`, called ONCE PER
+GENERATION with the whole population, mirroring Python's own vectorized
+default) are optional. `space()` returns one of five block builders, or an
+`sz_space(...)` composing several of them:
+
+| Builder | Block kind | `x` type passed to `evaluate` |
+|---|---|---|
+| `sz_float(lo, hi, n)` | Float | numeric (double) vector |
+| `sz_int(lo, hi, n)` | Int | integer vector |
+| `sz_categorical(k, n)` | Categorical | integer vector (category indices `0..k`, not labels) |
+| `sz_binary(n)` | Binary | logical vector |
+| `sz_permutation(n)` | Permutation | integer vector, **0-based** (not R's usual 1-based convention) |
+
+A single-block space passes `x` bare (that block's own value); a
+multi-block `sz_space(...)` passes `x` as an (unnamed) `list` of per-block
+values, in declared order — the same convention `Algorithm$generate`'s
+`pop$x` (list form) uses. `sz_as_problem(obj)` gives a friendly error for
+a non-`Problem` argument; unlike Python's `as_native_problem()`, r-sezgi
+has no separate native-problem-handle type to convert to, so a `Problem`
+subclass instance already IS what the bridge needs:
+
+    library(sezgi)
+
+    Sphere <- R6::R6Class("Sphere",
+      inherit = Problem,
+      public = list(
+        n = 3,
+        space = function() sz_space(sz_float(-5, 5, self$n)),
+        evaluate = function(x) sum(x^2)
+      )
+    )
+
+    result <- GeneticAlgorithm$new(pop_size = 20)$run(Sphere$new(), budget = 500, seed = 1)
+    cat(sprintf("evals_used=%d best_f=%.6g\n", result$evals_used, result$best_f))
+
+Output (live-run):
+
+    evals_used=500 best_f=0.005517
+
+## Built-in algorithm classes (R) (M4-2)
+
+Every preset in `presets.rs` also has a configurable R6 class:
+`$new(pop_size = ..., ...)` (the preset's own kwargs pass through
+unchanged), `$run(problem, budget, seed = 0, run_id = 0) -> sz_result` —
+proven bit-identical to the equivalent `sz_solve_bbob(sz_preset_X(...),
+...)`/`sz_solve_r_problem(sz_preset_X(...), ...)` call at the same seed
+(the wrapper adds nothing; it is a class SKIN, not a new algorithm), and
+returns the SAME 8-field `sz_result` shape (`algo, seed, budget,
+evals_used, best_x, best_f, f_opt, gap`) `Algorithm$run()` and
+`sz_algo_solve()` both return:
+
+| Class | Preset(s) |
+|---|---|
+| `GeneticAlgorithm` | `ga_real`/`ga_perm`/`ga_bin`/`ga_int`/`ga_cat` (space-kind auto-dispatch; `representation=` overrides) |
+| `DifferentialEvolution` | `de_rand_1`/`de_best_1`/`jde` (`variant=`) |
+| `EvolutionStrategy`, `ParticleSwarm`, `SimulatedAnnealing`, `SHADE`, `LSHADE`, `CMAES`, `CMAESIpop`, `NelderMead`, `RandomSearch` | one preset each |
+| `GreyWolfOptimizer`, `WhaleOptimization`, `HarmonySearch`, `CuckooSearch`, `GrasshopperOptimization`, `SineCosineAlgorithm`, `JAYA`, `MothFlameOptimization`, `SalpSwarm`, `FireflyAlgorithm`, `BatAlgorithm`, `FlowerPollination`, `TLBO`, `HarrisHawks`, `AntLion`, `ArtificialBeeColony`, `GravitationalSearch` | one preset each (all 17 labeled-metaphor algorithms) |
+| `NSGA2` | `sz_nsga2()` — **run-only, no `generate()` override point** (MO authoring is out of scope this milestone) |
+
+29 exported classes total (26 table-driven + `GeneticAlgorithm` +
+`DifferentialEvolution` = 28 preset-backed, plus the run-only `NSGA2`
+skin), reconciling all 34 exported `sz_preset_*` builders with zero
+skipped and zero orphans — live-verified (`length(sezgi:::.sz_preset_table)
+== 26`, `getNamespaceExports("sezgi")` filtered to `sz_preset_*` == 34).
+`GeneticAlgorithm` auto-dispatches on the problem's space kind
+(Float/Permutation/Binary/Int/Categorical); a genuinely **Mixed space is
+rejected** with a clear error naming the limitation —
+`representation=` forces a single-kind preset instead of introspecting the
+space. `NSGA2$new(pop_size = ..., ...)$run(problem, dim, budget, m = ...,
+k = ..., l = ..., ...)` delegates to `sz_nsga2()` VERBATIM and returns
+`sz_nsga2()`'s own list shape (`individuals`/`objectives`/`front0`/
+`evals_used`), **NOT** `sz_result` — a Pareto front has no single "best
+point" for `sz_result`'s fields to describe.
+
+**Problem-form support matrix, honestly stated: BBOB-only natively.**
+Every class in this family accepts EITHER a `Problem` subclass instance
+(routed through `sz_solve_r_problem()`) OR an `sz_builtin_bbob()`
+descriptor (routed through `sz_solve_bbob()`) — the SAME two forms
+`Algorithm$run()` accepts above. **28 of these 29 classes (everything
+except `NSGA2`, which takes `sz_nsga2()`'s own problem-name strings) reach
+only BBOB natively** — there is no CEC2014/CEC2017/CEC2022/TSP/onemax
+native-descriptor path for this class family; a `Problem` subclass
+wrapping one of those suites' own `sz_solve_*`/`sz_eval_session_*`
+functions is the workaround. r-sezgi has no general native-problem-handle
+type at all (unlike Python's `as_native_problem()`), so this scope is
+narrower than the Python surface's own `sezgi.bbob(...)`/
+`sezgi.problems.onemax(...)`/etc. built-in family:
+
+    library(sezgi)
+
+    result <- GreyWolfOptimizer$new(pop_size = 30)$run(
+      sz_builtin_bbob(fid = 1, dim = 10, instance = 1), budget = 4000, seed = 7)
+    cat(sprintf("evals_used=%d best_f=%.6g\n", result$evals_used, result$best_f))
+
+Output (live-run):
+
+    evals_used=3990 best_f=-84.342
+
+## Internals & spec files (R): sz_solve_*/sz_preset_*/sz_algorithm (compat, extended M4-2)
+
+Every class above is a skin over `sz_solve_*`/`sz_preset_*`, still fully
+supported and unchanged — reach for them directly (or for
+`sz_algorithm()`/`sz_algo_solve()`, the SEPARATE ask/tell scripting
+surface, see "Write your own algorithm (R) (M3-5)" below) when you need a
+**spec file** (TOML/JSON) to save, diff, or hand-author component by
+component (see "Typed operators, mixed spaces, and diagnostic problems
+(M3-8)" above for a `gen/compound` mixed-space example) — an R-authored
+`Algorithm`/`Problem` subclass has no such spec, exactly like Python's
+class surface (see "Author your own algorithm (R, class-first)" above).
+`sz_run_experiment`, IOH logging, `sz_per_budget_packages`, bias scanning
+(every section below this one) all consume a spec/preset, not a class
+instance, and are entirely unaffected by this milestone. All 86
+pre-existing exports keep their names and behavior unchanged (M4-2 ruling
+5) — nothing here is deprecated or scheduled for removal.
 
 ## Bias scanning (M3-1)
 
@@ -1035,12 +1306,19 @@ longer silently merge into one `results_matrix` cell.
 ## Write your own algorithm (R) (M3-5)
 
 `sz_algorithm(setup, step, name)`/`sz_algo_solve(algo, session, seed)` are
-the base-R mirror of `sezgi.AskTellAlgorithm` above (the Python ask/tell
-surface, renamed in M4-1 — see "Write your own algorithm, ask/tell style
-(Python)" above) — same driver semantics
-(`setup(ctx)` once, `step(ctx)` repeatedly until the budget is exhausted),
-expressed as two plain closures instead of a subclass, since this project
-stays base-R only (no R6/S4 — see the scope ruling below). `ctx` is an
+r-sezgi's **R-owned ask/tell scripting surface** — a SEPARATE, unchanged
+surface from the engine-hosted class-first `sezgi::Algorithm` above (M4-2
+ruling 5): unlike Python (which had to rename its own ask/tell ABC to
+`AskTellAlgorithm` to free up the `Algorithm` name), R had no name
+collision to begin with, so `sz_algorithm`/`sz_algo_solve` keep their
+original names and behavior, unchanged by M4-2. They mirror
+`sezgi.AskTellAlgorithm` above (the Python ask/tell surface, renamed in
+M4-1 — see "Write your own algorithm, ask/tell style (Python)" above) —
+same driver semantics (`setup(ctx)` once, `step(ctx)` repeatedly until the
+budget is exhausted), expressed as two plain closures instead of a
+subclass — this ask/tell surface itself is unaffected by M4-2's R6
+addition (see the scope ruling below for the class surface's own R6
+supersession). `ctx` is an
 `environment` of callables (`ctx$dim()`, `ctx$bounds()`,
 `ctx$random_point()`, `ctx$evaluate(points)`, `ctx$best()`, `ctx$f_opt()`,
 `ctx$evals_used()`, `ctx$budget()`, `ctx$remaining()`) — every member is a
@@ -1126,21 +1404,33 @@ both languages derive `random_permutation()` from the identical
 `evals_used=2000 best_f=9077 gap=1535 tour_length=9077` numbers, gated by a
 cross-language hex anchor (`r-sezgi/tests/testthat/test-tsp-two-opt.R`).
 
-**Scope rulings.** Base-R only (no R6/S4/other new dependency — CRAN
-posture); Float and Permutation problems (v1, widened from Float-only by
-M3-8) — Binary/Int/Categorical and mixed-typed problems have no ask/tell
-session type yet, matching `AskTellAlgorithm`/`AlgoContext`'s own scope
-above exactly. `sz_algorithm`/
+**Scope rulings.** This ask/tell surface itself stays base-R closures/
+environments (unchanged by M4-2 — no R6 involved anywhere in
+`sz_algorithm`/`sz_algo_solve`/`R/algo.R`); M3-5 scope ruling 4 ("R stays
+base-R, no R6") was SUPERSEDED for the class-first surface only (M4-2
+ruling 1, `Imports: R6 (>= 2.4.0)` — see `docs/DECISIONS.md`'s M4-2
+record), not for this ask/tell surface, which needed no class system to
+begin with and was not touched. Float and Permutation problems (v1,
+widened from Float-only by M3-8) — Binary/Int/Categorical and mixed-typed
+problems have no ask/tell session type yet, matching
+`AskTellAlgorithm`/`AlgoContext`'s own scope above exactly. `sz_algorithm`/
 `sz_algo_solve` port the pinned `examples/r/gwo.R` script onto this surface
 verbatim as `examples/r/oop/gwo.R` — the ONE worked twin proving the
 surface (not a full 17-algorithm R wave like `examples/python/oop/`'s —
 see `examples/README.md`'s "R authoring example (M3-5)" section and
 `docs/DECISIONS.md`'s M3-5 record for the draw-order analysis and gate).
-**R callable-objective sessions are deferred** (M3-5 scope ruling 5): an R
-researcher can evaluate their own R function directly, but a
-session-backed counting/logging path for an R callable (the R analogue of
-`sezgi.from_callable`) needs a savvy callback design not undertaken this
-milestone — on the v1.0 readiness checklist below.
+**R callable-objective sessions: NARROWED by M4-2, not closed** (M3-5
+scope ruling 5). M4-2 closed the "no engine-solve path for an R callable
+at all" half of this deferral: `sezgi::Problem` + `sz_solve_r_problem()`
+(above) let an R researcher's own function run INSIDE the Rust engine
+loop, per-generation batched, with full determinism. What is STILL open:
+a `Problem` subclass does not plug into `sz_algorithm`/`sz_algo_solve`'s
+own SESSION-backed ask/tell surface here — there is no
+`sz_eval_session`-style counting/logging session type for an arbitrary R
+callable, so an R-authored ask/tell algorithm (as opposed to an
+engine-hosted `Algorithm`/`PopulationAlgorithm`/`LocalSearch` subclass)
+still cannot evaluate its own R function through THIS surface. See
+`docs/DECISIONS.md`'s M4-2 record for the precise wording.
 
 ## Examples
 
@@ -1224,6 +1514,22 @@ its 18 `examples/python/oop/*.py` siblings) also now import
 printed numbers changed. See "Author your own algorithm (Python,
 class-first)" and "Data recipes: feature selection" above, and
 `examples/README.md`'s own catalog rows, for the full walkthroughs.
+
+`examples/r/oop/custom_de_variant.R` and `examples/r/oop/
+custom_local_search.R` (M4-2) are the R twins of the two Python examples
+above, over the NEW class-first `sezgi::Algorithm` family bases
+(`PopulationAlgorithm`/`LocalSearch`, not the `sz_algorithm`/
+`sz_algo_solve` ask/tell surface above): the same DE/rand/1-shaped
+`vary()` override and `neighbor()`-only local search, both on
+`sz_builtin_bbob(1, 10, 1)`. Like `tsp_two_opt.R`, both sit outside the
+17-pair OOP-twin parity gate (no pure-script counterpart), each gated by
+its own `stopifnot()` anchor. `examples/r/oop/feature_selection.R` (M4-2)
+demonstrates `FeatureSelection` recovering a known informative-column mask
+via `GeneticAlgorithm`'s Binary auto-dispatch, over an independently
+derived R dataset (not shared with the Python twin's own fixture). See
+"Author your own algorithm (R, class-first)" and "Data recipes: feature
+selection (R)" above, and `examples/README.md`'s own catalog rows, for the
+full walkthroughs.
 
 ## Development
 
