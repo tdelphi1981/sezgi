@@ -18,6 +18,14 @@
 # i.e. lexically inside the package) means its own enclosure IS the
 # package namespace, so any future free-variable lookup inside it would
 # resolve correctly regardless of where `Rf_eval` runs it from.
+#
+# Fix round 1 (controller review item 9): the shim is now a BATCH shim,
+# called ONCE PER GENERATION with the whole population, mirroring
+# py-sezgi's `Problem._to_native()` (`py-sezgi/python/sezgi/problem.py`),
+# which always builds `vectorized=True` and calls `self.batch_evaluate`
+# once per generation with the whole population -- it used to call
+# `prob$evaluate(x)` once per INDIVIDUAL, a real mirror gap against the
+# Python bridge this milestone is meant to match.
 
 #' @importFrom R6 R6Class
 NULL
@@ -47,6 +55,12 @@ NULL
 #' passed BARE. A multi-block space's `x` is an (unnamed) R `list` of
 #' per-block converted values, in `space()`'s own block order.
 #'
+#' `batch_evaluate(xs)`'s own `xs` is a `list` of `x` values (one per
+#' individual, each in the SAME per-`x` shape as `evaluate(x)`'s own `x`
+#' above), matching py-sezgi's `sezgi.Problem.batch_evaluate` input shape
+#' exactly (`py-sezgi/python/sezgi/problem.py`) -- the Python side is the
+#' authority for this shape, not an independent R design.
+#'
 #' Methods:
 #' \describe{
 #'   \item{`evaluate(x)`}{`x` -> a numeric scalar, the fitness/objective
@@ -58,6 +72,12 @@ NULL
 #'     "not implemented".}
 #'   \item{`optimum()`}{The problem's known optimum (a numeric scalar), or
 #'     `NULL` (the default) if it has none. Optional override.}
+#'   \item{`batch_evaluate(xs)`}{`xs` -> a numeric vector, one entry per
+#'     `x` in `xs`, in the SAME order (default: loop `self$evaluate`,
+#'     mirroring `sezgi.Problem.batch_evaluate`'s own default
+#'     `[self.evaluate(x) for x in xs]` exactly). Override for a
+#'     vectorized objective; called ONCE PER GENERATION with the WHOLE
+#'     population as `xs` (see `.sz_make_evaluate_shim`'s own doc).}
 #' }
 #'
 #' @export
@@ -73,6 +93,10 @@ Problem <- R6::R6Class("Problem",
 
     optimum = function() {
       NULL
+    },
+
+    batch_evaluate = function(xs) {
+      vapply(xs, self$evaluate, numeric(1))
     }
   )
 )
@@ -105,7 +129,7 @@ sz_as_problem <- function(obj) {
 
 # ---- evaluate shim (internal) --------------------------------------------
 
-#' Builds the `evaluate` shim `sz_solve_r_problem()`'s own `evaluate`
+#' Builds the batch-evaluate shim `sz_solve_r_problem()`'s own `evaluate`
 #' parameter expects.
 #'
 #' Constructed INSIDE the package namespace on purpose (see this file's
@@ -116,20 +140,33 @@ sz_as_problem <- function(obj) {
 #' enclosure (the namespace, since it is defined here), independent of
 #' where it is invoked from.
 #'
-#' Called once PER INDIVIDUAL with `blocks` -- a `list` of per-block typed
-#' R vectors, one entry per block, in `prob$space()`'s block order, each
-#' already converted to its natural R type by the Rust side (see
-#' [Problem]'s own doc for the block -> R type table). Reshapes to the
-#' `evaluate(x)` contract (bare for a single block, an unnamed list for
-#' more than one) and dispatches to `prob$evaluate(x)`.
+#' Called ONCE PER GENERATION with `pop` -- a `list` of length n (one entry
+#' per individual, matching `pop`'s own generation size), each entry itself
+#' a `list` of per-block typed R vectors (one entry per block, in
+#' `prob$space()`'s block order, each already converted to its natural R
+#' type by the Rust side -- see [Problem]'s own doc for the block -> R type
+#' table). Reshapes EACH individual to the `evaluate(x)`/`batch_evaluate
+#' (xs)` contract (bare for a single block, an unnamed list for more than
+#' one) and dispatches ONCE to `prob$batch_evaluate(xs)` -- mirroring
+#' py-sezgi's `_to_native()`, which always builds `vectorized=True` and
+#' calls `self.batch_evaluate` once per generation with the whole
+#' population (`py-sezgi/python/sezgi/problem.py`). A subclass that only
+#' overrides `evaluate` still works correctly (and, per-generation, in one
+#' R call rather than n) through [Problem]'s own default `batch_evaluate`
+#' (loops `self$evaluate`); a subclass that overrides `batch_evaluate`
+#' directly is honored -- its return value (a numeric vector of length n,
+#' in `xs`'s own order) is returned to Rust UNCHANGED.
 #'
 #' @param prob A `Problem` subclass instance.
-#' @returns A closure of one argument (`blocks`).
+#' @returns A closure of one argument (`pop`), returning a numeric vector
+#'   of length `length(pop)`.
 #' @noRd
 .sz_make_evaluate_shim <- function(prob) {
   force(prob)
-  function(blocks) {
-    x <- if (length(blocks) == 1L) blocks[[1L]] else blocks
-    prob$evaluate(x)
+  function(pop) {
+    xs <- lapply(pop, function(blocks) {
+      if (length(blocks) == 1L) blocks[[1L]] else blocks
+    })
+    prob$batch_evaluate(xs)
   }
 }

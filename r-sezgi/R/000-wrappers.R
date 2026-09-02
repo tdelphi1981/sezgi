@@ -1549,12 +1549,15 @@ NULL
 #'   rejected at THIS point (`SearchSpace::new`), not at `sz_float()`/
 #'   `sz_int()` construction time (Task 1 ruling).
 #' @param evaluate `.sz_make_evaluate_shim(prob)`'s return value -- an R
-#'   closure of one argument, called once PER INDIVIDUAL with a `list` of
-#'   per-block typed vectors (Float->double, Int->integer,
-#'   Categorical->integer category indices, Binary->logical,
+#'   closure of one argument, called ONCE PER GENERATION with the WHOLE
+#'   population: a `list` of length n (one entry per individual), each
+#'   entry itself a `list` of per-block typed vectors (Float->double,
+#'   Int->integer, Categorical->integer category indices, Binary->logical,
 #'   Permutation->integer 0-based -- see [`block_values_to_r`]'s doc for
 #'   the full table), one entry per block in space order; must return a
-#'   numeric scalar.
+#'   numeric vector of length n, in the same order (Fix round 1: mirrors
+#'   py-sezgi's per-generation `vectorized=True` bridge -- see
+#'   [`call_r_evaluate_batch`]'s own doc).
 #' @param master_seed Master RNG seed.
 #' @param run_id Run id (mixed into the seed for independent replicate
 #'   streams).

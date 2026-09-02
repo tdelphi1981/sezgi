@@ -1587,15 +1587,16 @@ fn blocks_from_r(blocks: &ListSexp) -> savvy::Result<Vec<Block>> {
     Ok(out)
 }
 
-/// Converts a full genotype into the ALWAYS-a-list shape
-/// `.sz_make_evaluate_shim()`'s R closure expects as its single argument --
-/// one entry per block, in space order, each already typed by
+/// Converts ONE individual's genotype into the ALWAYS-a-list shape used as
+/// one ELEMENT of the population payload [`call_r_evaluate_batch`] builds
+/// -- one entry per block, in space order, each already typed by
 /// [`block_values_to_r`]. UNLIKE [`genotype_to_r`] (which bare-unwraps a
 /// single-block genotype for `sz_solve_*`'s own `best_x` return value),
 /// this ALWAYS returns a list, even for a single block -- it is the R-side
 /// shim (`R/problem.R`'s `.sz_make_evaluate_shim`), not this function, that
-/// decides bare-vs-list for `evaluate(x)`'s own `x` argument, so the wire
-/// shape built here needs to stay uniform for the shim to dispatch on
+/// decides bare-vs-list for each individual's own `x` (`evaluate`'s
+/// argument, or one element of `batch_evaluate`'s `xs`), so the wire shape
+/// built here needs to stay uniform for the shim to dispatch on
 /// `length(blocks)`.
 fn genotype_blocks_to_r_list(blocks: &[BlockValues]) -> savvy::Result<Sexp> {
     let mut out = OwnedListSexp::new(blocks.len(), false)?;
@@ -1606,8 +1607,19 @@ fn genotype_blocks_to_r_list(blocks: &[BlockValues]) -> savvy::Result<Sexp> {
 }
 
 /// Calls the R-side `evaluate` shim (`.sz_make_evaluate_shim(prob)`'s
-/// return value, `R/problem.R`) with ONE individual's genotype, reshaped by
-/// [`genotype_blocks_to_r_list`], and extracts the returned numeric scalar.
+/// return value, `R/problem.R`) ONCE PER GENERATION with the WHOLE
+/// population, mirroring py-sezgi's `_to_native()` (`py-sezgi/python/
+/// sezgi/problem.py`), which always builds `vectorized=True` and calls
+/// `self.batch_evaluate` once per generation with the whole population
+/// (`py-sezgi/src/lib.rs`'s `call_callable_spaced`) -- Fix round 1
+/// (controller review item 9): this used to make ONE call PER INDIVIDUAL
+/// (`call_r_evaluate`, since removed), which was a real mirror gap against
+/// the Python bridge it is meant to match.
+///
+/// Builds ONE R `list` of length `pop.len()` (one element per individual,
+/// each element itself a [`genotype_blocks_to_r_list`]-shaped per-block
+/// list) as the shim's single argument, and reads back a numeric vector of
+/// EXACTLY `pop.len()` fitness values, in the SAME order as `pop`.
 ///
 /// Every error path is thrown via `panic::panic_any`, NEVER by returning a
 /// sentinel/empty value (research doc §C3's documented hazard: signalling
@@ -1615,41 +1627,72 @@ fn genotype_blocks_to_r_list(blocks: &[BlockValues]) -> savvy::Result<Sexp> {
 /// error, because `Evaluator::evaluate` on an empty slice trivially
 /// succeeds with zero cost). Specifically:
 /// - `Err(savvy::Error::Aborted(tok))` (an R-side error/condition
-///   propagating out of `prob$evaluate(x)` itself, via `FunctionSexp::
-///   call`'s own `unwind_protect`) becomes `panic::panic_any(AbortToken
-///   (tok))`, so [`run_with_r_bridge`]'s `catch_unwind` can re-raise the
-///   ORIGINAL R condition unchanged.
-/// - Any OTHER error (a malformed return value -- not a numeric scalar --
-///   or any other savvy error at the FFI boundary itself) is thrown as a
-///   plain `String` payload instead (`savvy::Error` is not `Send`, so its
-///   message is captured into an owned `String` first); `run_with_r_bridge`
-///   converts that into a plain savvy error message.
-fn call_r_evaluate(f: &FunctionSexp, g: &Genotype) -> f64 {
-    let blocks_sexp = match genotype_blocks_to_r_list(&g.blocks) {
-        Ok(s) => s,
+///   propagating out of `prob$batch_evaluate(xs)` -- or, through its
+///   default, `prob$evaluate(x)` -- itself, via `FunctionSexp::call`'s own
+///   `unwind_protect`) becomes `panic::panic_any(AbortToken(tok))`, so
+///   [`run_with_r_bridge`]'s `catch_unwind` can re-raise the ORIGINAL R
+///   condition unchanged.
+/// - Any OTHER error (a malformed return value -- not a numeric vector of
+///   the RIGHT length -- or any other savvy error at the FFI boundary
+///   itself) is thrown as a plain `String` payload instead (`savvy::Error`
+///   is not `Send`, so its message is captured into an owned `String`
+///   first); `run_with_r_bridge` converts that into a plain savvy error
+///   message. A wrong-length return is validated HONESTLY here (not
+///   silently truncated/padded) -- the same "no silent misread" discipline
+///   `f64_to_*`'s own doc comments document for this file's numeric
+///   guards.
+fn call_r_evaluate_batch(f: &FunctionSexp, pop: &[Genotype]) -> Vec<f64> {
+    let mut pop_list = match OwnedListSexp::new(pop.len(), false) {
+        Ok(l) => l,
         Err(e) => panic::panic_any(e.to_string()),
     };
+    for (i, g) in pop.iter().enumerate() {
+        let blocks_sexp = match genotype_blocks_to_r_list(&g.blocks) {
+            Ok(s) => s,
+            Err(e) => panic::panic_any(e.to_string()),
+        };
+        if let Err(e) = pop_list.set_value(i, blocks_sexp) {
+            panic::panic_any(e.to_string());
+        }
+    }
+    let pop_sexp: Sexp = pop_list.into();
+
     let mut args = FunctionArgs::new();
-    if let Err(e) = args.add("", blocks_sexp) {
+    if let Err(e) = args.add("", pop_sexp) {
         panic::panic_any(e.to_string());
     }
     match f.call(args) {
         Ok(eval_result) => {
+            // `eval_result: EvalResult` protects the raw SEXP as long as it
+            // is alive (its own `Drop` releases the preserved-list token);
+            // `.into()` below immediately converts it to a bare `Sexp`
+            // (dropping the `EvalResult`) and `sexp.try_into()` reads it on
+            // the very next line, with no R allocation in between --
+            // traced against savvy 0.10.2's `NumericSexp::try_from`
+            // (`sexp/numeric.rs`), which performs no allocation on its own
+            // read path (only `as_slice_i32`'s int->float conversion cache
+            // allocates, and only lazily, never here). So the token-drop
+            // window here is safe as written; widening it (e.g. moving
+            // work between the `.into()` and the `try_into()`) would need
+            // re-checking this invariant -- flagged for T3, which will
+            // have its own `EvalResult`-handling call site(s).
             let sexp: Sexp = eval_result.into();
             let num: NumericSexp = match sexp.try_into() {
                 Ok(n) => n,
                 Err(e) => panic::panic_any(format!(
-                    "Problem$evaluate(x) must return a numeric scalar: {e}"
+                    "Problem$batch_evaluate(xs) must return a numeric vector: {e}"
                 )),
             };
             let slice = num.as_slice_f64();
-            if slice.len() != 1 {
+            if slice.len() != pop.len() {
                 panic::panic_any(format!(
-                    "Problem$evaluate(x) must return a numeric scalar, got length {}",
+                    "Problem$batch_evaluate(xs) must return a numeric vector of length {} \
+                     (one fitness value per individual, matching xs' own length), got length {}",
+                    pop.len(),
                     slice.len()
                 ));
             }
-            slice[0]
+            slice.to_vec()
         }
         Err(savvy::Error::Aborted(tok)) => panic::panic_any(AbortToken(tok)),
         Err(e) => panic::panic_any(e.to_string()),
@@ -1702,8 +1745,13 @@ impl Problem for RProblem {
         // disjoint-capture gotcha), so that gotcha does not arise HERE:
         // `self.evaluate` is read once, directly, with no `move` closure
         // capturing it disjointly.
+        //
+        // ONE call per generation (`call_r_evaluate_batch`), not one call
+        // per individual -- Fix round 1: mirrors py-sezgi's
+        // `_to_native()`/`vectorized=True` bridge, which is per-generation
+        // too (see `call_r_evaluate_batch`'s own doc).
         let f = FunctionSexp(self.evaluate);
-        pop.iter().map(|g| call_r_evaluate(&f, g)).collect()
+        call_r_evaluate_batch(&f, pop)
     }
 }
 
@@ -1738,12 +1786,15 @@ impl Problem for RProblem {
 ///   rejected at THIS point (`SearchSpace::new`), not at `sz_float()`/
 ///   `sz_int()` construction time (Task 1 ruling).
 /// @param evaluate `.sz_make_evaluate_shim(prob)`'s return value -- an R
-///   closure of one argument, called once PER INDIVIDUAL with a `list` of
-///   per-block typed vectors (Float->double, Int->integer,
-///   Categorical->integer category indices, Binary->logical,
+///   closure of one argument, called ONCE PER GENERATION with the WHOLE
+///   population: a `list` of length n (one entry per individual), each
+///   entry itself a `list` of per-block typed vectors (Float->double,
+///   Int->integer, Categorical->integer category indices, Binary->logical,
 ///   Permutation->integer 0-based -- see [`block_values_to_r`]'s doc for
 ///   the full table), one entry per block in space order; must return a
-///   numeric scalar.
+///   numeric vector of length n, in the same order (Fix round 1: mirrors
+///   py-sezgi's per-generation `vectorized=True` bridge -- see
+///   [`call_r_evaluate_batch`]'s own doc).
 /// @param master_seed Master RNG seed.
 /// @param run_id Run id (mixed into the seed for independent replicate
 ///   streams).

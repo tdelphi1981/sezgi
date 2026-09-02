@@ -26,6 +26,12 @@ A single-block space's `x` is that one block's own converted value,
 passed BARE. A multi-block space's `x` is an (unnamed) R `list` of
 per-block converted values, in `space()`'s own block order.
 
+`batch_evaluate(xs)`'s own `xs` is a `list` of `x` values (one per
+individual, each in the SAME per-`x` shape as `evaluate(x)`'s own `x`
+above), matching py-sezgi's `sezgi.Problem.batch_evaluate` input shape
+exactly (`py-sezgi/python/sezgi/problem.py`) -- the Python side is the
+authority for this shape, not an independent R design.
+
 Methods:
 \describe{
   \item{`evaluate(x)`}{`x` -> a numeric scalar, the fitness/objective
@@ -37,6 +43,12 @@ Methods:
     "not implemented".}
   \item{`optimum()`}{The problem's known optimum (a numeric scalar), or
     `NULL` (the default) if it has none. Optional override.}
+  \item{`batch_evaluate(xs)`}{`xs` -> a numeric vector, one entry per
+    `x` in `xs`, in the SAME order (default: loop `self$evaluate`,
+    mirroring `sezgi.Problem.batch_evaluate`'s own default
+    `[self.evaluate(x) for x in xs]` exactly). Override for a
+    vectorized objective; called ONCE PER GENERATION with the WHOLE
+    population as `xs` (see `.sz_make_evaluate_shim`'s own doc).}
 }
 }
 \section{Methods}{
@@ -45,6 +57,7 @@ Methods:
     \item \href{#method-Problem-evaluate}{\code{Problem$evaluate()}}
     \item \href{#method-Problem-space}{\code{Problem$space()}}
     \item \href{#method-Problem-optimum}{\code{Problem$optimum()}}
+    \item \href{#method-Problem-batch_evaluate}{\code{Problem$batch_evaluate()}}
     \item \href{#method-Problem-clone}{\code{Problem$clone()}}
   }
 }
@@ -77,6 +90,17 @@ Methods:
   \subsection{Usage}{
     \if{html}{\out{<div class="r">}}
     \preformatted{Problem$optimum()}
+    \if{html}{\out{</div>}}
+  }
+}
+
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-Problem-batch_evaluate"></a>}}
+\if{latex}{\out{\hypertarget{method-Problem-batch_evaluate}{}}}
+\subsection{\code{Problem$batch_evaluate()}}{
+  \subsection{Usage}{
+    \if{html}{\out{<div class="r">}}
+    \preformatted{Problem$batch_evaluate(xs)}
     \if{html}{\out{</div>}}
   }
 }

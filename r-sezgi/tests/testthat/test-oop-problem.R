@@ -9,6 +9,16 @@
 # `blocks`/`evaluate` arguments from `.sz_space_to_blocks()`/
 # `.sz_make_evaluate_shim()` by hand, exactly the way a later task's
 # wrapper-class `$run()` method is expected to.
+#
+# Fix round 1 (controller review item 9): the shim/bridge dispatch
+# ("Sphere ... solved via sz_solve_r_problem" etc. below) was changed from
+# ONE R call per INDIVIDUAL to ONE R call per GENERATION (the whole
+# population at once), mirroring py-sezgi's per-generation
+# `vectorized=True` callable-problem bridge (`py-sezgi/python/sezgi/
+# problem.py`'s `Problem._to_native()`). The tests below this line were
+# already dispatch-cardinality-agnostic (none asserted call counts) and
+# needed no changes; the block starting at "batch dispatch" further down
+# is new.
 
 # ---- Problem base defaults -------------------------------------------
 
@@ -219,4 +229,132 @@ test_that("Int block lo/hi beyond 32-bit range round-trip through the bridge wit
   r <- sezgi:::sz_solve_r_problem(spec, blocks, shim, master_seed = 1, run_id = 0)
 
   expect_true(all(r$best_x >= -3e9 & r$best_x <= 3e9))
+})
+
+# =========================================================================
+# Fix round 1 (controller review item 9): batch dispatch (ONE R call per
+# GENERATION, not per individual), mirroring py-sezgi's per-generation
+# `vectorized=True` callable-problem bridge exactly.
+# =========================================================================
+
+# ---- anchor: results stay bit-identical across the dispatch-cardinality
+# change ------------------------------------------------------------------
+
+test_that("solve results are bit-identical to the pre-batch-dispatch implementation (anchor)", {
+  # Captured from the CURRENT code before the batch-dispatch fix (one
+  # sz_solve_r_problem() call, per-individual evaluate() dispatch):
+  #   Sphere(dim=4), sz_preset_gwo(6, 60), master_seed=123, run_id=7
+  #   best_f = 0.805840203291199
+  #   best_x = c(-0.368450268861315, -0.303166452437549,
+  #              0.265292548650735, 0.712597058942887)
+  #   evals  = 60
+  # If batch dispatch (one R call per generation, reshaping/looping the
+  # SAME individuals in the SAME order) changes any of these values, the
+  # dispatch-cardinality change altered something beyond call count -- a
+  # correctness regression, not just a performance change.
+  Sphere <- R6::R6Class("SphereAnchorRecheck", inherit = Problem, public = list(
+    space = function() sz_space(sz_float(-5, 5, 4)),
+    evaluate = function(x) sum(x^2)
+  ))
+  prob <- Sphere$new()
+  spec <- sz_preset_gwo(6, 60)
+  blocks <- sezgi:::.sz_space_to_blocks(prob$space())
+  shim <- sezgi:::.sz_make_evaluate_shim(prob)
+  r <- sezgi:::sz_solve_r_problem(spec, blocks, shim, master_seed = 123, run_id = 7)
+
+  expect_equal(r$best_f, 0.805840203291199)
+  expect_equal(
+    r$best_x,
+    c(-0.368450268861315, -0.303166452437549, 0.265292548650735, 0.712597058942887)
+  )
+  expect_equal(r$evals, 60)
+})
+
+# ---- call-counter: the R side is entered ONCE per generation -----------
+
+test_that("the evaluate shim is entered ONCE per generation, not once per individual", {
+  calls <- 0L
+  Sphere <- R6::R6Class("SphereCallCounter", inherit = Problem, public = list(
+    space = function() sz_space(sz_float(-5, 5, 3)),
+    evaluate = function(x) sum(x^2)
+  ))
+  prob <- Sphere$new()
+  pop_size <- 20
+  budget <- 200
+  spec <- sz_preset_gwo(pop_size, budget)
+  blocks <- sezgi:::.sz_space_to_blocks(prob$space())
+  raw_shim <- sezgi:::.sz_make_evaluate_shim(prob)
+  counting_shim <- function(pop) {
+    calls <<- calls + 1L
+    # Every call must carry the WHOLE generation, not one individual at a
+    # time -- the direct, load-bearing proof that this is batch dispatch.
+    expect_equal(length(pop), pop_size)
+    raw_shim(pop)
+  }
+
+  r <- sezgi:::sz_solve_r_problem(spec, blocks, counting_shim, master_seed = 1, run_id = 0)
+
+  expect_true(is.finite(r$best_f))
+  # Per-individual dispatch would have made `calls == budget` (200) here;
+  # per-generation dispatch makes it roughly budget/pop_size (a handful),
+  # a world apart from 200 -- bound it generously to avoid coupling this
+  # test to GWO's exact init/generation accounting.
+  expect_true(calls > 0)
+  expect_true(calls <= ceiling(budget / pop_size) + 2)
+})
+
+# ---- default batch_evaluate delegates to evaluate, in order --------------
+
+test_that("Problem's default batch_evaluate() delegates to evaluate(), in order", {
+  Sq <- R6::R6Class("SqOnlyEvaluate", inherit = Problem, public = list(
+    space = function() sz_space(sz_float(-10, 10, 1)),
+    evaluate = function(x) x^2
+  ))
+  prob <- Sq$new()
+  out <- prob$batch_evaluate(list(2, 3, -4))
+  expect_equal(out, c(4, 9, 16))
+})
+
+# ---- an overridden batch_evaluate is honored (evaluate never called) -----
+
+test_that("a Problem subclass overriding batch_evaluate directly is honored end to end", {
+  called_evaluate <- FALSE
+  Batchy <- R6::R6Class("Batchy", inherit = Problem, public = list(
+    space = function() sz_space(sz_float(-5, 5, 2)),
+    evaluate = function(x) {
+      called_evaluate <<- TRUE
+      stop("evaluate() should not be called when batch_evaluate is overridden")
+    },
+    batch_evaluate = function(xs) {
+      vapply(xs, function(x) sum(x^2), numeric(1))
+    }
+  ))
+  prob <- Batchy$new()
+  spec <- sz_preset_gwo(10, 100)
+  blocks <- sezgi:::.sz_space_to_blocks(prob$space())
+  shim <- sezgi:::.sz_make_evaluate_shim(prob)
+
+  r <- sezgi:::sz_solve_r_problem(spec, blocks, shim, master_seed = 1, run_id = 0)
+
+  expect_false(called_evaluate)
+  expect_true(is.finite(r$best_f))
+})
+
+# ---- a wrong-length batch_evaluate() return errors honestly ---------------
+
+test_that("a batch_evaluate() returning the wrong length errors clearly, not silently", {
+  BadLength <- R6::R6Class("BadLengthBatch", inherit = Problem, public = list(
+    space = function() sz_space(sz_float(-5, 5, 2)),
+    evaluate = function(x) sum(x^2),
+    batch_evaluate = function(xs) 0  # wrong length: must be length(xs)
+  ))
+  prob <- BadLength$new()
+  spec <- sz_preset_gwo(10, 100)
+  blocks <- sezgi:::.sz_space_to_blocks(prob$space())
+  shim <- sezgi:::.sz_make_evaluate_shim(prob)
+
+  expect_error(
+    sezgi:::sz_solve_r_problem(spec, blocks, shim, master_seed = 1, run_id = 0),
+    "length"
+  )
 })
