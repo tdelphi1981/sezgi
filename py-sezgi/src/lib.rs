@@ -670,6 +670,11 @@ struct PopView {
 /// offspring being well-formed) -- so a Python-authored generator's
 /// `ctx.rng` draws flow through EXACTLY the same house stream a Rust
 /// generator would have used at that call: same seed => same sequence.
+/// A [`PyRng`] handle a callback stashes from a PAST call stays usable as a
+/// plain Python object, but its draws no longer feed the house stream --
+/// each `generate` call hands out a fresh clone and writes back only THAT
+/// call's handle, so a stale handle is permanently inert for engine
+/// determinism (drawing from it affects nothing but the stale copy).
 ///
 /// **Offspring conversion**: the callback's return value is iterated (any
 /// iterable -- list, tuple, generator, ...) and each item converted via
