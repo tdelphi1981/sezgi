@@ -185,12 +185,14 @@ runs the same Rust core in both languages, so the numbers agree exactly
 `examples/python/oop/` holds a fourth artifact per algorithm: the SAME 17
 algorithms as the catalog above (gwo, woa, hs, cs, goa, sca, jaya, mfo,
 ssa, fa, ba, fpa, tlbo, hho, alo, abc, gsa), each ported onto
-`sezgi.Algorithm` -- a subclass implementing `setup(ctx)`/`step(ctx)` over
-`AlgoContext`, driven by the same `sezgi.EvalSession` core the pure
-`python/<algo>.py` scripts already use, but expressed as an OOP template
-method instead of a bare script. See the main `README.md`'s "Write your
-own algorithm (Python) (M3-4)" section for the authoring guide these twins
-demonstrate.
+`sezgi.AskTellAlgorithm` (named `sezgi.Algorithm` before M4-1's rename --
+`sezgi.Algorithm` now names an unrelated, engine-hosted class-first base,
+see "Class-first authoring + a data recipe (M4-1)" below) -- a subclass
+implementing `setup(ctx)`/`step(ctx)` over `AlgoContext`, driven by the
+same `sezgi.EvalSession` core the pure `python/<algo>.py` scripts already
+use, but expressed as an OOP template method instead of a bare script.
+See the main `README.md`'s "Write your own algorithm, ask/tell style
+(Python) (M3-4)" section for the authoring guide these twins demonstrate.
 
 **Bit-exact parity, not merely statistical equivalence.** Each twin is a
 verbatim RNG-draw-order port of its pure script sibling -- same
@@ -217,8 +219,9 @@ merely 6-digit-equal.
 empty `git diff` against all 17 at every porting task's gate); they stay
 the primary teaching artifact this catalog's table above describes ("what
 the pure version teaches vs. the preset"). The OOP twins are a SEPARATE,
-additional artifact demonstrating the `sezgi.Algorithm` authoring surface
-on already-understood algorithms, not a replacement for the pure scripts.
+additional artifact demonstrating the `sezgi.AskTellAlgorithm` authoring
+surface on already-understood algorithms, not a replacement for the pure
+scripts.
 
 Run (any of the 17; using gwo here):
 
@@ -238,7 +241,7 @@ above — ONE worked twin (not a full 17-algorithm wave, per the M3-5 plan's
 own scope ruling: the 17 pure-R scripts under `examples/r/` already teach
 the algorithms; the pure-R authoring surface itself is what needed a
 worked proof), porting `examples/r/gwo.R` onto `sz_algorithm`/
-`sz_algo_solve` (r-sezgi's M3-5 pure-R mirror of `sezgi.Algorithm`,
+`sz_algo_solve` (r-sezgi's M3-5 pure-R mirror of `sezgi.AskTellAlgorithm`,
 base-R closures/environments/condition classes only — see the main
 `README.md`'s "Write your own algorithm (R) (M3-5)" section for the
 authoring guide this twin demonstrates).
@@ -405,3 +408,49 @@ different default precision (same R-vs-Python printing gap as the CEC
 pairs above); a `writeBin`/`struct.pack` byte comparison confirms
 bit-identical bytes (`40087f074abd8254` on both sides), and `archive
 size`/`evals_used` (plain integers) print identically in both languages.
+
+## Class-first authoring + a data recipe (M4-1)
+
+Three more worked examples over the NEW engine-hosted class-first surface
+(`sezgi.Algorithm`/`PopulationAlgorithm`/`LocalSearch` — NOT the ask/tell
+`AskTellAlgorithm` the OOP twins above use) plus one data recipe. See the
+main `README.md`'s "Author your own algorithm (Python, class-first)" and
+"Data recipes: feature selection" sections for the full walkthroughs.
+
+| Example | Base | Files | What it demonstrates |
+|---|---|---|---|
+| DE/rand/1-shaped mutation | `PopulationAlgorithm` (overrides only `vary()`) | `python/oop/custom_de_variant.py` | A ~14-line `vary()` override producing DE/rand/1-shaped offspring (`r1 + F*(r2-r3)`, `F=0.5`, three independent donor draws per offspring slot via `ctx.rng`, no separate crossover step); the default `select()` (seeded binary tournament) is left in place. Runs on `sezgi.bbob(1, 10, 1)`. |
+| Perturbation local search | `LocalSearch` (overrides only `neighbor()`) | `python/oop/custom_local_search.py` | A per-coordinate uniform-perturbation `neighbor()` override (`[-0.3, 0.3]` via `ctx.rng.next_f64()`); the default `accept()` (greedy) is left in place, `pop_size=1`. Runs on `sezgi.bbob(1, 10, 1)`. |
+| Feature selection | `Problem` subclass (`sezgi.recipes.FeatureSelection`) + `GeneticAlgorithm` Binary auto-dispatch | `python/oop/feature_selection.py` | A binary-mask feature-selection objective (`scorer(X[:, mask], y) + penalty*popcount/n_features`) recovering a known 3-column informative subset from a fixed synthetic 20x8 dataset (an OLS-residual-sum-of-squares `scorer`, pure numpy, no sklearn), via `GeneticAlgorithm`'s Binary space-kind auto-dispatch — no manual preset choice. |
+
+Like `tsp_two_opt.py` above, `custom_de_variant.py`/`custom_local_search.py`
+sit OUTSIDE the 17-pair OOP-twin parity gate (no pure-script counterpart
+exists to reproduce) — each gets its own anchored pytest in
+`py-sezgi/tests/test_oop_families.py`; `feature_selection.py` is gated by
+`py-sezgi/tests/test_feature_selection_example.py` (including a full
+`2**8 = 256`-mask brute-force cross-check that the recovered mask is the
+unique global minimum).
+
+Run:
+
+    ./py-sezgi/.venv/bin/python examples/python/oop/custom_de_variant.py
+    ./py-sezgi/.venv/bin/python examples/python/oop/custom_local_search.py
+    ./py-sezgi/.venv/bin/python examples/python/oop/feature_selection.py
+
+Live output (measured by running all three scripts from the repo root):
+
+    custom_de_variant (oop): evals_used=2000 best_f=-59.3946 gap=25.0094
+    custom_local_search (oop): evals_used=2000 best_f=-84.3232 gap=0.0807033
+    feature_selection (oop): evals_used=200 best_f=0.3607495483 popcount=3 mask=01010010 recovered=True
+
+**`tsp_two_opt.py` now imports `sezgi.AskTellAlgorithm`.** M4-1 renamed
+the ask/tell `Algorithm` ABC to `AskTellAlgorithm` (`sezgi.Algorithm` now
+names the new engine-hosted class-first base used by the three examples
+above); `examples/python/oop/tsp_two_opt.py` and its 17
+`examples/python/oop/<algo>.py` siblings in the "OOP twins (M3-4)" section
+above updated their import accordingly — an import-name-only change, no
+assertion or printed number affected. `tsp_two_opt.py`'s own output
+(`evals_used=2000 best_f=9077 gap=1535 tour_length=9077`, see the main
+`README.md`'s "Write your own algorithm, ask/tell style (Python)" and
+"Typed operators, mixed spaces, and diagnostic problems (M3-8)" sections)
+is unchanged.

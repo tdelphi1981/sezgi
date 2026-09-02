@@ -1,6 +1,6 @@
 """OOP twin of examples/python/abc.py -- same math, same RNG draw order.
 
-Port of the pure-Python Artificial Bee Colony script onto sezgi.Algorithm.
+Port of the pure-Python Artificial Bee Colony script onto sezgi.AskTellAlgorithm.
 The pure script (and the Rust module doc it cites) remains the provenance
 for the update equations and the three-phase (employed/onlooker/scout)
 structure; this file re-derives NOTHING and must reproduce the pure
@@ -73,7 +73,7 @@ def clamp(x, lo, hi):
     return lo if x < lo else hi if x > hi else x
 
 
-class Abc(sezgi.Algorithm):
+class Abc(sezgi.AskTellAlgorithm):
     name = "abc"
 
     def setup(self, ctx):

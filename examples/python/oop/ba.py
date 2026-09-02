@@ -1,6 +1,6 @@
 """OOP twin of examples/python/ba.py -- same math, same RNG draw order.
 
-Port of the pure-Python Bat Algorithm script onto sezgi.Algorithm. The pure
+Port of the pure-Python Bat Algorithm script onto sezgi.AskTellAlgorithm. The pure
 script (and the Rust module doc it cites) remains the provenance for the
 update equations and the two verified sign-inversion quirks (inverted
 [-2, 0] frequency range, (X - X_best) velocity term); this file re-derives
@@ -34,7 +34,7 @@ def clamp(x, lo, hi):
     return lo if x < lo else hi if x > hi else x
 
 
-class Ba(sezgi.Algorithm):
+class Ba(sezgi.AskTellAlgorithm):
     name = "ba"
 
     def setup(self, ctx):

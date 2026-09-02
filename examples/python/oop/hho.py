@@ -1,7 +1,7 @@
 """OOP twin of examples/python/hho.py -- same math, same RNG draw order.
 
 Port of the pure-Python Harris Hawks Optimization script onto
-sezgi.Algorithm. The pure script (and the Rust module doc it cites) remains
+sezgi.AskTellAlgorithm. The pure script (and the Rust module doc it cites) remains
 the provenance for the update equations and the escape-energy branch tree;
 this file re-derives NOTHING and must reproduce the pure script's
 evals_used/best_f/gap output bit-for-bit at the same seed -- enforced by
@@ -112,7 +112,7 @@ def hho_run_dive(ctx, y, dim, current_fitness):
     return z if fz < current_fitness else None
 
 
-class Hho(sezgi.Algorithm):
+class Hho(sezgi.AskTellAlgorithm):
     name = "hho"
 
     def setup(self, ctx):

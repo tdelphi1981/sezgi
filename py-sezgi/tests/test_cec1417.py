@@ -400,7 +400,7 @@ def test_no_collision_cec2014_vs_cec2017_same_fid(tmp_path):
     scenario, extended to the two new suites: one CEC 2014 f1 d10 run and
     one CEC 2017 f1 d10 run, same algo/seed/budget, logged into the same
     tree; read back and build the matrix -- both labels present, distinct."""
-    class RS(sezgi.Algorithm):
+    class RS(sezgi.AskTellAlgorithm):
         def setup(self, ctx): ctx.evaluate([ctx.random_point() for _ in range(10)])
         def step(self, ctx): ctx.evaluate([ctx.random_point() for _ in range(10)])
     RS().solve(sezgi.problems.cec2014(1, 10), budget=30, seed=1, log_dir=str(tmp_path))

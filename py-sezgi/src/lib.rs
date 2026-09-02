@@ -1,7 +1,7 @@
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyDict, PyList, PyTuple};
 use sezgi_bench::{
     coco_export as bench_coco_export, default_targets as bench_default_targets,
     ecdf as bench_ecdf, ecdf_per_algo as bench_ecdf_per_algo, ioh_records as bench_ioh_records,
@@ -19,14 +19,25 @@ use sezgi_bias::{
 use sezgi_components::nsga2::{nsga2_run, Nsga2Config};
 use sezgi_components::perm::fisher_yates_shuffle;
 use sezgi_components::{presets, register_builtins};
-use sezgi_core::component::Registry;
+// M4-1 Task 2: `Ctx`/`Generator`/`ComponentMeta`/`SupportedBlocks`/
+// `ComponentError` added for `PyGenerator` (the engine-hosted Python
+// callback bridge); `Population` added for `Generator::generate`'s own
+// signature; `ComponentSpec`/`StageSpec`/`TerminationSpec` added for
+// `solve_with_py_generator`'s single-stage `AlgorithmSpec` assembly.
+// M4-1 Task 3: `Initializer` added for `PyInitializer` (RULING A -- the
+// engine-hosted counterpart of `PyGenerator`, letting `sezgi.Algorithm.
+// initialize(self, n, ctx)` actually run Python code when a subclass
+// overrides it).
+use sezgi_core::component::{
+    ComponentError, ComponentMeta, Ctx, Generator, Initializer, Registry, SupportedBlocks,
+};
 use sezgi_core::dist::Distribution;
 use sezgi_core::engine::{Engine, RunConfig};
 use sezgi_core::mo::MoProblem;
-use sezgi_core::problem::{Evaluator, Problem};
+use sezgi_core::problem::{Evaluator, Population, Problem};
 use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
-use sezgi_core::spec::AlgorithmSpec;
+use sezgi_core::spec::{AlgorithmSpec, ComponentSpec, StageSpec, TerminationSpec};
 use sezgi_problems::{
     BbobProblem, CatMatch, Cec2014, Cec2017, Cec2022, Dtlz, IntQuadratic, OneMax, Tsp, TspError,
     Wfg, Zdt,
@@ -87,6 +98,23 @@ enum Inner {
     /// `None` accordingly -- no verified target is claimed.
     Mixed(MixedDiagnostic),
     Callable { f: Py<PyAny>, space: SearchSpace, vectorized: bool },
+    /// M4-1 Task 1: `_sezgi.from_callable_spaced(f, space_json, vectorized,
+    /// optimum)` -- the block-typed widening of [`Inner::Callable`]/
+    /// [`from_callable`], for `sezgi.Problem` subclasses
+    /// (`py-sezgi/python/sezgi/problem.py`). Unlike `Inner::Callable`
+    /// (always a single `Block::Float` space, `from_callable`'s only
+    /// caller), `space` here may be ANY [`SearchSpace`] -- single- or
+    /// multi-block, any [`Block`] kind -- so it is kept as its OWN variant/
+    /// calling function ([`call_callable_spaced`]) rather than widening
+    /// [`call_callable`] in place: the two callbacks' Python calling
+    /// conventions genuinely differ (one 2-D numpy array per population vs.
+    /// a per-individual bare-or-tuple value, see [`genotype_to_py`]'s doc),
+    /// and keeping them separate means `from_callable`'s existing, frozen,
+    /// widely-tested convention is untouched byte-for-byte by this task.
+    /// `optimum` is the Python `Problem.optimum()` value (`None` by
+    /// default) plumbed straight to `PyProblem::optimum()` -- see this
+    /// task's own report for the design decision.
+    CallableSpaced { f: Py<PyAny>, space: SearchSpace, vectorized: bool, optimum: Option<f64> },
     /// `sezgi.bias.f0(dim, seed)` -- the BIAS-toolbox null problem
     /// ([`F0Random`]). `dim`/`seed` are stored (not an `F0Random` instance
     /// itself) so `for_problem`/`solve()` can rebuild a fresh, independently
@@ -220,6 +248,670 @@ fn call_callable(f: &Py<PyAny>, vectorized: bool, pop: &[Genotype]) -> Vec<f64> 
     })
 }
 
+// ---------------------------------------------------------------------
+// M4-1 Task 1: Genotype <-> Python conversion helpers, and the block-typed
+// callable-problem bridge (`from_callable_spaced`) built on top of them.
+//
+// PINNED conversion table (genotype block -> Python, reused verbatim by
+// Task 2 for population views/offspring -- see each function's own doc):
+//   Block::Float        -> list[float]
+//   Block::Int          -> list[int]
+//   Block::Categorical   -> list[int]   (category INDICES 0..k, no label)
+//   Block::Binary        -> list[bool]
+//   Block::Permutation    -> list[int]
+// (Matches `solve()`'s own `best_x` conversion below byte-for-byte -- ONE
+// table, used everywhere a Genotype's block crosses into Python; `solve()`
+// now calls the same [`block_value_to_py`] instead of a local duplicate.)
+// ---------------------------------------------------------------------
+
+/// Converts one [`BlockValues`] block to its pinned Python type (see the
+/// module-level table above). Shared by `solve()`'s `best_x` conversion
+/// (M3-8 Task 9) and [`genotype_to_py`] (M4-1 Task 1's callable bridge).
+pub(crate) fn block_value_to_py(py: Python<'_>, bv: &BlockValues) -> PyResult<Py<PyAny>> {
+    Ok(match bv {
+        BlockValues::Float(xs) => PyList::new(py, xs)?.into_any().unbind(),
+        BlockValues::Perm(xs) => PyList::new(py, xs)?.into_any().unbind(),
+        BlockValues::Int(xs) => PyList::new(py, xs)?.into_any().unbind(),
+        BlockValues::Cat(xs) => PyList::new(py, xs)?.into_any().unbind(),
+        BlockValues::Bin(xs) => PyList::new(py, xs)?.into_any().unbind(),
+    })
+}
+
+/// Converts a whole [`Genotype`] to the Python `x` passed to
+/// `sezgi.Problem.evaluate`/`batch_evaluate` (M4-1 Task 1 pinned
+/// convention, brief-mandated): a SINGLE-block genotype's `x` is that one
+/// block's own converted value, passed BARE (via [`block_value_to_py`]); a
+/// MULTI-block genotype's `x` is a Python TUPLE of per-block converted
+/// values, in `g.blocks`' order (== `SearchSpace::blocks()` order, since
+/// every `Genotype` this crate builds has one entry per space block).
+pub(crate) fn genotype_to_py(py: Python<'_>, g: &Genotype) -> PyResult<Py<PyAny>> {
+    if g.blocks.len() == 1 {
+        block_value_to_py(py, &g.blocks[0])
+    } else {
+        let items = g.blocks.iter()
+            .map(|b| block_value_to_py(py, b))
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok(PyTuple::new(py, items)?.into_any().unbind())
+    }
+}
+
+/// Converts a Python value back into one [`BlockValues`] block, validated
+/// against `block`'s own kind and arity. The reverse of
+/// [`block_value_to_py`] -- M4-1 Task 1 pinned this helper's shape and
+/// visibility for Task 2's [`PyGenerator::generate`] to consume, converting
+/// a Python-authored generator's returned offspring back into engine
+/// `Genotype`s (via [`genotype_from_py`], below).
+///
+/// # Errors
+/// The original extraction `PyErr` (a `TypeError` for a value of the wrong
+/// Python type, e.g. `non-float`) or a `ValueError` for a length mismatch;
+/// beyond arity, three block kinds get an EXTRA structural check (M4-1 Task
+/// 2, since `PyGenerator::generate`'s offspring are the first values this
+/// helper ever converts, and unlike a `Float`/`Int` value out of `[lo,
+/// hi]` -- left to `boundary/clamp` to repair, exactly as a normal Rust
+/// generator's own overshoot would be -- these three have NO boundary
+/// repair (`boundary.rs`: "cat/perm/bin: structurally cannot go out of
+/// bounds", an invariant every BUILT-IN generator upholds by construction,
+/// which a Python-authored one is not guaranteed to): `Float` rejects a
+/// non-finite entry (`NaN`/`inf`, "non-finite where finite required" --
+/// `SearchSpace::validate` requires every `Float` value finite, so a
+/// Python-authored value must fail loudly here rather than silently reach
+/// the engine); `Categorical` rejects a category index `>= k`; `Permutation`
+/// rejects a value that is not itself a permutation of `0..n` (an
+/// out-of-range or repeated entry) -- both mirroring
+/// [`SearchSpace::validate`]'s own per-block checks (`crates/core/src/
+/// space.rs`) at the Python-conversion boundary instead of only inside the
+/// engine.
+pub(crate) fn block_value_from_py(block: &Block, obj: &Bound<'_, PyAny>) -> PyResult<BlockValues> {
+    fn check_len<T>(kind: &str, xs: &[T], n: usize) -> PyResult<()> {
+        if xs.len() != n {
+            return Err(PyValueError::new_err(format!(
+                "{kind} block: expected {n} values, got {}", xs.len())));
+        }
+        Ok(())
+    }
+    match *block {
+        Block::Float { n, .. } => {
+            let xs: Vec<f64> = obj.extract()?;
+            check_len("Float", &xs, n)?;
+            if let Some(bad) = xs.iter().find(|x| !x.is_finite()) {
+                return Err(PyValueError::new_err(format!(
+                    "Float block: non-finite value {bad} (finite required)")));
+            }
+            Ok(BlockValues::Float(xs))
+        }
+        Block::Int { n, .. } => {
+            let xs: Vec<i64> = obj.extract()?;
+            check_len("Int", &xs, n)?;
+            Ok(BlockValues::Int(xs))
+        }
+        Block::Categorical { k, n } => {
+            let xs: Vec<u32> = obj.extract()?;
+            check_len("Categorical", &xs, n)?;
+            if let Some(&bad) = xs.iter().find(|&&c| c >= k) {
+                return Err(PyValueError::new_err(format!(
+                    "Categorical block: category index {bad} out of range \
+                     (valid range 0..{k})")));
+            }
+            Ok(BlockValues::Cat(xs))
+        }
+        Block::Binary { n } => {
+            let xs: Vec<bool> = obj.extract()?;
+            check_len("Binary", &xs, n)?;
+            Ok(BlockValues::Bin(xs))
+        }
+        Block::Permutation { n } => {
+            let xs: Vec<u32> = obj.extract()?;
+            check_len("Permutation", &xs, n)?;
+            let mut seen = vec![false; n];
+            for &x in &xs {
+                let xi = x as usize;
+                if xi >= n || std::mem::replace(&mut seen[xi], true) {
+                    return Err(PyValueError::new_err(format!(
+                        "Permutation block: value {x} is not a valid permutation of \
+                         0..{n} (out of range or repeated)")));
+                }
+            }
+            Ok(BlockValues::Perm(xs))
+        }
+    }
+}
+
+/// Converts a Python `x` (as produced by [`genotype_to_py`]: bare for a
+/// single-block space, a tuple of per-block values for a multi-block one)
+/// back into a [`Genotype`] over `space`. Used by Task 2's
+/// [`PyGenerator::generate`] to convert each item a Python-authored
+/// generator returns.
+///
+/// # Errors
+/// A `ValueError` if a multi-block space's `x` is not a tuple of the
+/// expected arity, or (per block) whatever [`block_value_from_py`] returns.
+pub(crate) fn genotype_from_py(space: &SearchSpace, obj: &Bound<'_, PyAny>) -> PyResult<Genotype> {
+    let blocks = space.blocks();
+    if blocks.len() == 1 {
+        Ok(Genotype { blocks: vec![block_value_from_py(&blocks[0], obj)?] })
+    } else {
+        let tup: &Bound<'_, PyTuple> = obj.downcast().map_err(|_| PyValueError::new_err(format!(
+            "expected a tuple of {} per-block values for this multi-block space, \
+             got a non-tuple value", blocks.len())))?;
+        if tup.len() != blocks.len() {
+            return Err(PyValueError::new_err(format!(
+                "expected a tuple of {} per-block values, got {}", blocks.len(), tup.len())));
+        }
+        let bvs = blocks.iter().zip(tup.iter())
+            .map(|(b, item)| block_value_from_py(b, &item))
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok(Genotype { blocks: bvs })
+    }
+}
+
+/// Calling convention for `from_callable_spaced(...)` handles
+/// ([`Inner::CallableSpaced`], M4-1 Task 1) -- follows the SAME GIL-
+/// acquisition/panic-on-exception PATTERN as [`call_callable`] (reuse, not
+/// a fork: every `Err` -> `panic::panic_any` -> `catch_unwind` step below
+/// mirrors that function line for line), but a DIFFERENT wire format, since
+/// this bridge accepts any [`SearchSpace`] (not Float-only): each
+/// individual's `x` is built via [`genotype_to_py`] (bare for a single-
+/// block space, a tuple of per-block values for a multi-block space).
+///
+/// - `vectorized=true`: `f` is called ONCE per `evaluate_batch` call, with
+///   the WHOLE population as a single Python `list` of per-individual `x`
+///   values (`[x_0, x_1, ..., x_{n-1}]`), and must return `n` fitness
+///   values (a numpy 1-D array or a plain list of floats) -- this is the
+///   convention `sezgi.Problem._to_native()` uses, calling
+///   `self.batch_evaluate` (default: loop `self.evaluate`, so a subclass
+///   that only overrides `evaluate` still works correctly here).
+/// - `vectorized=false`: `f` is called ONCE PER INDIVIDUAL with that
+///   individual's own `x` value, and must return a scalar `float`.
+///
+/// Malformed returns (wrong type -- "non-float") surface as the ORIGINAL
+/// Python exception (a `TypeError` from a failed `extract`, etc.), thrown
+/// via `panic::panic_any(PyErr)` and re-raised unchanged by
+/// `run_with_bridge`'s `catch_unwind` -- identical to [`call_callable`]'s
+/// own exception-propagation pattern (§F3 of the M4-1 research doc).
+fn call_callable_spaced(f: &Py<PyAny>, vectorized: bool, pop: &[Genotype]) -> Vec<f64> {
+    Python::with_gil(|py| {
+        if vectorized {
+            let xs: Vec<Py<PyAny>> = pop.iter().map(|g| match genotype_to_py(py, g) {
+                Ok(x) => x,
+                Err(e) => panic::panic_any(e),
+            }).collect();
+            let list = match PyList::new(py, xs) {
+                Ok(l) => l,
+                Err(e) => panic::panic_any(e),
+            };
+            let out = match f.call1(py, (list,)) {
+                Ok(o) => o,
+                // A Python exception inside the callback is thrown here as
+                // a panic; `catch_unwind` inside `run_with_bridge` downcasts
+                // it and returns it to the caller as the original exception.
+                Err(e) => panic::panic_any(e),
+            };
+            let bound = out.bind(py);
+            if let Ok(ro) = bound.extract::<PyReadonlyArray1<f64>>() {
+                ro.as_array().iter().copied().collect()
+            } else {
+                match bound.extract::<Vec<f64>>() {
+                    Ok(v) => v,
+                    Err(e) => panic::panic_any(e),
+                }
+            }
+        } else {
+            pop.iter().map(|g| {
+                let x = match genotype_to_py(py, g) {
+                    Ok(x) => x,
+                    Err(e) => panic::panic_any(e),
+                };
+                let out = match f.call1(py, (x,)) {
+                    Ok(o) => o,
+                    Err(e) => panic::panic_any(e),
+                };
+                match out.extract::<f64>(py) {
+                    Ok(v) => v,
+                    Err(e) => panic::panic_any(e),
+                }
+            }).collect()
+        }
+    })
+}
+
+/// Borrowed [`Problem`] wrapper around a `from_callable_spaced(...)` handle
+/// (M4-1 Task 1), used by `solve()` only -- mirrors [`CallableProblem`]
+/// exactly except for its calling convention (see
+/// [`call_callable_spaced`]'s doc). No owned counterpart exists: unlike
+/// `Inner::Callable`, `Inner::CallableSpaced` is rejected up front by
+/// `EvalSession.for_problem` (no ask/tell session type exists yet for a
+/// non-Float or multi-block space; see that method's own doc), so nothing
+/// needs a `'static` `Box<dyn Problem>` over this bridge in this task.
+struct SpacedCallableProblem<'a> { f: &'a Py<PyAny>, space: &'a SearchSpace, vectorized: bool }
+
+impl Problem for SpacedCallableProblem<'_> {
+    fn space(&self) -> &SearchSpace { self.space }
+    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> { call_callable_spaced(self.f, self.vectorized, pop) }
+}
+
+// ---------------------------------------------------------------------
+// M4-1 Task 2: the engine-hosted Python callback bridge -- `PyGenerator`, a
+// `sezgi_core::component::Generator` implementation whose `generate` method
+// runs a live Python object's own `generate(pop, ctx)` method INSIDE the
+// Rust engine loop, deterministically (research doc
+// `docs/superpowers/research/2026-09-02-python-oop-front-door.md` §B/§C).
+// ---------------------------------------------------------------------
+
+/// M4-1 Task 2: an owned per-call RNG handle exposed to a Python-authored
+/// generator as `ctx.rng` (see [`EngineCtx`]). Wraps a CLONE of the stage's
+/// live `RngStream` -- `RngStream` cannot be borrowed into a `#[pyclass]`
+/// directly (pyo3 objects must own their data; `Ctx::rng` is `&mut
+/// RngStream`, non-`'static`), but it derives `Clone`
+/// (`crates/core/src/rng.rs:11`), so [`PyGenerator::generate`] clones it OUT
+/// before the call, hands this owned handle to Python, and writes the
+/// FINAL state back into the engine's own stream right after the call
+/// returns (`*ctx.rng = ...`) -- see that function's own doc for the full
+/// protocol. This keeps a Python-authored generator's draws flowing through
+/// EXACTLY the same house stream a Rust generator would have used at that
+/// call: same seed => same sequence, deterministic across runs.
+///
+/// Every method here delegates 1:1 to `RngStream`'s own pub API
+/// (`crates/core/src/rng.rs:28-59`) -- no new RNG logic, just a thin Python
+/// handle over it.
+#[pyclass]
+struct PyRng { inner: RngStream }
+
+#[pymethods]
+impl PyRng {
+    /// `[0,1)` draw, 53-bit precision -- delegates to `RngStream::next_f64`.
+    fn next_f64(&mut self) -> f64 { self.inner.next_f64() }
+
+    /// `[0, n)` integer draw (rejection sampling, no modulo bias) --
+    /// delegates to `RngStream::next_below`.
+    fn next_below(&mut self, n: u64) -> u64 { self.inner.next_below(n) }
+
+    /// Derives an independent child stream (e.g. for a restart-style
+    /// sub-population, mirroring `Engine::run`'s own
+    /// `restart_rng.split(restart_count)`, `engine.rs:215`) -- delegates to
+    /// `RngStream::split`.
+    fn split(&self, child_id: u64) -> PyRng { PyRng { inner: self.inner.split(child_id) } }
+
+    /// ADVANCED / TESTING SURFACE -- reconstructs an `RngStream` standalone
+    /// from a `(master_seed, path)` pair, exactly like
+    /// `RngStream::from_master` (`crates/core/src/rng.rs:15-26`). NOT part
+    /// of the normal `generate(pop, ctx)` flow: `ctx.rng` is already
+    /// positioned correctly by the engine for every ordinary call. This
+    /// exists so a test can independently reconstruct the EXACT stream a
+    /// stage's generator draws from and compare it against what a
+    /// Python-authored generator actually consumed -- mirroring the
+    /// technique `crates/core/src/engine.rs`'s own
+    /// `stage_rng_streams_use_the_documented_per_stage_indices` test uses
+    /// from Rust, exposed here so a Python-side RNG-continuity test can do
+    /// the same without needing engine-internal access.
+    #[staticmethod]
+    fn from_master(master_seed: u64, path: Vec<u64>) -> PyRng {
+        PyRng { inner: RngStream::from_master(master_seed, &path) }
+    }
+}
+
+/// Builds the space descriptor list handed to a Python-authored generator
+/// (`EngineCtx.space`, [`EngineCtx`]; also `PyGenerator::validate_space`'s
+/// own argument) -- one dict per block, in `space.blocks()` order. Field
+/// shape mirrors `sezgi.spaces`' own builders
+/// (`py-sezgi/python/sezgi/spaces.py`) conceptually, but keyed `"kind"`
+/// (the M4-1 Task 2 brief's pinned key name for this descriptor -- distinct
+/// from `Block`'s own serde wire tag `"type"`, used by
+/// `from_callable_spaced`'s `space_json`, M4-1 Task 1): `{"kind": "float",
+/// "lo": ..., "hi": ..., "n": ...}` for `Float`, `{"kind": "int", "lo":
+/// ..., "hi": ..., "n": ...}` for `Int`, `{"kind": "categorical", "k":
+/// ..., "n": ...}` for `Categorical`, `{"kind": "binary", "n": ...}` for
+/// `Binary`, `{"kind": "permutation", "n": ...}` for `Permutation`.
+fn space_to_py(py: Python<'_>, space: &SearchSpace) -> PyResult<Py<PyList>> {
+    let list = PyList::empty(py);
+    for b in space.blocks() {
+        let d = PyDict::new(py);
+        match *b {
+            Block::Float { lo, hi, n } => {
+                d.set_item("kind", "float")?;
+                d.set_item("lo", lo)?;
+                d.set_item("hi", hi)?;
+                d.set_item("n", n)?;
+            }
+            Block::Int { lo, hi, n } => {
+                d.set_item("kind", "int")?;
+                d.set_item("lo", lo)?;
+                d.set_item("hi", hi)?;
+                d.set_item("n", n)?;
+            }
+            Block::Categorical { k, n } => {
+                d.set_item("kind", "categorical")?;
+                d.set_item("k", k)?;
+                d.set_item("n", n)?;
+            }
+            Block::Binary { n } => {
+                d.set_item("kind", "binary")?;
+                d.set_item("n", n)?;
+            }
+            Block::Permutation { n } => {
+                d.set_item("kind", "permutation")?;
+                d.set_item("n", n)?;
+            }
+        }
+        list.append(d)?;
+    }
+    Ok(list.unbind())
+}
+
+/// M4-1 Task 2: an owned per-call snapshot handed to a Python-authored
+/// generator as `ctx` (`callback.generate(pop, ctx)`'s second argument).
+/// Mirrors the Rust `Ctx` (`crates/core/src/component.rs:7-13`) MINUS
+/// `bb`/`eval` (`Blackboard`/`Evaluator`) -- deliberately NOT exposed
+/// (research §C3: a Python component keeps its own between-call state as
+/// ordinary Python instance attributes on the wrapping object, which is
+/// already alive across calls, rather than reaching into the Rust-typed
+/// Blackboard; direct extra `eval.evaluate(..)` calls mid-generate are a
+/// possible v2 addition, out of this milestone's scope).
+///
+/// `rng` is stored as `Py<PyRng>` (not a bare [`PyRng`]) SPECIFICALLY so
+/// its `#[pyo3(get)]` getter returns the SAME underlying Python object
+/// (via `Py::clone_ref`) on every access, not a fresh clone each time --
+/// `ctx.rng.next_f64()` followed by `ctx.rng.next_f64()` must observe the
+/// SAME advancing stream, which only holds if every `ctx.rng` access
+/// yields the identical Python object (a getter returning a bare `PyRng`
+/// by value would instead hand back a NEW wrapper around a snapshot of the
+/// field on every access, silently discarding whatever the previous access
+/// mutated).
+#[pyclass]
+struct EngineCtx {
+    #[pyo3(get)]
+    iteration: u64,
+    #[pyo3(get)]
+    space: Py<PyList>,
+    #[pyo3(get)]
+    rng: Py<PyRng>,
+}
+
+/// M4-1 Task 2: an owned per-call population view handed to a
+/// Python-authored generator as `pop` (`callback.generate(pop, ctx)`'s
+/// first argument).
+///
+/// `individuals`: a list of per-genotype `x` values, one per
+/// `pop.individuals` entry, each converted via [`genotype_to_py`] -- bare
+/// for a single-block space, a tuple of per-block values for a multi-block
+/// space (the SAME convention `sezgi.Problem.evaluate(x)` already uses,
+/// M4-1 Task 1); a returned offspring item must follow this identical
+/// convention (converted back via [`genotype_from_py`]).
+///
+/// `fitness`: a numpy 1-D `float64` array -- the house pattern
+/// [`call_callable`]'s own vectorized branch already uses for a batch of
+/// fitness values crossing the Python boundary (`PyArray1<f64>`), reused
+/// here rather than a plain Python list for the same reason: cheap,
+/// zero-surprise interop with numpy-based Python code (`pop.fitness.mean()`
+/// etc. work directly).
+#[pyclass]
+struct PopView {
+    #[pyo3(get)]
+    individuals: Py<PyList>,
+    #[pyo3(get)]
+    fitness: Py<PyAny>,
+}
+
+/// M4-1 Task 2: a Python-authored [`Generator`] running INSIDE the Rust
+/// engine loop -- the milestone's central deliverable. `callback` is a live
+/// Python object with a `generate(pop, ctx)` method (required) and,
+/// optionally, a `validate_space(space)` method (see
+/// [`Self::validate_space`], below). See [`solve_with_py_generator`] for
+/// how a `PyGenerator` gets registered and run.
+///
+/// `generate` is called exactly once per stage per generation
+/// (`Engine::run`'s own call frequency, `crates/core/src/engine.rs:150-156`)
+/// -- cheap enough to pay one `Python::with_gil` re-acquisition per call,
+/// the same pattern [`call_callable`]/[`call_callable_spaced`] already use
+/// per `evaluate_batch`.
+///
+/// **RNG protocol** (research §C2): `ctx.rng` (the engine's `&mut
+/// RngStream` -- the EXACT stage stream, already positioned wherever the
+/// previous call left it) is CLONED OUT into an owned [`PyRng`] before the
+/// call, handed to the callback via [`EngineCtx::rng`], and its final state
+/// is written BACK into `*ctx.rng` immediately after the callback returns
+/// (before offspring conversion, so the write-back is unconditional on
+/// offspring being well-formed) -- so a Python-authored generator's
+/// `ctx.rng` draws flow through EXACTLY the same house stream a Rust
+/// generator would have used at that call: same seed => same sequence.
+/// A [`PyRng`] handle a callback stashes from a PAST call stays usable as a
+/// plain Python object, but its draws no longer feed the house stream --
+/// each `generate` call hands out a fresh clone and writes back only THAT
+/// call's handle, so a stale handle is permanently inert for engine
+/// determinism (drawing from it affects nothing but the stale copy).
+///
+/// **Offspring conversion**: the callback's return value is iterated (any
+/// iterable -- list, tuple, generator, ...) and each item converted via
+/// [`genotype_from_py`] against the engine's own `ctx.space` -- the SAME
+/// per-individual convention `pop.individuals` uses (bare for a
+/// single-block space, a tuple of per-block values for a multi-block one).
+/// Offspring COUNT is the component's own choice (the engine evaluates
+/// whatever it gets, mirroring every Rust generator's own freedom here) --
+/// NOT checked against `pop.len()`. A malformed item (wrong Python type,
+/// wrong per-block arity, an out-of-space value such as a categorical index
+/// `>= k`) raises a `ValueError` naming the offending index and the
+/// underlying defect. A Python exception raised INSIDE the callback's own
+/// `generate`/`validate_space` method is re-thrown UNCHANGED (via
+/// `panic::panic_any(PyErr)`, caught by `run_with_bridge`'s
+/// `catch_unwind`) -- identical propagation pattern to
+/// [`call_callable`]/[`call_callable_spaced`] (§F3 of the research doc).
+struct PyGenerator { callback: Py<PyAny> }
+
+impl Generator for PyGenerator {
+    fn generate(&self, pop: &Population, ctx: &mut Ctx) -> Vec<Genotype> {
+        Python::with_gil(|py| {
+            let individuals = {
+                let items: Vec<Py<PyAny>> = pop.individuals.iter().map(|g| match genotype_to_py(py, g) {
+                    Ok(x) => x,
+                    Err(e) => panic::panic_any(e),
+                }).collect();
+                match PyList::new(py, items) {
+                    Ok(l) => l.unbind(),
+                    Err(e) => panic::panic_any(e),
+                }
+            };
+            let fitness = PyArray1::from_vec(py, pop.fitness.clone()).into_any().unbind();
+            let pop_view = match Py::new(py, PopView { individuals, fitness }) {
+                Ok(v) => v,
+                Err(e) => panic::panic_any(e),
+            };
+
+            let space_list = match space_to_py(py, ctx.space) {
+                Ok(s) => s,
+                Err(e) => panic::panic_any(e),
+            };
+            let py_rng = match Py::new(py, PyRng { inner: ctx.rng.clone() }) {
+                Ok(r) => r,
+                Err(e) => panic::panic_any(e),
+            };
+            let engine_ctx = match Py::new(py, EngineCtx {
+                iteration: ctx.iteration,
+                space: space_list,
+                rng: py_rng.clone_ref(py),
+            }) {
+                Ok(c) => c,
+                Err(e) => panic::panic_any(e),
+            };
+
+            let out = match self.callback.call_method1(py, "generate", (pop_view, engine_ctx)) {
+                Ok(o) => o,
+                // A Python exception raised inside the callback's own
+                // generate() is thrown here as a panic; `catch_unwind`
+                // inside `run_with_bridge` downcasts it and returns it to
+                // the caller as the original exception, unchanged.
+                Err(e) => panic::panic_any(e),
+            };
+
+            // Write the RNG's final state back into the engine's own
+            // stream right away -- see this impl's own doc for why this
+            // happens BEFORE offspring conversion.
+            *ctx.rng = py_rng.borrow(py).inner.clone();
+
+            let bound = out.bind(py);
+            let iter = match bound.try_iter() {
+                Ok(it) => it,
+                Err(e) => panic::panic_any(PyValueError::new_err(format!(
+                    "py/generator: generate() must return an iterable of offspring \
+                     x-values (bare for a single-block space, a tuple of per-block \
+                     values for a multi-block space); got a non-iterable value: {e}"))),
+            };
+            let mut offspring = Vec::new();
+            for (i, item) in iter.enumerate() {
+                let item = match item {
+                    Ok(it) => it,
+                    Err(e) => panic::panic_any(e),
+                };
+                match genotype_from_py(ctx.space, &item) {
+                    Ok(g) => offspring.push(g),
+                    Err(e) => panic::panic_any(PyValueError::new_err(format!(
+                        "py/generator: offspring[{i}]: malformed value -- {e}"))),
+                }
+            }
+            offspring
+        })
+    }
+
+    fn meta(&self) -> ComponentMeta {
+        // SupportedBlocks::All: the Python side may handle any space it
+        // validates via its own optional `validate_space` (below) -- no
+        // static per-block-tag restriction is expressible at the Rust
+        // ComponentMeta level for an arbitrary Python-authored generator.
+        ComponentMeta::new("py/generator", SupportedBlocks::All)
+    }
+
+    /// Build-time veto hook (`crates/core/src/component.rs:81-97`), called
+    /// once by `AlgorithmSpec::validate` right after this generator is
+    /// built, BEFORE any `generate()` call. Delegates to the callback's own
+    /// OPTIONAL `validate_space(space)` method (checked via `hasattr`, so a
+    /// callback without one inherits the default no-op behavior, matching
+    /// every other Rust `Generator`): a raised Python exception becomes a
+    /// `ComponentError::InvalidParams` carrying its message, surfacing a
+    /// friendly, Python-authored error at build time rather than only on
+    /// first use (research §B5).
+    fn validate_space(&self, space: &SearchSpace) -> Result<(), ComponentError> {
+        Python::with_gil(|py| {
+            let bound = self.callback.bind(py);
+            let has_hook = bound.hasattr("validate_space").unwrap_or(false);
+            if !has_hook { return Ok(()); }
+            let space_list = space_to_py(py, space).map_err(|e| ComponentError::InvalidParams {
+                kind: "py/generator".into(),
+                reason: format!("could not build space descriptors for validate_space: {e}"),
+            })?;
+            self.callback.call_method1(py, "validate_space", (space_list,))
+                .map(|_| ())
+                .map_err(|e| ComponentError::InvalidParams {
+                    kind: "py/generator".into(),
+                    reason: e.to_string(),
+                })
+        })
+    }
+}
+
+/// M4-1 Task 3 (RULING A): a Python-authored [`Initializer`] running INSIDE
+/// the Rust engine loop -- the `PyGenerator` pattern (above), mirrored
+/// MECHANICALLY for the `Initializer` trait (`crates/core/src/component.rs`):
+/// same GIL-per-call protocol, same clone-out/write-back RNG handoff on
+/// `ctx.rng`, same [`space_to_py`]/[`genotype_from_py`] conversion helpers,
+/// same honest per-item error naming. `callback` is a live Python object
+/// with an `initialize(n, ctx)` method (required for this wrapper to ever be
+/// constructed -- see [`solve_with_py_generator`]'s `initializer` argument,
+/// the only call site).
+///
+/// Differences from [`PyGenerator`], both following directly from
+/// `Initializer`'s own (narrower) trait shape
+/// (`crates/core/src/component.rs:72-75`): no `pop`/`fitness` argument (there
+/// is no population yet -- only `n`, the target population size), and no
+/// `validate_space` hook (the trait doesn't have one; `Generator`'s is a
+/// Generator-only build-time veto addition, M3-8).
+///
+/// **RNG protocol**: identical to `PyGenerator::generate`'s own -- `ctx.rng`
+/// (here, the engine's dedicated init stream, `RngStream::from_master
+/// (master_seed, &[run_id, 0])`, `crates/core/src/engine.rs:92,109-113`) is
+/// cloned out into an owned [`PyRng`], handed to the callback via
+/// [`EngineCtx::rng`], and its final state is written back into `*ctx.rng`
+/// immediately after the callback returns.
+///
+/// **Return-value conversion**: the callback's return value is iterated and
+/// each item converted via [`genotype_from_py`] against `ctx.space`, using
+/// the SAME per-individual convention `pop.individuals`/generator offspring
+/// use (bare for a single-block space, a tuple of per-block values for a
+/// multi-block one). A malformed item raises a `ValueError` naming the
+/// offending index (`"py/initializer: individual[<index>]: malformed value
+/// -- <reason>"`), and a Python exception raised inside `initialize()`
+/// itself is re-thrown UNCHANGED -- identical propagation pattern to
+/// [`PyGenerator`] (`panic::panic_any(PyErr)`, caught by `run_with_bridge`'s
+/// `catch_unwind`).
+struct PyInitializer { callback: Py<PyAny> }
+
+impl Initializer for PyInitializer {
+    fn initialize(&self, n: usize, ctx: &mut Ctx) -> Vec<Genotype> {
+        Python::with_gil(|py| {
+            let space_list = match space_to_py(py, ctx.space) {
+                Ok(s) => s,
+                Err(e) => panic::panic_any(e),
+            };
+            let py_rng = match Py::new(py, PyRng { inner: ctx.rng.clone() }) {
+                Ok(r) => r,
+                Err(e) => panic::panic_any(e),
+            };
+            let engine_ctx = match Py::new(py, EngineCtx {
+                iteration: ctx.iteration,
+                space: space_list,
+                rng: py_rng.clone_ref(py),
+            }) {
+                Ok(c) => c,
+                Err(e) => panic::panic_any(e),
+            };
+
+            let out = match self.callback.call_method1(py, "initialize", (n, engine_ctx)) {
+                Ok(o) => o,
+                // A Python exception raised inside the callback's own
+                // initialize() is thrown here as a panic; `catch_unwind`
+                // inside `run_with_bridge` downcasts it and returns it to
+                // the caller as the original exception, unchanged.
+                Err(e) => panic::panic_any(e),
+            };
+
+            // Write the RNG's final state back into the engine's own
+            // stream right away -- see this impl's own doc for why this
+            // happens BEFORE individual conversion (mirrors PyGenerator).
+            *ctx.rng = py_rng.borrow(py).inner.clone();
+
+            let bound = out.bind(py);
+            let iter = match bound.try_iter() {
+                Ok(it) => it,
+                Err(e) => panic::panic_any(PyValueError::new_err(format!(
+                    "py/initializer: initialize() must return an iterable of individual \
+                     x-values (bare for a single-block space, a tuple of per-block \
+                     values for a multi-block space); got a non-iterable value: {e}"))),
+            };
+            let mut individuals = Vec::new();
+            for (i, item) in iter.enumerate() {
+                let item = match item {
+                    Ok(it) => it,
+                    Err(e) => panic::panic_any(e),
+                };
+                match genotype_from_py(ctx.space, &item) {
+                    Ok(g) => individuals.push(g),
+                    Err(e) => panic::panic_any(PyValueError::new_err(format!(
+                        "py/initializer: individual[{i}]: malformed value -- {e}"))),
+                }
+            }
+            individuals
+        })
+    }
+
+    fn meta(&self) -> ComponentMeta {
+        // SupportedBlocks::All: same reasoning as PyGenerator::meta -- an
+        // arbitrary Python-authored initializer may handle any space; there
+        // is no build-time veto hook on Initializer to defer to (unlike
+        // Generator's validate_space), so a space mismatch surfaces only on
+        // the first (and only) initialize() call, via a malformed-value
+        // ValueError or whatever the callback itself raises.
+        ComponentMeta::new("py/initializer", SupportedBlocks::All)
+    }
+}
+
 /// Borrowed [`Problem`] wrapper around a `from_callable(...)` handle, used
 /// by `solve()` (which runs synchronously and can borrow the `PyProblem`'s
 /// own fields for the run's lifetime). Calling convention: see
@@ -290,6 +982,7 @@ impl PyProblem {
             Inner::CatMatch(p) => p.space().dim(),
             Inner::Mixed(p) => p.space().dim(),
             Inner::Callable { space, .. } => space.dim(),
+            Inner::CallableSpaced { space, .. } => space.dim(),
             Inner::F0 { space, .. } => space.dim(),
         }
     }
@@ -311,9 +1004,38 @@ impl PyProblem {
             Inner::CatMatch(p) => p.space(),
             Inner::Mixed(p) => p.space(),
             Inner::Callable { space, .. } => space,
+            Inner::CallableSpaced { space, .. } => space,
             Inner::F0 { space, .. } => space,
         };
         bounds_of(space)
+    }
+
+    /// Per-block kind descriptors for the search space (M4-1 Task 5: added
+    /// as the minimal read-only introspection accessor the `GeneticAlgorithm`
+    /// wrapper's auto-dispatch needs -- `dim()`/`bounds()`/`optimum()` alone
+    /// cannot distinguish an all-Float space from an all-Permutation one).
+    /// Reuses [`space_to_py`]'s existing, already-shipped encoding verbatim
+    /// (same shape the engine-hosted Python callback bridge's `EngineCtx.space`
+    /// already exposes internally, M4-1 Task 2) rather than inventing a
+    /// second block-shape encoding: one dict per block, in `space.blocks()`
+    /// order, `{"kind": "float"/"int"/"categorical"/"binary"/"permutation",
+    /// ...}` -- see `space_to_py`'s own doc for the exact per-kind fields.
+    fn blocks(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
+        let space = match &self.inner {
+            Inner::Bbob(p) => p.space(),
+            Inner::Cec2022(p) => p.space(),
+            Inner::Cec2014(p) => p.space(),
+            Inner::Cec2017(p) => p.space(),
+            Inner::Tsp(p) => p.space(),
+            Inner::OneMax(p) => p.space(),
+            Inner::IntQuadratic(p) => p.space(),
+            Inner::CatMatch(p) => p.space(),
+            Inner::Mixed(p) => p.space(),
+            Inner::Callable { space, .. } => space,
+            Inner::CallableSpaced { space, .. } => space,
+            Inner::F0 { space, .. } => space,
+        };
+        space_to_py(py, space)
     }
 
     /// The problem's known optimum, or `None` if it has none (a
@@ -335,6 +1057,12 @@ impl PyProblem {
             // -- see its own doc.
             Inner::Mixed(_) => None,
             Inner::Callable { .. } => None,
+            // M4-1 Task 1: unlike Inner::Callable (always None -- an
+            // arbitrary Python function has no analytically known optimum),
+            // a sezgi.Problem subclass may override `optimum()`; that value
+            // is plumbed through from_callable_spaced(...) and surfaced
+            // here -- see this task's report for the design decision.
+            Inner::CallableSpaced { optimum, .. } => *optimum,
             Inner::F0 { .. } => None,
         }
     }
@@ -388,6 +1116,40 @@ fn from_callable(f: Py<PyAny>, lo: f64, hi: f64, dim: usize, vectorized: bool) -
     let space = SearchSpace::new(vec![Block::Float { lo, hi, n: dim }])
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(PyProblem { inner: Inner::Callable { f, space, vectorized } })
+}
+
+/// `_sezgi.from_callable_spaced(f, space_json, vectorized=True,
+/// optimum=None)` -- M4-1 Task 1's block-typed widening of
+/// `from_callable`: a [`Problem`] handle wrapping a Python callable `f`
+/// over ANY [`SearchSpace`] (Float/Int/Categorical/Binary/Permutation
+/// blocks, single- or multi-block), not just a single Float block.
+///
+/// INTERNAL -- not re-exported from `sezgi/__init__.py`'s public namespace
+/// (only accessible as `sezgi._sezgi.from_callable_spaced`); `sezgi.Problem
+/// ._to_native()` (`py-sezgi/python/sezgi/problem.py`) is the sole intended
+/// caller. `space_json` is a JSON array of blocks in `Block`'s own serde
+/// wire shape (`#[serde(tag = "type", rename_all = "snake_case")]`,
+/// `crates/core/src/space.rs`), e.g. `[{"type":"float","lo":-5.0,
+/// "hi":5.0,"n":3}]` -- built by `sezgi.spaces.Space._to_json()`; reusing
+/// `Block`'s own `Deserialize` impl needs no new Rust-side space-parsing
+/// code. `optimum` is plumbed straight to the returned handle's
+/// `.optimum()` (see [`Inner::CallableSpaced`]'s doc for why). See
+/// [`call_callable_spaced`] for `f`'s exact calling convention.
+///
+/// # Errors
+/// `ValueError` if `space_json` fails to parse as `Vec<Block>`, or if the
+/// resulting blocks are rejected by [`SearchSpace::new`] (e.g. a `Float`/
+/// `Int` block with `lo >= hi`).
+#[pyfunction]
+#[pyo3(signature = (f, space_json, vectorized=true, optimum=None))]
+fn from_callable_spaced(f: Py<PyAny>, space_json: &str, vectorized: bool, optimum: Option<f64>)
+    -> PyResult<PyProblem>
+{
+    let blocks: Vec<Block> = serde_json::from_str(space_json)
+        .map_err(|e| PyValueError::new_err(format!("invalid space_json: {e}")))?;
+    let space = SearchSpace::new(blocks)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(PyProblem { inner: Inner::CallableSpaced { f, space, vectorized, optimum } })
 }
 
 /// `sezgi.bias.f0(dim, seed)` -- a [`Problem`] handle for
@@ -988,13 +1750,23 @@ impl PyEvalSession {
         // these typed families). Rejected up front with an honest message
         // rather than silently mis-building a Float-typed EvalSession over a
         // non-Float space.
+        // M4-1 Task 1: Inner::CallableSpaced (from_callable_spaced(...), the
+        // block-typed callable bridge under sezgi.Problem) is rejected the
+        // same way -- no ask/tell session type exists for a non-Float or
+        // multi-block space, and even a single-Float-block CallableSpaced
+        // handle would need a different Evaluator-facing calling convention
+        // (bare-x-per-individual via genotype_to_py) than EvalSession's own
+        // plain-row `evaluate(xs)` surface expects; out of this task's
+        // scope (see the report).
         if matches!(&problem.inner,
-            Inner::OneMax(_) | Inner::IntQuadratic(_) | Inner::CatMatch(_) | Inner::Mixed(_)) {
+            Inner::OneMax(_) | Inner::IntQuadratic(_) | Inner::CatMatch(_) | Inner::Mixed(_)
+            | Inner::CallableSpaced { .. }) {
             return Err(PyValueError::new_err(
                 "EvalSession.for_problem is not currently supported for onemax(...)/\
-                 int_quadratic(...)/cat_match(...)/mixed_diagnostic(...) problems (no \
-                 ask/tell session type exists yet for Binary/Int/Categorical/mixed-typed \
-                 spaces); use sezgi.solve(...) with presets.ga_bin/ga_int/ga_cat instead"));
+                 int_quadratic(...)/cat_match(...)/mixed_diagnostic(...)/a sezgi.Problem \
+                 subclass's native handle (no ask/tell session type exists yet for \
+                 Binary/Int/Categorical/mixed-typed spaces); use sezgi.solve(...) with \
+                 presets.ga_bin/ga_int/ga_cat instead"));
         }
 
         let (boxed, meta): (Box<dyn Problem>, SessionMeta) = match &problem.inner {
@@ -1091,7 +1863,8 @@ impl PyEvalSession {
             // Handled and returned above -- this match is unreachable for
             // Inner::Tsp, but the match must still be exhaustive.
             Inner::Tsp(_) => unreachable!("Inner::Tsp is handled and returned before this match"),
-            Inner::OneMax(_) | Inner::IntQuadratic(_) | Inner::CatMatch(_) | Inner::Mixed(_) =>
+            Inner::OneMax(_) | Inner::IntQuadratic(_) | Inner::CatMatch(_) | Inner::Mixed(_)
+            | Inner::CallableSpaced { .. } =>
                 unreachable!("rejected and returned before this match"),
         };
 
@@ -1286,6 +2059,18 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
             // batch via Python::with_gil (standard PyO3 pattern).
             (run_with_bridge(py, || run(&cp, None))?, None)
         }
+        // M4-1 Task 1: from_callable_spaced(...)'s block-typed handle --
+        // same shape as Inner::Callable (log_dir rejected, same reason: no
+        // fid identity), routed through SpacedCallableProblem instead
+        // (different Python calling convention, see call_callable_spaced).
+        Inner::CallableSpaced { f, space, vectorized, .. } => {
+            if log_dir.is_some() {
+                return Err(PyValueError::new_err(
+                    "log_dir is only supported for builtin (bbob) problems"));
+            }
+            let cp = SpacedCallableProblem { f, space, vectorized: *vectorized };
+            (run_with_bridge(py, || run(&cp, None))?, None)
+        }
         // sezgi decision (M3-5 scope ruling 2, fix round 1): CEC 2022 is
         // solve()-eligible (Inner::Cec2022) additively -- same shape as
         // Inner::Bbob, IOH logging included. Widened alongside
@@ -1423,25 +2208,297 @@ fn solve(py: Python<'_>, spec_json: &str, problem: &PyProblem, master_seed: u64,
     //   above -- the natural generalization that preserves block structure
     //   rather than collapsing every block into one ambiguously-typed flat
     //   list.
-    fn block_values_to_py(py: Python<'_>, bv: &BlockValues) -> PyResult<Py<PyAny>> {
-        Ok(match bv {
-            BlockValues::Float(xs) => PyList::new(py, xs)?.into_any().unbind(),
-            BlockValues::Perm(xs) => PyList::new(py, xs)?.into_any().unbind(),
-            BlockValues::Int(xs) => PyList::new(py, xs)?.into_any().unbind(),
-            BlockValues::Cat(xs) => PyList::new(py, xs)?.into_any().unbind(),
-            BlockValues::Bin(xs) => PyList::new(py, xs)?.into_any().unbind(),
-        })
+    // M4-1 Task 1: this used to be a `solve()`-local `fn block_values_to_py`
+    // (byte-identical body) -- now factored to module scope as
+    // `block_value_to_py`, shared with the block-typed callable bridge's
+    // `x` construction (`genotype_to_py`). M4-1 Task 2: the actual
+    // block-list-vs-blocks-of-blocks assembly below is further factored to
+    // [`best_x_to_py`], shared with `solve_with_py_generator`'s identical
+    // result-dict `best_x` construction. Same output, same call sites.
+    let best_x_py = best_x_to_py(py, &result.best_x)?;
+    d.set_item("best_x", best_x_py)?;
+    d.set_item("evals_used", result.evals_used)?;
+    d.set_item("iterations", result.iterations)?;
+    if let Some(skipped) = skipped_empty_runs_opt {
+        d.set_item("skipped_empty_runs", skipped)?;
     }
-    let best_x_py: Py<PyAny> = if result.best_x.blocks.len() == 1 {
-        block_values_to_py(py, &result.best_x.blocks[0])?
+    Ok(d.into())
+}
+
+/// Converts a [`RunResult`]'s `best_x` genotype to the SAME `best_x` shape
+/// `solve()` has always returned (M3-8 Task 9's typed-result-genotype
+/// decision, documented at `solve()`'s own call site): a single-block
+/// genotype surfaces as a FLAT list in that block's own natural Python type
+/// (via [`block_value_to_py`]); a multi-block genotype surfaces as a list
+/// of per-block lists, one sub-list per block in `SearchSpace::blocks()`
+/// order. Factored out (M4-1 Task 2) so `solve()` and
+/// `solve_with_py_generator` share exactly one `best_x` conversion, rather
+/// than two copies that could drift.
+fn best_x_to_py(py: Python<'_>, g: &Genotype) -> PyResult<Py<PyAny>> {
+    if g.blocks.len() == 1 {
+        block_value_to_py(py, &g.blocks[0])
     } else {
         let blocks = PyList::empty(py);
-        for b in &result.best_x.blocks {
-            blocks.append(block_values_to_py(py, b)?)?;
+        for b in &g.blocks {
+            blocks.append(block_value_to_py(py, b)?)?;
         }
-        blocks.into_any().unbind()
+        Ok(blocks.into_any().unbind())
+    }
+}
+
+/// The [`SearchSpace`] backing any [`PyProblem`] handle -- the same match
+/// [`PyProblem::dim`]/[`PyProblem::bounds`]/[`PyProblem::optimum`] each run
+/// independently (kept separate there, per this file's existing house
+/// style of one small match per accessor); factored here as its own helper
+/// because [`solve_with_py_generator`] needs the space BEFORE it has built
+/// any concrete `&dyn Problem` (to call `Engine::from_spec`), unlike those
+/// three accessors which only ever read a single field off it.
+fn problem_space(inner: &Inner) -> &SearchSpace {
+    match inner {
+        Inner::Bbob(p) => p.space(),
+        Inner::Cec2022(p) => p.space(),
+        Inner::Cec2014(p) => p.space(),
+        Inner::Cec2017(p) => p.space(),
+        Inner::Tsp(p) => p.space(),
+        Inner::OneMax(p) => p.space(),
+        Inner::IntQuadratic(p) => p.space(),
+        Inner::CatMatch(p) => p.space(),
+        Inner::Mixed(p) => p.space(),
+        Inner::Callable { space, .. } => space,
+        Inner::CallableSpaced { space, .. } => space,
+        Inner::F0 { space, .. } => space,
+    }
+}
+
+/// M4-1 Task 2: `solve_with_py_generator(callback, problem, budget,
+/// master_seed=0, run_id=0, pop_size=20, log_dir=None,
+/// init_kind="init/uniform", replacer_kind="replace/mu-plus-lambda")` --
+/// the engine-hosted Python-generator run path. INTERNAL, mirroring
+/// `from_callable_spaced`'s own not-re-exported-from-`sezgi/__init__.py`
+/// status (only reachable as `sezgi._sezgi.solve_with_py_generator`); Task
+/// 3's `Algorithm`/front-door class hierarchy is the intended caller.
+///
+/// Builds a fresh per-call [`Registry`] (the SAME `registry()` helper
+/// `solve()` uses), registers a synthetic `"py/generator"` kind whose
+/// factory IGNORES the JSON `params` blob entirely and returns a
+/// [`PyGenerator`] capturing `callback` by move (research §B2 -- the
+/// registry is a plain, per-call-extensible `Registry`, no core change),
+/// assembles a single-stage [`AlgorithmSpec`] (`init_kind`/`replacer_kind`
+/// selectable by the caller; `boundary/clamp` is always used, matching
+/// every `presets::ga_*` preset), and runs it through the exact same
+/// `Engine::from_spec` + `run_with_bridge` path `solve()` uses -- for ANY
+/// `problem` handle `solve()` itself accepts (BBOB, CEC 2022/2014/2017,
+/// TSP, the M3-8 typed diagnostics, `from_callable`, `from_callable_spaced`
+/// via `sezgi.Problem`, `sezgi.bias.f0`), not only the block-typed callable
+/// bridge -- a Python-authored generator is a component, not a problem, so
+/// there is no reason to restrict which problem it runs against.
+///
+/// Default `init_kind`/`boundary`/`replacer_kind` reproduce
+/// `presets::ga_real`'s own preset shape EXACTLY (`crates/components/src/
+/// presets.rs:72-83`: `init/uniform` + `boundary/clamp` +
+/// `replace/mu-plus-lambda`) -- the pinned "GA preset" shape the brief asks
+/// for, with only the generator itself swapped for the Python callback.
+///
+/// Returns the SAME result-dict shape `solve()` returns: `best_f` (float),
+/// `best_x` (via [`best_x_to_py`] -- the identical typed-result-genotype
+/// convention), `evals_used` (int), `iterations` (int), plus
+/// `skipped_empty_runs` (int) whenever `log_dir` is given (mirroring
+/// `solve()`'s own conditional key -- see below).
+///
+/// M4-1 Task 3 additions (RULING A / RULING B, this milestone's controller
+/// rulings on Task 2's own report):
+///
+/// - `initializer` (`Option<Py<PyAny>>`, default `None`): a Python object
+///   with an `initialize(n, ctx)` method, mirroring `callback`'s own
+///   `generate(pop, ctx)` shape -- registered under `"py/initializer"`
+///   ([`PyInitializer`], the MECHANICAL `Initializer`-trait counterpart of
+///   [`PyGenerator`]) and forced as the spec's `init.kind`, IGNORING
+///   `init_kind` when given (the two are mutually exclusive: pass a
+///   Rust-builtin `init_kind` string OR a Python `initializer` callback,
+///   never both meaningfully). `None` (the default -- no override) leaves
+///   `init_kind`'s own documented meaning byte-for-byte unchanged from Task
+///   2 (default `"init/uniform"`, the pure-Rust init path, no Python call
+///   involved) -- `sezgi.Algorithm.run` only ever passes `initializer` when
+///   a subclass overrides `initialize` (detected via function-identity
+///   comparison against the base class, see `algorithm.py`).
+/// - `algo_name` (`Option<&str>`, default `None`): the IOH-archive algorithm
+///   label when `log_dir` is given; resolves to `spec.name` ("py/generator")
+///   when omitted, same fallback shape as `solve()`'s own `algo_name`
+///   parameter.
+/// - `log_dir`: RULING B -- wired end-to-end (no longer unconditionally
+///   rejected) for the SAME four problem families `solve()` itself logs
+///   (`Inner::Bbob`/`Inner::Cec2022`/`Inner::Cec2014`/`Inner::Cec2017`),
+///   mirroring `solve()`'s own per-variant `IohLogger::new` +
+///   `start_run_with` + `finish()` sequence exactly (this was mechanical:
+///   `log_dir` never flowed through `RunConfig` in either function -- it is
+///   a wholly separate `EvalObserver`-based path in both). Every other
+///   `problem` variant (TSP, the typed diagnostics, `from_callable`,
+///   `from_callable_spaced`, `bias.f0`) still rejects `log_dir` with a
+///   `ValueError`, same reason `solve()` rejects it for those variants (no
+///   fid/instance/known-optimum identity to log against).
+///
+/// # Errors
+/// `ValueError` if `log_dir` is given for a problem variant that doesn't
+/// support IOH logging (see above), if `init_kind`/`replacer_kind` name an
+/// unknown component kind or one incompatible with `problem`'s space
+/// (surfaced via [`AlgorithmSpec::validate`]/`Engine::from_spec`, same as
+/// any other spec-validation failure in this crate), or if the run itself
+/// fails (budget-smaller-than-population, etc. -- same [`EngineError`]
+/// mapping `solve()` uses). A Python exception raised inside the
+/// callback's own `generate`/`validate_space`, or the `initializer`
+/// callback's own `initialize`, or a malformed-offspring/malformed-individual
+/// error, propagates as described on [`PyGenerator`]'s/[`PyInitializer`]'s
+/// own doc.
+#[pyfunction]
+#[pyo3(signature = (callback, problem, budget, master_seed=0, run_id=0, pop_size=20,
+                     log_dir=None, init_kind="init/uniform", replacer_kind="replace/mu-plus-lambda",
+                     initializer=None, algo_name=None))]
+#[allow(clippy::too_many_arguments)]
+fn solve_with_py_generator(
+    py: Python<'_>,
+    callback: Py<PyAny>,
+    problem: &PyProblem,
+    budget: u64,
+    master_seed: u64,
+    run_id: u64,
+    pop_size: usize,
+    log_dir: Option<&str>,
+    init_kind: &str,
+    replacer_kind: &str,
+    initializer: Option<Py<PyAny>>,
+    algo_name: Option<&str>,
+) -> PyResult<Py<PyDict>> {
+    let mut reg = registry();
+    reg.register_generator("py/generator", move |_params| {
+        Python::with_gil(|py| {
+            Ok(Box::new(PyGenerator { callback: callback.clone_ref(py) }) as Box<dyn Generator>)
+        })
+    });
+
+    // RULING A: see this function's own doc -- `initializer` given forces
+    // "py/initializer" regardless of `init_kind`; `initializer` absent
+    // (the default) leaves `init_kind` in full, unchanged control, exactly
+    // reproducing Task 2's own pure-Rust-default behavior.
+    let init_kind_for_spec: String = if let Some(init_cb) = initializer {
+        reg.register_initializer("py/initializer", move |_params| {
+            Python::with_gil(|py| {
+                Ok(Box::new(PyInitializer { callback: init_cb.clone_ref(py) }) as Box<dyn Initializer>)
+            })
+        });
+        "py/initializer".to_string()
+    } else {
+        init_kind.to_string()
     };
-    d.set_item("best_x", best_x_py)?;
+
+    let spec = AlgorithmSpec {
+        name: "py/generator".into(),
+        pop_size,
+        init: ComponentSpec { kind: init_kind_for_spec, params: serde_json::json!({}) },
+        boundary: ComponentSpec { kind: "boundary/clamp".into(), params: serde_json::json!({}) },
+        stages: vec![StageSpec {
+            generator: ComponentSpec { kind: "py/generator".into(), params: serde_json::json!({}) },
+            replacer: ComponentSpec { kind: replacer_kind.into(), params: serde_json::json!({}) },
+            adapter: None,
+        }],
+        termination: TerminationSpec { budget, target: None },
+        restart: None,
+    };
+
+    let space = problem_space(&problem.inner);
+    let engine = Engine::from_spec(&spec, &reg, space)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let cfg = RunConfig { master_seed, run_id };
+
+    // RULING B: log_dir wiring, mirroring solve()'s own per-variant
+    // IohLogger sequence exactly (see this function's own doc) -- only for
+    // the same four loggable problem families solve() itself supports.
+    let (result, skipped_empty_runs_opt) = if let Some(dir) = log_dir {
+        let name = algo_name.unwrap_or(&spec.name).to_string();
+        match &problem.inner {
+            Inner::Bbob(p) => {
+                let mut lg = IohLogger::new(Path::new(dir), &name,
+                    SUITE_BBOB, p.fid(), p.name(), p.space().dim());
+                let obs = lg.start_run_with(p.instance, master_seed, p.f_opt(), budget);
+                let r = run_with_bridge(py, || {
+                    engine.run(p, cfg, Some(Box::new(obs)))
+                        .map_err(|e| PyValueError::new_err(e.to_string()))
+                })?;
+                let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                (r, Some(fin.skipped_empty_runs as u64))
+            }
+            Inner::Cec2022(p) => {
+                let scenario_name = format!("cec2022-f{}", p.fid());
+                let mut lg = IohLogger::new(Path::new(dir), &name,
+                    "sezgi-cec2022", p.fid(), &scenario_name, p.space().dim());
+                let obs = lg.start_run_with(1, master_seed, p.f_star(), budget);
+                let r = run_with_bridge(py, || {
+                    engine.run(p, cfg, Some(Box::new(obs)))
+                        .map_err(|e| PyValueError::new_err(e.to_string()))
+                })?;
+                let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                (r, Some(fin.skipped_empty_runs as u64))
+            }
+            Inner::Cec2014(p) => {
+                let scenario_name = format!("cec2014-f{}", p.fid());
+                let mut lg = IohLogger::new(Path::new(dir), &name,
+                    "sezgi-cec2014", p.fid(), &scenario_name, p.space().dim());
+                let obs = lg.start_run_with(1, master_seed, p.f_star(), budget);
+                let r = run_with_bridge(py, || {
+                    engine.run(p, cfg, Some(Box::new(obs)))
+                        .map_err(|e| PyValueError::new_err(e.to_string()))
+                })?;
+                let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                (r, Some(fin.skipped_empty_runs as u64))
+            }
+            Inner::Cec2017(p) => {
+                let scenario_name = format!("cec2017-f{}", p.fid());
+                let mut lg = IohLogger::new(Path::new(dir), &name,
+                    "sezgi-cec2017", p.fid(), &scenario_name, p.space().dim());
+                let obs = lg.start_run_with(1, master_seed, p.f_star(), budget);
+                let r = run_with_bridge(py, || {
+                    engine.run(p, cfg, Some(Box::new(obs)))
+                        .map_err(|e| PyValueError::new_err(e.to_string()))
+                })?;
+                let fin = lg.finish().map_err(|e| PyValueError::new_err(e.to_string()))?;
+                (r, Some(fin.skipped_empty_runs as u64))
+            }
+            _ => return Err(PyValueError::new_err(
+                "log_dir is only supported for bbob/cec2022/cec2014/cec2017 problems \
+                 for solve_with_py_generator (mirrors solve()'s own IOH-logging support)")),
+        }
+    } else {
+        let r = run_with_bridge(py, || {
+            let r = match &problem.inner {
+                Inner::Bbob(p) => engine.run(p, cfg, None),
+                Inner::Cec2022(p) => engine.run(p, cfg, None),
+                Inner::Cec2014(p) => engine.run(p, cfg, None),
+                Inner::Cec2017(p) => engine.run(p, cfg, None),
+                Inner::Tsp(p) => engine.run(p, cfg, None),
+                Inner::OneMax(p) => engine.run(p, cfg, None),
+                Inner::IntQuadratic(p) => engine.run(p, cfg, None),
+                Inner::CatMatch(p) => engine.run(p, cfg, None),
+                Inner::Mixed(p) => engine.run(p, cfg, None),
+                Inner::Callable { f, space, vectorized } => {
+                    let cp = CallableProblem { f, space, vectorized: *vectorized };
+                    engine.run(&cp, cfg, None)
+                }
+                Inner::CallableSpaced { f, space, vectorized, .. } => {
+                    let cp = SpacedCallableProblem { f, space, vectorized: *vectorized };
+                    engine.run(&cp, cfg, None)
+                }
+                Inner::F0 { dim, seed, .. } => {
+                    let p = F0Random::new(*dim, *seed);
+                    engine.run(&p, cfg, None)
+                }
+            };
+            r.map_err(|e| PyValueError::new_err(e.to_string()))
+        })?;
+        (r, None)
+    };
+
+    let d = PyDict::new(py);
+    d.set_item("best_f", result.best_f)?;
+    d.set_item("best_x", best_x_to_py(py, &result.best_x)?)?;
     d.set_item("evals_used", result.evals_used)?;
     d.set_item("iterations", result.iterations)?;
     if let Some(skipped) = skipped_empty_runs_opt {
@@ -3030,8 +4087,13 @@ fn preset_es_mu_plus_lambda(
 fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyProblem>()?;
     m.add_class::<PyEvalSession>()?;
+    // M4-1 Task 2: the engine-hosted Python callback bridge's pyclasses.
+    m.add_class::<PyRng>()?;
+    m.add_class::<EngineCtx>()?;
+    m.add_class::<PopView>()?;
     m.add_function(wrap_pyfunction!(bbob, m)?)?;
     m.add_function(wrap_pyfunction!(from_callable, m)?)?;
+    m.add_function(wrap_pyfunction!(from_callable_spaced, m)?)?;
     m.add_function(wrap_pyfunction!(bias_f0, m)?)?;
     m.add_function(wrap_pyfunction!(cec2022, m)?)?;
     m.add_function(wrap_pyfunction!(cec2022_evaluate, m)?)?;
@@ -3050,6 +4112,7 @@ fn _sezgi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cat_match, m)?)?;
     m.add_function(wrap_pyfunction!(mixed_diagnostic, m)?)?;
     m.add_function(wrap_pyfunction!(solve, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_with_py_generator, m)?)?;
     m.add_function(wrap_pyfunction!(run_experiment, m)?)?;
     m.add_function(wrap_pyfunction!(read_ioh_records, m)?)?;
     m.add_function(wrap_pyfunction!(ecdf, m)?)?;

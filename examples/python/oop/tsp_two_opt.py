@@ -30,7 +30,7 @@ BUDGET = 2000
 SEED = 42
 
 
-class TspTwoOpt(sezgi.Algorithm):
+class TspTwoOpt(sezgi.AskTellAlgorithm):
     """First-improvement 2-opt local search from one random start.
 
     setup(): draws one random tour (`ctx.random_permutation()`) and

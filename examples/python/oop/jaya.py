@@ -1,6 +1,6 @@
 """OOP twin of examples/python/jaya.py -- same math, same RNG draw order.
 
-Port of the pure-Python JAYA script onto sezgi.Algorithm. The pure script
+Port of the pure-Python JAYA script onto sezgi.AskTellAlgorithm. The pure script
 (and the Rust module doc it cites) remains the provenance for the update
 equations; this file re-derives NOTHING and must reproduce the pure
 script's evals_used/best_f/gap output bit-for-bit at the same seed --
@@ -24,7 +24,7 @@ def clamp(x, lo, hi):
     return lo if x < lo else hi if x > hi else x
 
 
-class Jaya(sezgi.Algorithm):
+class Jaya(sezgi.AskTellAlgorithm):
     name = "jaya"
 
     def setup(self, ctx):

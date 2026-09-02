@@ -1,6 +1,6 @@
 """OOP twin of examples/python/alo.py -- same math, same RNG draw order.
 
-Port of the pure-Python Ant Lion Optimizer script onto sezgi.Algorithm. The
+Port of the pure-Python Ant Lion Optimizer script onto sezgi.AskTellAlgorithm. The
 pure script (and the Rust module doc it cites) remains the provenance for
 the update equations and the three helpers (full-horizon random walk,
 floor-shifted roulette, merge-sort-truncate elitism); this file re-derives
@@ -99,7 +99,7 @@ def clamp(x, lo, hi):
     return lo if x < lo else hi if x > hi else x
 
 
-class Alo(sezgi.Algorithm):
+class Alo(sezgi.AskTellAlgorithm):
     name = "alo"
 
     def setup(self, ctx):

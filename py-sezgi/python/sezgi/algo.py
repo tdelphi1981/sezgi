@@ -1,10 +1,18 @@
 """Subclassable algorithm authoring over the EvalSession ask/tell core.
 
-M3-4 Task 2: `sezgi.Algorithm` is the pure-Python ABC that later M3-4 tasks
-port 17 example algorithms onto (with bit-exact RNG parity against existing
-pure scripts). A subclass implements `setup(ctx)`/`step(ctx)`; `solve()`
-drives the setup/step loop over an `AlgoContext` until the budget is
-exhausted and returns a `SolveResult`.
+M3-4 Task 2: `AskTellAlgorithm` (renamed from `Algorithm`, M4-1 Task 3 --
+see the class's own docstring note) is the pure-Python ABC that later M3-4
+tasks port 17 example algorithms onto (with bit-exact RNG parity against
+existing pure scripts). A subclass implements `setup(ctx)`/`step(ctx)`;
+`solve()` drives the setup/step loop over an `AlgoContext` until the budget
+is exhausted and returns a `SolveResult`.
+
+M4-1 Task 3: the top-level `sezgi.Algorithm` name was repurposed for the
+NEW engine-hosted class-first base (`sezgi/algorithm.py`) -- this module's
+own ask/tell base is renamed `AskTellAlgorithm`, with a module-level
+`Algorithm = AskTellAlgorithm` compat alias kept below (so `sezgi.algo.
+Algorithm` -- the old import path -- still resolves, just no longer the
+top-level `sezgi.Algorithm` binding).
 
 M3-4 Task 3: `bbob_records` provides a multi-scenario sweep helper that records
 runs in the same shape as `run_experiment`, allowing custom Algorithm instances
@@ -28,6 +36,7 @@ import time
 from dataclasses import dataclass
 
 import sezgi
+from sezgi.problem import as_native_problem
 
 
 class BudgetExhausted(Exception):
@@ -46,6 +55,21 @@ class SolveResult:
     best_f: float
     f_opt: float | None
     gap: float | None
+
+
+def _wrap_result(algo_name, seed, budget, result, f_opt):
+    """Wraps a raw `sezgi.solve()`/`_sezgi.solve_with_py_generator()`-shaped
+    result dict (`best_f`, `best_x`, `evals_used`, ...) into `SolveResult`,
+    computing `gap` the same way every front door does. Final-review fix 3:
+    shared by `sezgi.algorithm.Algorithm.run` and every `sezgi.builtins`
+    wrapper class's `run()` (previously duplicated, character-for-character,
+    in both places -- one implementation now, not two)."""
+    best_f = result["best_f"]
+    return SolveResult(
+        algo=algo_name, seed=seed, budget=budget,
+        evals_used=result["evals_used"], best_x=result["best_x"],
+        best_f=best_f, f_opt=f_opt,
+        gap=None if f_opt is None else best_f - f_opt)
 
 
 class AlgoContext:
@@ -159,8 +183,16 @@ class AlgoContext:
         return self._session.evaluate(points)
 
 
-class Algorithm(abc.ABC):
-    """Subclass, implement setup() and step(), call solve()."""
+class AskTellAlgorithm(abc.ABC):
+    """Subclass, implement setup() and step(), call solve().
+
+    M4-1 Task 3 rename: this class was `sezgi.Algorithm` through M3-4/M3-8;
+    the top-level `sezgi.Algorithm` name now binds the NEW engine-hosted
+    class-first base (`sezgi/algorithm.py`, `Algorithm.generate(pop, ctx)`
+    run INSIDE the Rust engine loop) instead. This class is unchanged in
+    every other respect -- same setup()/step()/solve() contract, same
+    `AlgoContext`, same `SolveResult`. See the module-level `Algorithm =
+    AskTellAlgorithm` compat alias below for the old import path."""
 
     name = None  # default resolves to cls.__name__.lower()
 
@@ -171,16 +203,28 @@ class Algorithm(abc.ABC):
     def step(self, ctx): ...
 
     def solve(self, problem, budget, seed, log_dir=None):
+        """problem: routed through `sezgi.as_native_problem` (final-review
+        fix 5, matching `sezgi.solve`/`Algorithm.run`/the builtin wrapper
+        classes): a native `Problem` handle passes through unchanged.
+        Anything not a handle or a `sezgi.Problem` subclass instance raises
+        `as_native_problem`'s own friendly `TypeError`. A `sezgi.Problem`
+        subclass instance itself converts cleanly, but is then rejected by
+        `EvalSession.for_problem` below with its own honest `ValueError`
+        (no ask/tell session type exists for a CallableSpaced problem --
+        a pre-existing Rust-side restriction this fix does not lift, see
+        lib.rs:1753-1770) instead of pyo3's confusing raw conversion error
+        a Problem subclass used to fail with here."""
         algo_name = self.name or type(self).__name__.lower()
+        native = as_native_problem(problem)
         session = sezgi.EvalSession.for_problem(
-            problem, budget, log_dir=log_dir, algo_name=algo_name, seed=seed)
+            native, budget, log_dir=log_dir, algo_name=algo_name, seed=seed)
         kind = session.kind()
         # problem.bounds() raises ValueError for a permutation-typed problem
         # (no uniform (lo, hi) domain -- see PyProblem::bounds's own doc),
         # so it is only called for a Float-typed session; a permutation-
         # typed AlgoContext gets bounds=None (see its own class doc).
-        bounds = problem.bounds() if kind == "float" else None
-        ctx = AlgoContext(session, problem.dim(), bounds, seed, kind)
+        bounds = native.bounds() if kind == "float" else None
+        ctx = AlgoContext(session, native.dim(), bounds, seed, kind)
         # finish() must run exactly once no matter how the run ends --
         # including a RuntimeError from the driver's own guards below, or
         # any exception a subclass's setup()/step() raises -- so the whole
@@ -215,13 +259,21 @@ class Algorithm(abc.ABC):
         return result
 
 
+# M4-1 Task 3: compat alias -- `sezgi.algo.Algorithm` (the pre-rename import
+# path) still resolves to this class, unchanged. The top-level `sezgi.
+# Algorithm` binding itself now points to the NEW engine-hosted base
+# (`sezgi/algorithm.py`) instead -- see `AskTellAlgorithm`'s own docstring
+# note and `sezgi/__init__.py`'s Algorithm-authoring-surfaces comment.
+Algorithm = AskTellAlgorithm
+
+
 def bbob_records(factory, fids, dims, instances, seeds, budget, log_dir=None):
     """BBOB-scenario sweep helper that records runs in stats-pipeline shape.
 
-    Runs an algorithm across a multi-scenario sweep (combinations of BBOB
-    functions, dimensions, instances, and seeds) and records results in the
-    same dict shape as `run_experiment`: (algo, fid, dim, instance, seed,
-    budget, best_f, f_opt, gap, evals_used, wall_secs).
+    Runs an AskTellAlgorithm across a multi-scenario sweep (combinations of
+    BBOB functions, dimensions, instances, and seeds) and records results in
+    the same dict shape as `run_experiment`: (algo, fid, dim, instance,
+    seed, budget, best_f, f_opt, gap, evals_used, wall_secs).
 
     The record-key contract matches `run_experiment` (see its own docstring
     in `sezgi.__init__`), allowing this helper's output to mix freely with
@@ -231,8 +283,8 @@ def bbob_records(factory, fids, dims, instances, seeds, budget, log_dir=None):
     can flip depending on which evaluation budget is examined (documented in
     `per_budget_packages`), motivating multi-budget reporting as the default.
 
-    factory: zero-arg callable returning a FRESH Algorithm instance per run
-        (a bare Algorithm subclass works).
+    factory: zero-arg callable returning a FRESH AskTellAlgorithm instance
+        per run (a bare AskTellAlgorithm subclass works).
     fids: list of BBOB function IDs (1..24).
     dims: list of dimensions.
     instances: list of BBOB instances (1..).

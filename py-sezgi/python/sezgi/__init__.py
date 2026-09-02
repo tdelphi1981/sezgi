@@ -2,8 +2,22 @@
 import json
 from types import SimpleNamespace
 
-from sezgi._sezgi import Problem, EvalSession, bbob, from_callable
+from sezgi._sezgi import EvalSession, bbob, from_callable
 from sezgi import _sezgi
+
+# M4-1 Task 1: `sezgi.Problem` is now the subclassable Python ABC
+# (`py-sezgi/python/sezgi/problem.py`), NOT the native `#[pyclass]` handle
+# type that `bbob(...)`/`problems.onemax(...)`/`from_callable(...)` return
+# -- that native type is still fully reachable (as `sezgi._sezgi.Problem`;
+# `problem.py`'s `as_native_problem` uses it directly), just no longer
+# aliased under this same top-level name. No existing test or example
+# referenced `sezgi.Problem` before this task (verified), so this is a
+# name-repurposing, not a behavior change to anything working code already
+# depended on. See `docs/superpowers/research/2026-09-02-python-oop-front-
+# door.md` §E1 and this task's own report for the rationale (ruling 1: the
+# new class hierarchy is meant to become THE documented `Problem` symbol).
+from sezgi.problem import Problem, as_native_problem
+from sezgi.spaces import Float, Int, Categorical, Binary, Permutation, Space
 
 
 # EvalSession / Problem surface (M3-4 Task 1): EvalSession's ask/tell core
@@ -56,7 +70,9 @@ from sezgi import _sezgi
 #   p.optimum() -> float | None: the problem's known optimum, or None (a
 #     from_callable(...) handle always returns None).
 #
-# sezgi.Algorithm/AlgoContext (py-sezgi/python/sezgi/algo.py, M3-8 Task 7):
+# sezgi.AskTellAlgorithm/AlgoContext (py-sezgi/python/sezgi/algo.py, M3-8
+#   Task 7; class renamed from sezgi.Algorithm at M4-1 Task 3 -- see the
+#   "Algorithm-authoring surfaces" comment near the bottom of this file):
 #   AlgoContext now also works over a problems.tsp(...) problem -- ctx.kind
 #   ("float"/"permutation"), ctx.n (same value as ctx.dim, a kind-neutral
 #   name), ctx.random_permutation(), ctx.two_opt(tour, i, j). ctx.bounds is
@@ -79,6 +95,13 @@ def solve(spec, problem, master_seed=0, run_id=0, log_dir=None, algo_name=None):
     """Run an algorithm spec against a problem.
 
     spec: dict (JSON-compatible algorithm spec) or a JSON string.
+    problem: a native `Problem` handle (`sezgi.bbob(...)`, ...) OR a
+        `sezgi.Problem` subclass instance -- both routed through
+        `sezgi.as_native_problem` (final-review fix 5), so a native handle
+        passes through unchanged and a `Problem` subclass is converted the
+        same way `Algorithm.run`/the builtin wrapper classes already do;
+        anything else raises `as_native_problem`'s own friendly `TypeError`
+        instead of pyo3's raw conversion error.
 
     Returns a dict including `best_x`: the best EVALUATED point (paired with
     `best_f`). For most algorithms this always lies within `problem`'s
@@ -89,6 +112,7 @@ def solve(spec, problem, master_seed=0, run_id=0, log_dir=None, algo_name=None):
     """
     if isinstance(spec, dict):
         spec = json.dumps(spec)
+    problem = as_native_problem(problem)
     return _sezgi.solve(spec, problem, master_seed=master_seed, run_id=run_id,
                         log_dir=log_dir, algo_name=algo_name)
 
@@ -617,15 +641,105 @@ problems = SimpleNamespace(
 
 __all__ = ["Problem", "EvalSession", "bbob", "from_callable", "solve", "run_experiment", "presets",
            "stats", "results_matrix", "per_budget_packages", "read_ioh_records", "ecdf",
-           "coco_export", "bias", "mo", "problems", "Algorithm", "algo"]
+           "coco_export", "bias", "mo", "problems", "Algorithm", "AskTellAlgorithm", "algo",
+           # M4-1 Task 4: the two family bases over sezgi.Algorithm.
+           "PopulationAlgorithm", "LocalSearch",
+           # M4-1 Task 1 (fix round 1): the new space builders / Problem ABC
+           # surface. "as_space" is deliberately excluded -- it is a
+           # problem.py-internal helper (used by Problem._to_native()), not
+           # re-exported into the top-level sezgi namespace at all (only
+           # reachable as sezgi.spaces.as_space), so it has no place in an
+           # __all__ that only lists names this module actually binds.
+           "Float", "Int", "Categorical", "Binary", "Permutation", "Space",
+           "as_native_problem",
+           # M4-1 Task 6: the two data recipes (sezgi.recipes) plus the
+           # module itself.
+           "recipes", "FeatureSelection", "MixedTuning"]
 
 
-# Algorithm-authoring surface (M3-4 Task 2): sezgi.Algorithm is the pure-
-# Python ABC for subclassing an algorithm's setup()/step() over the
-# EvalSession ask/tell core. sezgi.algo also exposes AlgoContext,
-# SolveResult, BudgetExhausted for direct import. Imported last since
-# sezgi/algo.py itself does `import sezgi` (module-level attribute access
-# happens only inside Algorithm.solve(), at call time, well after this
+# Algorithm-authoring surfaces:
+#
+# - sezgi.AskTellAlgorithm (formerly the top-level sezgi.Algorithm, M3-4
+#   Task 2, renamed M4-1 Task 3): the pure-Python ABC for subclassing an
+#   algorithm's setup()/step() over the EvalSession ask/tell core
+#   (py-sezgi/python/sezgi/algo.py). sezgi.algo also exposes AlgoContext,
+#   SolveResult, BudgetExhausted for direct import, plus a module-level
+#   `Algorithm = AskTellAlgorithm` compat alias (see algo.py's own
+#   docstring note) -- `sezgi.algo.Algorithm` still resolves to this same
+#   class.
+#
+# - sezgi.Algorithm (NEW, M4-1 Task 3, py-sezgi/python/sezgi/algorithm.py):
+#   REPURPOSES the top-level `Algorithm` name for the engine-hosted
+#   class-first base -- `generate(self, pop, ctx)` (required),
+#   `initialize(self, n, ctx)` / `validate_space(self, space)` (optional),
+#   `run(problem, budget, seed=0, pop_size=50, log_dir=None)`, running
+#   INSIDE the Rust engine loop via `_sezgi.solve_with_py_generator` (Task
+#   2's `PyGenerator` bridge, Task 3's `PyInitializer` bridge). Same
+#   name-repurposing precedent as Task 1's `sezgi.Problem` (this
+#   milestone) -- no existing test/example imported the OLD `sezgi.
+#   Algorithm` binding after this task's own enumerated import updates
+#   moved every one of them onto `sezgi.AskTellAlgorithm`.
+#
+# Imported last since both sezgi/algo.py and sezgi/algorithm.py themselves
+# import sezgi-package submodules at their own top level (module-level
+# attribute access on the FULL `sezgi` package only happens inside
+# AskTellAlgorithm.solve()/Algorithm.run(), at call time, well after this
 # module has finished initializing).
+# - sezgi.PopulationAlgorithm / sezgi.LocalSearch (NEW, M4-1 Task 4,
+#   py-sezgi/python/sezgi/algorithm.py): family bases over sezgi.Algorithm
+#   with sensible defaults. PopulationAlgorithm: select(pop, k, ctx)
+#   (default k-fold binary tournament, size 2) + vary(parents, ctx)
+#   (REQUIRED) -- generate() is composed from both (does not override
+#   initialize()). LocalSearch: neighbor(x, ctx) (REQUIRED) + accept(f_old,
+#   f_new, ctx) (default greedy) -- pop_size=1 semantics, current_x/
+#   current_f instance state; see algorithm.py's own class docstrings for
+#   the exact select() draw pattern and the accept() design (what it does
+#   and does not control given replace/mu-plus-lambda's own behavior at
+#   pop_size=1).
 from sezgi import algo
-from sezgi.algo import Algorithm
+from sezgi.algo import AskTellAlgorithm
+from sezgi.algorithm import Algorithm, PopulationAlgorithm, LocalSearch
+
+# M4-1 Task 5: built-in algorithm wrapper classes (one per
+# crates/components/src/presets.rs builder, table-driven -- see
+# sezgi/builtins.py's own module doc for the full reconciliation) plus
+# NSGA2 (a thin sezgi.mo.nsga2 skin, not a presets.rs builder). Imported
+# last for the same reason as sezgi.algo/sezgi.algorithm above (builtins.py
+# itself does `import sezgi` at module scope, resolved lazily via each
+# class's own run() method, well after this module has finished
+# initializing).
+from sezgi import builtins
+from sezgi.builtins import (
+    GeneticAlgorithm, DifferentialEvolution, EvolutionStrategy,
+    ParticleSwarm, SimulatedAnnealing, SHADE, LSHADE, CMAES, CMAESIpop,
+    NelderMead, RandomSearch, GreyWolfOptimizer, WhaleOptimization,
+    HarmonySearch, CuckooSearch, GrasshopperOptimization,
+    SineCosineAlgorithm, JAYA, MothFlameOptimization, SalpSwarm,
+    FireflyAlgorithm, BatAlgorithm, FlowerPollination, TLBO, HarrisHawks,
+    AntLion, ArtificialBeeColony, GravitationalSearch, NSGA2,
+)
+
+# Final-review fix 1 (2026-09-02): all 29 builtin wrapper classes above
+# (the milestone's headline deliverable) were bound at module scope but
+# never listed in `__all__`, so `from sezgi import *` could not see any of
+# them -- exactly the defect class Task 1's own fix round existed for
+# (test_new_oop_symbols_are_in_dunder_all), which T5 nonetheless missed for
+# all 29 names. Derived programmatically from `sezgi.builtins.__all__`
+# (that module's own single source of truth, already used to
+# table-generate the classes themselves) rather than re-enumerated by hand
+# here, so this exact omission cannot regress silently again. "builtins"
+# (the submodule name) is added alongside "algo"/"recipes" below, which are
+# already listed for the same submodule-reachability reason.
+__all__ += ["builtins"] + list(builtins.__all__)
+
+# M4-1 Task 6: the two "optimize against data" recipes -- sezgi.Problem
+# subclasses over sezgi/recipes.py, following the same
+# "import the module last, re-export its public names" convention as
+# sezgi.algo/sezgi.algorithm/sezgi.builtins above (recipes.py itself only
+# touches numpy at import time -- no `import sezgi` there -- but kept in
+# this same tail block for house-style consistency: every class-first
+# surface built on top of sezgi.Problem/sezgi.Space is imported here, in
+# the same place). sezgi.recipes remains reachable as its own submodule
+# too (`import sezgi.recipes`), matching sezgi.builtins's own precedent.
+from sezgi import recipes
+from sezgi.recipes import FeatureSelection, MixedTuning
