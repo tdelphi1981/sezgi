@@ -8,6 +8,7 @@ Description: R frontend for the sezgi metaheuristic optimization library.
 License: MIT + file LICENSE
 Encoding: UTF-8
 SystemRequirements: Cargo (Rust's package manager), rustc
+Imports: R6 (>= 2.4.0)
 Suggests: testthat (>= 3.0.0), jsonlite
 Config/testthat/edition: 3
 Config/roxygen2/version: 8.1.0
