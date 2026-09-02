@@ -305,6 +305,59 @@ test_that("a validate_space callback that stop()s (a genuine R condition) also v
   expect_equal(called$generate, 0L)
 })
 
+# ---- fix round 1 regression: a large mixed-space validate_space payload
+# under gctorture(TRUE) (controller review finding, empirically reproduced
+# as list corruption and, once, a hard segfault against the pre-fix build:
+# `blocks_to_r(space)`'s returned `Sexp` was built BEFORE `FunctionArgs::
+# new()` existed, leaving it unprotected across that constructor's own
+# `Rf_cons` allocation -- fixed by the same build-then-immediately-attach
+# discipline `RGenerator::generate`/`RInitializer::initialize` already
+# used) ---------------------------------------------------------------------
+
+test_that("validate_space sees correct descriptors for a large (24-block) mixed space and vetoes cleanly, under gctorture(TRUE)", {
+  gctorture(TRUE)
+  on.exit(gctorture(FALSE))
+
+  # 6 Float + 6 Int + 6 Categorical + 3 Binary + 3 Permutation = 24 blocks,
+  # several kinds -- the reviewer's repro shape. Vetoed immediately (no
+  # generate() call needed) to keep the torture run as cheap as possible.
+  block_kinds <- c(rep("float", 6), rep("int", 6), rep("categorical", 6),
+                    rep("binary", 3), rep("permutation", 3))
+  block_objs <- lapply(block_kinds, function(kind) {
+    switch(kind,
+      float = sz_float(-1, 1, 2),
+      int = sz_int(-3, 3, 2),
+      categorical = sz_categorical(3, 2),
+      binary = sz_binary(2),
+      permutation = sz_permutation(3)
+    )
+  })
+  LargeMixed <- R6::R6Class("LargeMixedBridgeRegressionTest", inherit = Problem, public = list(
+    space = function() do.call(sz_space, block_objs),
+    evaluate = function(x) 0
+  ))
+  prob <- LargeMixed$new()
+  space_blocks <- sezgi:::.sz_space_to_blocks(prob$space())
+  shim <- sezgi:::.sz_make_evaluate_shim(prob)
+
+  seen <- new.env(parent = emptyenv())
+  gen <- function(pop, fitness, rng, iteration) lapply(pop, identity)
+  veto <- function(blocks) {
+    seen$n_blocks <- length(blocks)
+    seen$types <- vapply(blocks, function(b) b$type, character(1))
+    "rejected: regression-test veto"
+  }
+
+  expect_error(
+    solve_r_generator_problem(gen, space_blocks, shim, budget = 6,
+                               master_seed = 1, run_id = 0, pop_size = 3,
+                               validate_space = veto),
+    "rejected: regression-test veto"
+  )
+  expect_equal(seen$n_blocks, 24L)
+  expect_equal(seen$types, block_kinds)
+})
+
 # ---- mixed space end-to-end with an R problem -----------------------------
 
 test_that("mixed Float+Permutation space solves end-to-end via sz_solve_r_generator (R-callable problem)", {

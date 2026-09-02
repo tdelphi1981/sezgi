@@ -2383,12 +2383,27 @@ impl Generator for RGenerator {
         let Some(vs) = self.validate_space else {
             return Ok(());
         };
+        // Same build-then-immediately-attach discipline as `RGenerator::
+        // generate`/`RInitializer::initialize` (see their own comments for
+        // the full rationale) -- `args` is created FIRST (its own
+        // `Rf_cons` allocation happens here, with nothing else yet built),
+        // THEN `blocks_sexp` is built and IMMEDIATELY attached. The
+        // original ordering here built `blocks_sexp` BEFORE `args` existed:
+        // `blocks_to_r`'s returned `Sexp` is unprotected the instant its
+        // own internal `OwnedListSexp` is converted via `.into()` (same
+        // protection-drop point `call_r_evaluate_batch`'s own doc
+        // documents), and `FunctionArgs::new()`'s `Rf_cons` call is a real
+        // R allocation that could trigger a GC pass in between -- fix
+        // round 1 (controller review): reproduced under `gctorture(TRUE)`
+        // as list corruption and, once, a hard segfault on a 24-block
+        // space. This site was missed when the SAME bug was found and
+        // fixed at the `generate`/`initialize` call sites.
+        let f = FunctionSexp(vs);
+        let mut args = FunctionArgs::new();
         let blocks_sexp = blocks_to_r(space).map_err(|e| ComponentError::InvalidParams {
             kind: "r/generator".into(),
             reason: format!("could not build space descriptors for validate_space: {e}"),
         })?;
-        let f = FunctionSexp(vs);
-        let mut args = FunctionArgs::new();
         if let Err(e) = args.add("", blocks_sexp) {
             return Err(ComponentError::InvalidParams {
                 kind: "r/generator".into(),
