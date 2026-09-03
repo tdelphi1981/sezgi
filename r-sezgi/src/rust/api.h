@@ -66,6 +66,9 @@ SEXP savvy_sz_solve_cec2022__ffi(SEXP c_arg__spec_json, SEXP c_arg__fid, SEXP c_
 SEXP savvy_sz_solve_int_quadratic__ffi(SEXP c_arg__spec_json, SEXP c_arg__lo, SEXP c_arg__hi, SEXP c_arg__n, SEXP c_arg__master_seed, SEXP c_arg__run_id);
 SEXP savvy_sz_solve_mixed_diagnostic__ffi(SEXP c_arg__spec_toml, SEXP c_arg__n_float, SEXP c_arg__n_int, SEXP c_arg__k_cat, SEXP c_arg__n_cat, SEXP c_arg__n_bin, SEXP c_arg__master_seed);
 SEXP savvy_sz_solve_onemax__ffi(SEXP c_arg__spec_json, SEXP c_arg__n_bits, SEXP c_arg__master_seed, SEXP c_arg__run_id);
+SEXP savvy_sz_solve_r_generator__ffi(SEXP c_arg__generate, SEXP c_arg__blocks, SEXP c_arg__evaluate, SEXP c_arg__budget, SEXP c_arg__master_seed, SEXP c_arg__run_id, SEXP c_arg__pop_size, SEXP c_arg__init_kind, SEXP c_arg__replacer_kind, SEXP c_arg__initializer, SEXP c_arg__validate_space, SEXP c_arg__algo_name);
+SEXP savvy_sz_solve_r_generator_bbob__ffi(SEXP c_arg__generate, SEXP c_arg__fid, SEXP c_arg__dim, SEXP c_arg__instance, SEXP c_arg__budget, SEXP c_arg__master_seed, SEXP c_arg__run_id, SEXP c_arg__pop_size, SEXP c_arg__init_kind, SEXP c_arg__replacer_kind, SEXP c_arg__initializer, SEXP c_arg__validate_space, SEXP c_arg__algo_name);
+SEXP savvy_sz_solve_r_problem__ffi(SEXP c_arg__spec_json, SEXP c_arg__blocks, SEXP c_arg__evaluate, SEXP c_arg__master_seed, SEXP c_arg__run_id);
 SEXP savvy_sz_solve_tsp__ffi(SEXP c_arg__spec_json, SEXP c_arg__name, SEXP c_arg__master_seed, SEXP c_arg__run_id);
 SEXP savvy_sz_stats_bayesian_signed_rank_raw__ffi(SEXP c_arg__a, SEXP c_arg__b, SEXP c_arg__rope, SEXP c_arg__samples, SEXP c_arg__seed);
 SEXP savvy_sz_stats_cliffs_delta__ffi(SEXP c_arg__a, SEXP c_arg__b);
@@ -94,3 +97,9 @@ SEXP savvy_EvalSession_new_cec2022__ffi(SEXP c_arg__fid, SEXP c_arg__dim, SEXP c
 SEXP savvy_EvalSession_new_f0__ffi(SEXP c_arg__dim, SEXP c_arg__f0_seed, SEXP c_arg__budget);
 SEXP savvy_EvalSession_new_tsp__ffi(SEXP c_arg__name, SEXP c_arg__budget, SEXP c_arg__seed);
 SEXP savvy_EvalSession_random_permutation__ffi(SEXP self__);
+
+// methods and associated functions for SzRng
+SEXP savvy_SzRng_from_master__ffi(SEXP c_arg__master_seed, SEXP c_arg__path);
+SEXP savvy_SzRng_next_below__ffi(SEXP self__, SEXP c_arg__n);
+SEXP savvy_SzRng_next_f64__ffi(SEXP self__);
+SEXP savvy_SzRng_split__ffi(SEXP self__, SEXP c_arg__child_id);

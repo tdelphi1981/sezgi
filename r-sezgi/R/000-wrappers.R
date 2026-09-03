@@ -1518,6 +1518,186 @@ NULL
   .Call(savvy_sz_solve_onemax__impl, `spec_json`, `n_bits`, `master_seed`, `run_id`)
 }
 
+#' R analogue of py-sezgi's `solve_with_py_generator`
+#' (`py-sezgi/src/lib.rs:2357-2405`) -- an R-callable [`Problem`] (T2's
+#' bridge: `blocks` + `evaluate`, the SAME two arguments
+#' [`sz_solve_r_problem`] takes) solved by an R-authored [`Generator`]
+#' running INSIDE the engine loop (see [`RGenerator::generate`]'s own doc
+#' for the complete, PINNED `generate` calling convention -- the T4
+#' contract). INTERNAL entry point (`@noRd`), called via
+#' `sezgi:::sz_solve_r_generator(...)`, exactly like `sz_solve_r_problem`.
+#'
+#' Defaults documented here match `solve_with_py_generator`'s own
+#' (`py-sezgi/src/lib.rs:2353-2355`) -- `pop_size = 20`, `init_kind =
+#' "init/uniform"`, `replacer_kind = "replace/mu-plus-lambda"` -- but,
+#' UNLIKE the Python binding (`#[pyo3(signature = ...)]` defaults), savvy
+#' has no mechanism to express a non-`NULL`/string default in a generated R
+#' signature (`R/presets.R:1-7`'s own documented limitation), and this is
+#' an internal `@noRd` entry point with no hand-written R wrapper yet (T4's
+#' job) -- so every parameter is REQUIRED here; a caller (this task's own
+#' tests) passes all of them explicitly.
+#'
+#' `#[allow(clippy::too_many_arguments)]`: this file's clippy baseline has
+#' exactly ONE pre-existing exception (`sz_preset_es_mu_plus_lambda_raw`,
+#' deliberately "not to be joined by a second" per `sz_solve_
+#' mixed_diagnostic`'s own doc). This function is a SECOND, unavoidable
+#' one: its brief-pinned parameter list (`generate`/`initializer`/
+#' `validate_space`/`blocks`/`evaluate`/`budget`/`master_seed`/`run_id`/
+#' `pop_size`/`init_kind`/`replacer_kind`/`algo_name` -- 12 in total) is
+#' the R analogue of `solve_with_py_generator`'s OWN signature, which
+#' ALSO needs this exact suppression (`py-sezgi/src/lib.rs:2356`) -- unlike
+#' `sz_solve_mixed_diagnostic` (which could shed one param, `run_id`, to
+#' fit under the threshold), no parameter here is droppable without
+#' breaking the T4 contract this task's own report pins.
+#'
+#' @param generate An R closure of FOUR positional arguments -- see
+#'   [`RGenerator::generate`]'s own doc for the complete, PINNED contract.
+#' @param blocks The flat block-list `.sz_space_to_blocks()` produces (T1)
+#'   -- identical to [`sz_solve_r_problem`]'s own `blocks` argument.
+#' @param evaluate `.sz_make_evaluate_shim(prob)`'s return value --
+#'   identical to [`sz_solve_r_problem`]'s own `evaluate` argument.
+#' @param budget Evaluation budget.
+#' @param master_seed Master RNG seed.
+#' @param run_id Run id (mixed into the seed for independent replicate
+#'   streams).
+#' @param pop_size Population size.
+#' @param init_kind Built-in initializer kind (e.g. `"init/uniform"`) --
+#'   IGNORED when `initializer` is given (RULING A, mirroring
+#'   `solve_with_py_generator`'s own `initializer`/`init_kind` mutual
+#'   exclusion).
+#' @param replacer_kind Built-in replacer kind (e.g.
+#'   `"replace/mu-plus-lambda"`).
+#' @param initializer Optional R closure of THREE positional arguments
+#'   (`n`, `rng`, `iteration`) -- see [`RInitializer::initialize`]'s own
+#'   doc. When given, registered under `"r/initializer"` and forced as the
+#'   spec's `init.kind`, ignoring `init_kind`.
+#' @param validate_space Optional R closure of ONE argument (the SAME
+#'   `blocks`-shaped descriptor list `.sz_space_to_blocks()`/
+#'   [`blocks_to_r`] produce) -- a build-time veto hook, called once by
+#'   `AlgorithmSpec::validate` before any `generate()` call. Returning a
+#'   non-`NULL` character scalar, or raising an R condition, both reject
+#'   the space.
+#' @param algo_name Optional label recorded on the internal
+#'   `AlgorithmSpec` (`spec.name`) -- purely informational; this task does
+#'   not wire up IOH logging (out of scope), so `algo_name` is reserved
+#'   for a future `log_dir` addition mirroring `solve_with_py_generator`'s
+#'   own.
+#' @returns A named list with `best_f` (double), `evals` (double), and
+#'   `best_x` (see [`genotype_to_r`]'s doc for the type mapping).
+#'
+#' # Errors
+#' A savvy error for an invalid `blocks`/space shape, an unknown
+#' `init_kind`/`replacer_kind`, a `validate_space` veto, any
+#' [`sezgi_core::engine`] run error, OR -- via [`run_with_r_bridge`] -- the
+#' R condition `generate`/`initializer`/`validate_space`/`evaluate` itself
+#' raised, re-raised UNCHANGED in the R session; a malformed offspring/
+#' initializer-individual return value raises a plain savvy error naming
+#' the defect (NEVER an empty/degenerate offspring vector -- see
+#' [`individuals_from_r`]'s own doc for why).
+#' @noRd
+`sz_solve_r_generator` <- function(`generate`, `blocks`, `evaluate`, `budget`, `master_seed`, `run_id`, `pop_size`, `init_kind`, `replacer_kind`, `initializer` = NULL, `validate_space` = NULL, `algo_name` = NULL) {
+  .Call(savvy_sz_solve_r_generator__impl, `generate`, `blocks`, `evaluate`, `budget`, `master_seed`, `run_id`, `pop_size`, `init_kind`, `replacer_kind`, `initializer`, `validate_space`, `algo_name`)
+}
+
+#' Built-in-problem form of [`sz_solve_r_generator`], over a BBOB problem
+#' -- the CHEAPEST existing `sz_solve_*` family to mirror (identical
+#' `fid`/`dim`/`instance` triple and validation as [`sz_solve_bbob`]),
+#' chosen per this task's brief's own dual-form ruling ("Problem args
+#' accept EITHER the T2 R-callable form ... or a built-in problem
+#' descriptor mirroring whichever built-in family the existing `sz_solve_*`
+#' entries expose most cheaply -- implementer judgment"), which itself
+#' names BBOB explicitly as the built-in half of the "an R algorithm on a
+#' built-in BBOB function, and an R algorithm on an R problem" pairing
+#' this task must prove end-to-end.
+#'
+#' See [`sz_solve_r_generator`]'s own doc for the `generate`/`initializer`/
+#' `validate_space`/`budget`/`master_seed`/`run_id`/`pop_size`/
+#' `init_kind`/`replacer_kind`/`algo_name` parameters (UNCHANGED here) and
+#' for why `#[allow(clippy::too_many_arguments)]` is needed (13 parameters
+#' here, one more than `sz_solve_r_generator`'s 12, for `fid`/`dim`/
+#' `instance` in place of `blocks`/`evaluate`).
+#'
+#' @param generate See [`sz_solve_r_generator`]'s own `generate` doc.
+#' @param fid BBOB function id (>= 1).
+#' @param dim Problem dimension (>= 1).
+#' @param instance BBOB instance id (>= 1).
+#' @param budget Evaluation budget.
+#' @param master_seed Master RNG seed.
+#' @param run_id Run id.
+#' @param pop_size Population size.
+#' @param init_kind Built-in initializer kind, ignored when `initializer`
+#'   is given.
+#' @param replacer_kind Built-in replacer kind.
+#' @param initializer See [`sz_solve_r_generator`]'s own `initializer` doc.
+#' @param validate_space See [`sz_solve_r_generator`]'s own
+#'   `validate_space` doc.
+#' @param algo_name See [`sz_solve_r_generator`]'s own `algo_name` doc.
+#' @returns Same shape as [`sz_solve_r_generator`]'s own return value.
+#'
+#' # Errors
+#' Same error surface as [`sz_solve_r_generator`], plus `fid`/`dim`/
+#' `instance` domain validation identical to [`sz_solve_bbob`]'s own.
+#' @noRd
+`sz_solve_r_generator_bbob` <- function(`generate`, `fid`, `dim`, `instance`, `budget`, `master_seed`, `run_id`, `pop_size`, `init_kind`, `replacer_kind`, `initializer` = NULL, `validate_space` = NULL, `algo_name` = NULL) {
+  .Call(savvy_sz_solve_r_generator_bbob__impl, `generate`, `fid`, `dim`, `instance`, `budget`, `master_seed`, `run_id`, `pop_size`, `init_kind`, `replacer_kind`, `initializer`, `validate_space`, `algo_name`)
+}
+
+#' R-callable Problem bridge (M4-2 Task 2) -- lets an R6 `Problem`
+#' subclass instance (via `.sz_make_evaluate_shim(prob)`, `R/problem.R`)
+#' be solved by the SAME engine every other `sz_solve_*` binding uses.
+#' INTERNAL entry point -- not exported (`R/problem.R` is this task's sole
+#' R-facing surface; there is no `sz_solve_problem()` convenience wrapper
+#' yet -- a later task's wrapper-class `$run()` methods are expected to
+#' call this directly, the same way `sz_preset_es_mu_plus_lambda_raw` is
+#' called only from its own hand-written R wrapper).
+#'
+#' Body, per research doc §C3: build a [`Preserved`] guard on `evaluate`
+#' -> build [`RProblem`] -> [`registry()`] -> `Engine::from_spec` ->
+#' [`run_with_r_bridge`]`(|| engine.run(...))` -> return the SAME 3-field
+#' list every other `sz_solve_*` returns.
+#'
+#' DEVIATION from this task's own brief sketch: there is no separate
+#' `budget` parameter. Every OTHER `sz_solve_*` binding in this file takes
+#' `spec_json` alone and reads the run's budget from `AlgorithmSpec::
+#' termination.budget` (already baked in by whichever `sz_preset_*()`
+#' built `spec_json`, e.g. `sz_preset_gwo(pop_size, budget)`) -- a second,
+#' redundant `budget` input here would depart from that established
+#' convention for no benefit (nothing in `Engine::run`'s own signature
+#' even has a place to put it) -- see this task's own report for the full
+#' rationale.
+#'
+#' @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_gwo()`).
+#' @param blocks The flat block-list `.sz_space_to_blocks()` produces
+#'   (`R/spaces.R`) -- one named list per block (`type` + that block's own
+#'   numeric fields). Rebuilt into a `SearchSpace` here; `lo >= hi` is
+#'   rejected at THIS point (`SearchSpace::new`), not at `sz_float()`/
+#'   `sz_int()` construction time (Task 1 ruling).
+#' @param evaluate `.sz_make_evaluate_shim(prob)`'s return value -- an R
+#'   closure of one argument, called ONCE PER GENERATION with the WHOLE
+#'   population: a `list` of length n (one entry per individual), each
+#'   entry itself a `list` of per-block typed vectors (Float->double,
+#'   Int->integer, Categorical->integer category indices, Binary->logical,
+#'   Permutation->integer 0-based -- see [`block_values_to_r`]'s doc for
+#'   the full table), one entry per block in space order; must return a
+#'   numeric vector of length n, in the same order (Fix round 1: mirrors
+#'   py-sezgi's per-generation `vectorized=True` bridge -- see
+#'   [`call_r_evaluate_batch`]'s own doc).
+#' @param master_seed Master RNG seed.
+#' @param run_id Run id (mixed into the seed for independent replicate
+#'   streams).
+#' @returns A named list with `best_f` (double), `evals` (double), and
+#'   `best_x` (see [`genotype_to_r`]'s doc for the type mapping).
+#'
+#' # Errors
+#' A savvy error for an invalid `spec_json`/`blocks` shape, `lo >= hi` in
+#' any Float/Int block, any [`sezgi_core::engine`] run error, OR -- via
+#' [`run_with_r_bridge`] -- the R condition `evaluate` itself raised,
+#' re-raised UNCHANGED in the R session.
+#' @noRd
+`sz_solve_r_problem` <- function(`spec_json`, `blocks`, `evaluate`, `master_seed`, `run_id`) {
+  .Call(savvy_sz_solve_r_problem__impl, `spec_json`, `blocks`, `evaluate`, `master_seed`, `run_id`)
+}
+
 #' Runs an algorithm spec on a TSPLIB VENDORED instance (`"berlin52"`,
 #' `"eil51"`, `"st70"` -- via [`Tsp::vendored`]; UNLIKE `sz_tsp_load()`/
 #' `sz_tsp_tour_length()` in `problems.rs`, raw TSPLIB text is not accepted
@@ -1837,5 +2017,77 @@ class(`EvalSession`) <- c("sezgi::EvalSession__bundle", "savvy_sezgi__sealed")
 #' @export
 `print.sezgi::EvalSession__bundle` <- function(x, ...) {
   cat('sezgi::EvalSession\n')
+}
+
+### wrapper functions for SzRng
+
+`SzRng_next_below` <- function(self) {
+  function(`n`) {
+    .Call(savvy_SzRng_next_below__impl, `self`, `n`)
+  }
+}
+
+`SzRng_next_f64` <- function(self) {
+  function() {
+    .Call(savvy_SzRng_next_f64__impl, `self`)
+  }
+}
+
+`SzRng_split` <- function(self) {
+  function(`child_id`) {
+    .savvy_wrap_SzRng(.Call(savvy_SzRng_split__impl, `self`, `child_id`))
+  }
+}
+
+`.savvy_wrap_SzRng` <- function(ptr) {
+  e <- new.env(parent = emptyenv())
+  e$.ptr <- ptr
+  e$`next_below` <- `SzRng_next_below`(ptr)
+  e$`next_f64` <- `SzRng_next_f64`(ptr)
+  e$`split` <- `SzRng_split`(ptr)
+
+  class(e) <- c("sezgi::SzRng", "SzRng", "savvy_sezgi__sealed")
+  e
+}
+
+
+#' An owned per-call RNG handle exposed to an R-authored `generate`/
+#' `initialize` callback as the `rng` argument -- an external-pointer-
+#' backed `#[savvy]` object (`SzRng$new`/`SzRng$from_master`/method
+#' closures are all auto-generated by `savvy-cli`, the SAME mechanism
+#' `EvalSession` already uses, `session.rs`'s own module doc). Wraps a
+#' CLONE of the stage's live `RngStream` -- mirrors `PyRng` (`py-sezgi/
+#' src/lib.rs`) exactly: every method here delegates 1:1 to `RngStream`'s
+#' own `pub` API (`crates/core/src/rng.rs:16-59`), no new RNG logic.
+#'
+#' **Clone-out / write-back / null-out protocol** (research doc §C5):
+#' [`RGenerator::generate`]/[`RInitializer::initialize`] clone `*ctx.rng`
+#' into a fresh `SzRng` BEFORE the call, `into_external_pointer()` it, and
+#' hand the raw pointer to R as one argument. After the call returns, the
+#' mutated state is read back via [`take_external_pointer_value`] -- which
+#' hands back OWNERSHIP of the (possibly-advanced) `SzRng` AND nulls the
+#' R-side pointer (`R_ClearExternalPtr`) in the SAME call. This is a
+#' DELIBERATE IMPROVEMENT over M4-1's stale-handle fix, which was
+#' docstring-only ("valid only for the duration of one `generate()` call",
+#' `docs/DECISIONS.md`'s M4-1 record, commit `f242af2`): here, a callback
+#' that STORES `ctx$rng` in its own enclosure across iterations gets a
+#' clear `savvy::Error::InvalidPointer` ("This external pointer is already
+#' consumed or deleted") on any later use, rather than silently reading
+#' stale state -- a hazard turned into an honest error, not just a
+#' documented one.
+`SzRng` <- new.env(parent = emptyenv())
+
+### associated functions for SzRng
+
+`SzRng`$`from_master` <- function(`master_seed`, `path`) {
+  .savvy_wrap_SzRng(.Call(savvy_SzRng_from_master__impl, `master_seed`, `path`))
+}
+
+
+class(`SzRng`) <- c("sezgi::SzRng__bundle", "savvy_sezgi__sealed")
+
+#' @export
+`print.sezgi::SzRng__bundle` <- function(x, ...) {
+  cat('sezgi::SzRng\n')
 }
 

@@ -1,14 +1,20 @@
 use savvy::{
-    savvy, savvy_err, OwnedIntegerSexp, OwnedListSexp, OwnedLogicalSexp, OwnedRealSexp, Sexp,
+    ffi::SEXP, savvy, savvy_err, take_external_pointer_value, FunctionArgs, FunctionSexp,
+    IntoExtPtrSexp, ListSexp, LogicalSexp, NumericSexp, OwnedIntegerSexp, OwnedListSexp,
+    OwnedLogicalSexp, OwnedRealSexp, OwnedStringSexp, Sexp, StringSexp,
 };
 use sezgi_components::{presets, register_builtins};
-use sezgi_core::component::Registry;
+use sezgi_core::component::{
+    ComponentError, ComponentMeta, Ctx, Generator, Initializer, Registry, SupportedBlocks,
+};
 use sezgi_core::dist::Distribution;
 use sezgi_core::engine::{Engine, RunConfig};
-use sezgi_core::problem::Problem;
+use sezgi_core::problem::{Population, Problem};
+use sezgi_core::rng::RngStream;
 use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
-use sezgi_core::spec::AlgorithmSpec;
+use sezgi_core::spec::{AlgorithmSpec, ComponentSpec, StageSpec, TerminationSpec};
 use sezgi_problems::{BbobProblem, CatMatch, Cec2014, Cec2017, Cec2022, IntQuadratic, OneMax, Tsp};
+use std::panic;
 
 /// Casts a non-negative-checked, WHOLE-NUMBER-checked `f64` (as passed
 /// from R, which has no native unsigned integer type) to `u64`, rejecting
@@ -741,10 +747,16 @@ impl Problem for MixedDiagnostic {
 ///   file's own `sz_mo_read_moa`'s `MoArchiveGenotype::Binary ->
 ///   OwnedLogicalSexp` precedent (`mo.rs`) rather than a 0/1 numeric
 ///   encoding.
-/// - `Perm` is unreachable from this helper's four callers (none of
-///   onemax/int_quadratic/cat_match/mixed_diagnostic ever build a
-///   Permutation block) -- `unreachable!()` rather than a silent, wrong
-///   conversion.
+/// - `Perm` -> an integer vector (`OwnedIntegerSexp`), each `u32` gene cast
+///   to `i32`, 0-BASED (NOT `sz_solve_tsp`'s own 1-based tour convention --
+///   this generic helper mirrors py-sezgi's `block_value_to_py`'s
+///   `Perm -> list[int]` exactly, `py-sezgi/src/lib.rs`, which is also
+///   0-based). Unreachable from this helper's original four callers (none
+///   of onemax/int_quadratic/cat_match/mixed_diagnostic ever build a
+///   Permutation block), but reachable from its FIFTH caller added in M4-2
+///   Task 2 (the R-callable `Problem` bridge's `evaluate` shim, via
+///   [`genotype_blocks_to_r_list`]): an R6 `Problem` subclass's `space()`
+///   may legally include an `sz_permutation()` block.
 fn block_values_to_r(bv: &BlockValues) -> savvy::Result<Sexp> {
     Ok(match bv {
         BlockValues::Float(xs) => OwnedRealSexp::try_from_slice(xs.as_slice())?.into(),
@@ -755,10 +767,9 @@ fn block_values_to_r(bv: &BlockValues) -> savvy::Result<Sexp> {
             OwnedIntegerSexp::try_from_iter(xs.iter().map(|&x| x as i32))?.into()
         }
         BlockValues::Bin(xs) => OwnedLogicalSexp::try_from_slice(xs.as_slice())?.into(),
-        BlockValues::Perm(_) => unreachable!(
-            "block_values_to_r's four callers (onemax/int_quadratic/cat_match/mixed_diagnostic) \
-             never build a Permutation block -- sz_solve_tsp has its own dedicated conversion"
-        ),
+        BlockValues::Perm(xs) => {
+            OwnedIntegerSexp::try_from_iter(xs.iter().map(|&x| x as i32))?.into()
+        }
     })
 }
 
@@ -1160,14 +1171,27 @@ fn sz_solve_onemax(spec_json: &str, n_bits: f64, master_seed: f64, run_id: f64) 
         )
         .map_err(|e| savvy_err!("{e}"))?;
 
+    // Same fix as `sz_solve_r_problem`'s result tail (see its comment for
+    // the full explanation): savvy 0.10.2's `set_name_and_value` allocates
+    // `set_name`'s CHARSXP unconditionally on every call (`R_MakeUnwindCont`
+    // inside `unwind_protect_impl`, before any CHARSXP-cache
+    // consideration) before attaching `v` -- so `genotype_to_r`'s
+    // already-bare `Sexp` return (both its branches drop their `Owned*Sexp`
+    // token via `.into()` before returning) sits unprotected across that
+    // guaranteed allocation. Final whole-branch review, fix-wave
+    // re-review: this exact byte-identical expression was confirmed real
+    // at all five `solve.rs` sites sharing it, with a live crash proven at
+    // `sz_solve_onemax` (segfault on the 5th repeated solve under
+    // `gctorture(TRUE)`). Fixed by attaching via `set_value` first
+    // (nothing allocates between argument construction and
+    // `SET_VECTOR_ELT`) and naming via `set_name` second.
     let mut out = OwnedListSexp::new(3, true)?;
-    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
-    out.set_name_and_value(
-        1,
-        "evals",
-        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
-    )?;
-    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_value(0, OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name(0, "best_f")?;
+    out.set_value(1, OwnedRealSexp::try_from_scalar(result.evals_used as f64)?)?;
+    out.set_name(1, "evals")?;
+    out.set_value(2, genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_name(2, "best_x")?;
 
     Ok(out.into())
 }
@@ -1227,14 +1251,27 @@ fn sz_solve_int_quadratic(
         )
         .map_err(|e| savvy_err!("{e}"))?;
 
+    // Same fix as `sz_solve_r_problem`'s result tail (see its comment for
+    // the full explanation): savvy 0.10.2's `set_name_and_value` allocates
+    // `set_name`'s CHARSXP unconditionally on every call (`R_MakeUnwindCont`
+    // inside `unwind_protect_impl`, before any CHARSXP-cache
+    // consideration) before attaching `v` -- so `genotype_to_r`'s
+    // already-bare `Sexp` return (both its branches drop their `Owned*Sexp`
+    // token via `.into()` before returning) sits unprotected across that
+    // guaranteed allocation. Final whole-branch review, fix-wave
+    // re-review: this exact byte-identical expression was confirmed real
+    // at all five `solve.rs` sites sharing it, with a live crash proven at
+    // `sz_solve_onemax` (segfault on the 5th repeated solve under
+    // `gctorture(TRUE)`). Fixed by attaching via `set_value` first
+    // (nothing allocates between argument construction and
+    // `SET_VECTOR_ELT`) and naming via `set_name` second.
     let mut out = OwnedListSexp::new(3, true)?;
-    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
-    out.set_name_and_value(
-        1,
-        "evals",
-        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
-    )?;
-    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_value(0, OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name(0, "best_f")?;
+    out.set_value(1, OwnedRealSexp::try_from_scalar(result.evals_used as f64)?)?;
+    out.set_name(1, "evals")?;
+    out.set_value(2, genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_name(2, "best_x")?;
 
     Ok(out.into())
 }
@@ -1291,14 +1328,27 @@ fn sz_solve_cat_match(
         )
         .map_err(|e| savvy_err!("{e}"))?;
 
+    // Same fix as `sz_solve_r_problem`'s result tail (see its comment for
+    // the full explanation): savvy 0.10.2's `set_name_and_value` allocates
+    // `set_name`'s CHARSXP unconditionally on every call (`R_MakeUnwindCont`
+    // inside `unwind_protect_impl`, before any CHARSXP-cache
+    // consideration) before attaching `v` -- so `genotype_to_r`'s
+    // already-bare `Sexp` return (both its branches drop their `Owned*Sexp`
+    // token via `.into()` before returning) sits unprotected across that
+    // guaranteed allocation. Final whole-branch review, fix-wave
+    // re-review: this exact byte-identical expression was confirmed real
+    // at all five `solve.rs` sites sharing it, with a live crash proven at
+    // `sz_solve_onemax` (segfault on the 5th repeated solve under
+    // `gctorture(TRUE)`). Fixed by attaching via `set_value` first
+    // (nothing allocates between argument construction and
+    // `SET_VECTOR_ELT`) and naming via `set_name` second.
     let mut out = OwnedListSexp::new(3, true)?;
-    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
-    out.set_name_and_value(
-        1,
-        "evals",
-        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
-    )?;
-    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_value(0, OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name(0, "best_f")?;
+    out.set_value(1, OwnedRealSexp::try_from_scalar(result.evals_used as f64)?)?;
+    out.set_name(1, "evals")?;
+    out.set_value(2, genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_name(2, "best_x")?;
 
     Ok(out.into())
 }
@@ -1394,14 +1444,1536 @@ fn sz_solve_mixed_diagnostic(
         )
         .map_err(|e| savvy_err!("{e}"))?;
 
+    // Same fix as `sz_solve_r_problem`'s result tail (see its comment for
+    // the full explanation): savvy 0.10.2's `set_name_and_value` allocates
+    // `set_name`'s CHARSXP unconditionally on every call (`R_MakeUnwindCont`
+    // inside `unwind_protect_impl`, before any CHARSXP-cache
+    // consideration) before attaching `v` -- so `genotype_to_r`'s
+    // already-bare `Sexp` return (both its branches drop their `Owned*Sexp`
+    // token via `.into()` before returning) sits unprotected across that
+    // guaranteed allocation. Final whole-branch review, fix-wave
+    // re-review: this exact byte-identical expression was confirmed real
+    // at all five `solve.rs` sites sharing it, with a live crash proven at
+    // `sz_solve_onemax` (segfault on the 5th repeated solve under
+    // `gctorture(TRUE)`). Fixed by attaching via `set_value` first
+    // (nothing allocates between argument construction and
+    // `SET_VECTOR_ELT`) and naming via `set_name` second.
     let mut out = OwnedListSexp::new(3, true)?;
-    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
-    out.set_name_and_value(
-        1,
-        "evals",
-        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
-    )?;
-    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_value(0, OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name(0, "best_f")?;
+    out.set_value(1, OwnedRealSexp::try_from_scalar(result.evals_used as f64)?)?;
+    out.set_name(1, "evals")?;
+    out.set_value(2, genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_name(2, "best_x")?;
 
     Ok(out.into())
+}
+
+// ===========================================================================
+// M4-2 Task 2: R-callable problem bridge -- lets an R6 `Problem` subclass
+// instance (`R/problem.R`) be solved by the SAME `Engine` every other
+// `sz_solve_*` binding uses, closing the long-standing "R callable-objective
+// sessions" deferral (`docs/DECISIONS.md:839-845`). Mirrors py-sezgi's
+// `solve_with_py_generator`/`from_callable_spaced` shape
+// (`py-sezgi/src/lib.rs`), but with R's own GC-protection and
+// error-propagation design -- see this milestone's research doc
+// (`docs/superpowers/research/2026-09-02-r-class-front-door.md`) §C1-§C4.
+// ===========================================================================
+
+/// RAII guard over `savvy::protect::{insert,release}_from_preserved_list` --
+/// the ONLY way this milestone's code holds a SEXP across a nested
+/// `Rf_eval` (research doc §C1). A bare `FunctionSexp`/raw `SEXP` field is
+/// NOT itself protected from R's GC: `FunctionSexp` is a newtype over a raw
+/// pointer with no `Drop` impl, and while R protects a `.Call` argument for
+/// the duration of that call, that protection does not extend across a
+/// LATER nested `Rf_eval` inside `Engine::run`'s own generation loop.
+/// `obj` is the raw pointer this guard protects (exposed so a caller can
+/// hand it to a struct -- [`RProblem`] -- that must outlive this guard's
+/// own stack frame while remaining bounded by it); `token` is the
+/// continuation handle `release_from_preserved_list` needs to release it.
+struct Preserved {
+    obj: SEXP,
+    token: SEXP,
+}
+
+impl Preserved {
+    fn new(obj: SEXP) -> Self {
+        let token = savvy::protect::insert_to_preserved_list(obj);
+        Self { obj, token }
+    }
+}
+
+impl Drop for Preserved {
+    fn drop(&mut self) {
+        savvy::protect::release_from_preserved_list(self.token);
+    }
+}
+
+/// Panic payload carrying R's `R_UnwindProtect` continuation token
+/// (research doc §C3). `savvy::Error` itself is NOT `Send` (its `Aborted`
+/// variant holds a `SEXP`, and Rust does not derive `Send` per-variant), so
+/// this thin wrapper is what actually crosses `panic::panic_any`/
+/// `catch_unwind` -- the same role `AbortToken`/`throw_r_error` play in the
+/// research doc's compile-verified probe.
+struct AbortToken(SEXP);
+
+/// # Safety
+///
+/// This token never crosses a real OS-thread boundary. `Engine::run` is
+/// single-threaded (see [`RProblem`]'s own `# Safety` note below, points
+/// 1-3), and [`run_with_r_bridge`]'s `catch_unwind` only unwinds Rust stack
+/// frames WITHIN THAT SAME THREAD, between [`call_r_evaluate_batch`]'s
+/// `panic::panic_any` call site and `run_with_r_bridge`'s own call to
+/// `catch_unwind` a few frames up the same call stack -- no R frame is ever
+/// crossed by the unwind itself, because the R-side longjmp was already
+/// intercepted at the `R_UnwindProtect` boundary INSIDE
+/// `FunctionSexp::call` (research doc §C3), well before this panic is
+/// thrown.
+unsafe impl Send for AbortToken {}
+
+/// Shared `catch_unwind` wrapper (research doc §C3) -- consumed by T2's
+/// [`sz_solve_r_problem`] and reserved for T3's engine-hosted generator
+/// bridge (`Generator::generate` has no `Result` return channel either, so
+/// it needs this exact same wrapper around its own `engine.run(...)`
+/// call). Catches an [`AbortToken`] panic payload -- thrown by
+/// [`call_r_evaluate_batch`] when `FunctionSexp::call` returns
+/// `Err(savvy::Error::Aborted(tok))`, i.e. an R-side error/condition
+/// propagating out of the callback -- and re-raises it as
+/// `Err(savvy::Error::Aborted(tok))`; the generated C shim's own
+/// `handle_result` then calls `R_ContinueUnwind(tok)` (savvy-bindgen
+/// `src/codegen/c.rs:162-187`, `savvy::handle_error`,
+/// `src/lib.rs:131-136`), re-raising the ORIGINAL R condition -- class,
+/// message, call, custom condition classes and all -- UNCHANGED in the R
+/// session. Any OTHER panic payload (a malformed `evaluate()` return
+/// value, a core `assert!`/`unreachable!()`, or any other error converted
+/// to a `String` at its own throw site, since `savvy::Error` is not
+/// `Send`) is converted to a plain savvy error message instead.
+fn run_with_r_bridge<T>(f: impl FnOnce() -> T) -> savvy::Result<T> {
+    match panic::catch_unwind(panic::AssertUnwindSafe(f)) {
+        Ok(v) => Ok(v),
+        Err(payload) => match payload.downcast::<AbortToken>() {
+            Ok(tok) => Err(savvy::Error::Aborted(tok.0)),
+            Err(payload) => {
+                let msg = payload
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "unknown panic in an R callback".to_string());
+                Err(savvy_err!("{}", msg))
+            }
+        },
+    }
+}
+
+/// Parses `blocks` -- the flat R `list` `.sz_space_to_blocks()` produces
+/// (`R/spaces.R`: one entry per block, each a named `list` with a `type`
+/// field plus that block's own numeric fields) -- into a `Vec<Block>`, the
+/// same way [`MixedDiagnostic::new`] constructs `Block` values by hand,
+/// just driven by R-supplied data instead of fixed literals.
+/// `SearchSpace::new` (called by [`sz_solve_r_problem`] right after this)
+/// is where an invalid `lo >= hi` bound is actually rejected -- mirroring
+/// every other `sz_solve_*` binding's "bound checking happens at solve
+/// time, not at builder time" convention (`R/spaces.R`'s own module doc).
+///
+/// Int block `lo`/`hi` are read as `f64` (not narrowed to `i32`) -- see
+/// `.sz_block_to_list`'s own doc (`R/spaces.R`, this task's fix) for why:
+/// `Block::Int`'s bounds are `i64` (`crates/core/src/space.rs`), and
+/// [`f64_to_i64`] below performs the exact same f64->i64 cast/whole-number
+/// check `sz_solve_int_quadratic`'s own `lo`/`hi` params already use.
+fn blocks_from_r(blocks: &ListSexp) -> savvy::Result<Vec<Block>> {
+    let mut out = Vec::with_capacity(blocks.len());
+    for i in 0..blocks.len() {
+        let elt = blocks
+            .get_by_index(i)
+            .ok_or_else(|| savvy_err!("blocks[[{}]] is missing", i + 1))?;
+        let entry: ListSexp = elt.try_into()?;
+
+        let get_num = |name: &str| -> savvy::Result<f64> {
+            let s = entry
+                .get(name)
+                .ok_or_else(|| savvy_err!("blocks[[{}]] missing '{}'", i + 1, name))?;
+            let num: NumericSexp = s.try_into()?;
+            num.as_slice_f64()
+                .first()
+                .copied()
+                .ok_or_else(|| savvy_err!("blocks[[{}]].{} is empty", i + 1, name))
+        };
+
+        let type_sexp = entry
+            .get("type")
+            .ok_or_else(|| savvy_err!("blocks[[{}]] missing 'type'", i + 1))?;
+        let type_str: StringSexp = type_sexp.try_into()?;
+        let kind = type_str
+            .iter()
+            .next()
+            .ok_or_else(|| savvy_err!("blocks[[{}]].type is empty", i + 1))?;
+
+        let block = match kind {
+            "float" => Block::Float {
+                lo: get_num("lo")?,
+                hi: get_num("hi")?,
+                n: f64_to_usize("n", get_num("n")?)?,
+            },
+            "int" => Block::Int {
+                lo: f64_to_i64("lo", get_num("lo")?)?,
+                hi: f64_to_i64("hi", get_num("hi")?)?,
+                n: f64_to_usize("n", get_num("n")?)?,
+            },
+            "categorical" => Block::Categorical {
+                k: f64_to_u32("k", get_num("k")?)?,
+                n: f64_to_usize("n", get_num("n")?)?,
+            },
+            "binary" => Block::Binary {
+                n: f64_to_usize("n", get_num("n")?)?,
+            },
+            "permutation" => Block::Permutation {
+                n: f64_to_usize("n", get_num("n")?)?,
+            },
+            other => {
+                return Err(savvy_err!(
+                    "blocks[[{}]]: unknown block type '{}' \
+                     (expected float|int|categorical|binary|permutation)",
+                    i + 1,
+                    other
+                ));
+            }
+        };
+        out.push(block);
+    }
+    Ok(out)
+}
+
+/// Converts ONE individual's genotype into the ALWAYS-a-list shape used as
+/// one ELEMENT of the population payload [`call_r_evaluate_batch`] builds
+/// -- one entry per block, in space order, each already typed by
+/// [`block_values_to_r`]. UNLIKE [`genotype_to_r`] (which bare-unwraps a
+/// single-block genotype for `sz_solve_*`'s own `best_x` return value),
+/// this ALWAYS returns a list, even for a single block -- it is the R-side
+/// shim (`R/problem.R`'s `.sz_make_evaluate_shim`), not this function, that
+/// decides bare-vs-list for each individual's own `x` (`evaluate`'s
+/// argument, or one element of `batch_evaluate`'s `xs`), so the wire shape
+/// built here needs to stay uniform for the shim to dispatch on
+/// `length(blocks)`.
+fn genotype_blocks_to_r_list(blocks: &[BlockValues]) -> savvy::Result<Sexp> {
+    let mut out = OwnedListSexp::new(blocks.len(), false)?;
+    for (i, b) in blocks.iter().enumerate() {
+        out.set_value(i, block_values_to_r(b)?)?;
+    }
+    Ok(out.into())
+}
+
+/// Calls the R-side `evaluate` shim (`.sz_make_evaluate_shim(prob)`'s
+/// return value, `R/problem.R`) ONCE PER GENERATION with the WHOLE
+/// population, mirroring py-sezgi's `_to_native()` (`py-sezgi/python/
+/// sezgi/problem.py`), which always builds `vectorized=True` and calls
+/// `self.batch_evaluate` once per generation with the whole population
+/// (`py-sezgi/src/lib.rs`'s `call_callable_spaced`) -- Fix round 1
+/// (controller review item 9): this used to make ONE call PER INDIVIDUAL
+/// (`call_r_evaluate`, since removed), which was a real mirror gap against
+/// the Python bridge it is meant to match.
+///
+/// Builds ONE R `list` of length `pop.len()` (one element per individual,
+/// each element itself a [`genotype_blocks_to_r_list`]-shaped per-block
+/// list) as the shim's single argument, and reads back a numeric vector of
+/// EXACTLY `pop.len()` fitness values, in the SAME order as `pop`.
+///
+/// Every error path is thrown via `panic::panic_any`, NEVER by returning a
+/// sentinel/empty value (research doc §C3's documented hazard: signalling
+/// an error by returning no offspring/result is an INFINITE HANG, not an
+/// error, because `Evaluator::evaluate` on an empty slice trivially
+/// succeeds with zero cost). Specifically:
+/// - `Err(savvy::Error::Aborted(tok))` (an R-side error/condition
+///   propagating out of `prob$batch_evaluate(xs)` -- or, through its
+///   default, `prob$evaluate(x)` -- itself, via `FunctionSexp::call`'s own
+///   `unwind_protect`) becomes `panic::panic_any(AbortToken(tok))`, so
+///   [`run_with_r_bridge`]'s `catch_unwind` can re-raise the ORIGINAL R
+///   condition unchanged.
+/// - Any OTHER error (a malformed return value -- not a numeric vector of
+///   the RIGHT length -- or any other savvy error at the FFI boundary
+///   itself) is thrown as a plain `String` payload instead (`savvy::Error`
+///   is not `Send`, so its message is captured into an owned `String`
+///   first); `run_with_r_bridge` converts that into a plain savvy error
+///   message. A wrong-length return is validated HONESTLY here (not
+///   silently truncated/padded) -- the same "no silent misread" discipline
+///   `f64_to_*`'s own doc comments document for this file's numeric
+///   guards.
+fn call_r_evaluate_batch(f: &FunctionSexp, pop: &[Genotype]) -> Vec<f64> {
+    // Fix round (final whole-branch review, item M1): `FunctionArgs::new()`
+    // MUST run FIRST, before `pop_list` is built. `FunctionArgs::new()`
+    // performs a real R allocation (`Rf_cons` for its own `head` pairlist,
+    // then self-protects THAT via `insert_to_preserved_list`) -- the same
+    // anti-pattern class already fixed twice elsewhere on this branch
+    // (T3's generate/initialize TDD pass; `validate_space`'s block
+    // payload, commit `1b7c427`): building `pop_list`, converting it to a
+    // bare `Sexp` via `.into()` (which DROPS `OwnedListSexp`'s own
+    // preserved-list token immediately, as part of that conversion), and
+    // only THEN calling `FunctionArgs::new()` leaves `pop_list`'s whole
+    // 24-block-deep nested structure completely UNPROTECTED while
+    // `FunctionArgs::new()`'s own allocation runs -- under
+    // `gctorture(TRUE)` (which forces a GC on every allocation), that
+    // window is real: reviewer evidence was a 24-block mixed-space
+    // Problem + `random_search(16, 96)` under `gctorture(TRUE)` reliably
+    // crashing (one run aborted R with a "recursive gc invocation"
+    // error, one segfaulted) against the pre-fix build, and completing
+    // cleanly with only this reorder applied.
+    //
+    // The fix: build `args` first (so ITS OWN allocation happens while
+    // there is nothing else pending), THEN build `pop_list` and pass it
+    // DIRECTLY into `args.add(...)` -- never `.into()`-then-hold a bare
+    // `Sexp` across any other code. `args.add`'s own `arg_value.try_into()`
+    // (which performs the SAME `.into()` drop) is immediately followed,
+    // in the SAME expression/statement with no intervening allocation, by
+    // `SETCAR`/`SET_TAG` writing the (now-converted) pointer into the
+    // ALREADY-preserved `args` pairlist structure -- exactly the atomic
+    // "convert-then-immediately-attach" discipline every other Owned*Sexp
+    // use in this function (and in `genotype_blocks_to_r_list`/
+    // `block_values_to_r`, both audited alongside this fix and already
+    // correct: each block's `Owned*Sexp` is built, `.into()`'d, and passed
+    // straight into `set_value` in one expression, with `pop_list`/`out`
+    // themselves alive via their OWN preserved-list token throughout) --
+    // must follow.
+    let mut args = FunctionArgs::new();
+
+    let mut pop_list = match OwnedListSexp::new(pop.len(), false) {
+        Ok(l) => l,
+        Err(e) => panic::panic_any(e.to_string()),
+    };
+    for (i, g) in pop.iter().enumerate() {
+        let blocks_sexp = match genotype_blocks_to_r_list(&g.blocks) {
+            Ok(s) => s,
+            Err(e) => panic::panic_any(e.to_string()),
+        };
+        if let Err(e) = pop_list.set_value(i, blocks_sexp) {
+            panic::panic_any(e.to_string());
+        }
+    }
+    // `pop_list` (still an `OwnedListSexp`, NOT `.into()`'d here) is
+    // passed straight to `add`, which converts and attaches it in one
+    // step -- see the comment above this function's body.
+    if let Err(e) = args.add("", pop_list) {
+        panic::panic_any(e.to_string());
+    }
+    match f.call(args) {
+        Ok(eval_result) => {
+            // `eval_result: EvalResult` protects the raw SEXP as long as it
+            // is alive (its own `Drop` releases the preserved-list token);
+            // `.into()` below immediately converts it to a bare `Sexp`
+            // (dropping the `EvalResult`) and `sexp.try_into()` reads it on
+            // the very next line, with no R allocation in between --
+            // traced against savvy 0.10.2's `NumericSexp::try_from`
+            // (`sexp/numeric.rs`), which performs no allocation on its own
+            // read path (only `as_slice_i32`'s int->float conversion cache
+            // allocates, and only lazily, never here). So the token-drop
+            // window here is safe as written; widening it (e.g. moving
+            // work between the `.into()` and the `try_into()`) would need
+            // re-checking this invariant -- flagged for T3, which will
+            // have its own `EvalResult`-handling call site(s).
+            let sexp: Sexp = eval_result.into();
+            let num: NumericSexp = match sexp.try_into() {
+                Ok(n) => n,
+                Err(e) => panic::panic_any(format!(
+                    "Problem$batch_evaluate(xs) must return a numeric vector: {e}"
+                )),
+            };
+            let slice = num.as_slice_f64();
+            if slice.len() != pop.len() {
+                panic::panic_any(format!(
+                    "Problem$batch_evaluate(xs) must return a numeric vector of length {} \
+                     (one fitness value per individual, matching xs' own length), got length {}",
+                    pop.len(),
+                    slice.len()
+                ));
+            }
+            slice.to_vec()
+        }
+        Err(savvy::Error::Aborted(tok)) => panic::panic_any(AbortToken(tok)),
+        Err(e) => panic::panic_any(e.to_string()),
+    }
+}
+
+/// A [`Problem`] implementation over an R6 `Problem` subclass instance,
+/// evaluated via a callback into R (`evaluate`, `.sz_make_evaluate_shim`'s
+/// return value -- `R/problem.R`). `evaluate` is a bare, UNPROTECTED
+/// `SEXP` -- protection across `Engine::run`'s nested `Rf_eval` calls is
+/// the CALLER's job: [`sz_solve_r_problem`] holds a [`Preserved`] guard
+/// over the exact same pointer for the whole call, so this struct never
+/// needs to (and, being `unsafe impl Send + Sync`, never runs a `Drop` the
+/// engine could observe from a wrong thread anyway).
+struct RProblem {
+    evaluate: SEXP,
+    space: SearchSpace,
+}
+
+/// # Safety
+///
+/// `SEXP` is `*mut c_void` (`savvy-ffi`) and therefore neither `Send` nor
+/// `Sync` by default; `Problem: Send + Sync` (`crates/core/src/
+/// problem.rs:3`) requires it anyway. This is sound because:
+///
+/// 1. `Engine::run` is single-threaded (`crates/core/src/engine.rs:
+///    149-240`, zero threading deps in `crates/core/Cargo.toml`).
+/// 2. The only parallel path (`sz_run_experiment` -> `crates/bench`) is
+///    driven by TOML specs that structurally cannot name a synthetic R
+///    kind or carry a SEXP.
+/// 3. The registry, engine, and guard never escape the `.Call` frame.
+unsafe impl Send for RProblem {}
+
+/// # Safety
+/// See the `Send` impl's `# Safety` note immediately above -- the same
+/// three-point justification applies verbatim.
+unsafe impl Sync for RProblem {}
+
+impl Problem for RProblem {
+    fn space(&self) -> &SearchSpace {
+        &self.space
+    }
+
+    fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
+        // No closure is registered with the `Registry` in this bridge
+        // (unlike Task 3's engine-hosted generator bridge, where
+        // `reg.register_generator(name, move |_params| ...)` will need
+        // `let held = &wrapper;` inside the closure to force whole-struct
+        // capture -- research doc §C1's documented Rust-2021
+        // disjoint-capture gotcha), so that gotcha does not arise HERE:
+        // `self.evaluate` is read once, directly, with no `move` closure
+        // capturing it disjointly.
+        //
+        // ONE call per generation (`call_r_evaluate_batch`), not one call
+        // per individual -- Fix round 1: mirrors py-sezgi's
+        // `_to_native()`/`vectorized=True` bridge, which is per-generation
+        // too (see `call_r_evaluate_batch`'s own doc).
+        let f = FunctionSexp(self.evaluate);
+        call_r_evaluate_batch(&f, pop)
+    }
+}
+
+/// R-callable Problem bridge (M4-2 Task 2) -- lets an R6 `Problem`
+/// subclass instance (via `.sz_make_evaluate_shim(prob)`, `R/problem.R`)
+/// be solved by the SAME engine every other `sz_solve_*` binding uses.
+/// INTERNAL entry point -- not exported (`R/problem.R` is this task's sole
+/// R-facing surface; there is no `sz_solve_problem()` convenience wrapper
+/// yet -- a later task's wrapper-class `$run()` methods are expected to
+/// call this directly, the same way `sz_preset_es_mu_plus_lambda_raw` is
+/// called only from its own hand-written R wrapper).
+///
+/// Body, per research doc §C3: build a [`Preserved`] guard on `evaluate`
+/// -> build [`RProblem`] -> [`registry()`] -> `Engine::from_spec` ->
+/// [`run_with_r_bridge`]`(|| engine.run(...))` -> return the SAME 3-field
+/// list every other `sz_solve_*` returns.
+///
+/// DEVIATION from this task's own brief sketch: there is no separate
+/// `budget` parameter. Every OTHER `sz_solve_*` binding in this file takes
+/// `spec_json` alone and reads the run's budget from `AlgorithmSpec::
+/// termination.budget` (already baked in by whichever `sz_preset_*()`
+/// built `spec_json`, e.g. `sz_preset_gwo(pop_size, budget)`) -- a second,
+/// redundant `budget` input here would depart from that established
+/// convention for no benefit (nothing in `Engine::run`'s own signature
+/// even has a place to put it) -- see this task's own report for the full
+/// rationale.
+///
+/// @param spec_json Algorithm spec as JSON (e.g. from `sz_preset_gwo()`).
+/// @param blocks The flat block-list `.sz_space_to_blocks()` produces
+///   (`R/spaces.R`) -- one named list per block (`type` + that block's own
+///   numeric fields). Rebuilt into a `SearchSpace` here; `lo >= hi` is
+///   rejected at THIS point (`SearchSpace::new`), not at `sz_float()`/
+///   `sz_int()` construction time (Task 1 ruling).
+/// @param evaluate `.sz_make_evaluate_shim(prob)`'s return value -- an R
+///   closure of one argument, called ONCE PER GENERATION with the WHOLE
+///   population: a `list` of length n (one entry per individual), each
+///   entry itself a `list` of per-block typed vectors (Float->double,
+///   Int->integer, Categorical->integer category indices, Binary->logical,
+///   Permutation->integer 0-based -- see [`block_values_to_r`]'s doc for
+///   the full table), one entry per block in space order; must return a
+///   numeric vector of length n, in the same order (Fix round 1: mirrors
+///   py-sezgi's per-generation `vectorized=True` bridge -- see
+///   [`call_r_evaluate_batch`]'s own doc).
+/// @param master_seed Master RNG seed.
+/// @param run_id Run id (mixed into the seed for independent replicate
+///   streams).
+/// @returns A named list with `best_f` (double), `evals` (double), and
+///   `best_x` (see [`genotype_to_r`]'s doc for the type mapping).
+///
+/// # Errors
+/// A savvy error for an invalid `spec_json`/`blocks` shape, `lo >= hi` in
+/// any Float/Int block, any [`sezgi_core::engine`] run error, OR -- via
+/// [`run_with_r_bridge`] -- the R condition `evaluate` itself raised,
+/// re-raised UNCHANGED in the R session.
+/// @noRd
+#[savvy]
+fn sz_solve_r_problem(
+    spec_json: &str,
+    blocks: ListSexp,
+    evaluate: FunctionSexp,
+    master_seed: f64,
+    run_id: f64,
+) -> savvy::Result<Sexp> {
+    let spec = AlgorithmSpec::from_json(spec_json).map_err(|e| savvy_err!("{e}"))?;
+    let reg = registry();
+
+    let block_vec = blocks_from_r(&blocks)?;
+    let space = SearchSpace::new(block_vec).map_err(|e| savvy_err!("{e}"))?;
+
+    let master_seed_u = f64_to_u64("master_seed", master_seed)?;
+    let run_id_u = f64_to_u64("run_id", run_id)?;
+
+    // Preserved guard (research doc §C1): the ONLY thing keeping
+    // `evaluate` alive across `engine.run`'s nested `Rf_eval` calls --
+    // `RProblem` itself holds only the bare, unprotected SEXP.
+    let guard = Preserved::new(evaluate.0);
+    let problem = RProblem {
+        evaluate: guard.obj,
+        space,
+    };
+
+    let engine =
+        Engine::from_spec(&spec, &reg, problem.space()).map_err(|e| savvy_err!("{e}"))?;
+
+    let run_result = run_with_r_bridge(|| {
+        engine.run(
+            &problem,
+            RunConfig {
+                master_seed: master_seed_u,
+                run_id: run_id_u,
+            },
+            None,
+        )
+    })?;
+    let result = run_result.map_err(|e| savvy_err!("{e}"))?;
+
+    // NOTE (final whole-branch review, M1 follow-up): `set_name_and_value`
+    // (savvy 0.10.2) calls `set_name` (which allocates a CHARSXP via
+    // `Rf_mkCharLenCE`) *before* attaching `v` -- so if `v` arrives already
+    // unprotected (e.g. `genotype_to_r`'s multi-block branch already
+    // dropped its `OwnedListSexp` token via `.into()` before returning),
+    // that CHARSXP allocation is an intervening R allocation that can GC
+    // the orphaned value out from under us. This is the exact same
+    // build-then-hold-across-an-allocation anti-pattern fixed above in
+    // `call_r_evaluate_batch`, just inside `set_name_and_value` itself.
+    // `set_value` alone has no such gap (nothing allocates between the
+    // caller's argument construction and its `SET_VECTOR_ELT` attach), so
+    // every field here is attached with `set_value` first and named with
+    // `set_name` second, instead of the single `set_name_and_value` call.
+    let mut out = OwnedListSexp::new(3, true)?;
+    out.set_value(0, OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name(0, "best_f")?;
+    out.set_value(1, OwnedRealSexp::try_from_scalar(result.evals_used as f64)?)?;
+    out.set_name(1, "evals")?;
+    out.set_value(2, genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_name(2, "best_x")?;
+
+    Ok(out.into())
+}
+
+// ===========================================================================
+// M4-2 Task 3: engine-hosted R generator bridge + the `SzRng` external-
+// pointer RNG handle -- an R-authored `generate(pop, fitness, rng,
+// iteration)` closure running INSIDE the Rust engine's generate stage. The
+// R mirror of py-sezgi's `solve_with_py_generator`/`PyGenerator`/`PyRng`
+// (`py-sezgi/src/lib.rs`), built on T2's `Preserved`/`AbortToken`/
+// `run_with_r_bridge`/`RProblem` (reused unchanged, see their own docs
+// above) plus this milestone's research doc §C1/§C2/§C3/§C5
+// (`docs/superpowers/research/2026-09-02-r-class-front-door.md`).
+// ===========================================================================
+
+/// An owned per-call RNG handle exposed to an R-authored `generate`/
+/// `initialize` callback as the `rng` argument -- an external-pointer-
+/// backed `#[savvy]` object (`SzRng$new`/`SzRng$from_master`/method
+/// closures are all auto-generated by `savvy-cli`, the SAME mechanism
+/// `EvalSession` already uses, `session.rs`'s own module doc). Wraps a
+/// CLONE of the stage's live `RngStream` -- mirrors `PyRng` (`py-sezgi/
+/// src/lib.rs`) exactly: every method here delegates 1:1 to `RngStream`'s
+/// own `pub` API (`crates/core/src/rng.rs:16-59`), no new RNG logic.
+///
+/// **Clone-out / write-back / null-out protocol** (research doc §C5):
+/// [`RGenerator::generate`]/[`RInitializer::initialize`] clone `*ctx.rng`
+/// into a fresh `SzRng` BEFORE the call, `into_external_pointer()` it, and
+/// hand the raw pointer to R as one argument. After the call returns, the
+/// mutated state is read back via [`take_external_pointer_value`] -- which
+/// hands back OWNERSHIP of the (possibly-advanced) `SzRng` AND nulls the
+/// R-side pointer (`R_ClearExternalPtr`) in the SAME call. This is a
+/// DELIBERATE IMPROVEMENT over M4-1's stale-handle fix, which was
+/// docstring-only ("valid only for the duration of one `generate()` call",
+/// `docs/DECISIONS.md`'s M4-1 record, commit `f242af2`): here, a callback
+/// that STORES `ctx$rng` in its own enclosure across iterations gets a
+/// clear `savvy::Error::InvalidPointer` ("This external pointer is already
+/// consumed or deleted") on any later use, rather than silently reading
+/// stale state -- a hazard turned into an honest error, not just a
+/// documented one.
+#[savvy]
+struct SzRng {
+    inner: RngStream,
+}
+
+#[savvy]
+impl SzRng {
+    /// `[0,1)` draw, 53-bit precision -- delegates to `RngStream::next_f64`.
+    fn next_f64(&mut self) -> savvy::Result<Sexp> {
+        Ok(OwnedRealSexp::try_from_scalar(self.inner.next_f64())?.into())
+    }
+
+    /// `[0, n)` integer draw (rejection sampling, no modulo bias) --
+    /// delegates to `RngStream::next_below`. `n` is `f64` (R has no native
+    /// unsigned integer type; routed through the existing `f64_to_u64`
+    /// whole-number guard), returned as `f64` for the same reason.
+    fn next_below(&mut self, n: f64) -> savvy::Result<Sexp> {
+        let n_u = f64_to_u64("n", n)?;
+        if n_u == 0 {
+            return Err(savvy_err!("n must be > 0"));
+        }
+        Ok(OwnedRealSexp::try_from_scalar(self.inner.next_below(n_u) as f64)?.into())
+    }
+
+    /// Derives an independent child stream (e.g. for a restart-style
+    /// sub-population) -- delegates to `RngStream::split`.
+    fn split(&self, child_id: f64) -> savvy::Result<Self> {
+        let cid = f64_to_u64("child_id", child_id)?;
+        Ok(Self { inner: self.inner.split(cid) })
+    }
+
+    /// TEST-ONLY / ADVANCED SURFACE -- reconstructs an `RngStream`
+    /// standalone from a `(master_seed, path)` pair, exactly like
+    /// `RngStream::from_master` (`crates/core/src/rng.rs`). NOT part of the
+    /// normal `generate(pop, fitness, rng, iteration)` flow: `rng` is
+    /// already positioned correctly by the engine for every ordinary call.
+    /// Exists so a test can independently reconstruct the EXACT stream a
+    /// stage's generator draws from and compare it against what an
+    /// R-authored generator actually consumed -- the
+    /// `crates/core/src/engine.rs:857-914` technique, mirroring `PyRng::
+    /// from_master` (`py-sezgi/src/lib.rs`) exactly. `path` accepts either
+    /// an R integer or double vector (routed element-wise through
+    /// `f64_to_u64`).
+    fn from_master(master_seed: f64, path: NumericSexp) -> savvy::Result<Self> {
+        let seed = f64_to_u64("master_seed", master_seed)?;
+        let raw = path.as_slice_f64();
+        let mut p = Vec::with_capacity(raw.len());
+        for (i, &x) in raw.iter().enumerate() {
+            p.push(f64_to_u64(&format!("path[{}]", i + 1), x)?);
+        }
+        Ok(Self { inner: RngStream::from_master(seed, &p) })
+    }
+}
+
+/// Converts a whole [`Population`] into the `pop` argument handed to an
+/// R-authored `generate(pop, fitness, rng, iteration)` callback (T4
+/// CONTRACT, pinned in this task's own report) -- an (unnamed) R `list` of
+/// length `pop.individuals.len()`, one entry per individual, each
+/// converted via [`genotype_to_r`] (bare for a single-block space, a list
+/// of per-block values for a multi-block one) -- the IDENTICAL single-vs-
+/// multi-block convention `evaluate`'s own `x` argument already uses (T2),
+/// so a returned offspring individual (see [`individuals_from_r`], the
+/// reverse conversion) uses the SAME shape, symmetrically.
+fn population_to_r(pop: &Population) -> savvy::Result<Sexp> {
+    let mut out = OwnedListSexp::new(pop.individuals.len(), false)?;
+    for (i, g) in pop.individuals.iter().enumerate() {
+        out.set_value(i, genotype_to_r(&g.blocks)?)?;
+    }
+    Ok(out.into())
+}
+
+/// Converts a [`SearchSpace`] into the block-descriptor list an R-authored
+/// `validate_space(blocks)` callback receives -- the REVERSE of
+/// [`blocks_from_r`], producing the EXACT SAME shape `.sz_space_to_blocks()`
+/// (`R/spaces.R`) already produces and `blocks_from_r` already consumes
+/// (`type` + that block's own `lo`/`hi`/`n`/`k` fields), rather than
+/// inventing a second, parallel descriptor encoding the way py-sezgi's
+/// `space_to_py` does (a `"kind"`-keyed dict shape with no prior R-side
+/// wire-format precedent) -- this package already has ONE established
+/// block-descriptor shape (T1/T2); reusing it keeps `validate_space`'s
+/// argument consistent with what a user would get from
+/// `.sz_space_to_blocks(prob$space())` directly.
+fn blocks_to_r(space: &SearchSpace) -> savvy::Result<Sexp> {
+    let blocks = space.blocks();
+    let mut out = OwnedListSexp::new(blocks.len(), false)?;
+    for (i, b) in blocks.iter().enumerate() {
+        let entry: Sexp = match *b {
+            Block::Float { lo, hi, n } => {
+                let mut e = OwnedListSexp::new(4, true)?;
+                e.set_name_and_value(0, "type", OwnedStringSexp::try_from("float")?)?;
+                e.set_name_and_value(1, "lo", OwnedRealSexp::try_from_scalar(lo)?)?;
+                e.set_name_and_value(2, "hi", OwnedRealSexp::try_from_scalar(hi)?)?;
+                e.set_name_and_value(3, "n", OwnedIntegerSexp::try_from_scalar(n as i32)?)?;
+                e.into()
+            }
+            Block::Int { lo, hi, n } => {
+                let mut e = OwnedListSexp::new(4, true)?;
+                e.set_name_and_value(0, "type", OwnedStringSexp::try_from("int")?)?;
+                e.set_name_and_value(1, "lo", OwnedRealSexp::try_from_scalar(lo as f64)?)?;
+                e.set_name_and_value(2, "hi", OwnedRealSexp::try_from_scalar(hi as f64)?)?;
+                e.set_name_and_value(3, "n", OwnedIntegerSexp::try_from_scalar(n as i32)?)?;
+                e.into()
+            }
+            Block::Categorical { k, n } => {
+                let mut e = OwnedListSexp::new(3, true)?;
+                e.set_name_and_value(0, "type", OwnedStringSexp::try_from("categorical")?)?;
+                e.set_name_and_value(1, "k", OwnedIntegerSexp::try_from_scalar(k as i32)?)?;
+                e.set_name_and_value(2, "n", OwnedIntegerSexp::try_from_scalar(n as i32)?)?;
+                e.into()
+            }
+            Block::Binary { n } => {
+                let mut e = OwnedListSexp::new(2, true)?;
+                e.set_name_and_value(0, "type", OwnedStringSexp::try_from("binary")?)?;
+                e.set_name_and_value(1, "n", OwnedIntegerSexp::try_from_scalar(n as i32)?)?;
+                e.into()
+            }
+            Block::Permutation { n } => {
+                let mut e = OwnedListSexp::new(2, true)?;
+                e.set_name_and_value(0, "type", OwnedStringSexp::try_from("permutation")?)?;
+                e.set_name_and_value(1, "n", OwnedIntegerSexp::try_from_scalar(n as i32)?)?;
+                e.into()
+            }
+        };
+        out.set_value(i, entry)?;
+    }
+    Ok(out.into())
+}
+
+/// Converts an R value back into one [`BlockValues`] block, validated
+/// against `block`'s own kind and arity -- the REVERSE of
+/// [`block_values_to_r`]. The FIRST reverse (R -> Rust) genotype
+/// conversion in this file (T2's bridge only ever goes Rust -> R); used by
+/// [`genotype_from_r`] to convert an R-authored generator's/initializer's
+/// returned individuals back into engine [`Genotype`]s. Mirrors py-sezgi's
+/// `block_value_from_py` (`py-sezgi/src/lib.rs`) exactly, one level deep.
+///
+/// # Errors
+/// A clear savvy error naming the defect: a wrong R type (savvy's own
+/// `TryFrom` type-mismatch message), a wrong length, OR -- for the three
+/// block kinds with NO boundary repair (`boundary.rs`: "cat/perm/bin:
+/// structurally cannot go out of bounds", an invariant every BUILT-IN
+/// generator upholds by construction, which an R-authored one is not
+/// guaranteed to) -- a `Float` non-finite value, a `Categorical` index
+/// `>= k`, or a `Permutation` value that is not itself a valid permutation
+/// of `0..n` (out of range or repeated).
+fn block_value_from_r(block: &Block, item: Sexp) -> savvy::Result<BlockValues> {
+    fn check_len(kind: &str, got: usize, want: usize) -> savvy::Result<()> {
+        if got != want {
+            return Err(savvy_err!(
+                "{} block: expected {} values, got {}",
+                kind,
+                want,
+                got
+            ));
+        }
+        Ok(())
+    }
+    match *block {
+        Block::Float { n, .. } => {
+            let num: NumericSexp = item.try_into()?;
+            let xs = num.as_slice_f64();
+            check_len("Float", xs.len(), n)?;
+            if let Some(bad) = xs.iter().find(|x| !x.is_finite()) {
+                return Err(savvy_err!(
+                    "Float block: non-finite value {} (finite required)",
+                    bad
+                ));
+            }
+            Ok(BlockValues::Float(xs.to_vec()))
+        }
+        Block::Int { n, .. } => {
+            let num: NumericSexp = item.try_into()?;
+            let xs = num.as_slice_f64();
+            check_len("Int", xs.len(), n)?;
+            let vals = xs
+                .iter()
+                .map(|&x| f64_to_i64("Int block value", x))
+                .collect::<savvy::Result<Vec<i64>>>()?;
+            Ok(BlockValues::Int(vals))
+        }
+        Block::Categorical { k, n } => {
+            let num: NumericSexp = item.try_into()?;
+            let xs = num.as_slice_f64();
+            check_len("Categorical", xs.len(), n)?;
+            let vals = xs
+                .iter()
+                .map(|&x| f64_to_u32("Categorical block value", x))
+                .collect::<savvy::Result<Vec<u32>>>()?;
+            if let Some(&bad) = vals.iter().find(|&&c| c >= k) {
+                return Err(savvy_err!(
+                    "Categorical block: category index {} out of range (valid range 0..{})",
+                    bad,
+                    k
+                ));
+            }
+            Ok(BlockValues::Cat(vals))
+        }
+        Block::Binary { n } => {
+            let lg: LogicalSexp = item.try_into()?;
+            let xs = lg.to_vec();
+            check_len("Binary", xs.len(), n)?;
+            Ok(BlockValues::Bin(xs))
+        }
+        Block::Permutation { n } => {
+            let num: NumericSexp = item.try_into()?;
+            let xs = num.as_slice_f64();
+            check_len("Permutation", xs.len(), n)?;
+            let vals = xs
+                .iter()
+                .map(|&x| f64_to_u32("Permutation block value", x))
+                .collect::<savvy::Result<Vec<u32>>>()?;
+            let mut seen = vec![false; n];
+            for &x in &vals {
+                let xi = x as usize;
+                if xi >= n || std::mem::replace(&mut seen[xi], true) {
+                    return Err(savvy_err!(
+                        "Permutation block: value {} is not a valid permutation of 0..{} \
+                         (out of range or repeated)",
+                        x,
+                        n
+                    ));
+                }
+            }
+            Ok(BlockValues::Perm(vals))
+        }
+    }
+}
+
+/// Converts an R `x` value (as produced by [`genotype_to_r`]: bare for a
+/// single-block space, a list of per-block values for a multi-block one)
+/// back into a [`Genotype`] over `space` -- the reverse of `genotype_to_r`,
+/// one whole genotype at a time. Mirrors py-sezgi's `genotype_from_py`
+/// (`py-sezgi/src/lib.rs`) exactly.
+///
+/// # Errors
+/// A savvy error if a multi-block space's `x` is not a list of the
+/// expected arity, or (per block) whatever [`block_value_from_r`] returns.
+fn genotype_from_r(space: &SearchSpace, item: Sexp) -> savvy::Result<Genotype> {
+    let blocks = space.blocks();
+    if blocks.len() == 1 {
+        Ok(Genotype {
+            blocks: vec![block_value_from_r(&blocks[0], item)?],
+        })
+    } else {
+        let list: ListSexp = item.try_into().map_err(|_| {
+            savvy_err!(
+                "expected a list of {} per-block values for this multi-block space, \
+                 got a non-list value",
+                blocks.len()
+            )
+        })?;
+        if list.len() != blocks.len() {
+            return Err(savvy_err!(
+                "expected a list of {} per-block values, got {}",
+                blocks.len(),
+                list.len()
+            ));
+        }
+        let mut bvs = Vec::with_capacity(blocks.len());
+        for (i, b) in blocks.iter().enumerate() {
+            let elt = list
+                .get_by_index(i)
+                .ok_or_else(|| savvy_err!("missing block {}", i + 1))?;
+            bvs.push(block_value_from_r(b, elt)?);
+        }
+        Ok(Genotype { blocks: bvs })
+    }
+}
+
+/// Converts an R-authored `generate`'s/`initialize`'s return value (an
+/// (unnamed) list of individuals, each in [`genotype_from_r`]'s bare-vs-
+/// list shape) into `Vec<Genotype>` -- shared by [`RGenerator::generate`]
+/// (offspring) and [`RInitializer::initialize`] (the initial population).
+///
+/// **NEVER returns an empty `Vec` as a way to signal an error** (research
+/// doc §C3's documented hazard, cited at the call sites below): every
+/// failure path here is a savvy `Err`, propagated by its caller via
+/// `panic::panic_any`, NOT a sentinel empty result. A well-formed BUT
+/// EMPTY return value (e.g. `list()`) is ALSO rejected here, defensively,
+/// for the SAME reason -- `Evaluator::evaluate` on an empty slice
+/// trivially succeeds at zero cost (`crates/core/src/problem.rs:86-92`,
+/// `req = 0` always passes the budget check: `self.used + 0 > self.budget`
+/// is false whenever `self.used <= self.budget`), so the engine's own
+/// `'outer while !reached(&eval)` loop (`crates/core/src/engine.rs:149`)
+/// would spin forever consuming no budget on an empty offspring vector --
+/// an INFINITE HANG, not an error.
+fn individuals_from_r(space: &SearchSpace, out: Sexp) -> savvy::Result<Vec<Genotype>> {
+    let list: ListSexp = out.try_into().map_err(|_| {
+        savvy_err!(
+            "must return a list of individuals (bare for a single-block space, a list of \
+             per-block values for a multi-block space); got a non-list value"
+        )
+    })?;
+    if list.is_empty() {
+        return Err(savvy_err!(
+            "returned no individuals -- must return at least one (an empty result would \
+             silently hang the engine)"
+        ));
+    }
+    let mut out_vec = Vec::with_capacity(list.len());
+    for i in 0..list.len() {
+        let elt = list
+            .get_by_index(i)
+            .ok_or_else(|| savvy_err!("individual[{}] is missing", i + 1))?;
+        let g = genotype_from_r(space, elt)
+            .map_err(|e| savvy_err!("individual[{}]: malformed value -- {}", i + 1, e))?;
+        out_vec.push(g);
+    }
+    Ok(out_vec)
+}
+
+/// An R-authored [`Generator`] running INSIDE the Rust engine loop -- this
+/// task's central deliverable. `generate` is a bare, UNPROTECTED `SEXP`
+/// (a closure of FOUR positional arguments -- see [`Self::generate`]'s own
+/// doc for the full, PINNED T4 contract); `validate_space` is an OPTIONAL
+/// bare, UNPROTECTED `SEXP` (a closure of ONE argument). Protection across
+/// `Engine::run`'s nested `Rf_eval` calls is the CALLER's job
+/// ([`run_r_generator`] holds a [`Preserved`] guard over each, for the
+/// whole call) -- mirrors [`RProblem`]'s own design exactly.
+struct RGenerator {
+    generate: SEXP,
+    validate_space: Option<SEXP>,
+}
+
+/// # Safety
+/// See [`RProblem`]'s own `# Safety` note (immediately above T2's section)
+/// -- the SAME three-point justification applies verbatim here: `Engine::
+/// run` is single-threaded, the only parallel path (`sz_run_experiment` ->
+/// `crates/bench`) is TOML-driven and cannot name a synthetic `"r/
+/// generator"` kind or carry a SEXP, and the registry/engine/guards never
+/// escape the `.Call` frame.
+unsafe impl Send for RGenerator {}
+/// # Safety
+/// See [`RGenerator`]'s `Send` impl immediately above.
+unsafe impl Sync for RGenerator {}
+
+impl Generator for RGenerator {
+    /// **`generate`'s PINNED calling convention (T4 CONTRACT)** -- a
+    /// closure of FOUR positional arguments, `function(pop, fitness, rng,
+    /// iteration)`:
+    ///
+    /// - `pop`: [`population_to_r`]'s own shape -- an (unnamed) list of
+    ///   length `pop.individuals.len()`, one entry per individual, each
+    ///   bare (single-block space) or a list of per-block values (multi-
+    ///   block).
+    /// - `fitness`: a numeric vector, `pop`'s own fitness values, same
+    ///   order and length.
+    /// - `rng`: a RAW EXTPTRSXP to a fresh [`SzRng`] handle (see its own
+    ///   doc for the clone-out/write-back/null-out protocol) -- wrap it
+    ///   via `.savvy_wrap_SzRng(rng)` (auto-generated) to get `$next_f64()`
+    ///   / `$next_below(n)` / `$split(child_id)`.
+    /// - `iteration`: a double, the engine's own 0-based iteration
+    ///   counter (`ctx.iteration`).
+    ///
+    /// Must return an (unnamed) list of offspring individuals in the SAME
+    /// bare-vs-list shape as `pop`'s own entries -- see
+    /// [`individuals_from_r`]'s own doc for the full validation/error
+    /// contract (never an empty list; structural per-block-kind checks).
+    ///
+    /// Argument order in `FunctionArgs`: `pop`, `fitness`, `rng`,
+    /// `iteration`, each added by NAME (`"pop"`/`"fitness"`/`"rng"`/
+    /// `"iteration"`), not positionally-only like T2's single-argument
+    /// `evaluate` shim -- R's own argument matching then binds them
+    /// correctly regardless of the callback's own parameter order.
+    ///
+    /// RNG write-back happens BEFORE offspring conversion, unconditional
+    /// on offspring being well-formed (mirrors `PyGenerator::generate`'s
+    /// own ordering, `py-sezgi/src/lib.rs`).
+    fn generate(&self, pop: &Population, ctx: &mut Ctx) -> Vec<Genotype> {
+        // `args` is created FIRST, and each argument SEXP is built and
+        // IMMEDIATELY attached to it (`args.add`) before the next one is
+        // built -- never batching multiple freshly-built, still-unattached
+        // SEXPs. A freshly built `Sexp` (in particular `rng_sexp`, an
+        // EXTPTRSXP from `into_external_pointer()` -- savvy's own module
+        // doc: "the result EXTPTRSXP is returned as unprotected") is NOT
+        // itself protected; it becomes protected only once `args.add`
+        // attaches it into `args`'s own already-preserved pairlist
+        // (`FunctionArgs::new`'s `insert_to_preserved_list`). Building
+        // several such SEXPs before attaching ANY of them leaves the
+        // earlier ones exposed to any R allocation the LATER builds
+        // perform -- caught by this task's own `gctorture(TRUE)` test,
+        // which failed under the original (batch-then-attach) ordering.
+        let mut args = FunctionArgs::new();
+
+        let pop_sexp = match population_to_r(pop) {
+            Ok(s) => s,
+            Err(e) => panic::panic_any(e.to_string()),
+        };
+        if let Err(e) = args.add("pop", pop_sexp) {
+            panic::panic_any(e.to_string());
+        }
+
+        let fitness_sexp: Sexp = match OwnedRealSexp::try_from_slice(pop.fitness.as_slice()) {
+            Ok(s) => s.into(),
+            Err(e) => panic::panic_any(e.to_string()),
+        };
+        if let Err(e) = args.add("fitness", fitness_sexp) {
+            panic::panic_any(e.to_string());
+        }
+
+        let rng_handle = SzRng {
+            inner: ctx.rng.clone(),
+        };
+        let rng_sexp: Sexp = rng_handle.into_external_pointer();
+        let rng_raw: SEXP = rng_sexp.0;
+        if let Err(e) = args.add("rng", rng_sexp) {
+            panic::panic_any(e.to_string());
+        }
+
+        let iteration_sexp: Sexp = match OwnedRealSexp::try_from_scalar(ctx.iteration as f64) {
+            Ok(s) => s.into(),
+            Err(e) => panic::panic_any(e.to_string()),
+        };
+        if let Err(e) = args.add("iteration", iteration_sexp) {
+            panic::panic_any(e.to_string());
+        }
+
+        let f = FunctionSexp(self.generate);
+        let out_sexp: Sexp = match f.call(args) {
+            // See T2's `call_r_evaluate_batch` doc for why the
+            // `.into()`-then-immediate-read window here is safe (no R
+            // allocation happens between the two).
+            Ok(eval_result) => eval_result.into(),
+            Err(savvy::Error::Aborted(tok)) => panic::panic_any(AbortToken(tok)),
+            Err(e) => panic::panic_any(e.to_string()),
+        };
+
+        // Write back the RNG's final state -- BEFORE offspring conversion,
+        // unconditional on offspring being well-formed (mirrors
+        // `PyGenerator`'s own ordering). `take_external_pointer_value`
+        // both hands back ownership of the mutated `SzRng` AND nulls the
+        // R-side pointer in the SAME call -- see `SzRng`'s own doc for why
+        // this is a deliberate improvement over M4-1's docstring-only
+        // stale-handle fix.
+        match unsafe { take_external_pointer_value::<SzRng>(rng_raw) } {
+            Ok(handle) => {
+                *ctx.rng = handle.inner;
+            }
+            Err(e) => panic::panic_any(format!(
+                "r/generator: failed to read back the RNG handle after generate(): {e}"
+            )),
+        }
+
+        // Offspring conversion -- NEVER an empty/degenerate vector, see
+        // `individuals_from_r`'s own doc (cites `crates/core/src/
+        // problem.rs:86-92` + `crates/core/src/engine.rs:149`). Every
+        // failure path panics; none returns `Vec::new()`.
+        match individuals_from_r(ctx.space, out_sexp) {
+            Ok(offspring) => offspring,
+            Err(e) => panic::panic_any(format!("generate(): {e}")),
+        }
+    }
+
+    fn meta(&self) -> ComponentMeta {
+        ComponentMeta::new("r/generator", SupportedBlocks::All)
+    }
+
+    /// Build-time veto hook (`crates/core/src/component.rs:81-97`), called
+    /// once by `AlgorithmSpec::validate` right after this generator is
+    /// built, BEFORE any `generate()` call. Delegates to the OPTIONAL
+    /// `validate_space` callback (a closure of ONE argument -- the SAME
+    /// block-descriptor list `.sz_space_to_blocks()`/[`blocks_to_r`]
+    /// produce), mirroring `PyGenerator::validate_space`'s own hook
+    /// (`py-sezgi/src/lib.rs`) -- absent (`None`) inherits the default
+    /// no-op behavior, matching every other Rust `Generator`.
+    ///
+    /// TWO rejection mechanisms, both honored (the brief's own "returns an
+    /// error string / stops" phrasing): a non-`NULL` character-scalar
+    /// return value is a rejection message; a genuine R condition
+    /// (`stop()`) is propagated via the SAME panic protocol `generate()`'s
+    /// own R-side errors use -- so the ORIGINAL R condition class/message
+    /// survives even though `validate_space` runs at BUILD time
+    /// (`Engine::from_spec`), not inside `engine.run()`: the caller
+    /// ([`run_r_generator`]) wraps `Engine::from_spec` itself in
+    /// [`run_with_r_bridge`] for exactly this reason (UNLIKE
+    /// `PyGenerator::validate_space`, which only ever surfaces a flattened
+    /// string message via `ComponentError` -- `savvy::Error::Aborted`'s
+    /// own `Display` impl is a useless generic "Aborted due to some
+    /// error", so preserving the real R condition here needs this panic
+    /// path, not a `.to_string()` conversion).
+    fn validate_space(&self, space: &SearchSpace) -> Result<(), ComponentError> {
+        let Some(vs) = self.validate_space else {
+            return Ok(());
+        };
+        // Same build-then-immediately-attach discipline as `RGenerator::
+        // generate`/`RInitializer::initialize` (see their own comments for
+        // the full rationale) -- `args` is created FIRST (its own
+        // `Rf_cons` allocation happens here, with nothing else yet built),
+        // THEN `blocks_sexp` is built and IMMEDIATELY attached. The
+        // original ordering here built `blocks_sexp` BEFORE `args` existed:
+        // `blocks_to_r`'s returned `Sexp` is unprotected the instant its
+        // own internal `OwnedListSexp` is converted via `.into()` (same
+        // protection-drop point `call_r_evaluate_batch`'s own doc
+        // documents), and `FunctionArgs::new()`'s `Rf_cons` call is a real
+        // R allocation that could trigger a GC pass in between -- fix
+        // round 1 (controller review): reproduced under `gctorture(TRUE)`
+        // as list corruption and, once, a hard segfault on a 24-block
+        // space. This site was missed when the SAME bug was found and
+        // fixed at the `generate`/`initialize` call sites.
+        let f = FunctionSexp(vs);
+        let mut args = FunctionArgs::new();
+        let blocks_sexp = blocks_to_r(space).map_err(|e| ComponentError::InvalidParams {
+            kind: "r/generator".into(),
+            reason: format!("could not build space descriptors for validate_space: {e}"),
+        })?;
+        if let Err(e) = args.add("", blocks_sexp) {
+            return Err(ComponentError::InvalidParams {
+                kind: "r/generator".into(),
+                reason: e.to_string(),
+            });
+        }
+        match f.call(args) {
+            Ok(eval_result) => {
+                let sexp: Sexp = eval_result.into();
+                if let Ok(s) = StringSexp::try_from(sexp)
+                    && let Some(msg) = s.iter().next()
+                {
+                    return Err(ComponentError::InvalidParams {
+                        kind: "r/generator".into(),
+                        reason: msg.to_string(),
+                    });
+                }
+                Ok(())
+            }
+            Err(savvy::Error::Aborted(tok)) => panic::panic_any(AbortToken(tok)),
+            Err(e) => Err(ComponentError::InvalidParams {
+                kind: "r/generator".into(),
+                reason: e.to_string(),
+            }),
+        }
+    }
+}
+
+/// An R-authored [`Initializer`] running INSIDE the Rust engine loop --
+/// the [`RGenerator`] pattern, mirrored MECHANICALLY for the `Initializer`
+/// trait, exactly as `PyInitializer` mirrors `PyGenerator` (`py-sezgi/src/
+/// lib.rs`). `initialize` is a bare, UNPROTECTED `SEXP` (a closure of
+/// THREE positional arguments -- see [`Self::initialize`]'s own doc).
+struct RInitializer {
+    initialize: SEXP,
+}
+
+/// # Safety
+/// See [`RGenerator`]'s own `Send` impl `# Safety` note -- the same
+/// justification applies verbatim.
+unsafe impl Send for RInitializer {}
+/// # Safety
+/// See [`RInitializer`]'s `Send` impl immediately above.
+unsafe impl Sync for RInitializer {}
+
+impl Initializer for RInitializer {
+    /// `initialize`'s calling convention: a closure of THREE positional
+    /// arguments, `function(n, rng, iteration)` -- [`RGenerator::generate`]'s
+    /// own `(pop, fitness, rng, iteration)` MINUS `pop`/`fitness` (there is
+    /// no population yet -- only `n`, the target population size), exactly
+    /// the shape difference `Initializer`'s own (narrower) trait has versus
+    /// `Generator`'s (`crates/core/src/component.rs:72-75`). Must return an
+    /// (unnamed) list of `n`-ish individuals in the SAME bare-vs-list shape
+    /// [`RGenerator::generate`]'s offspring uses (see
+    /// [`individuals_from_r`]'s own doc for the full validation contract).
+    /// RNG write-back/null-out: identical protocol to `RGenerator::generate`.
+    fn initialize(&self, n: usize, ctx: &mut Ctx) -> Vec<Genotype> {
+        // Same build-then-immediately-attach discipline as
+        // `RGenerator::generate` -- see that method's own comment for why.
+        let mut args = FunctionArgs::new();
+
+        let n_sexp: Sexp = match OwnedRealSexp::try_from_scalar(n as f64) {
+            Ok(s) => s.into(),
+            Err(e) => panic::panic_any(e.to_string()),
+        };
+        if let Err(e) = args.add("n", n_sexp) {
+            panic::panic_any(e.to_string());
+        }
+
+        let rng_handle = SzRng {
+            inner: ctx.rng.clone(),
+        };
+        let rng_sexp: Sexp = rng_handle.into_external_pointer();
+        let rng_raw: SEXP = rng_sexp.0;
+        if let Err(e) = args.add("rng", rng_sexp) {
+            panic::panic_any(e.to_string());
+        }
+
+        let iteration_sexp: Sexp = match OwnedRealSexp::try_from_scalar(ctx.iteration as f64) {
+            Ok(s) => s.into(),
+            Err(e) => panic::panic_any(e.to_string()),
+        };
+        if let Err(e) = args.add("iteration", iteration_sexp) {
+            panic::panic_any(e.to_string());
+        }
+
+        let f = FunctionSexp(self.initialize);
+        let out_sexp: Sexp = match f.call(args) {
+            Ok(eval_result) => eval_result.into(),
+            Err(savvy::Error::Aborted(tok)) => panic::panic_any(AbortToken(tok)),
+            Err(e) => panic::panic_any(e.to_string()),
+        };
+
+        match unsafe { take_external_pointer_value::<SzRng>(rng_raw) } {
+            Ok(handle) => {
+                *ctx.rng = handle.inner;
+            }
+            Err(e) => panic::panic_any(format!(
+                "r/initializer: failed to read back the RNG handle after initialize(): {e}"
+            )),
+        }
+
+        match individuals_from_r(ctx.space, out_sexp) {
+            Ok(individuals) => individuals,
+            Err(e) => panic::panic_any(format!("initialize(): {e}")),
+        }
+    }
+
+    fn meta(&self) -> ComponentMeta {
+        ComponentMeta::new("r/initializer", SupportedBlocks::All)
+    }
+}
+
+/// Flat parameter bundle for [`run_r_generator`] -- kept as a struct (not
+/// loose `fn` parameters) so the shared helper itself stays well under
+/// clippy's `too_many_arguments` threshold; only the two `#[savvy] fn`
+/// entry points below need to expose the flat, brief-pinned R-facing
+/// parameter list (and therefore need `#[allow(clippy::too_many_
+/// arguments)]` -- see their own doc for why this is a SECOND such
+/// exception in this file, alongside `sz_preset_es_mu_plus_lambda_raw`,
+/// and why it is unavoidable here).
+struct RGeneratorArgs<'a> {
+    generate: SEXP,
+    initializer: Option<SEXP>,
+    validate_space: Option<SEXP>,
+    budget: u64,
+    master_seed: u64,
+    run_id: u64,
+    pop_size: usize,
+    init_kind: &'a str,
+    replacer_kind: &'a str,
+    algo_name: Option<&'a str>,
+}
+
+/// Shared body of [`sz_solve_r_generator`]/[`sz_solve_r_generator_bbob`] --
+/// builds a fresh per-call [`Registry`] (the SAME `registry()` helper
+/// every `sz_solve_*` binding uses), registers a synthetic `"r/generator"`
+/// kind whose factory IGNORES the JSON `params` blob and returns an
+/// [`RGenerator`] capturing `args.generate`/`args.validate_space` (research
+/// doc §C1's disjoint-capture gotcha: `let held = &generator;` forces
+/// WHOLE-STRUCT capture inside the `move` closure -- capturing
+/// `generator.generate`/`generator.validate_space` directly, as raw
+/// `SEXP`/`Option<SEXP>` fields, would fail to compile under `F: Send +
+/// Sync` even though `RGenerator` itself has the `unsafe impl`, because
+/// Rust 2021's disjoint-field-capture analysis would otherwise capture the
+/// bare, non-`Send` fields individually rather than the whole `Send`-
+/// marked struct), optionally registers `"r/initializer"` the same way
+/// (RULING A, mirroring `solve_with_py_generator`'s own `initializer`/
+/// `init_kind` mutual exclusion: `initializer` given forces `init.kind =
+/// "r/initializer"`, ignoring `init_kind`), assembles a single-stage
+/// [`AlgorithmSpec`] (`boundary/clamp` always, matching every `presets::
+/// ga_*` preset and `solve_with_py_generator`'s own choice), and runs it
+/// through [`Engine::from_spec`] + [`run_with_r_bridge`]`(|| engine.run
+/// (...))` -- the SAME path [`sz_solve_r_problem`] uses. `Engine::from_spec`
+/// is ITSELF wrapped in `run_with_r_bridge` too (unlike every OTHER
+/// `sz_solve_*` binding in this file): a `validate_space` veto's genuine R
+/// condition propagates via `RGenerator::validate_space`'s own panic path,
+/// which needs a `catch_unwind` around the `Engine::from_spec` call that
+/// triggers it, not just around `engine.run(...)`.
+fn run_r_generator(problem: &dyn Problem, args: RGeneratorArgs) -> savvy::Result<Sexp> {
+    let mut reg = registry();
+
+    let generator = RGenerator {
+        generate: args.generate,
+        validate_space: args.validate_space,
+    };
+    reg.register_generator("r/generator", move |_params| {
+        let held = &generator;
+        Ok(Box::new(RGenerator {
+            generate: held.generate,
+            validate_space: held.validate_space,
+        }) as Box<dyn Generator>)
+    });
+
+    let init_kind_for_spec: String = if let Some(init_sexp) = args.initializer {
+        let initializer = RInitializer {
+            initialize: init_sexp,
+        };
+        reg.register_initializer("r/initializer", move |_params| {
+            let held = &initializer;
+            Ok(Box::new(RInitializer {
+                initialize: held.initialize,
+            }) as Box<dyn Initializer>)
+        });
+        "r/initializer".to_string()
+    } else {
+        args.init_kind.to_string()
+    };
+
+    let spec = AlgorithmSpec {
+        name: args.algo_name.unwrap_or("r/generator").to_string(),
+        pop_size: args.pop_size,
+        init: ComponentSpec {
+            kind: init_kind_for_spec,
+            params: serde_json::json!({}),
+        },
+        boundary: ComponentSpec {
+            kind: "boundary/clamp".into(),
+            params: serde_json::json!({}),
+        },
+        stages: vec![StageSpec {
+            generator: ComponentSpec {
+                kind: "r/generator".into(),
+                params: serde_json::json!({}),
+            },
+            replacer: ComponentSpec {
+                kind: args.replacer_kind.into(),
+                params: serde_json::json!({}),
+            },
+            adapter: None,
+        }],
+        termination: TerminationSpec {
+            budget: args.budget,
+            target: None,
+        },
+        restart: None,
+    };
+
+    let engine = run_with_r_bridge(|| Engine::from_spec(&spec, &reg, problem.space()))?
+        .map_err(|e| savvy_err!("{e}"))?;
+
+    let run_result = run_with_r_bridge(|| {
+        engine.run(
+            problem,
+            RunConfig {
+                master_seed: args.master_seed,
+                run_id: args.run_id,
+            },
+            None,
+        )
+    })?;
+    let result = run_result.map_err(|e| savvy_err!("{e}"))?;
+
+    // Same fix as `sz_solve_r_problem`'s result tail (see its comment for
+    // the full explanation): savvy 0.10.2's `set_name_and_value` allocates
+    // `set_name`'s CHARSXP unconditionally on every call (`R_MakeUnwindCont`
+    // inside `unwind_protect_impl`, before any CHARSXP-cache
+    // consideration) before attaching `v` -- so `genotype_to_r`'s
+    // already-bare `Sexp` return (both its branches drop their `Owned*Sexp`
+    // token via `.into()` before returning) sits unprotected across that
+    // guaranteed allocation. Final whole-branch review, fix-wave
+    // re-review: this exact byte-identical expression was confirmed real
+    // at all five `solve.rs` sites sharing it, with a live crash proven at
+    // `sz_solve_onemax` (segfault on the 5th repeated solve under
+    // `gctorture(TRUE)`). Fixed by attaching via `set_value` first
+    // (nothing allocates between argument construction and
+    // `SET_VECTOR_ELT`) and naming via `set_name` second.
+    let mut out = OwnedListSexp::new(3, true)?;
+    out.set_value(0, OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name(0, "best_f")?;
+    out.set_value(1, OwnedRealSexp::try_from_scalar(result.evals_used as f64)?)?;
+    out.set_name(1, "evals")?;
+    out.set_value(2, genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_name(2, "best_x")?;
+
+    Ok(out.into())
+}
+
+/// R analogue of py-sezgi's `solve_with_py_generator`
+/// (`py-sezgi/src/lib.rs:2357-2405`) -- an R-callable [`Problem`] (T2's
+/// bridge: `blocks` + `evaluate`, the SAME two arguments
+/// [`sz_solve_r_problem`] takes) solved by an R-authored [`Generator`]
+/// running INSIDE the engine loop (see [`RGenerator::generate`]'s own doc
+/// for the complete, PINNED `generate` calling convention -- the T4
+/// contract). INTERNAL entry point (`@noRd`), called via
+/// `sezgi:::sz_solve_r_generator(...)`, exactly like `sz_solve_r_problem`.
+///
+/// Defaults documented here match `solve_with_py_generator`'s own
+/// (`py-sezgi/src/lib.rs:2353-2355`) -- `pop_size = 20`, `init_kind =
+/// "init/uniform"`, `replacer_kind = "replace/mu-plus-lambda"` -- but,
+/// UNLIKE the Python binding (`#[pyo3(signature = ...)]` defaults), savvy
+/// has no mechanism to express a non-`NULL`/string default in a generated R
+/// signature (`R/presets.R:1-7`'s own documented limitation), and this is
+/// an internal `@noRd` entry point with no hand-written R wrapper yet (T4's
+/// job) -- so every parameter is REQUIRED here; a caller (this task's own
+/// tests) passes all of them explicitly.
+///
+/// `#[allow(clippy::too_many_arguments)]`: this file's clippy baseline has
+/// exactly ONE pre-existing exception (`sz_preset_es_mu_plus_lambda_raw`,
+/// deliberately "not to be joined by a second" per `sz_solve_
+/// mixed_diagnostic`'s own doc). This function is a SECOND, unavoidable
+/// one: its brief-pinned parameter list (`generate`/`initializer`/
+/// `validate_space`/`blocks`/`evaluate`/`budget`/`master_seed`/`run_id`/
+/// `pop_size`/`init_kind`/`replacer_kind`/`algo_name` -- 12 in total) is
+/// the R analogue of `solve_with_py_generator`'s OWN signature, which
+/// ALSO needs this exact suppression (`py-sezgi/src/lib.rs:2356`) -- unlike
+/// `sz_solve_mixed_diagnostic` (which could shed one param, `run_id`, to
+/// fit under the threshold), no parameter here is droppable without
+/// breaking the T4 contract this task's own report pins.
+///
+/// @param generate An R closure of FOUR positional arguments -- see
+///   [`RGenerator::generate`]'s own doc for the complete, PINNED contract.
+/// @param blocks The flat block-list `.sz_space_to_blocks()` produces (T1)
+///   -- identical to [`sz_solve_r_problem`]'s own `blocks` argument.
+/// @param evaluate `.sz_make_evaluate_shim(prob)`'s return value --
+///   identical to [`sz_solve_r_problem`]'s own `evaluate` argument.
+/// @param budget Evaluation budget.
+/// @param master_seed Master RNG seed.
+/// @param run_id Run id (mixed into the seed for independent replicate
+///   streams).
+/// @param pop_size Population size.
+/// @param init_kind Built-in initializer kind (e.g. `"init/uniform"`) --
+///   IGNORED when `initializer` is given (RULING A, mirroring
+///   `solve_with_py_generator`'s own `initializer`/`init_kind` mutual
+///   exclusion).
+/// @param replacer_kind Built-in replacer kind (e.g.
+///   `"replace/mu-plus-lambda"`).
+/// @param initializer Optional R closure of THREE positional arguments
+///   (`n`, `rng`, `iteration`) -- see [`RInitializer::initialize`]'s own
+///   doc. When given, registered under `"r/initializer"` and forced as the
+///   spec's `init.kind`, ignoring `init_kind`.
+/// @param validate_space Optional R closure of ONE argument (the SAME
+///   `blocks`-shaped descriptor list `.sz_space_to_blocks()`/
+///   [`blocks_to_r`] produce) -- a build-time veto hook, called once by
+///   `AlgorithmSpec::validate` before any `generate()` call. Returning a
+///   non-`NULL` character scalar, or raising an R condition, both reject
+///   the space.
+/// @param algo_name Optional label recorded on the internal
+///   `AlgorithmSpec` (`spec.name`) -- purely informational; this task does
+///   not wire up IOH logging (out of scope), so `algo_name` is reserved
+///   for a future `log_dir` addition mirroring `solve_with_py_generator`'s
+///   own.
+/// @returns A named list with `best_f` (double), `evals` (double), and
+///   `best_x` (see [`genotype_to_r`]'s doc for the type mapping).
+///
+/// # Errors
+/// A savvy error for an invalid `blocks`/space shape, an unknown
+/// `init_kind`/`replacer_kind`, a `validate_space` veto, any
+/// [`sezgi_core::engine`] run error, OR -- via [`run_with_r_bridge`] -- the
+/// R condition `generate`/`initializer`/`validate_space`/`evaluate` itself
+/// raised, re-raised UNCHANGED in the R session; a malformed offspring/
+/// initializer-individual return value raises a plain savvy error naming
+/// the defect (NEVER an empty/degenerate offspring vector -- see
+/// [`individuals_from_r`]'s own doc for why).
+/// @noRd
+#[savvy]
+#[allow(clippy::too_many_arguments)]
+fn sz_solve_r_generator(
+    generate: FunctionSexp,
+    blocks: ListSexp,
+    evaluate: FunctionSexp,
+    budget: f64,
+    master_seed: f64,
+    run_id: f64,
+    pop_size: f64,
+    init_kind: &str,
+    replacer_kind: &str,
+    initializer: Option<FunctionSexp>,
+    validate_space: Option<FunctionSexp>,
+    algo_name: Option<&str>,
+) -> savvy::Result<Sexp> {
+    let block_vec = blocks_from_r(&blocks)?;
+    let space = SearchSpace::new(block_vec).map_err(|e| savvy_err!("{e}"))?;
+
+    // Preserved guards (research doc §C1): the ONLY thing keeping
+    // `evaluate`/`generate`/`initializer`/`validate_space` alive across
+    // `engine.run`'s (and `Engine::from_spec`'s own `validate_space` call's)
+    // nested `Rf_eval` calls -- `RProblem`/`RGenerator`/`RInitializer`
+    // themselves hold only bare, unprotected SEXPs.
+    let evaluate_guard = Preserved::new(evaluate.0);
+    let generate_guard = Preserved::new(generate.0);
+    let initializer_guard = initializer.as_ref().map(|f| Preserved::new(f.0));
+    let validate_space_guard = validate_space.as_ref().map(|f| Preserved::new(f.0));
+
+    let problem = RProblem {
+        evaluate: evaluate_guard.obj,
+        space,
+    };
+
+    let args = RGeneratorArgs {
+        generate: generate_guard.obj,
+        initializer: initializer_guard.as_ref().map(|g| g.obj),
+        validate_space: validate_space_guard.as_ref().map(|g| g.obj),
+        budget: f64_to_u64("budget", budget)?,
+        master_seed: f64_to_u64("master_seed", master_seed)?,
+        run_id: f64_to_u64("run_id", run_id)?,
+        pop_size: f64_to_usize("pop_size", pop_size)?,
+        init_kind,
+        replacer_kind,
+        algo_name,
+    };
+
+    run_r_generator(&problem, args)
+}
+
+/// Built-in-problem form of [`sz_solve_r_generator`], over a BBOB problem
+/// -- the CHEAPEST existing `sz_solve_*` family to mirror (identical
+/// `fid`/`dim`/`instance` triple and validation as [`sz_solve_bbob`]),
+/// chosen per this task's brief's own dual-form ruling ("Problem args
+/// accept EITHER the T2 R-callable form ... or a built-in problem
+/// descriptor mirroring whichever built-in family the existing `sz_solve_*`
+/// entries expose most cheaply -- implementer judgment"), which itself
+/// names BBOB explicitly as the built-in half of the "an R algorithm on a
+/// built-in BBOB function, and an R algorithm on an R problem" pairing
+/// this task must prove end-to-end.
+///
+/// See [`sz_solve_r_generator`]'s own doc for the `generate`/`initializer`/
+/// `validate_space`/`budget`/`master_seed`/`run_id`/`pop_size`/
+/// `init_kind`/`replacer_kind`/`algo_name` parameters (UNCHANGED here) and
+/// for why `#[allow(clippy::too_many_arguments)]` is needed (13 parameters
+/// here, one more than `sz_solve_r_generator`'s 12, for `fid`/`dim`/
+/// `instance` in place of `blocks`/`evaluate`).
+///
+/// @param generate See [`sz_solve_r_generator`]'s own `generate` doc.
+/// @param fid BBOB function id (>= 1).
+/// @param dim Problem dimension (>= 1).
+/// @param instance BBOB instance id (>= 1).
+/// @param budget Evaluation budget.
+/// @param master_seed Master RNG seed.
+/// @param run_id Run id.
+/// @param pop_size Population size.
+/// @param init_kind Built-in initializer kind, ignored when `initializer`
+///   is given.
+/// @param replacer_kind Built-in replacer kind.
+/// @param initializer See [`sz_solve_r_generator`]'s own `initializer` doc.
+/// @param validate_space See [`sz_solve_r_generator`]'s own
+///   `validate_space` doc.
+/// @param algo_name See [`sz_solve_r_generator`]'s own `algo_name` doc.
+/// @returns Same shape as [`sz_solve_r_generator`]'s own return value.
+///
+/// # Errors
+/// Same error surface as [`sz_solve_r_generator`], plus `fid`/`dim`/
+/// `instance` domain validation identical to [`sz_solve_bbob`]'s own.
+/// @noRd
+#[savvy]
+#[allow(clippy::too_many_arguments)]
+fn sz_solve_r_generator_bbob(
+    generate: FunctionSexp,
+    fid: i32,
+    dim: i32,
+    instance: i32,
+    budget: f64,
+    master_seed: f64,
+    run_id: f64,
+    pop_size: f64,
+    init_kind: &str,
+    replacer_kind: &str,
+    initializer: Option<FunctionSexp>,
+    validate_space: Option<FunctionSexp>,
+    algo_name: Option<&str>,
+) -> savvy::Result<Sexp> {
+    if fid < 1 {
+        return Err(savvy_err!("fid must be >= 1"));
+    }
+    if dim < 1 {
+        return Err(savvy_err!("dim must be >= 1"));
+    }
+    if instance < 1 {
+        return Err(savvy_err!("instance must be >= 1"));
+    }
+
+    let problem = BbobProblem::new(fid as u32, dim as usize, instance as u32)
+        .map_err(|e| savvy_err!("{e}"))?;
+
+    let generate_guard = Preserved::new(generate.0);
+    let initializer_guard = initializer.as_ref().map(|f| Preserved::new(f.0));
+    let validate_space_guard = validate_space.as_ref().map(|f| Preserved::new(f.0));
+
+    let args = RGeneratorArgs {
+        generate: generate_guard.obj,
+        initializer: initializer_guard.as_ref().map(|g| g.obj),
+        validate_space: validate_space_guard.as_ref().map(|g| g.obj),
+        budget: f64_to_u64("budget", budget)?,
+        master_seed: f64_to_u64("master_seed", master_seed)?,
+        run_id: f64_to_u64("run_id", run_id)?,
+        pop_size: f64_to_usize("pop_size", pop_size)?,
+        init_kind,
+        replacer_kind,
+        algo_name,
+    };
+
+    run_r_generator(&problem, args)
 }
