@@ -449,3 +449,41 @@ test_that("a large 24-block mixed-space Problem solves correctly across repeated
     expect_length(r$best_x, 24L)
   }
 })
+
+# ---- final whole-branch review, fix-wave re-review: the five disclosed
+# "unaudited-but-suspect" set_name_and_value sites came back CONFIRMED ----
+#
+# The DECISIONS-disclosed sites (`sz_solve_onemax`, `sz_solve_int_quadratic`,
+# `sz_solve_cat_match`, `sz_solve_mixed_diagnostic`, `run_r_generator`) all
+# share the byte-identical `set_name_and_value(2, "best_x",
+# genotype_to_r(...)?)?` expression as the M1 site above, and the
+# re-review's own adjudication (savvy 0.10.2 source) established the
+# window is UNCONDITIONAL, not probabilistic on CHARSXP interning:
+# `set_name` calls `str_to_charsxp`, which calls
+# `unwind_protect(|| Rf_mkCharLenCE(...))`, and savvy's own
+# `unwind_protect_impl` calls `R_MakeUnwindCont()` -- a real R allocation
+# -- on EVERY invocation, before any CHARSXP-cache consideration. This was
+# proven with a LIVE crash: repeated `sz_solve_onemax(sz_preset_ga_bin(8,
+# 24), n_bits = 64, ...)` under `gctorture(TRUE)` segfaulted on the 5th
+# repeated solve (`invalid permissions`) against the f910db0 build (this
+# exact reproduction shape, cited verbatim from the re-review). All five
+# sites were fixed in this same commit via the identical
+# `set_value`-then-`set_name` split already applied to
+# `sz_solve_r_problem`'s own result tail above.
+#
+# This loop reconstructs the reviewer's own proven-crasher shape --
+# `sz_solve_onemax` via `sz_preset_ga_bin(8, 24)`, `n_bits = 64` -- as a
+# built-in-path (non-R-callback) regression, complementing the
+# generator-path loop in `test-oop-bridge.R` (which covers
+# `run_r_generator`'s identical result-tail fix).
+test_that("repeated sz_solve_onemax runs (the proven crasher shape) complete correctly under gctorture(TRUE)", {
+  gctorture(TRUE)
+  on.exit(gctorture(FALSE))
+
+  spec <- sz_preset_ga_bin(8, 24)
+  for (rep in seq_len(8)) {
+    r <- sezgi:::sz_solve_onemax(spec, n_bits = 64, master_seed = as.double(rep), run_id = 0)
+    expect_true(is.finite(r$best_f))
+    expect_length(r$best_x, 64L)
+  }
+})

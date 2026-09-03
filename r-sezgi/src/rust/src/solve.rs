@@ -1171,14 +1171,27 @@ fn sz_solve_onemax(spec_json: &str, n_bits: f64, master_seed: f64, run_id: f64) 
         )
         .map_err(|e| savvy_err!("{e}"))?;
 
+    // Same fix as `sz_solve_r_problem`'s result tail (see its comment for
+    // the full explanation): savvy 0.10.2's `set_name_and_value` allocates
+    // `set_name`'s CHARSXP unconditionally on every call (`R_MakeUnwindCont`
+    // inside `unwind_protect_impl`, before any CHARSXP-cache
+    // consideration) before attaching `v` -- so `genotype_to_r`'s
+    // already-bare `Sexp` return (both its branches drop their `Owned*Sexp`
+    // token via `.into()` before returning) sits unprotected across that
+    // guaranteed allocation. Final whole-branch review, fix-wave
+    // re-review: this exact byte-identical expression was confirmed real
+    // at all five `solve.rs` sites sharing it, with a live crash proven at
+    // `sz_solve_onemax` (segfault on the 5th repeated solve under
+    // `gctorture(TRUE)`). Fixed by attaching via `set_value` first
+    // (nothing allocates between argument construction and
+    // `SET_VECTOR_ELT`) and naming via `set_name` second.
     let mut out = OwnedListSexp::new(3, true)?;
-    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
-    out.set_name_and_value(
-        1,
-        "evals",
-        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
-    )?;
-    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_value(0, OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name(0, "best_f")?;
+    out.set_value(1, OwnedRealSexp::try_from_scalar(result.evals_used as f64)?)?;
+    out.set_name(1, "evals")?;
+    out.set_value(2, genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_name(2, "best_x")?;
 
     Ok(out.into())
 }
@@ -1238,14 +1251,27 @@ fn sz_solve_int_quadratic(
         )
         .map_err(|e| savvy_err!("{e}"))?;
 
+    // Same fix as `sz_solve_r_problem`'s result tail (see its comment for
+    // the full explanation): savvy 0.10.2's `set_name_and_value` allocates
+    // `set_name`'s CHARSXP unconditionally on every call (`R_MakeUnwindCont`
+    // inside `unwind_protect_impl`, before any CHARSXP-cache
+    // consideration) before attaching `v` -- so `genotype_to_r`'s
+    // already-bare `Sexp` return (both its branches drop their `Owned*Sexp`
+    // token via `.into()` before returning) sits unprotected across that
+    // guaranteed allocation. Final whole-branch review, fix-wave
+    // re-review: this exact byte-identical expression was confirmed real
+    // at all five `solve.rs` sites sharing it, with a live crash proven at
+    // `sz_solve_onemax` (segfault on the 5th repeated solve under
+    // `gctorture(TRUE)`). Fixed by attaching via `set_value` first
+    // (nothing allocates between argument construction and
+    // `SET_VECTOR_ELT`) and naming via `set_name` second.
     let mut out = OwnedListSexp::new(3, true)?;
-    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
-    out.set_name_and_value(
-        1,
-        "evals",
-        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
-    )?;
-    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_value(0, OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name(0, "best_f")?;
+    out.set_value(1, OwnedRealSexp::try_from_scalar(result.evals_used as f64)?)?;
+    out.set_name(1, "evals")?;
+    out.set_value(2, genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_name(2, "best_x")?;
 
     Ok(out.into())
 }
@@ -1302,14 +1328,27 @@ fn sz_solve_cat_match(
         )
         .map_err(|e| savvy_err!("{e}"))?;
 
+    // Same fix as `sz_solve_r_problem`'s result tail (see its comment for
+    // the full explanation): savvy 0.10.2's `set_name_and_value` allocates
+    // `set_name`'s CHARSXP unconditionally on every call (`R_MakeUnwindCont`
+    // inside `unwind_protect_impl`, before any CHARSXP-cache
+    // consideration) before attaching `v` -- so `genotype_to_r`'s
+    // already-bare `Sexp` return (both its branches drop their `Owned*Sexp`
+    // token via `.into()` before returning) sits unprotected across that
+    // guaranteed allocation. Final whole-branch review, fix-wave
+    // re-review: this exact byte-identical expression was confirmed real
+    // at all five `solve.rs` sites sharing it, with a live crash proven at
+    // `sz_solve_onemax` (segfault on the 5th repeated solve under
+    // `gctorture(TRUE)`). Fixed by attaching via `set_value` first
+    // (nothing allocates between argument construction and
+    // `SET_VECTOR_ELT`) and naming via `set_name` second.
     let mut out = OwnedListSexp::new(3, true)?;
-    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
-    out.set_name_and_value(
-        1,
-        "evals",
-        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
-    )?;
-    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_value(0, OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name(0, "best_f")?;
+    out.set_value(1, OwnedRealSexp::try_from_scalar(result.evals_used as f64)?)?;
+    out.set_name(1, "evals")?;
+    out.set_value(2, genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_name(2, "best_x")?;
 
     Ok(out.into())
 }
@@ -1405,14 +1444,27 @@ fn sz_solve_mixed_diagnostic(
         )
         .map_err(|e| savvy_err!("{e}"))?;
 
+    // Same fix as `sz_solve_r_problem`'s result tail (see its comment for
+    // the full explanation): savvy 0.10.2's `set_name_and_value` allocates
+    // `set_name`'s CHARSXP unconditionally on every call (`R_MakeUnwindCont`
+    // inside `unwind_protect_impl`, before any CHARSXP-cache
+    // consideration) before attaching `v` -- so `genotype_to_r`'s
+    // already-bare `Sexp` return (both its branches drop their `Owned*Sexp`
+    // token via `.into()` before returning) sits unprotected across that
+    // guaranteed allocation. Final whole-branch review, fix-wave
+    // re-review: this exact byte-identical expression was confirmed real
+    // at all five `solve.rs` sites sharing it, with a live crash proven at
+    // `sz_solve_onemax` (segfault on the 5th repeated solve under
+    // `gctorture(TRUE)`). Fixed by attaching via `set_value` first
+    // (nothing allocates between argument construction and
+    // `SET_VECTOR_ELT`) and naming via `set_name` second.
     let mut out = OwnedListSexp::new(3, true)?;
-    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
-    out.set_name_and_value(
-        1,
-        "evals",
-        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
-    )?;
-    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_value(0, OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name(0, "best_f")?;
+    out.set_value(1, OwnedRealSexp::try_from_scalar(result.evals_used as f64)?)?;
+    out.set_name(1, "evals")?;
+    out.set_value(2, genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_name(2, "best_x")?;
 
     Ok(out.into())
 }
@@ -2685,14 +2737,27 @@ fn run_r_generator(problem: &dyn Problem, args: RGeneratorArgs) -> savvy::Result
     })?;
     let result = run_result.map_err(|e| savvy_err!("{e}"))?;
 
+    // Same fix as `sz_solve_r_problem`'s result tail (see its comment for
+    // the full explanation): savvy 0.10.2's `set_name_and_value` allocates
+    // `set_name`'s CHARSXP unconditionally on every call (`R_MakeUnwindCont`
+    // inside `unwind_protect_impl`, before any CHARSXP-cache
+    // consideration) before attaching `v` -- so `genotype_to_r`'s
+    // already-bare `Sexp` return (both its branches drop their `Owned*Sexp`
+    // token via `.into()` before returning) sits unprotected across that
+    // guaranteed allocation. Final whole-branch review, fix-wave
+    // re-review: this exact byte-identical expression was confirmed real
+    // at all five `solve.rs` sites sharing it, with a live crash proven at
+    // `sz_solve_onemax` (segfault on the 5th repeated solve under
+    // `gctorture(TRUE)`). Fixed by attaching via `set_value` first
+    // (nothing allocates between argument construction and
+    // `SET_VECTOR_ELT`) and naming via `set_name` second.
     let mut out = OwnedListSexp::new(3, true)?;
-    out.set_name_and_value(0, "best_f", OwnedRealSexp::try_from_scalar(result.best_f)?)?;
-    out.set_name_and_value(
-        1,
-        "evals",
-        OwnedRealSexp::try_from_scalar(result.evals_used as f64)?,
-    )?;
-    out.set_name_and_value(2, "best_x", genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_value(0, OwnedRealSexp::try_from_scalar(result.best_f)?)?;
+    out.set_name(0, "best_f")?;
+    out.set_value(1, OwnedRealSexp::try_from_scalar(result.evals_used as f64)?)?;
+    out.set_name(1, "evals")?;
+    out.set_value(2, genotype_to_r(&result.best_x.blocks)?)?;
+    out.set_name(2, "best_x")?;
 
     Ok(out.into())
 }

@@ -435,3 +435,45 @@ test_that("SzRng$next_below(n) and $split(child_id) work as advertised, exercise
   standalone_child <- sezgi:::SzRng$from_master(9, c(0, 1))$split(1)
   expect_equal(standalone_child$next_f64(), seen$child_draw)
 })
+
+# ---- final whole-branch review, fix-wave re-review, M2 (MAJOR) ----------
+#
+# `run_r_generator`'s own result-assembly tail (`solve.rs`) shared the
+# byte-identical `set_name_and_value(2, "best_x", genotype_to_r(...)?)?`
+# expression as T2's `sz_solve_r_problem` fix -- savvy 0.10.2's
+# `set_name_and_value` allocates its name's CHARSXP unconditionally
+# (`R_MakeUnwindCont` inside `unwind_protect_impl`, on EVERY call, not
+# just when the CHARSXP isn't already interned) before attaching `v`, so
+# `genotype_to_r`'s already-bare `Sexp` return (both its single-block and
+# multi-block branches drop their `Owned*Sexp` token via `.into()` before
+# returning -- BBOB's own single-block Float `best_x` is not exempt) sits
+# unprotected across that guaranteed allocation. This is NEW M4-2 code
+# (T3's generator bridge), run on EVERY `sz_solve_r_generator`/
+# `sz_solve_r_generator_bbob` call -- i.e. every `Algorithm$run()`/
+# `PopulationAlgorithm`/`LocalSearch` run -- so it was ruled a NEW MAJOR
+# (M2) and fixed in the same commit as the pre-existing sites below, via
+# the identical `set_value`-then-`set_name` split already applied to
+# `sz_solve_r_problem`'s own result tail.
+#
+# This loop reconstructs the generator-path shape (the existing single-run
+# gctorture test above, `dim = 2L, budget = 12, pop_size = 4`) repeated 8
+# times in one torture session, to exercise `run_r_generator`'s result
+# tail under sustained allocator pressure the way the single-run test
+# above cannot.
+test_that("repeated sz_solve_r_generator_bbob runs complete correctly under gctorture(TRUE)", {
+  gctorture(TRUE)
+  on.exit(gctorture(FALSE))
+
+  gen <- function(pop, fitness, rng, iteration) {
+    h <- sezgi:::.savvy_wrap_SzRng(rng)
+    lapply(pop, function(x) x + (h$next_f64() - 0.5))
+  }
+
+  for (rep in seq_len(8)) {
+    r <- solve_r_generator_bbob(gen, dim = 2L, budget = 12,
+                                 master_seed = as.double(rep), run_id = 0,
+                                 pop_size = 4)
+    expect_true(is.finite(r$best_f))
+    expect_length(r$best_x, 2L)
+  }
+})
