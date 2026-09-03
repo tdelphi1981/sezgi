@@ -159,7 +159,6 @@ fn structural_result_list(r: &StructuralBiasResult) -> savvy::Result<OwnedListSe
     for (i, row) in r.final_positions.iter().enumerate() {
         positions.set_value(i, OwnedRealSexp::try_from_slice(row.as_slice())?)?;
     }
-    let (verdict, detail) = verdict_detail_sexp(&r.verdict)?;
 
     let mut out = OwnedListSexp::new(7, true)?;
     out.set_name_and_value(0, "per_dim_ks", ks_list)?;
@@ -174,8 +173,25 @@ fn structural_result_list(r: &StructuralBiasResult) -> savvy::Result<OwnedListSe
         "holm_rejections_ad",
         OwnedRealSexp::try_from_scalar(r.holm_rejections_ad as f64)?,
     )?;
-    out.set_name_and_value(4, "verdict", verdict)?;
-    out.set_name_and_value(5, "detail", detail)?;
+    // Same fix as `sz_solve_r_problem`'s result tail (`solve.rs`; see its
+    // comment for the full explanation): savvy 0.10.2's `set_name_and_value`
+    // allocates `set_name`'s CHARSXP unconditionally on every call before
+    // attaching `v` -- so `verdict`/`detail` (both `verdict_detail_sexp`
+    // branches drop their `Owned*Sexp` token via `.into()` before returning)
+    // sit unprotected across that guaranteed allocation. `verdict_detail_sexp`
+    // is called HERE, immediately before this block, rather than earlier
+    // alongside `ks_list`/`ad_list`/`positions` (constructing it earlier
+    // would leave it unprotected across the `per_dim_ks`/`per_dim_ad`/
+    // `holm_rejections_*` fields' own `set_name_and_value` calls above,
+    // each an equally unconditional allocation). BOTH `verdict` and
+    // `detail` are attached via `set_value` FIRST, before EITHER is named
+    // via `set_name` -- naming `verdict` (index 4) is itself an allocation,
+    // so it must not run while `detail` (index 5) is still unattached.
+    let (verdict, detail) = verdict_detail_sexp(&r.verdict)?;
+    out.set_value(4, verdict)?;
+    out.set_value(5, detail)?;
+    out.set_name(4, "verdict")?;
+    out.set_name(5, "detail")?;
     out.set_name_and_value(6, "final_positions", positions)?;
     Ok(out)
 }
@@ -183,7 +199,6 @@ fn structural_result_list(r: &StructuralBiasResult) -> savvy::Result<OwnedListSe
 /// Builds the named list mirroring py-sezgi's `central_result_to_dict`:
 /// `gap_centered`, `gap_shifted`, `wilcoxon`, `effect`, `verdict`, `detail`.
 fn central_result_list(r: &CentralBiasResult) -> savvy::Result<OwnedListSexp> {
-    let (verdict, detail) = verdict_detail_sexp(&r.verdict)?;
     let mut out = OwnedListSexp::new(6, true)?;
     out.set_name_and_value(
         0,
@@ -197,8 +212,25 @@ fn central_result_list(r: &CentralBiasResult) -> savvy::Result<OwnedListSexp> {
     )?;
     out.set_name_and_value(2, "wilcoxon", wilcoxon_result_list(&r.wilcoxon)?)?;
     out.set_name_and_value(3, "effect", OwnedRealSexp::try_from_scalar(r.effect)?)?;
-    out.set_name_and_value(4, "verdict", verdict)?;
-    out.set_name_and_value(5, "detail", detail)?;
+    // Same fix as `sz_solve_r_problem`'s result tail (`solve.rs`; see its
+    // comment for the full explanation): savvy 0.10.2's `set_name_and_value`
+    // allocates `set_name`'s CHARSXP unconditionally on every call before
+    // attaching `v` -- so `verdict`/`detail` (both `verdict_detail_sexp`
+    // branches drop their `Owned*Sexp` token via `.into()` before returning)
+    // sit unprotected across that guaranteed allocation. `verdict_detail_sexp`
+    // is called HERE, immediately before this block, rather than earlier
+    // alongside `out`'s own construction (constructing it earlier would
+    // leave it unprotected across the `gap_centered`/`gap_shifted`/
+    // `wilcoxon`/`effect` fields' own `set_name_and_value` calls above,
+    // each an equally unconditional allocation). BOTH `verdict` and
+    // `detail` are attached via `set_value` FIRST, before EITHER is named
+    // via `set_name` -- naming `verdict` (index 4) is itself an allocation,
+    // so it must not run while `detail` (index 5) is still unattached.
+    let (verdict, detail) = verdict_detail_sexp(&r.verdict)?;
+    out.set_value(4, verdict)?;
+    out.set_value(5, detail)?;
+    out.set_name(4, "verdict")?;
+    out.set_name(5, "detail")?;
     Ok(out)
 }
 
@@ -378,15 +410,43 @@ fn sz_bias_report_raw(
     // crate is reflected here automatically, with no silent misreport.
     let signature_sexp: Sexp = match &r.signature {
         Some(verdict) => {
-            let (verdict_sexp, detail_sexp) = verdict_detail_sexp(verdict)?;
             let mut sig = OwnedListSexp::new(2, true)?;
-            sig.set_name_and_value(0, "verdict", verdict_sexp)?;
-            sig.set_name_and_value(1, "detail", detail_sexp)?;
+            // Same fix as `sz_solve_r_problem`'s result tail (`solve.rs`; see
+            // its comment for the full explanation): savvy 0.10.2's
+            // `set_name_and_value` allocates `set_name`'s CHARSXP
+            // unconditionally on every call before attaching `v` -- so
+            // `verdict_sexp`/`detail_sexp` (both `verdict_detail_sexp`
+            // branches drop their `Owned*Sexp` token via `.into()` before
+            // returning) sit unprotected across that guaranteed allocation.
+            // `verdict_detail_sexp` is called HERE, AFTER `sig` itself has
+            // been allocated, rather than before it: `OwnedListSexp::new(2,
+            // true)` allocates both the VECSXP and its names STRSXP, so
+            // building the pair first would leave it unprotected across
+            // those allocations too -- the same relocated-window mistake
+            // this file's other two sites document. BOTH are then attached
+            // via `set_value` FIRST, before EITHER is named via `set_name`
+            // -- naming `verdict_sexp` (index 0) is itself an allocation, so
+            // it must not run while `detail_sexp` (index 1) is still
+            // unattached.
+            let (verdict_sexp, detail_sexp) = verdict_detail_sexp(verdict)?;
+            sig.set_value(0, verdict_sexp)?;
+            sig.set_value(1, detail_sexp)?;
+            sig.set_name(0, "verdict")?;
+            sig.set_name(1, "detail")?;
             sig.into()
         }
         None => NullSexp.into(),
     };
-    out.set_name_and_value(2, "signature", signature_sexp)?;
+    // Same fix as `sz_solve_r_problem`'s result tail (`solve.rs`; see its
+    // comment for the full explanation): savvy 0.10.2's `set_name_and_value`
+    // allocates `set_name`'s CHARSXP unconditionally on every call before
+    // attaching `v` -- so `signature_sexp` (both match arms above already
+    // yield a bare `Sexp`: `sig.into()` drops `sig`'s own `OwnedListSexp`
+    // token, `NullSexp.into()` was never protected) sits unprotected across
+    // that guaranteed allocation. Fixed by attaching via `set_value` first
+    // and naming via `set_name` second.
+    out.set_value(2, signature_sexp)?;
+    out.set_name(2, "signature")?;
     out.set_name_and_value(
         3,
         "latex_summary",

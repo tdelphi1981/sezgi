@@ -887,7 +887,17 @@ fn sz_mo_read_moa(path: &str, at: Option<f64>) -> savvy::Result<Sexp> {
             MoArchiveGenotype::Float(xs) => OwnedRealSexp::try_from_slice(xs.as_slice())?.into(),
             MoArchiveGenotype::Binary(bits) => OwnedLogicalSexp::try_from_slice(bits.as_slice())?.into(),
         };
-        rd.set_name_and_value(2, "genotype", geno)?;
+        // Same fix as `sz_solve_r_problem`'s result tail (`solve.rs`; see its
+        // comment for the full explanation): savvy 0.10.2's
+        // `set_name_and_value` allocates `set_name`'s CHARSXP unconditionally
+        // on every call before attaching `v` -- so `geno`'s already-bare
+        // `Sexp` (both match arms above drop their `Owned*Sexp` token via
+        // `.into()`) would sit unprotected across that guaranteed allocation.
+        // Fixed by attaching via `set_value` first (nothing allocates between
+        // `geno`'s construction and `SET_VECTOR_ELT`) and naming via
+        // `set_name` second.
+        rd.set_value(2, geno)?;
+        rd.set_name(2, "genotype")?;
         records.set_value(i, rd)?;
     }
     out.set_name_and_value(6, "records", records)?;
