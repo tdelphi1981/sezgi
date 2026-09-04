@@ -79,10 +79,12 @@ print(f"f_opt       = {result.f_opt:.6g}")
 print(f"gap         = {result.gap:.6g}")
 ```
 
-- **`algo`** — the preset name that actually ran (`"ga_real"` here, not
-  `"geneticalgorithm"` — useful precisely because `GeneticAlgorithm`
-  auto-dispatches, so this tells you which preset your problem's space
-  routed to).
+- **`algo`** — the wrapper class's own name, lowercased (`"geneticalgorithm"`
+  here), not the underlying preset it dispatched to. It identifies which
+  wrapper class produced the result; for `GeneticAlgorithm`, the
+  representation actually engaged (`"real"` for this Float-typed problem) is
+  exposed separately as `.dispatched_representation` on the
+  `GeneticAlgorithm` instance itself — not a field on `SolveResult`.
 - **`seed`**, **`budget`**, **`evals_used`** — the run's own bookkeeping.
   `evals_used` equals `budget` unless the algorithm terminates early (no
   built-in class does today, but the field exists for algorithms that

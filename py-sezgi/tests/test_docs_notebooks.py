@@ -72,3 +72,33 @@ def test_notebook_executes_without_error(name):
         ]
         assert not errors, (
             f"notebook {name!r} cell {index} produced error output: {errors}")
+
+
+@pytest.mark.parametrize("name", NOTEBOOK_NAMES)
+def test_no_notebook_has_mermaid_cells(name):
+    """mkdocs-jupyter (via nbconvert's `lab/mermaidjs.html.j2` macro)
+    unconditionally injects a `<script type="module">` into every
+    rendered notebook page that `await import()`s MermaidJS from
+    `cdnjs.cloudflare.com` -- guarded client-side by
+    `if (!diagrams.length) return;`, where `diagrams` is
+    `.jp-Mermaid > pre.mermaid` (the DOM mkdocs-superfences' `mermaid`
+    fence produces). `docs/hooks/strip_notebook_cdn.py` strips that
+    script from the built page unconditionally, on the assumption that
+    none of these four notebooks actually use a mermaid diagram today.
+    This test is the tripwire for that assumption: if it ever starts
+    failing, a mermaid fence has been added to a notebook markdown cell,
+    the stripped script is now needed for that diagram to render, and
+    `docs/hooks/strip_notebook_cdn.py` must be revisited (e.g. to only
+    strip the script on pages that don't need it) before that notebook's
+    diagram silently stops rendering.
+    """
+    path = NOTEBOOKS_DIR / name
+    nb = nbf.read(path, as_version=4)
+    for index, cell in enumerate(nb.cells):
+        if cell.get("cell_type") != "markdown":
+            continue
+        assert "```mermaid" not in cell.get("source", ""), (
+            f"notebook {name!r} cell {index} contains a mermaid fence -- "
+            "docs/hooks/strip_notebook_cdn.py unconditionally strips the "
+            "mermaid-rendering script from every notebook page and must "
+            "be revisited now that one is actually needed")

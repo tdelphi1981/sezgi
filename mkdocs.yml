@@ -4,6 +4,16 @@ site_url: https://tdelphi1981.github.io/sezgi/
 docs_dir: docs/site
 site_dir: site
 
+# docs/hooks/strip_notebook_cdn.py: mkdocs-jupyter (0.26.3) has no config
+# option to disable the mermaid-support script it injects into every
+# notebook page, and the underlying nbconvert trait it comes from isn't
+# configurable either -- see the hook module's own docstring for the
+# full story. Strips a guarded, currently-inert cdnjs.cloudflare.com
+# import that the privacy/offline plugins below cannot see (it is a
+# string literal inside a dynamic import(), not a static href=/src=).
+hooks:
+  - docs/hooks/strip_notebook_cdn.py
+
 theme:
   name: material
   palette:
