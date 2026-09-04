@@ -494,10 +494,9 @@ class DifferentialEvolution(object):
 
 
 # ---------------------------------------------------------------------------
-# NSGA2: a thin class skin over sezgi.mo.nsga2 (Task 5's pinned deliverable
-# 3) -- NOT one of the 34 presets.rs builders (NSGA-II is not built on the
-# scalar Engine/Registry/Generator machinery those presets target -- see
-# docs/superpowers/research/2026-09-02-python-oop-front-door.md §B7).
+# NSGA2: a thin class skin over sezgi.mo.nsga2 -- NOT one of the 34
+# presets.rs builders (NSGA-II is not built on the scalar
+# Engine/Registry/Generator machinery those presets target).
 # ZERO new MO capability: run() delegates to mo.nsga2 verbatim.
 
 class NSGA2(object):

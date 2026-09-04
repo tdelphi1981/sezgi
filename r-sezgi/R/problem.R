@@ -1,20 +1,18 @@
-# R-callable Problem bridge (M4-2 Task 2) -- the R mirror of py-sezgi's
-# subclassable `sezgi.Problem` ABC (`py-sezgi/python/sezgi/problem.py`,
-# M4-1 Task 1), closing the "R callable-objective sessions" deferral
-# (docs/DECISIONS.md:839-845). Subclass `Problem`
+# R-callable Problem bridge -- the R mirror of py-sezgi's
+# subclassable `sezgi.Problem` ABC (`py-sezgi/python/sezgi/problem.py`),
+# closing the "R callable-objective sessions" deferral. Subclass `Problem`
 # (`R6::R6Class(..., inherit = sezgi::Problem, ...)`), override
 # `evaluate(x)`/`space()`, and solve it via the internal Rust entry point
-# `sz_solve_r_problem()` (`r-sezgi/src/rust/src/solve.rs`) -- this task's
+# `sz_solve_r_problem()` (`r-sezgi/src/rust/src/solve.rs`) -- the package's
 # own tests call it directly (`sezgi:::sz_solve_r_problem`), building its
 # `blocks`/`evaluate` arguments from `.sz_space_to_blocks()`/
 # `.sz_make_evaluate_shim()` by hand; a convenience `$run()`-style wrapper
 # is left to a later task, the same way py-sezgi's own
-# `_sezgi.from_callable_spaced` stayed internal in M4-1 Task 1.
+# `_sezgi.from_callable_spaced` stayed internal.
 #
 # `.sz_make_evaluate_shim(prob)` exists because `FunctionSexp::call`
-# evaluates the R side in `R_GlobalEnv`, not this package's namespace
-# (research doc, `docs/superpowers/research/2026-09-02-r-class-front-
-# door.md` §C4) -- constructing the shim closure HERE (inside this file,
+# evaluates the R side in `R_GlobalEnv`, not this package's namespace --
+# constructing the shim closure HERE (inside this file,
 # i.e. lexically inside the package) means its own enclosure IS the
 # package namespace, so any future free-variable lookup inside it would
 # resolve correctly regardless of where `Rf_eval` runs it from.

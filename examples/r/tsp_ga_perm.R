@@ -1,10 +1,10 @@
 # ga-perm (a fused permutation GA -- OX1 crossover + swap mutation in one
 # generator, see crates/components/src/presets.rs::ga_perm's doc) on
 # berlin52, the classic TSPLIB (Reinelt) benchmark instance -- a matched
-# Python/R example pair for sezgi's M3-3 TSPLIB/permutation-problem suite.
+# Python/R example pair for sezgi's TSPLIB/permutation-problem suite.
 # See examples/python/tsp_ga_perm.py for the Python counterpart (0-based
 # tour indices there vs. this script's 1-based, per r-sezgi's own indexing
-# convention -- see docs/DECISIONS.md's M3-3 record and
+# convention -- see
 # r-sezgi/src/rust/src/problems.rs's module doc).
 #
 # Runs through r-sezgi's own established sz_solve_* / sz_preset_* path:

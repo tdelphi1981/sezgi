@@ -115,8 +115,7 @@ seed would have reached, *whenever the two runs complete the same number
 of generations* — true at 11 of the 12 budgets plotted here (the one
 exception, `budget=450`, stops one partial generation short of where a
 longer run's own trajectory stood at evaluation #450, since the engine
-only evaluates whole generation batches; see `docs/DECISIONS.md`'s
-"CURTAILED VIEW" entry for the general case, and
+only evaluates whole generation batches; see
 [Reading convergence curves](../learn/06-reading-convergence-curves.md)
 for a related but distinct technique — reconstructing an anytime view
 from a SINGLE logged run instead of many independent ones):

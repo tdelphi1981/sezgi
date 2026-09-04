@@ -42,10 +42,3 @@ Participation in this project is governed by `CODE_OF_CONDUCT.md`
 `CITATION.cff` in the repository root carries the citation metadata
 (authors, version, license). Cite it if sezgi contributes to published
 research.
-
-## Design decisions
-
-`docs/DECISIONS.md` is the project's running, milestone-by-milestone
-record of architectural and scope decisions — the authoritative source
-for why the codebase looks the way it does, including every documented
-simplification, deferral, and course correction.

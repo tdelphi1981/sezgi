@@ -1,15 +1,14 @@
 # CEC 2022 (Kumar, Price, Mohamed, Hadi & Suganthan 2021) function f3,
-# dim=10 -- a matched Python/R example pair for sezgi's M3-3 CEC 2022
+# dim=10 -- a matched Python/R example pair for sezgi's CEC 2022
 # benchmark suite. See examples/python/cec2022_shade.py for the Python
 # counterpart, which runs sezgi.presets.shade (Tanabe & Fukunaga 2013's
 # SHADE) through sezgi.solve() against sezgi.problems.cec2022(fid, dim).
 #
-# CLOSED IN M3-5 (Task 4): M3-3's own record (docs/DECISIONS.md, ruling (g))
-# disclosed a real capability gap here -- r-sezgi (M3-3 Task 10) bound ONLY
-# direct evaluation for CEC 2022 (sz_cec2022_evaluate/sz_cec2022_f_star), so
+# r-sezgi originally bound ONLY direct evaluation for CEC 2022
+# (sz_cec2022_evaluate/sz_cec2022_f_star), a real capability gap -- so
 # this script used to run a small classic DE/rand/1/bin loop written
-# directly in base R instead of the SHADE preset. M3-5 Task 4 added
-# sz_solve_cec2022 (mirrors sz_solve_bbob/sz_solve_tsp: Engine::from_spec +
+# directly in base R instead of the SHADE preset. sz_solve_cec2022 was
+# added later (mirrors sz_solve_bbob/sz_solve_tsp: Engine::from_spec +
 # engine.run against Cec2022::new(fid, dim)), so this script now runs THE
 # SAME SHADE preset through THE SAME Rust core as the Python script --
 # same algorithm, same problem, same seed, in both languages.
@@ -19,7 +18,7 @@
 # dispatches problem 3 to plain Schaffer's F7 with no scale and (due to a
 # verified buffer-reuse bug in the reference code) no effective rotation;
 # sezgi follows the C code, which is what scored the competition, not the
-# report's printed formula. See docs/DECISIONS.md's M3-3 record and
+# report's printed formula. See
 # crates/problems/src/cec2022/mod.rs's module doc ("F3: report says...")
 # for the full, quoted discrepancy.
 #

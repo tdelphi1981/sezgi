@@ -1,5 +1,5 @@
 """L-SHADE (Tanabe & Fukunaga 2014) on CEC 2014 (Liang, Qu & Suganthan 2013)
-function f1, dim=10 -- a matched Python/R example pair for sezgi's M3-6 CEC
+function f1, dim=10 -- a matched Python/R example pair for sezgi's CEC
 2014 benchmark suite. See examples/r/cec2014_lshade.R for the R
 counterpart.
 
@@ -12,9 +12,9 @@ f1 is CEC 2014's "Rotated High Conditioning Elliptic Function" -- a
 unimodal function with an ill-conditioned, widely spread per-coordinate
 scale, which is why even a competitive optimizer's `best_f` stays visibly
 above F* at a small smoke-demo budget; this is expected for f1's shape, not
-a defect. See docs/DECISIONS.md's M3-6 record for the CEC 2014 suite's
-provenance, vendored-data totals, and every report-vs-official-C divergence
-found across the whole suite (f1 itself has none).
+a defect. The CEC 2014 suite's provenance, vendored-data totals, and
+every report-vs-official-C divergence found across the whole suite (f1
+itself has none) are documented alongside the code.
 
 Runs through `sezgi.solve()` with the `presets.lshade` reference-tier
 preset against `sezgi.problems.cec2014(fid, dim)`, the same solve()-

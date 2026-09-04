@@ -18,9 +18,9 @@
 //! function, unconstrained, domain `[0,1]^n`) -- DTLZ8 and DTLZ9 instead use
 //! the "constraint surface" approach (section 6.5: a hyper-box objective
 //! space cut down by explicit inequality constraints `g_j(f) >= 0`, Eq.
-//! 6.26-6.27). M3-7 Task 1 (`sezgi_core::mo::MoProblem::evaluate_constraints_batch`,
-//! `docs/DECISIONS.md`'s M3-7 record) added the constraint channel this
-//! surface needs; M3-7 Task 2 (this module's current form) wires DTLZ8 and
+//! 6.26-6.27). `sezgi_core::mo::MoProblem::evaluate_constraints_batch`
+//! added the constraint channel this surface needs; this module's current
+//! form wires DTLZ8 and
 //! DTLZ9 into it, so this module now implements the FULL DTLZ1-DTLZ9 suite
 //! (`which: 1..=9`) -- no DTLZ deferral remains (unlike [`crate::zdt`]'s
 //! still-standing ZDT5 exclusion, a different suite with a different

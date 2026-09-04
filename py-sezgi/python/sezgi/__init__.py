@@ -13,17 +13,16 @@ from sezgi import _sezgi
 # changes.
 __version__ = "0.1.0"
 
-# M4-1 Task 1: `sezgi.Problem` is now the subclassable Python ABC
+# `sezgi.Problem` is now the subclassable Python ABC
 # (`py-sezgi/python/sezgi/problem.py`), NOT the native `#[pyclass]` handle
 # type that `bbob(...)`/`problems.onemax(...)`/`from_callable(...)` return
 # -- that native type is still fully reachable (as `sezgi._sezgi.Problem`;
 # `problem.py`'s `as_native_problem` uses it directly), just no longer
 # aliased under this same top-level name. No existing test or example
-# referenced `sezgi.Problem` before this task (verified), so this is a
+# referenced `sezgi.Problem` before this change (verified), so this is a
 # name-repurposing, not a behavior change to anything working code already
-# depended on. See `docs/superpowers/research/2026-09-02-python-oop-front-
-# door.md` §E1 and this task's own report for the rationale (ruling 1: the
-# new class hierarchy is meant to become THE documented `Problem` symbol).
+# depended on: the new class hierarchy is meant to become THE documented
+# `Problem` symbol.
 from sezgi.problem import Problem, as_native_problem
 from sezgi.spaces import Float, Int, Categorical, Binary, Permutation, Space
 

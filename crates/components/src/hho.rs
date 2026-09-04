@@ -238,8 +238,8 @@ use sezgi_core::space::{Block, BlockValues, Genotype};
 // `generate()` call before any RNG draws, INSTEAD OF `HHO.m`'s verified
 // persisted-best-ever `Rabbit_Location`/`Rabbit_Energy`. This is the SAME
 // wave-wide parked current-pop-attractor convention already applied to
-// `ssa.rs`'s `FoodPosition` and `ba.rs`'s `best` (first parked in Task 1/
-// SCA's review, DECISIONS "X_best" ruling) -- not an HHO-specific
+// `ssa.rs`'s `FoodPosition` and `ba.rs`'s `best` (first parked during
+// SCA's review) -- not an HHO-specific
 // deviation. Blackboard-backed persistence (matching the source exactly)
 // is a recorded family-wide enhancement candidate, not implemented here.
 /// 8. **`mean(X)` -- the SAME in-place, sequentially-updating semantics
@@ -365,7 +365,7 @@ use sezgi_core::space::{Block, BlockValues, Genotype};
 /// and accepted on) and an independent budget-tail gap (a generation's dive
 /// evals could be charged and IOH-logged, then the whole generation
 /// discarded on budget exhaustion before reaching `global_best`) -- see git
-/// history and `docs/DECISIONS.md`'s M2d-4 record for the old caveat and its
+/// history for the old caveat and its
 /// measured gap (BBOB f3/seed-19: `best_f` understated by 5.4).
 ///
 /// [`hho_captured_best_f_matches_evaluator_observed_minimum`] (in this

@@ -44,9 +44,8 @@
 //! from the official, now-dead site; independently corroborated by the
 //! Wayback Machine, which separately archived the identical
 //! `WFG_v2006.03.28.zip` from the live site's own `publications/data/`
-//! directory in 2006). **License finding** (recorded per the plan's own
-//! DECISIONS-wants-the-fact note; decides nothing here -- ORACLE-ONLY use,
-//! ruling 4, no line of the C++ enters this repo): the repo-root
+//! directory in 2006). **License finding** (decides nothing here --
+//! ORACLE-ONLY use, no line of the C++ enters this repo): the repo-root
 //! `LICENSE` file is GPLv2, but it covers `richardeverson`'s OWN Python
 //! wrapper code, not the vendored toolkit -- every file under
 //! `WFG_v2006.03.28/` instead carries the WFG authors' own header: "Copyright

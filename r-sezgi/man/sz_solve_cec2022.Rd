@@ -4,8 +4,8 @@
 \alias{sz_solve_cec2022}
 \title{Runs an algorithm spec on a CEC 2022 (Kumar, Price, Mohamed, Hadi &
 Suganthan 2021) function via [`Cec2022::new`] and returns the result --
-M3-5 Task 4, closing the M3-3 gap (`docs/DECISIONS.md`'s M3-3 record,
-ruling (g)): r-sezgi previously bound only direct evaluation
+added later than the rest of the CEC surface, closing the gap where
+r-sezgi previously bound only direct evaluation
 (`sz_cec2022_evaluate`/`sz_cec2022_f_star`), with no `solve()`-integrated
 path, unlike py-sezgi's `sezgi.problems.cec2022(...)` + `sezgi.solve()`.
 Mirrors `sz_solve_bbob`/`sz_solve_tsp` exactly (`Engine::from_spec` +
@@ -43,8 +43,8 @@ any [`sezgi_core::engine`] run error.
 \description{
 Runs an algorithm spec on a CEC 2022 (Kumar, Price, Mohamed, Hadi &
 Suganthan 2021) function via [`Cec2022::new`] and returns the result --
-M3-5 Task 4, closing the M3-3 gap (`docs/DECISIONS.md`'s M3-3 record,
-ruling (g)): r-sezgi previously bound only direct evaluation
+added later than the rest of the CEC surface, closing the gap where
+r-sezgi previously bound only direct evaluation
 (`sz_cec2022_evaluate`/`sz_cec2022_f_star`), with no `solve()`-integrated
 path, unlike py-sezgi's `sezgi.problems.cec2022(...)` + `sezgi.solve()`.
 Mirrors `sz_solve_bbob`/`sz_solve_tsp` exactly (`Engine::from_spec` +

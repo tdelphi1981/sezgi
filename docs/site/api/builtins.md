@@ -12,9 +12,8 @@ multi-objective result dictionary its `run()` returns instead.
 
 These classes are created at runtime (`type()`), not via `class`
 statements, so this page renders under mkdocstrings'
-`force_inspection: true` handler option — see
-`docs/superpowers/research/2026-09-04-docs-and-example-migration.md` §B1-2
-for why that option is required.
+`force_inspection: true` handler option, which mkdocstrings requires for
+classes it cannot discover through normal static inspection.
 
 ::: sezgi.builtins
     options:

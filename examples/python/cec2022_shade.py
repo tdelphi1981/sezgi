@@ -1,6 +1,6 @@
 """SHADE (Tanabe & Fukunaga 2013) on CEC 2022 (Kumar, Price, Mohamed, Hadi &
 Suganthan 2021) function f3, dim=10 -- a matched Python/R example pair for
-sezgi's M3-3 CEC 2022 benchmark suite. See examples/r/cec2022_shade.R for
+sezgi's CEC 2022 benchmark suite. See examples/r/cec2022_shade.R for
 the R counterpart.
 
 f3 is the CEC 2022 report's "Shifted and full Rotated Expanded Schaffer's
@@ -8,9 +8,8 @@ f6 Function" BY NAME -- but the vendored official C reference actually
 dispatches problem 3 to plain Schaffer's F7 with no scale and (due to a
 verified buffer-reuse bug in the reference code) no effective rotation;
 sezgi follows the C code, which is what scored the competition, not the
-report's printed formula. See docs/DECISIONS.md's M3-3 record and
-crates/problems/src/cec2022/mod.rs's module doc ("F3: report says...") for
-the full, quoted discrepancy.
+report's printed formula. See crates/problems/src/cec2022/mod.rs's module
+doc ("F3: report says...") for the full, quoted discrepancy.
 
 Runs through `sezgi.solve()` with the `presets.shade` reference-tier preset
 (Tanabe & Fukunaga's Success-History based Adaptive DE) against

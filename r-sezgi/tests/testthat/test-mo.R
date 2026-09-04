@@ -1,17 +1,14 @@
-# M3-2 Task 10: R bindings for the multi-objective module (sz_nsga2 /
-# sz_mo_hypervolume_2d / sz_mo_igd / sz_mo_pareto_front). Extended M3-7
-# Task 11: zdt5 (binary), dtlz8/dtlz9 (constrained), wfg1-9, general-M
+# R bindings for the multi-objective module (sz_nsga2 /
+# sz_mo_hypervolume_2d / sz_mo_igd / sz_mo_pareto_front), extended with
+# zdt5 (binary), dtlz8/dtlz9 (constrained), wfg1-9, general-M
 # sz_mo_hypervolume, sz_mo_evaluate / sz_mo_evaluate_constraints, and
 # sezgi-moa v1 run logging (sz_nsga2(..., log_dir=, label=) / sz_mo_read_moa).
 #
 # Mirrors crates/components::nsga2 / crates/problems::{zdt,dtlz,wfg} /
 # crates/stats::moo_indicators / crates/bench::mo_archive 1:1 by dict key
-# name -- see py-sezgi's `sezgi.mo` module (M3-2 Task 9, extended M3-7
-# Task 10, `py-sezgi/src/lib.rs`) and
-# `.superpowers/sdd/2026-08-30-sezgi-m3-2/task-9-report.md` /
-# `.superpowers/sdd/2026-09-01-sezgi-m3-7/task-11-report.md` for the full
-# field-by-field provenance, and `r-sezgi/src/rust/src/mo.rs`'s module doc
-# for this binding's own container-idiom decisions (list-of-vectors for
+# name -- see py-sezgi's `sezgi.mo` module (`py-sezgi/src/lib.rs`) for the
+# full field-by-field provenance, and `r-sezgi/src/rust/src/mo.rs`'s module
+# doc for this binding's own container-idiom decisions (list-of-vectors for
 # `individuals`/`objectives`/`sz_mo_pareto_front`'s return, matrix for
 # `sz_mo_hypervolume_2d`/`sz_mo_hypervolume`/`sz_mo_igd`'s `front`/
 # `reference_front` inputs, 1-based `front0`, present-only-when-constrained
@@ -206,10 +203,8 @@ test_that("sz_mo_pareto_front rejects an unrecognized problem string", {
 
 # ---- Cross-language bit-equality anchor ------------------------------------
 #
-# Anchor invocation (documented in
-# .superpowers/sdd/2026-08-30-sezgi-m3-2/task-9-report.md, "Deterministic
-# zdt1 invocation + exact output values for T10's cross-language fixture",
-# and re-confirmed live in this task via
+# Anchor invocation ("Deterministic zdt1 invocation + exact output values
+# for the cross-language fixture", re-confirmed live via
 # `./py-sezgi/.venv/bin/python -c "import sezgi; sezgi.mo.nsga2(problem='zdt1', dim=5, pop_size=8, budget=200, seed=20260830)"`):
 #
 #   sezgi.mo.nsga2(problem="zdt1", dim=5, pop_size=8, budget=200, seed=20260830)

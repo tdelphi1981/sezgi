@@ -5,8 +5,7 @@ directly (`py-sezgi/.venv/bin/python docs/scripts/fig_NAME.py`) it writes a
 PNG under `docs/site/assets/figures/` and a JSON "sidecar" of the exact
 plotted series next to it. The sidecar -- not the PNG -- is what
 `py-sezgi/tests/test_docs_figures.py` gates: matplotlib's own pixel output
-shifts across patch releases and font availability (see
-`docs/superpowers/research/2026-09-04-docs-and-example-migration.md` §E4),
+shifts across patch releases and font availability,
 so re-running a generator and byte-comparing the PNG would produce false
 failures. The JSON sidecar is pinned instead -- every number in it comes
 from a fixed seed through sezgi's own deterministic engine, so it is

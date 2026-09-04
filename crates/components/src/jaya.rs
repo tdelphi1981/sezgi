@@ -53,7 +53,7 @@ use sezgi_core::space::{BlockValues, Genotype};
 ///   opposite-extremum convention to `best_index`'s "ties → lower index"),
 ///   computed once per `generate` call, before any RNG draws. This is the
 ///   **current-population argmin/argmax convention** already ruled on for
-///   the wave (parked in Task 1/SCA's review, recorded in T15's DECISIONS):
+///   the wave (parked during SCA's review):
 ///   the paper's own Fig. 1 flowchart re-identifies best/worst from the
 ///   population at the TOP of every iteration (after the PREVIOUS
 ///   iteration's greedy acceptance step) -- it does not persist a

@@ -14,12 +14,11 @@ dependencies = ["numpy>=1.24"]
 python-source = "python"
 module-name = "sezgi._sezgi"
 
-# Docs dependency group (M4-3 Task 5). Pinned exactly per research
-# `docs/superpowers/research/2026-09-04-docs-and-example-migration.md`
-# §B5 -- never a range (MkDocs 2.0 is an announced breaking release, §F4).
-# `markdown-exec`/`pymdown-extensions` are pulled in NOW (not just what T5
-# itself needs) so T6/T7 (executed tutorials, snippet includes, admonitions)
-# reuse this same group instead of re-pinning. Installed with
+# Docs dependency group. Pinned exactly -- never a range (MkDocs 2.0 is an
+# announced breaking release). `markdown-exec`/`pymdown-extensions` are
+# pulled in NOW (not just what building the current docs needs) so later
+# work (executed tutorials, snippet includes, admonitions) reuses this
+# same group instead of re-pinning. Installed with
 # `uv pip install --python py-sezgi/.venv/bin/python` rather than
 # `uv sync --group docs`, so the docs deps land in the SAME venv that
 # already carries the maturin-built `sezgi` extension without uv's project

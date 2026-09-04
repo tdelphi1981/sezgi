@@ -10,10 +10,8 @@
 //! (`sezgi_stats::{hypervolume_2d, hypervolume, igd}`), and the sezgi-moa v1
 //! archive logging (`sezgi_bench::{nsga2_run_logged, read_moa}`) -- the exact
 //! same Rust surface py-sezgi's `sezgi.mo` module binds (M3-2 Task 9 /
-//! M3-7 Task 10, `py-sezgi/src/lib.rs`'s "Multi-objective bindings" section;
-//! see also `.superpowers/sdd/2026-08-30-sezgi-m3-2/task-9-report.md` and
-//! `.superpowers/sdd/2026-09-01-sezgi-m3-7/task-11-report.md` for the full
-//! dict-shape provenance this file mirrors 1:1 by key name).
+//! M3-7 Task 10, `py-sezgi/src/lib.rs`'s "Multi-objective bindings" section)
+//! -- this file mirrors that dict-shape provenance 1:1 by key name.
 //!
 //! Every scalar/vector f64 is passed through EXACTLY as savvy already
 //! returns bit-for-bit for a Rust `f64` -- no rounding/formatting anywhere

@@ -11,7 +11,7 @@
 //! shaped" (Task 5 brief): apply one operator per variable-type segment,
 //! then concatenate the segments back into a whole individual.
 //!
-//! ## Design spec §3 (quoted, `docs/superpowers/specs/2026-08-27-sezgi-design.md`)
+//! ## Design spec §3
 //!
 //! "Operators declare the block types they support as metadata... the spec
 //! validator checks type compatibility before run time, when binding the

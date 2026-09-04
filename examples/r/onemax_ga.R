@@ -3,14 +3,13 @@
 # (Goldberg 1989's classic "maximize the number of set bits" toy,
 # re-expressed in this crate as minimizing the ZERO-bit count -- see
 # crates/problems/src/diagnostics.rs's module doc) -- a matched Python/R
-# example pair for sezgi's M3-8 typed-operator milestone. See
+# example pair for sezgi's typed-operator support. See
 # examples/python/onemax_ga.py for the Python counterpart: same scenario,
 # same Rust core underneath (both bindings run the identical
 # `AlgorithmSpec`/`Engine` path, like every other matched pair in this
 # project), so this pair's numbers are bit-identical across languages --
-# only the report formatting differs (per the M3-7 example-pair "numbers
-# bit-identical, formatting divergence acceptable" clarification,
-# docs/DECISIONS.md's M3-7 record).
+# only the report formatting differs (numbers bit-identical, formatting
+# divergence acceptable across every matched pair in this project).
 #
 # Runs through r-sezgi's own established sz_solve_* / sz_preset_* path:
 # sz_preset_ga_bin(pop_size, budget) + sz_solve_onemax(spec, n_bits, ...).
@@ -18,8 +17,8 @@
 # Small budget, seeded, deliberately chosen so the run does NOT reach the
 # known optimum (best_f == 0, all bits set) -- a fully-converged run would
 # be a trivial, uninformative anchor (any correctly terminating optimal run
-# gives the identical 0 regardless of path taken, the same reasoning M3-8
-# Task 10's own cross-language anchor report gives for avoiding its own
+# gives the identical 0 regardless of path taken, the same reasoning
+# r-sezgi's own cross-language anchor report gives for avoiding its own
 # OneMax scenario's easy exact-optimum case). At n_bits=100, pop_size=20,
 # budget=400 (== 20 generations past init), seed=7, ga_bin lands on a
 # genuine partial result (16 of 100 bits still zero) that pins the run's

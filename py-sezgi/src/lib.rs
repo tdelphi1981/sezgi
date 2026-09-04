@@ -505,11 +505,10 @@ impl Problem for SpacedCallableProblem<'_> {
 }
 
 // ---------------------------------------------------------------------
-// M4-1 Task 2: the engine-hosted Python callback bridge -- `PyGenerator`, a
+// The engine-hosted Python callback bridge -- `PyGenerator`, a
 // `sezgi_core::component::Generator` implementation whose `generate` method
 // runs a live Python object's own `generate(pop, ctx)` method INSIDE the
-// Rust engine loop, deterministically (research doc
-// `docs/superpowers/research/2026-09-02-python-oop-front-door.md` §B/§C).
+// Rust engine loop, deterministically.
 // ---------------------------------------------------------------------
 
 /// M4-1 Task 2: an owned per-call RNG handle exposed to a Python-authored
@@ -1945,8 +1944,7 @@ impl PyEvalSession {
         // change needed), so they are admitted the same way. Callable and F0
         // arms keep the rejection: their SessionMeta has no fid identity or
         // f_opt, so there is nothing to build an IOH archive against
-        // (with_log itself also rejects a None f_opt) -- see
-        // docs/DECISIONS.md's M3-5 record.
+        // (with_log itself also rejects a None f_opt).
         if log_dir.is_some() && !matches!(&problem.inner,
             Inner::Bbob(_) | Inner::Cec2022(_) | Inner::Cec2014(_) | Inner::Cec2017(_)) {
             return Err(PyValueError::new_err(

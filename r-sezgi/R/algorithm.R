@@ -1,18 +1,17 @@
-# R6 Algorithm / PopulationAlgorithm / LocalSearch bases (M4-2 Task 4) --
+# R6 Algorithm / PopulationAlgorithm / LocalSearch bases --
 # the R mirror of py-sezgi's engine-hosted class-first authoring surface
-# (`py-sezgi/python/sezgi/algorithm.py`, M4-1 Task 3/4). A subclass
+# (`py-sezgi/python/sezgi/algorithm.py`). A subclass
 # implements `generate(pop, ctx)` (REQUIRED) and may optionally override
 # `initialize_population(n, space, ctx)` (RULING 8 -- NOT `initialize`,
 # which R6 reserves for the constructor; a documented divergence from
 # Python's `initialize(n, ctx)` name) and `validate_space(space)`; `run()`
-# wires the subclass instance through T3's `sz_solve_r_generator`/
-# `sz_solve_r_generator_bbob` bridge and T2's `sz_as_problem`/`Problem`.
+# wires the subclass instance through `sz_solve_r_generator`/
+# `sz_solve_r_generator_bbob` bridge and `sz_as_problem`/`Problem`.
 #
 # Hook taxonomy modeled after pymoo 0.6.2 (Apache-2.0) and jMetal v7.5
 # (MIT) public APIs, same attribution as `py-sezgi/python/sezgi/
-# algorithm.py`'s own module docstring and `docs/DECISIONS.md`'s M4-1
-# record (no code copied from either source, naming/hook-shape
-# conventions only).
+# algorithm.py`'s own module docstring (no code copied from either
+# source, naming/hook-shape conventions only).
 #
 # ---- `pop`/`ctx` shape handed to a user's `generate`/`select`/`vary`/
 # `neighbor` method (PINNED, this task's own design decision -- see the
@@ -92,17 +91,15 @@
 # ---- log_dir (MIRRORS M4-1 RULING B) -------------------------------------
 #
 # Python's `sezgi.Algorithm.run(..., log_dir=...)` wires IOH logging
-# through `_sezgi.solve_with_py_generator`'s own `log_dir` parameter. T3's
+# through `_sezgi.solve_with_py_generator`'s own `log_dir` parameter.
 # `sz_solve_r_generator`/`sz_solve_r_generator_bbob` (`r-sezgi/src/rust/
-# src/solve.rs`) have NO `log_dir` parameter at all -- T3's own report
-# states this explicitly ("this task does not wire up IOH logging
-# (log_dir) ... Out of this task's brief scope"). There is therefore NO
+# src/solve.rs`) have NO `log_dir` parameter at all -- IOH logging was
+# deliberately left out of scope for that bridge. There is therefore NO
 # R-side logging path reachable from either entry point to wire `run()`'s
-# own `log_dir` through -- this task HONESTLY REJECTS it (a clear error,
-# not a silently-swallowed parameter), the second of RULING B's two
-# acceptable outcomes, mirroring `docs/DECISIONS.md`'s own "Callable
-# problem + log_dir -> ValueError" precedent in spirit (an explicit error
-# instead of silently ignoring the parameter).
+# own `log_dir` through -- this HONESTLY REJECTS it (a clear error, not a
+# silently-swallowed parameter), mirroring the "Callable problem +
+# log_dir -> ValueError" precedent elsewhere in this project in spirit
+# (an explicit error instead of silently ignoring the parameter).
 
 #' @importFrom R6 R6Class
 NULL

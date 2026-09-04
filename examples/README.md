@@ -78,7 +78,7 @@ or in R:
     records <- sz_run_experiment(paste(readLines("examples/specs/gwo.toml"), collapse = "\n"))
     print(records)
 
-## Multi-objective: NSGA-II on ZDT1 (M3-2)
+## Multi-objective: NSGA-II on ZDT1
 
 A separate, matched PAIR (not a triplet like the 17 above): NSGA-II (Deb,
 Pratap, Agarwal & Meyarivan 2002) on ZDT1 (Zitzler, Deb & Thiele 2000),
@@ -96,8 +96,7 @@ self-contained, seeded Rust runner over a parallel `MoProblem`/
 `MoEvaluator` surface, not as a composable `ExperimentSpec` component
 graph -- the MO spec-graph integration this catalog's `specs/*.toml` path
 depends on is deferred to v2 (see the main `README.md`'s "Multi-objective
-optimization (M3-2)" section and `docs/DECISIONS.md`'s M3-2 record for the
-full spec-tension ruling).
+optimization" section for the full spec-tension ruling).
 
 Run:
 
@@ -119,7 +118,7 @@ measured by running both scripts from the repo root):
       0.007097  0.917851
       0.015445  0.878219
 
-## CEC 2022 and TSPLIB/permutation quickstarts (M3-3)
+## CEC 2022 and TSPLIB/permutation quickstarts
 
 Two more matched Python/R PAIRS (not triplets -- no `specs/*.toml` for
 either, see each script's own header for why), both going through
@@ -127,14 +126,14 @@ either, see each script's own header for why), both going through
 
 | Pair | Files | What it demonstrates |
 |---|---|---|
-| SHADE on CEC 2022 f3 | `python/cec2022_shade.py`, `r/cec2022_shade.R` | `sezgi.presets.shade` / `sz_preset_shade` (Tanabe & Fukunaga 2013) solved against `sezgi.problems.cec2022(fid, dim)` / `sz_solve_cec2022` via `sezgi.solve()` / r-sezgi's own `sz_solve_cec2022`, printing `best_f` and the gap to the report's pinned `F*`. **Both scripts now run SHADE** (M3-5 Task 4 added `sz_solve_cec2022`, closing the M3-3 capability gap where r-sezgi had direct evaluation only, `sz_cec2022_evaluate`/`sz_cec2022_f_star`, and no `solve()`-integrated path -- see `docs/DECISIONS.md`'s M3-3 record, ruling (g), and its M3-5 closure note). |
-| ga-perm on TSPLIB berlin52 | `python/tsp_ga_perm.py`, `r/tsp_ga_perm.R` | `sezgi.presets.ga_perm` / `sz_preset_ga_perm` (a fused OX1-crossover + swap-mutation permutation GA) solved against the vendored `berlin52` TSPLIB instance (`sezgi.problems.tsp` / `sz_solve_tsp`), printing the best tour length against berlin52's published TSPLIB optimum (7542.0). The Python script uses 0-based tour indices; the R script uses 1-based (r-sezgi's own established indexing convention, matching TSPLIB's own node numbering -- see `docs/DECISIONS.md`'s M3-3 record). |
+| SHADE on CEC 2022 f3 | `python/cec2022_shade.py`, `r/cec2022_shade.R` | `sezgi.presets.shade` / `sz_preset_shade` (Tanabe & Fukunaga 2013) solved against `sezgi.problems.cec2022(fid, dim)` / `sz_solve_cec2022` via `sezgi.solve()` / r-sezgi's own `sz_solve_cec2022`, printing `best_f` and the gap to the report's pinned `F*`. **Both scripts now run SHADE** (`sz_solve_cec2022` was added later than the rest of the CEC surface; r-sezgi previously had direct evaluation only, `sz_cec2022_evaluate`/`sz_cec2022_f_star`, and no `solve()`-integrated path). |
+| ga-perm on TSPLIB berlin52 | `python/tsp_ga_perm.py`, `r/tsp_ga_perm.R` | `sezgi.presets.ga_perm` / `sz_preset_ga_perm` (a fused OX1-crossover + swap-mutation permutation GA) solved against the vendored `berlin52` TSPLIB instance (`sezgi.problems.tsp` / `sz_solve_tsp`), printing the best tour length against berlin52's published TSPLIB optimum (7542.0). The Python script uses 0-based tour indices; the R script uses 1-based (r-sezgi's own established indexing convention, matching TSPLIB's own node numbering). |
 
 Both pairs are single-seed, single-problem SMOKE demonstrations of the
 binding surface, reported as a gap against a known optimum -- never a
 cross-algorithm or cross-language quality claim. **Both pairs now run the
 SAME algorithm through the SAME Rust core in both languages** (the CEC pair
-closed its two-different-algorithms gap in M3-5 Task 4, see the table row
+closed its two-different-algorithms gap later on, see the table row
 above): their Python/R `best_f` numbers agree BIT-FOR-BIT, verified via a
 `writeBin`/`struct.pack` byte comparison, not a decimal-literal
 eyeball-match (`r-sezgi/tests/testthat/test-cec-tsp.R`'s "R sz_solve_cec2022
@@ -180,19 +179,19 @@ confirms bit-identical bytes (`4082c0083aaa1ea7` on both sides). The R
 runs the same Rust core in both languages, so the numbers agree exactly
 (R's default printing drops the trailing `.0`).
 
-## OOP twins (M3-4)
+## OOP twins
 
 `examples/python/oop/` holds a fourth artifact per algorithm: the SAME 17
 algorithms as the catalog above (gwo, woa, hs, cs, goa, sca, jaya, mfo,
 ssa, fa, ba, fpa, tlbo, hho, alo, abc, gsa), each ported onto
-`sezgi.AskTellAlgorithm` (named `sezgi.Algorithm` before M4-1's rename --
+`sezgi.AskTellAlgorithm` (named `sezgi.Algorithm` before it was renamed --
 `sezgi.Algorithm` now names an unrelated, engine-hosted class-first base,
-see "Class-first authoring + a data recipe (M4-1)" below) -- a subclass
+see "Class-first authoring + a data recipe" below) -- a subclass
 implementing `setup(ctx)`/`step(ctx)` over `AlgoContext`, driven by the
 same `sezgi.EvalSession` core the pure `python/<algo>.py` scripts already
 use, but expressed as an OOP template method instead of a bare script.
 See the main `README.md`'s "Write your own algorithm, ask/tell style
-(Python) (M3-4)" section for the authoring guide these twins demonstrate.
+(Python)" section for the authoring guide these twins demonstrate.
 
 **Bit-exact parity, not merely statistical equivalence.** Each twin is a
 verbatim RNG-draw-order port of its pure script sibling -- same
@@ -234,16 +233,16 @@ Live output (same scenario/seed as the pure script above it):
 which matches `./py-sezgi/.venv/bin/python examples/python/gwo.py`'s own
 `gwo: evals_used=1980 best_f=-125.949 gap=0.000659831` field-for-field.
 
-## R authoring example (M3-5)
+## R authoring example
 
 `examples/r/oop/gwo.R` is the R-side counterpart to the Python OOP twins
-above — ONE worked twin (not a full 17-algorithm wave, per the M3-5 plan's
-own scope ruling: the 17 pure-R scripts under `examples/r/` already teach
+above — ONE worked twin (not a full 17-algorithm wave, per this scope's
+own ruling: the 17 pure-R scripts under `examples/r/` already teach
 the algorithms; the pure-R authoring surface itself is what needed a
 worked proof), porting `examples/r/gwo.R` onto `sz_algorithm`/
-`sz_algo_solve` (r-sezgi's M3-5 pure-R mirror of `sezgi.AskTellAlgorithm`,
+`sz_algo_solve` (r-sezgi's pure-R mirror of `sezgi.AskTellAlgorithm`,
 base-R closures/environments/condition classes only — see the main
-`README.md`'s "Write your own algorithm (R) (M3-5)" section for the
+`README.md`'s "Write your own algorithm (R)" section for the
 authoring guide this twin demonstrates).
 
 **Bit-exact parity, achieved by draw-order identity, not restated
@@ -293,7 +292,7 @@ field-for-field identical (R's own RNG stream differs from Python's — the
 R pair's `best_f`/`gap` are not expected to match the Python pair's; only
 each language's pure/twin pair is compared).
 
-## CEC 2014: L-SHADE quickstart (M3-6)
+## CEC 2014: L-SHADE quickstart
 
 `python/cec2014_lshade.py` / `r/cec2014_lshade.R` — one more matched
 Python/R PAIR (no `specs/cec2014_lshade.toml`, same reasoning as the CEC
@@ -306,7 +305,7 @@ dim=10). Single seed, single problem, small budget — a SMOKE demonstration
 of the CEC 2014 binding, not a claim about L-SHADE's quality or
 convergence rate; f1's ill-conditioned scale keeps `best_f` visibly above
 `F*` at this budget by design, not by defect. See `README.md`'s "CEC
-2014/CEC 2017 benchmark suites (M3-6)" section for the suite's full
+2014/CEC 2017 benchmark suites" section for the suite's full
 provenance and every report-vs-official-C divergence found.
 
 **Bit-identical between languages**, verified via the same
@@ -343,10 +342,10 @@ significant digits, Python's `repr` shows the shortest round-tripping
 representation); a `writeBin`/`struct.pack` byte comparison confirms
 bit-identical bytes (`4066875c33a1c67b` on both sides).
 
-## WFG4 + sezgi-moa quickstart (M3-7)
+## WFG4 + sezgi-moa quickstart
 
 `python/wfg4_nsga2.py` / `r/wfg4_nsga2.R` — a matched Python/R PAIR for
-the M3-7 multi-objective remainders (no `specs/wfg4_nsga2.toml`, same
+the multi-objective remainders (no `specs/wfg4_nsga2.toml`, same
 reasoning as `nsga2_zdt1`'s own pair above: NSGA-II is a self-contained
 Rust runner, not a composable component graph), calling
 `sezgi.mo.nsga2()` / `sz_nsga2()` directly rather than through
@@ -362,9 +361,8 @@ entry point). Reference point: the WFG4/`m=2` analytic front's nadir
 `(2.0, 4.0)` scaled by `1.1` — `(2.2, 4.4)` — per
 `crates/stats/src/moo_indicators.rs`'s own reference-point convention
 (see that script's own header comment for the full derivation). See
-`README.md`'s "Multi-objective optimization (M3-2, extended M3-7)"
-section for the full binding surface and `docs/DECISIONS.md`'s M3-7
-record for every provenance/divergence finding.
+`README.md`'s "Multi-objective optimization" section for the full
+binding surface.
 
 **Bit-identical between languages**, verified via the same
 `writeBin`/`struct.pack` byte comparison the other pairs above use, not a
@@ -409,7 +407,7 @@ pairs above); a `writeBin`/`struct.pack` byte comparison confirms
 bit-identical bytes (`40087f074abd8254` on both sides), and `archive
 size`/`evals_used` (plain integers) print identically in both languages.
 
-## Class-first authoring + a data recipe (M4-1)
+## Class-first authoring + a data recipe
 
 Three more worked examples over the NEW engine-hosted class-first surface
 (`sezgi.Algorithm`/`PopulationAlgorithm`/`LocalSearch` — NOT the ask/tell
@@ -443,24 +441,24 @@ Live output (measured by running all three scripts from the repo root):
     custom_local_search (oop): evals_used=2000 best_f=-84.3232 gap=0.0807033
     feature_selection (oop): evals_used=200 best_f=0.3607495483 popcount=3 mask=01010010 recovered=True
 
-**`tsp_two_opt.py` now imports `sezgi.AskTellAlgorithm`.** M4-1 renamed
+**`tsp_two_opt.py` now imports `sezgi.AskTellAlgorithm`.** This work renamed
 the ask/tell `Algorithm` ABC to `AskTellAlgorithm` (`sezgi.Algorithm` now
 names the new engine-hosted class-first base used by the three examples
 above); `examples/python/oop/tsp_two_opt.py` and its 17
-`examples/python/oop/<algo>.py` siblings in the "OOP twins (M3-4)" section
+`examples/python/oop/<algo>.py` siblings in the "OOP twins" section
 above updated their import accordingly — an import-name-only change, no
 assertion or printed number affected. `tsp_two_opt.py`'s own output
 (`evals_used=2000 best_f=9077 gap=1535 tour_length=9077`, see the main
 `README.md`'s "Write your own algorithm, ask/tell style (Python)" and
-"Typed operators, mixed spaces, and diagnostic problems (M3-8)" sections)
+"Typed operators, mixed spaces, and diagnostic problems" sections)
 is unchanged.
 
-## Class-first authoring + a data recipe (R) (M4-2)
+## Class-first authoring + a data recipe (R)
 
 Three more worked examples, the R twins of the three above, over the NEW
 engine-hosted class-first surface (`sezgi::Algorithm`/`PopulationAlgorithm`/
 `LocalSearch`, R6 classes — NOT the `sz_algorithm`/`sz_algo_solve` ask/tell
-surface the "R authoring example (M3-5)" section above uses) plus one data
+surface the "R authoring example" section above uses) plus one data
 recipe. See the main `README.md`'s "Author your own algorithm (R,
 class-first)" and "Data recipes: feature selection (R)" sections for the
 full walkthroughs.
@@ -492,8 +490,8 @@ against the INSTALLED package):
     custom_local_search (oop): evals_used=2000 best_f=-84.3232
     feature_selection (oop): evals_used=200 best_f=0.6562182758 popcount=3 mask=01010010 recovered=TRUE
 
-**`gwo.R`/`tsp_two_opt.R` above are unaffected by M4-2** — they exercise
-the SEPARATE, unchanged `sz_algorithm`/`sz_algo_solve` ask/tell surface
-(M4-2 ruling 5: no rename, no name collision to resolve, unlike Python's
-`AskTellAlgorithm` rename). No existing R example's printed numbers
-changed this milestone.
+**`gwo.R`/`tsp_two_opt.R` above are unaffected by the class-first
+addition** — they exercise the SEPARATE, unchanged `sz_algorithm`/
+`sz_algo_solve` ask/tell surface (no rename, no name collision to resolve,
+unlike Python's `AskTellAlgorithm` rename). No existing R example's
+printed numbers changed.

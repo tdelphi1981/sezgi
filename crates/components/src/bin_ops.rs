@@ -22,8 +22,8 @@ use sezgi_core::space::{Block, BlockValues, Genotype, SearchSpace};
 /// from the KanGAL reference C (`darnir/nsga2`'s `crossover.c`'s `bincross`
 /// and `mutation.c`'s `bin_mutate_ind`, sha-verified against the GitHub
 /// API's own blob shas -- see `nsga2.rs`'s module doc, "Binary genotype
-/// path" section, and `docs/DECISIONS.md`'s M3-2/M3-7 records for the full
-/// quoted C and the sha table). No logic changed in the move: same
+/// path" section, for the full quoted C and the sha table). No logic
+/// changed in the move: same
 /// draw-order, same branch structure, same numeric outputs for the same
 /// seed -- `nsga2.rs`'s own frozen test suite (including its hand-traced
 /// `bin_cross_pair`/`bin_flip_mutation` fixtures and its M3-7/M3-8

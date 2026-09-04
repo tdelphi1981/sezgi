@@ -23,9 +23,9 @@ count for each (see `CONTRIBUTING.md` for the exact commands):
 - [ ] If this touches `crates/` or `r-sezgi/src/rust`: cross-language
       parity is preserved (no behavior change to a shared algorithm
       without a corresponding parity-test update in the SAME PR).
-- [ ] `docs/DECISIONS.md` updated, if this makes or changes a
-      non-trivial design decision or closes/narrows a recorded
-      deferral. Not applicable otherwise.
+- [ ] If this makes or changes a non-trivial design decision, the PR
+      body states the decision and its rationale. Not applicable
+      otherwise.
 
 ## Related issues
 

@@ -1,5 +1,5 @@
 # L-SHADE (Tanabe & Fukunaga 2014) on CEC 2014 (Liang, Qu & Suganthan 2013)
-# function f1, dim=10 -- a matched Python/R example pair for sezgi's M3-6
+# function f1, dim=10 -- a matched Python/R example pair for sezgi's
 # CEC 2014 benchmark suite. See examples/python/cec2014_lshade.py for the
 # Python counterpart, which runs sezgi.presets.lshade through
 # sezgi.solve() against sezgi.problems.cec2014(fid, dim).
@@ -13,9 +13,9 @@
 # unimodal function with an ill-conditioned, widely spread per-coordinate
 # scale, which is why even a competitive optimizer's best_f stays visibly
 # above F* at a small smoke-demo budget; this is expected for f1's shape,
-# not a defect. See docs/DECISIONS.md's M3-6 record for the CEC 2014
-# suite's provenance, vendored-data totals, and every report-vs-official-C
-# divergence found across the whole suite (f1 itself has none).
+# not a defect. The CEC 2014 suite's provenance, vendored-data totals, and
+# every report-vs-official-C divergence found across the whole suite (f1
+# itself has none) are documented alongside the code.
 #
 # Runs through sz_solve_cec2014 (spec_json, fid, dim, master_seed, run_id)
 # with sz_preset_lshade(dim, budget), the SAME Rust core the Python script

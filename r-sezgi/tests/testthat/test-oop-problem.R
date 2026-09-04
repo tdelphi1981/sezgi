@@ -1,8 +1,7 @@
-# M4-2 Task 2: R-callable problem bridge + the `Problem` R6 base
+# R-callable problem bridge + the `Problem` R6 base
 # (`R/problem.R`, `src/rust/src/solve.rs`) -- the R mirror of py-sezgi's
-# subclassable `sezgi.Problem` ABC (`py-sezgi/python/sezgi/problem.py`,
-# M4-1 Task 1), closing the "R callable-objective sessions" deferral
-# (docs/DECISIONS.md:839-845).
+# subclassable `sezgi.Problem` ABC (`py-sezgi/python/sezgi/problem.py`),
+# closing the "R callable-objective sessions" deferral.
 #
 # `sz_solve_r_problem()` is an INTERNAL entry point (no `@export`, see its
 # own Rust doc) -- every test here calls it via `sezgi:::`, building its
@@ -453,7 +452,7 @@ test_that("a large 24-block mixed-space Problem solves correctly across repeated
 # ---- final whole-branch review, fix-wave re-review: the five disclosed
 # "unaudited-but-suspect" set_name_and_value sites came back CONFIRMED ----
 #
-# The DECISIONS-disclosed sites (`sz_solve_onemax`, `sz_solve_int_quadratic`,
+# The previously disclosed sites (`sz_solve_onemax`, `sz_solve_int_quadratic`,
 # `sz_solve_cat_match`, `sz_solve_mixed_diagnostic`, `run_r_generator`) all
 # share the byte-identical `set_name_and_value(2, "best_x",
 # genotype_to_r(...)?)?` expression as the M1 site above, and the

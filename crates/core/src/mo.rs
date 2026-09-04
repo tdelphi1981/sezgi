@@ -10,9 +10,9 @@
 //! NSGA-II and the ZDT/ZDT5/DTLZ/WFG benchmark suites build on this
 //! surface. There is no scalar "best" tracked here (multi-objective
 //! optimization has no single best point). MO run logging, once a recorded
-//! deferral, is closed as of M3-7: NSGA-II exposes a batch observer hook and
+//! deferral, is now closed: NSGA-II exposes a batch observer hook and
 //! `sezgi-bench`'s `mo_archive` writes the archive-first "sezgi-moa v1"
-//! format (see docs/DECISIONS.md's M3-7 record).
+//! format.
 
 use crate::problem::BudgetExhausted;
 use crate::space::{Genotype, SearchSpace};
@@ -36,7 +36,7 @@ pub trait MoProblem: Send + Sync {
     /// each of length equal to the problem's own constraint count `ncon`
     /// (cols = `g_1..g_ncon`). **Convention: `g_j >= 0` means constraint
     /// `j` is SATISFIED** -- the Deb/Thiele/Laumanns/Zitzler 2005 DTLZ book
-    /// chapter's own convention (`docs/DECISIONS.md`'s M3-7 record), also
+    /// chapter's own convention, also
     /// the convention `sezgi_components::nsga2`'s constrained-domination
     /// support is pinned against (see that module's doc for the KanGAL
     /// `nsga2r.c` provenance: `constr[j] < 0.0` is the C's own violated-row

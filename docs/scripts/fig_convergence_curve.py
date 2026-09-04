@@ -10,7 +10,7 @@ truncated/replayed after the fact (that is a DIFFERENT technique,
 (`crates/components/src/ga.rs`'s `GaRealGenerator::generate`) never reads
 the total budget while it runs -- unlike a budget-adaptive preset such as
 `lshade`, whose population-shrinking schedule reads `termination.budget`
-to plan its FULL run (see `docs/DECISIONS.md`'s "CURTAILED VIEW" entry) --
+to plan its FULL run --
 so an independent run at a smaller budget lands on the same point a
 longer run with the same seed would have reached, WHENEVER the two runs
 complete the same number of generations. That is true at 11 of this

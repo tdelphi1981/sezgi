@@ -1,11 +1,10 @@
-# M3-3 Task 10: R bindings for CEC 2022 + TSP (sz_cec2022_evaluate /
+# R bindings for CEC 2022 + TSP (sz_cec2022_evaluate /
 # sz_cec2022_f_star / sz_tsp_load / sz_tsp_tour_length / sz_preset_ga_perm /
 # sz_solve_tsp).
 #
 # Mirrors py-sezgi's `sezgi.problems`/`sezgi.presets.ga_perm` module 1:1 by
-# key name for direct evaluation (M3-3 Task 9, `py-sezgi/src/lib.rs`, see
-# `.superpowers/sdd/2026-08-31-sezgi-m3-3/task-9-report.md` for the full
-# provenance) -- EXCEPT for the index convention documented next.
+# key name for direct evaluation (`py-sezgi/src/lib.rs`) -- EXCEPT for the
+# index convention documented next.
 #
 # Index-convention decision (r-sezgi/src/rust/src/problems.rs's own module
 # doc has the full rationale): r-sezgi uses 1-based city numbering

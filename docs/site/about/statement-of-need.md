@@ -100,8 +100,7 @@ to established tools, honestly:
   `Algorithm` → `PopulationAlgorithm` / `LocalSearch` → user-subclass
   chain) is better served by R6's `obj$method()` ergonomics, in the idiom
   the target academic audience already reads from mlr3 and torch, than
-  by ecr's closure-based convention. See `docs/DECISIONS.md`'s M4-2
-  record for the full scorecard behind that choice.
+  by ecr's closure-based convention.
 
 sezgi's own distinguishing claim, relative to all three, is narrower and
 more specific than "more algorithms" or "better performance": **one Rust
@@ -113,15 +112,13 @@ rather than left implicit.
 ## Research purpose
 
 sezgi was built as infrastructure for reproducible metaheuristic-
-comparison research — a project design document
-(`docs/superpowers/specs/2026-08-27-sezgi-design.md`) and a running,
-milestone-by-milestone architectural decision record
-(`docs/DECISIONS.md`) accompany the code itself, documenting the
-problem framing, the design tradeoffs weighed, and the honest scope of
-every deferred or simplified piece. That record is itself part of the
-project's answer to "why does this exist": the goal was never to add one
-more algorithm implementation to an already crowded field, but to make a
-specific class of comparison — "does this seeded run reproduce
+comparison research: every built-in algorithm documents its problem
+framing, the design tradeoffs weighed, and the honest scope of every
+deferred or simplified piece in its own docstring and in the
+documentation pages that accompany the code. That discipline is itself
+part of the project's answer to "why does this exist": the goal was
+never to add one more algorithm implementation to an already crowded
+field, but to make a specific class of comparison — "does this seeded run reproduce
 byte-for-byte, in the language of the reader's choice" — checkable rather
 than assumed.
 

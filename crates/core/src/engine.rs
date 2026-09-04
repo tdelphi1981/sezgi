@@ -136,9 +136,9 @@ impl Engine {
         // restart re-init) and so necessarily missed any such internal
         // generator/adapter-issued evaluate call whose winning point was
         // never itself returned to the engine -- this was a real, measured
-        // gap for `gen/hho` (DECISIONS M2d-4). Reading directly from `eval`
-        // closes it for HHO and remains a no-op for every other preset (the
-        // M2d-4 sweep already found best_f == observed-min 10/10 for all 16
+        // gap for `gen/hho`. Reading directly from `eval`
+        // closes it for HHO and remains a no-op for every other preset (a
+        // sweep already found best_f == observed-min 10/10 for all 16
         // non-HHO presets).
 
         let reached = |eval: &Evaluator| -> bool {

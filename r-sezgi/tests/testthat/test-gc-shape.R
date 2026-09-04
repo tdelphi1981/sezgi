@@ -1,7 +1,5 @@
-# GC shape audit, Task 1 (`.superpowers/sdd/2026-09-03-sezgi-gc-shape-audit/
-# task-1-brief.md`) -- crate-wide `set_name_and_value` provenance audit and
-# fix, closing the M4-2 deferral (`docs/DECISIONS.md`'s M4-2 "Deferrals
-# onward" entry).
+# GC shape audit -- crate-wide `set_name_and_value` provenance audit and
+# fix, closing a deferral from the class-first (M4-2) work.
 #
 # Mechanism (full explanation: `solve.rs`'s `sz_solve_r_problem` result-tail
 # comment, and this crate's own M4-2 `test-oop-problem.R`/`test-oop-bridge.R`
@@ -29,8 +27,6 @@
 #     `signature_sexp` plus the `sig` sub-list's own `verdict_sexp`/
 #     `detail_sexp` inside the `Some(verdict)` arm
 #   - `problems.rs` (1): `known_optimum`, `sz_tsp_load`
-# See `docs/DECISIONS.md`'s "GC shape audit (Task 1) closed" record for the
-# full classification and the exact grep/line references.
 #
 # Three modules have a fixed site reachable from an exported R function; one
 # test below per module, mirroring the M4-2 loop style (`gctorture(TRUE)`,
@@ -121,8 +117,7 @@ test_that("repeated sz_mo_read_moa reads complete correctly under gctorture(TRUE
 # is pure Rust compute inside ONE call, allocating no R objects, so it stays
 # cheap even under torture. 4 tortured reps at a fixed seed; the same seed
 # gives a deterministic result, so each rep is compared field-by-field to an
-# untortured baseline (this doubles as the post-fix determinism check cited
-# in `docs/DECISIONS.md`'s behavior-neutrality note).
+# untortured baseline (this doubles as the post-fix determinism check).
 
 test_that("repeated sz_bias_report runs complete correctly under gctorture(TRUE)", {
   spec <- sz_preset_random_search(4, 8)

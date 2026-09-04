@@ -1,5 +1,5 @@
 # NSGA-II (Deb, Pratap, Agarwal & Meyarivan 2002) on ZDT1 (Zitzler, Deb &
-# Thiele 2000) -- a matched Python/R example pair for sezgi's M3-2
+# Thiele 2000) -- a matched Python/R example pair for sezgi's
 # multi-objective baseline. See examples/python/nsga2_zdt1.py for the
 # Python counterpart: same scenario, same Rust core underneath (NSGA-II is
 # a self-contained, seeded Rust runner in BOTH bindings, unlike the
@@ -12,9 +12,8 @@
 # seeded reference runner over the parallel MoProblem/MoEvaluator surface,
 # not as a composable component graph -- MO component-graph specs (the
 # ExperimentSpec/spec-JSON path the rest of this catalog uses) are
-# deferred to v2 (see README.md's "Multi-objective optimization (M3-2)"
-# section and docs/DECISIONS.md's M3-2 record for the full spec-tension
-# ruling). Accordingly, there is no specs/nsga2_zdt1.toml in this catalog.
+# deferred to v2 (see README.md's "Multi-objective optimization"
+# section for the full spec-tension ruling). Accordingly, there is no specs/nsga2_zdt1.toml in this catalog.
 #
 # Small budget, seeded, for a fast illustrative run -- no cross-algorithm
 # or cross-run quality claims are made here (single seed, single problem).

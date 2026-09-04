@@ -1,7 +1,7 @@
 # sezgi
 
 **sezgi** (Turkish for "intuition") is a Rust-core, component-based metaheuristic
-optimization library with Python and R frontends. Design doc: `docs/superpowers/specs/2026-08-27-sezgi-design.md`.
+optimization library with Python and R frontends.
 
 ## Statement of need
 
@@ -99,7 +99,7 @@ Output (live-run):
 
     evals_used=500 best_f=0.005517
 
-## Author your own algorithm (Python, class-first) (M4-1)
+## Author your own algorithm (Python, class-first)
 
 Subclass `sezgi.Algorithm` and override `generate(self, pop, ctx)` — it
 runs INSIDE the Rust engine loop as a real `Generator` component (a
@@ -143,8 +143,7 @@ ctx)`, default `select` a seeded binary tournament) and `sezgi.LocalSearch`
 greedy, runs at `pop_size=1`) are two family bases over the same
 `Algorithm` — override only the hook that differs, exactly like overriding
 only ONE of pymoo's `sampling`/`selection`/`crossover`/`mutation`/
-`survival` components (see `docs/DECISIONS.md`'s M4-1 record for the
-attribution). `examples/python/oop/custom_de_variant.py` overrides only
+`survival` components. `examples/python/oop/custom_de_variant.py` overrides only
 `vary()` on `PopulationAlgorithm` (a ~14-line DE/rand/1-shaped mutation);
 `examples/python/oop/custom_local_search.py` overrides only `neighbor()`
 on `LocalSearch`. **`LocalSearch.accept()` cannot express true SA-style
@@ -161,7 +160,7 @@ can express. `sezgi.solve()`/`presets.*` remain the only path that
 produces a persistable, shareable spec file (see "Internals & spec files"
 below).
 
-## Data recipes: feature selection (M4-1)
+## Data recipes: feature selection
 
 `sezgi.recipes.FeatureSelection(X, y, scorer, penalty=0.0)` is a `Problem`
 subclass wrapping a binary-mask feature-selection objective: `space()` is
@@ -192,7 +191,7 @@ arbitrary declared space (the "tune anything" door); a genuinely Mixed
 space through it still needs the `gen/compound` hand-spec workaround
 `GeneticAlgorithm` itself needs (see "Built-in algorithm classes" below).
 
-## Define your own problem: Problem subclassing (M4-1)
+## Define your own problem: Problem subclassing
 
 `sezgi.Problem` is an ABC over the same callable-problem bridge
 `from_callable` has always used, widened beyond Float (see the Sphere
@@ -225,7 +224,7 @@ too) — the one exception is `NSGA2.run`, which takes `mo.nsga2`'s problem
 STRINGS (`"zdt1"`, ...), not a handle or a `Problem` subclass, and so never
 calls `as_native_problem` at all (see "Built-in algorithm classes" below).
 
-## Built-in algorithm classes (M4-1)
+## Built-in algorithm classes
 
 Every preset in `presets.rs` also has a configurable class:
 `__init__(pop_size=..., **preset_kwargs)` (the preset's own kwargs pass
@@ -247,7 +246,7 @@ algorithm):
 (Float/Permutation/Binary/Int/Categorical → `ga_real`/`ga_perm`/`ga_bin`/
 `ga_int`/`ga_cat`); a genuinely **Mixed space is rejected** with a
 `NotImplementedError` naming `gen/compound` (the hand-spec workaround, see
-"Typed operators, mixed spaces, and diagnostic problems (M3-8)" above) —
+"Typed operators, mixed spaces, and diagnostic problems" above) —
 `representation=` forces a single-kind preset instead of introspecting the
 space. `NSGA2(pop_size=..., **nsga2_kwargs).run(problem, dim, budget, m=,
 k=, l=, ...)` mirrors `mo.nsga2`'s own contract exactly and returns
@@ -265,7 +264,7 @@ directly when you need:
 
 - a **spec file** (TOML/JSON) you can save, diff, or hand-author component
   by component (`[[stages]]`, `gen/...`, `replace/...` — see "Typed
-  operators, mixed spaces, and diagnostic problems (M3-8)" above for the
+  operators, mixed spaces, and diagnostic problems" above for the
   `gen/compound` mixed-space example). A Python-authored `sezgi.Algorithm`
   has **no such spec**: it is a live callback captured per-call by the Rust
   component registry, process-local, with no wire format `to_toml()`/
@@ -279,17 +278,16 @@ directly when you need:
   Typed operators) is written against `solve()`/`presets.*` directly,
   unchanged by this milestone.
 - **R spec files** — R has its own mirror of this class-first surface
-  (M4-2 — see "Author your own algorithm (R, class-first)" below), built
+  (see "Author your own algorithm (R, class-first)" below), built
   over the SAME `sz_solve_*`/`sz_preset_*` compat internals; `sz_solve_*`/
   `sz_preset_*`/`sz_algorithm` remain R's own persistable-spec path (see
-  "Internals & spec files (R)" and "Write your own algorithm (R) (M3-5)"
+  "Internals & spec files (R)" and "Write your own algorithm (R)"
   below).
 
 `solve()`/`presets.*` are not deprecated and are not scheduled for removal
-— they stay compat internals for spec files, benchmarking, and R, per
-`docs/DECISIONS.md`'s M4-1 record.
+— they stay compat internals for spec files, benchmarking, and R.
 
-## Experiments & Statistics (M2c)
+## Experiments & Statistics
 
 Run multiple algorithms across multiple problems, seeds, and budgets with a TOML grid; get comparative statistics:
 
@@ -335,7 +333,7 @@ budget standing in for all of them. `sezgi.results_matrix(records, budget)`
 is available separately if you need just the `(algo_names, problem_labels,
 matrix)` triple for one budget (e.g. to feed a custom analysis).
 
-## Anytime analysis: IOH logs, ECDF, COCO export (M2d-2)
+## Anytime analysis: IOH logs, ECDF, COCO export
 
 Pass `log_dir=` to `run_experiment` to also write an IOH-profiler-format
 log tree (readable directly by IOHinspector/IOHanalyzer) alongside the
@@ -441,13 +439,13 @@ same spec and seed):
 `sz_results_matrix(records, budget)` is available separately if you need
 just the `(algo_names, problem_labels, matrix)` triple for one budget.
 
-R also has a class-first surface now (M4-2, mirroring Python's — see
+R also has a class-first surface now (mirroring Python's — see
 "Author your own algorithm (R, class-first)" below): every preset has a
 configurable R6 class, and `sezgi::Problem`/`sezgi::Algorithm` are
 subclassable bases. `sz_solve_*`/`sz_preset_*`/`sz_algorithm` above remain
 fully supported — see "Internals & spec files (R)" further down.
 
-## Author your own algorithm (R, class-first) (M4-2)
+## Author your own algorithm (R, class-first)
 
 Subclass `sezgi::Algorithm` (an R6 base, via `R6::R6Class(..., inherit =
 Algorithm, ...)`) and override `generate(pop, ctx)` — like Python's
@@ -505,8 +503,7 @@ ctx)`, default `select` a seeded binary tournament) and
 `sezgi::LocalSearch` (adds `neighbor(x, ctx)`/`accept(f_old, f_new, ctx)`,
 default `accept` greedy, runs at `pop_size = 1`) are two family bases over
 the same `Algorithm`, mirroring Python's identical two bases (same
-pymoo/jMetal-modeled hook taxonomy — see `docs/DECISIONS.md`'s M4-1
-record for the attribution). `examples/r/oop/custom_de_variant.R`
+pymoo/jMetal-modeled hook taxonomy). `examples/r/oop/custom_de_variant.R`
 overrides only `vary()` on `PopulationAlgorithm`; `examples/r/oop/
 custom_local_search.R` overrides only `neighbor()` on `LocalSearch`. Like
 Python, **`LocalSearch$accept()` cannot express true SA-style "sometimes
@@ -543,7 +540,7 @@ component registry — process-local, with no wire format
 `sz_preset_*`/`sz_algorithm` remain the only path that produces a
 persistable, shareable spec file (see "Internals & spec files (R)" below).
 
-## Data recipes: feature selection (R) (M4-2)
+## Data recipes: feature selection (R)
 
 `FeatureSelection$new(X, y, scorer, penalty = 0)` (an R6 class, inherits
 `Problem`) mirrors `sezgi.recipes.FeatureSelection` exactly: `space()` is
@@ -582,16 +579,16 @@ dispatch to, so it needs a hand-built `gen/compound` spec passed to
 `GeneticAlgorithm` itself needs (see "Built-in algorithm classes (R)"
 below). **`sz_solve_r_problem()`'s `spec_json` parameter accepts JSON
 only** (not TOML) — this is specific to that one entry point, not a
-statement about R generally: `sz_solve_mixed_diagnostic` (M3-8) is a
+statement about R generally: `sz_solve_mixed_diagnostic` is a
 pre-existing TOML-accepting export elsewhere in r-sezgi. The hand-built
 spec for a Mixed `MixedTuning` run is therefore written as an equivalent
 JSON literal, not TOML.
 
-## Define your own problem: Problem subclassing (R) (M4-2)
+## Define your own problem: Problem subclassing (R)
 
 `sezgi::Problem` is an R6 base over the new R-callable problem bridge
 (`sz_solve_r_problem`, closing the long-standing "R callable-objective
-sessions" deferral — see `docs/DECISIONS.md`'s M4-2 record): subclass it
+sessions" deferral): subclass it
 and override `evaluate(x)` and `space()` (both required — the defaults
 `stop()` with a "not implemented" message); `optimum()` (default `NULL`)
 and `batch_evaluate(xs)` (default: loop `evaluate`, called ONCE PER
@@ -633,7 +630,7 @@ Output (live-run):
 
     evals_used=500 best_f=0.005517
 
-## Built-in algorithm classes (R) (M4-2)
+## Built-in algorithm classes (R)
 
 Every preset in `presets.rs` also has a configurable R6 class:
 `$new(pop_size = ..., ...)` (the preset's own kwargs pass through
@@ -692,24 +689,24 @@ Output (live-run):
 
     evals_used=3990 best_f=-84.342
 
-## Internals & spec files (R): sz_solve_*/sz_preset_*/sz_algorithm (compat, extended M4-2)
+## Internals & spec files (R): sz_solve_*/sz_preset_*/sz_algorithm (compat)
 
 Every class above is a skin over `sz_solve_*`/`sz_preset_*`, still fully
 supported and unchanged — reach for them directly (or for
 `sz_algorithm()`/`sz_algo_solve()`, the SEPARATE ask/tell scripting
-surface, see "Write your own algorithm (R) (M3-5)" below) when you need a
+surface, see "Write your own algorithm (R)" below) when you need a
 **spec file** (TOML/JSON) to save, diff, or hand-author component by
-component (see "Typed operators, mixed spaces, and diagnostic problems
-(M3-8)" above for a `gen/compound` mixed-space example) — an R-authored
+component (see "Typed operators, mixed spaces, and diagnostic problems"
+above for a `gen/compound` mixed-space example) — an R-authored
 `Algorithm`/`Problem` subclass has no such spec, exactly like Python's
 class surface (see "Author your own algorithm (R, class-first)" above).
 `sz_run_experiment`, IOH logging, `sz_per_budget_packages`, bias scanning
 (every section below this one) all consume a spec/preset, not a class
-instance, and are entirely unaffected by this milestone. All 86
-pre-existing exports keep their names and behavior unchanged (M4-2 ruling
-5) — nothing here is deprecated or scheduled for removal.
+instance, and are entirely unaffected by this. All 86
+pre-existing exports keep their names and behavior unchanged
+— nothing here is deprecated or scheduled for removal.
 
-## Bias scanning (M3-1)
+## Bias scanning
 
 `sezgi.bias`/`sz_bias_*` scans a preset spec for structural bias (does the
 algorithm's own search operators pull final positions toward particular
@@ -730,8 +727,8 @@ and renders a NaN-free LaTeX summary table:
                                 central_instances=[1], central_runs_per=5)
     print(report["latex_summary"])
 
-Output (tiny budgets, for illustration — see `docs/DECISIONS.md`'s M3-1
-"Method-provenance table" for the numbers a real scan should use):
+Output (tiny budgets, for illustration; consult a method-provenance table
+for the numbers a real scan should use):
 
     \begin{tabular}{llll}
     \toprule
@@ -771,10 +768,8 @@ quality. A third planned test — the Rajwar-Deep Generalized Signature Test —
 is deferred: its primary source is paywalled with no accessible preprint or
 reference implementation, so `bias.report()["signature"]`/`sz_bias_report()$signature`
 is always `None`/`NULL` until the method can be verified from a real source.
-See `docs/DECISIONS.md`'s M3-1 record for the full method-provenance table,
-pinned KS/AD formulas, and the deferral's search log.
 
-## Multi-objective optimization (M3-2, extended M3-7)
+## Multi-objective optimization
 
 The Python `sezgi.mo` namespace and the R `sz_nsga2`/`sz_mo_*` functions run NSGA-II (Deb, Pratap,
 Agarwal & Meyarivan 2002) against the ZDT (Zitzler, Deb & Thiele 2000) and
@@ -809,14 +804,14 @@ assemble through an `ExperimentSpec` — the engine, `Ctx`, `Population`,
 and every `Replacer`/`Adapter` are scalar-fitness-pinned surfaces, and
 generalizing the executor to multi-objective fitness is v2-scale surgery
 across all 25 presets, so MO component-graph spec integration is deferred
-to v2 (see `docs/DECISIONS.md`'s M3-2 record for the full ruling).
+to v2.
 `pop_size` must be a multiple of 4, not merely even — a KanGAL-faithful
 tightening of the naive "even, >= 4" rule that NSGA-II's own reference C
 code (`nsga2r.c`) enforces for its double-permutation tournament pairing.
 
-### Multi-objective remainders (M3-7)
+### Multi-objective remainders
 
-M3-7 closes every MO capability the M3-2 record above left deferred: a
+This closes every MO capability left deferred above: a
 constraint channel plus Deb's constrained-domination in NSGA-II (feasible
 beats infeasible; among infeasible, smaller total violation wins; among
 feasible, plain dominance — KanGAL `nsga2r.c`'s own `check_dominance`), a
@@ -849,8 +844,8 @@ problem), `"wfg1"`..`"wfg9"` (`dim` rejected — derived from `k`/`l`;
 `k=2*(m-1)` for `m>=3`, `l=20`, when omitted). `mo.hypervolume(front,
 ref_point)` is the general-`M` counterpart to the frozen 2-objective
 `mo.hypervolume_2d` — `ref_point` is REQUIRED, with no default (see
-`docs/DECISIONS.md`'s M3-7 record, ruling 5, and Ishibuchi, Imada,
-Setoguchi & Nojima 2018's critique of the choice). `mo.nsga2(...,
+Ishibuchi, Imada, Setoguchi & Nojima 2018's critique of the choice).
+`mo.nsga2(...,
 log_dir=, label=)` streams every feasible archive insertion to
 `<log_dir>/<label>-s<seed>.moa` (sezgi-moa v1: a versioned header plus one
 record per archive insertion, no `.dat`/`.info` IOH mimicry, no COCO
@@ -858,20 +853,20 @@ compatibility claim — COCO bbob-biobj and MO-IOHinspector cited as design
 precedent, not reproduced); `mo.read_moa(path, at=None)` reconstructs the
 archive at any evaluation budget.
 
-Binary-coded MO (zdt5) was scoped to the KanGAL reference exactly at M3-7
-time — all-Float OR all-Binary spaces only, a MIXED space rejected naming
-the M3-8 deferral explicitly. **M3-8 closes that deferral at the Rust-core
+Binary-coded MO (zdt5) was scoped to the KanGAL reference exactly at
+first — all-Float OR all-Binary spaces only, a MIXED space rejected naming
+the mixed-space deferral explicitly. **A later change closes that deferral at the Rust-core
 level**: the `nsga2_run` core now accepts any space combining
 Float/Int/Categorical/Binary blocks, in any mix (see "Typed operators,
-mixed spaces, and diagnostic problems (M3-8)" below) — only a space
+mixed spaces, and diagnostic problems" below) — only a space
 containing a `Permutation` block stays rejected (MO permutation search is
 out of scope, the error names it explicitly). This is core-only, though:
 both `sezgi.mo.nsga2` and `sz_nsga2` still take a problem-name string
 (zdt1-6/dtlz1-9/wfg1-9), and every constructible one of those is all-Float
 or all-Binary (zdt5) — no mixed MO problem is constructible from either
 binding today, so frontend reachability of mixed-space NSGA-II is
-deferred (see `docs/DECISIONS.md`). Everything ZDT1-4/6/DTLZ1-7/
-`hypervolume_2d` documented in the M3-2 section above, and the
+deferred. Everything ZDT1-4/6/DTLZ1-7/
+`hypervolume_2d` documented in the Multi-objective optimization section above, and the
 all-Float/all-Binary paths documented here, stay frozen byte-for-byte
 throughout.
 
@@ -880,14 +875,13 @@ including two new cross-language bit-equality anchors (an nsga2-on-wfg4
 and an nsga2-on-zdt5 scenario) and a `.moa` file byte-identity check
 across languages. `examples/python/wfg4_nsga2.py`/`examples/r/wfg4_nsga2.R`
 is the matched pair (NSGA-II on WFG4, `log_dir`-logged, reporting archive
-size + hypervolume at the nadir x 1.1 reference point). See
-`docs/DECISIONS.md`'s M3-7 record for the full provenance table (KanGAL
-C, the DTLZ 2005 chapter, the ZDT 2000 paper, the WFG EMO2005 paper plus
-official toolkit via a dead-host Wayback chain, the 2012 hypervolume
-paper), every toolkit-vs-paper/C-vs-paper/secondary-library divergence
-found, and the closed carry-forward items.
+size + hypervolume at the nadir x 1.1 reference point). The full
+provenance table draws on KanGAL C, the DTLZ 2005 chapter, the ZDT 2000
+paper, the WFG EMO2005 paper plus official toolkit via a dead-host Wayback
+chain, and the 2012 hypervolume paper, with every toolkit-vs-paper/
+C-vs-paper/secondary-library divergence found and closed.
 
-## CEC 2022 benchmark suite (M3-3)
+## CEC 2022 benchmark suite
 
 `sezgi.problems.cec2022(fid, dim)` / direct evaluation
 (`sezgi.problems.cec2022_evaluate`, `sz_cec2022_evaluate`) implement all
@@ -900,7 +894,7 @@ vendored shift/rotation/shuffle data (`crates/problems/data/cec2022/`,
 (`P-N-Suganthan/2022-SO-BO`), which carries **no LICENSE file anywhere in
 the repo or the data archive** (checked directly, not assumed) — vendored
 here with prominent attribution rather than withheld, per this project's
-scope ruling; see `docs/DECISIONS.md`'s M3-3 record for the full finding.
+scope ruling.
 
 Run a reference-tier preset (SHADE, Tanabe & Fukunaga 2013) against a CEC
 2022 function through the same `sezgi.solve()` path every other preset
@@ -933,24 +927,23 @@ provably inert — a global-buffer indexing bug in the reference C).
 Independent cross-validation against a freshly compiled copy of the
 official C reference (primary) and `opfunu==1.0.4` (secondary; several new
 opfunu-side bugs were root-caused and documented along the way) confirms
-sezgi matches the C reference to machine precision at every probed point.
-See `docs/DECISIONS.md`'s M3-3 record for the full method-provenance
-table, every discrepancy quoted verbatim from the C source, and the
-opfunu cross-check's complete findings.
+sezgi matches the C reference to machine precision at every probed point,
+with every discrepancy quoted verbatim from the C source.
 
 R mirrors the direct-evaluation half 1:1 (`sz_cec2022_evaluate`,
-`sz_cec2022_f_star`) and, since **M3-5**, also has a `solve()`-integrated
+`sz_cec2022_f_star`) and also has a `solve()`-integrated
 CEC 2022 binding: `sz_solve_cec2022(spec_json, fid, dim, master_seed,
 run_id)` (mirrors `sz_solve_bbob`/`sz_solve_tsp` exactly) runs any built-in
-preset — including `sz_preset_shade` — against a CEC2022 problem, closing
-the gap M3-3 disclosed (`docs/DECISIONS.md`'s M3-3 record, ruling (g)).
+preset — including `sz_preset_shade` — against a CEC2022 problem: r-sezgi
+previously had direct evaluation only for CEC 2022, with no
+engine-solve path.
 `examples/r/cec2022_shade.R` now runs the SAME SHADE preset through the
 SAME Rust core as `examples/python/cec2022_shade.py`; their `best_f`
 outputs are bit-identical (verified via `writeBin`/`struct.pack`, not a
 decimal-literal comparison — see that test in
 `r-sezgi/tests/testthat/test-cec-tsp.R`).
 
-## CEC 2014 / CEC 2017 benchmark suites (M3-6)
+## CEC 2014 / CEC 2017 benchmark suites
 
 `sezgi.problems.cec2014(fid, dim)` / `sezgi.problems.cec2017(fid, dim)` and
 their direct-evaluation counterparts (`*_evaluate`, `*_f_star`) implement
@@ -965,8 +958,7 @@ bytes, both as stored in git after LF normalization of the upstream CRLF
 endings) comes from each suite's own official repository, neither of which
 carries a LICENSE file anywhere in the repo or its data archive (checked
 directly, not assumed) — vendored here with prominent attribution rather
-than withheld, the same scope ruling CEC 2022's data follows; see
-`docs/DECISIONS.md`'s M3-6 record for the full finding.
+than withheld, the same scope ruling CEC 2022's data follows.
 
 **CEC 2017 fid 2 was officially withdrawn from the competition after
 publication** ("Sum of Different Powers"); the official C reference's
@@ -1016,9 +1008,8 @@ each suite's own official C reference (primary) and `opfunu==1.0.4`
 (secondary) confirms sezgi matches the C reference to machine precision
 at every probed point; opfunu itself agrees with sezgi on CEC 2014 fid
 1-16+28 and on CEC 2017 fid 1 only, with four source-evidenced
-opfunu-side divergence classes documented per suite. See
-`docs/DECISIONS.md`'s M3-6 record for the full method-provenance table,
-every discrepancy quoted verbatim, and the complete opfunu findings.
+opfunu-side divergence classes documented per suite, with every
+discrepancy quoted verbatim.
 
 R mirrors both the direct-evaluation and `solve()`-integrated halves:
 `sz_cec2014_evaluate`/`sz_cec2014_f_star`/`sz_solve_cec2014` and
@@ -1032,13 +1023,13 @@ decimal-literal comparison — see that test in
 `r-sezgi/tests/testthat/test-cec1417.R`).
 
 Both suites' IOH logging uses the same suite-discriminator machinery
-M3-5 built for CEC 2022 (`RunKey.suite`, `"sezgi-cec2014"`/
+built for CEC 2022 (`RunKey.suite`, `"sezgi-cec2014"`/
 `"sezgi-cec2017"`), with `cec2014-f{fid}d{dim}i{instance}`/
 `cec2017-f{fid}d{dim}i{instance}` labels — no changes were needed to the
 IOH logger or the labeling helper itself, only the two frontends'
 `solve()`/`for_problem` match arms.
 
-## Permutation problems and TSP (M3-3)
+## Permutation problems and TSP
 
 Permutation-typed search spaces (`init/perm-random`, `gen/ox` order
 crossover, `gen/perm-swap` swap mutation, and the fused `gen/ga-perm`
@@ -1067,22 +1058,20 @@ indices throughout (matching TSPLIB's own node numbering and
 `sz_bayesian_plackett_luce`'s existing 1-based item-id precedent) — unlike
 Python's 0-based convention. Both bindings agree exactly on this scenario
 (same master_seed, same Rust core underneath): `examples/r/tsp_ga_perm.R`
-reproduces `11771.0` too. See `docs/DECISIONS.md`'s M3-3 record for OX1's
-own provenance finding (Davis's actual 1985 paper describes a different,
-single-cut-point operator; the two-cut-point cyclic "OX" implemented here
-is the field's later, still Davis-attributed, synthesis — pinned to
-Cicirello's 2023 worked numeric example) and the TSPLIB `nint` rounding
-rule.
+reproduces `11771.0` too. OX1's own provenance: Davis's actual 1985 paper
+describes a different, single-cut-point operator; the two-cut-point cyclic
+"OX" implemented here is the field's later, still Davis-attributed,
+synthesis — pinned to Cicirello's 2023 worked numeric example. See also
+the TSPLIB `nint` rounding rule.
 
-## Typed operators, mixed spaces, and diagnostic problems (M3-8)
+## Typed operators, mixed spaces, and diagnostic problems
 
 Beyond the Float-block (`presets.ga_real`, DE, CMA-ES, ...) and
 Permutation-block (`presets.ga_perm`) representations, sezgi now has fused
 genetic-algorithm presets for the three remaining block kinds the design
-spec's `SearchSpace` enum names (`docs/superpowers/specs/2026-08-27-sezgi-design.md`
-§3): **`presets.ga_bin`** (Binary — KanGAL two-point crossover + bit-flip
+spec's `SearchSpace` enum names: **`presets.ga_bin`** (Binary — KanGAL two-point crossover + bit-flip
 mutation, Deb, Pratap, Agarwal & Meyarivan 2002 Sec. IV.A, `p_c=0.9`/
-`p_m=1/L`, the same formulas M3-7's binary NSGA-II path already validated),
+`p_m=1/L`, the same formulas the binary NSGA-II path already validated),
 **`presets.ga_int`** (Int — real-coded SBX + polynomial mutation computed
 in float then rounded and bound-repaired, pymoo 0.6.2's `Integer`
 convention — "integer SBX" has no dedicated primary paper, pymoo is the
@@ -1144,36 +1133,36 @@ bindings through the normal spec path (JSON or TOML — the same
 Note the spelling shown mixed above: both `pc` and `p_c` are now accepted on
 every family, canonical `p_c` (and `p_m` for the analogous mutation key,
 where a family has one) — `gen/ga-real`/`gen/ox`/`gen/ga-perm` (the legacy
-generators) accept `pc` as an alias for `p_c`, just like the M3-8 typed
+generators) accept `pc` as an alias for `p_c`, just like the newer typed
 families always did the other way; if a block sets both spellings, the
 canonical key wins.
 
 The `nsga2_run` core gained the same per-block support (a space combining
 any of Float/Int/Categorical/Binary, in any mix — see "Multi-objective
 optimization" above); every existing Float/Binary/constrained NSGA-II
-golden stays bit-identical throughout — M3-8 added a THIRD `Representation`
-case (`Mixed`), it did not touch the frozen two. This is a core-level
+golden stays bit-identical throughout — this work added a THIRD `Representation`
+case (`Mixed`), without touching the frozen two. This is a core-level
 capability only: `sezgi.mo.nsga2`/`sz_nsga2` still accept a problem-name
 string, and no mixed-space named problem exists, so mixed spaces are not
 reachable through either binding yet (frontend reachability is a recorded
-deferral, see `docs/DECISIONS.md`).
+deferral).
 
 **ABC-TSP/permutation authoring** (both `sezgi.AskTellAlgorithm` and
 `sz_algorithm`) is now supported too — see "Write your own algorithm,
-ask/tell style (Python) (M3-4)" and "Write your own algorithm (R) (M3-5)"
+ask/tell style (Python)" and "Write your own algorithm (R)"
 below for the `ctx.kind`/`ctx.n`/`ctx.random_permutation()`/
 `ctx.two_opt(tour, i, j)` surface and the `tsp_two_opt` worked example
 pair.
 
-See `docs/DECISIONS.md`'s "M3-8 completed" record for the full
-method-provenance table (KanGAL binary reuse, pymoo 0.6.2 source shas,
-Eiben & Smith 2015 taxonomy citation with its print-edition caveat, the
-"Deb & Deb 2014 does not cover integers" research finding), the operator
-inventory as shipped, and every deferral born this milestone.
+The full method-provenance table draws on KanGAL binary reuse, pymoo 0.6.2
+source shas, the Eiben & Smith 2015 taxonomy citation with its
+print-edition caveat, and the "Deb & Deb 2014 does not cover integers"
+research finding, alongside the operator inventory as shipped and every
+deferral born from this work.
 
-## Write your own algorithm, ask/tell style (Python) (`AskTellAlgorithm`, M3-4)
+## Write your own algorithm, ask/tell style (Python) (`AskTellAlgorithm`)
 
-**Renamed in M4-1.** `sezgi.Algorithm` now names the NEW engine-hosted
+**Renamed.** `sezgi.Algorithm` now names the NEW engine-hosted
 class-first base described in "Author your own algorithm (Python,
 class-first)" above; the ask/tell surface described in this section is
 `sezgi.AskTellAlgorithm` (`sezgi.algo.Algorithm` remains as a compat alias
@@ -1284,7 +1273,7 @@ Output (live run):
 logging is rejected for it, see the scope ruling below);
 `sezgi.bias.structural_positions(final_positions)`
 runs the SAME statistical KS/AD structural-bias scan described in the "Bias
-scanning (M3-1)" section above, but over a plain list of final-position
+scanning" section above, but over a plain list of final-position
 vectors collected from ANY externally-driven algorithm, not just a
 spec-driven engine run:
 
@@ -1310,7 +1299,7 @@ Output (live run):
 
     verdict: no_evidence
 
-**Permutation/TSP authoring (M3-8).** `AlgoContext` also supports
+**Permutation/TSP authoring.** `AlgoContext` also supports
 permutation-typed problems now: `ctx.kind` is `"float"` or `"permutation"`
 (`ctx.bounds` is `None` for the latter), `ctx.n` is the tour length,
 `ctx.random_permutation()` draws a uniformly random 0-based tour (a
@@ -1321,7 +1310,7 @@ segment `tour[i:j+1]` (Eiben & Smith 2015: inversion is "the basic move
 behind 2-opt" — the one neighborhood helper TSP authoring genuinely
 needs). `EvalSession.for_problem` accepts a `sezgi.problems.tsp(name)`
 handle directly; the Float surface stays byte-compatible throughout (every
-pre-M3-8 example/test passes unmodified). `examples/python/oop/tsp_two_opt.py`
+pre-existing example/test passes unmodified). `examples/python/oop/tsp_two_opt.py`
 is the worked example — a first-improvement 2-opt local search from one
 random start on TSPLIB berlin52:
 
@@ -1330,7 +1319,7 @@ random start on TSPLIB berlin52:
 R mirrors this exactly via `sz_algorithm`'s `ctx` (`ctx$kind()`, `ctx$n()`,
 `ctx$random_permutation()`, `ctx$two_opt(tour, i, j)`) with **1-based**
 tour indices (matching `sz_solve_tsp`'s own convention) — see "Write your
-own algorithm (R) (M3-5)" below and `examples/r/oop/tsp_two_opt.R`, which
+own algorithm (R)" below and `examples/r/oop/tsp_two_opt.R`, which
 reproduces the SAME numbers above (tour length is index-convention-invariant;
 `random_permutation()`'s own draw is bit-identical too, both languages
 deriving from the same `RngStream`/Fisher-Yates core).
@@ -1341,33 +1330,34 @@ problems have no ask/tell session type yet (`EvalSession.for_problem`
 rejects `sezgi.problems.onemax`/`.int_quadratic`/`.cat_match`/
 `.mixed_diagnostic` with a `ValueError` naming the reason; `sezgi.solve()`
 still runs them end to end, see "Typed operators, mixed spaces, and
-diagnostic problems (M3-8)" above), deferred onward. IOH logging from a
-custom `AskTellAlgorithm` covers BBOB and CEC 2022 problems (widened in
-M3-5 — see `docs/DECISIONS.md`'s M3-5 record; this superseded an earlier
-BBOB-only narrowing) — `sezgi.bbob(...)` and `sezgi.problems.cec2022(...)`
+diagnostic problems" above), deferred onward. IOH logging from a
+custom `AskTellAlgorithm` covers BBOB and CEC 2022 problems (widened
+later on; this superseded an earlier BBOB-only narrowing) —
+`sezgi.bbob(...)` and `sezgi.problems.cec2022(...)`
 both work with `log_dir=`, but `sezgi.bias.f0(...)` and a raw
 `from_callable` handle still raise `ValueError`, matching `sezgi.solve()`'s
 own policy for the identical handles exactly (neither has a known optimum,
 and `EvalSession.with_log` itself requires one). A known optimum (`f_opt`)
 is necessary but not sufficient on its own for `log_dir` — the on-disk IOH
-record key also needed a suite discriminator (`RunKey.suite`, M3-5) so a
+record key also needed a suite discriminator (`RunKey.suite`) so a
 CEC 2022 run and a BBOB run sharing `(fid, dim, instance, seed, budget)` no
 longer silently merge into one `results_matrix` cell.
 
-## Write your own algorithm (R) (M3-5)
+## Write your own algorithm (R)
 
 `sz_algorithm(setup, step, name)`/`sz_algo_solve(algo, session, seed)` are
 r-sezgi's **R-owned ask/tell scripting surface** — a SEPARATE, unchanged
-surface from the engine-hosted class-first `sezgi::Algorithm` above (M4-2
-ruling 5): unlike Python (which had to rename its own ask/tell ABC to
+surface from the engine-hosted class-first `sezgi::Algorithm` above:
+unlike Python (which had to rename its own ask/tell ABC to
 `AskTellAlgorithm` to free up the `Algorithm` name), R had no name
 collision to begin with, so `sz_algorithm`/`sz_algo_solve` keep their
-original names and behavior, unchanged by M4-2. They mirror
-`sezgi.AskTellAlgorithm` above (the Python ask/tell surface, renamed in
-M4-1 — see "Write your own algorithm, ask/tell style (Python)" above) —
+original names and behavior, unchanged by the R6 class-first addition.
+They mirror `sezgi.AskTellAlgorithm` above (the Python ask/tell surface,
+renamed when the class-first door was added — see "Write your own
+algorithm, ask/tell style (Python)" above) —
 same driver semantics (`setup(ctx)` once, `step(ctx)` repeatedly until the
 budget is exhausted), expressed as two plain closures instead of a
-subclass — this ask/tell surface itself is unaffected by M4-2's R6
+subclass — this ask/tell surface itself is unaffected by the R6
 addition (see the scope ruling below for the class surface's own R6
 supersession). `ctx` is an
 `environment` of callables (`ctx$dim()`, `ctx$bounds()`,
@@ -1422,8 +1412,8 @@ surface drives any of r-sezgi's generic `EvalSession` constructors —
 function, no known optimum, no `log_dir`/IOH logging argument at all —
 `f_opt`/`gap` come back `NULL`) — so a custom R algorithm can be run and
 compared across suites exactly like a Python one. `sz_bias_structural_positions(final_positions)`
-runs the SAME statistical KS/AD structural-bias scan as the "Bias scanning
-(M3-1)" section above, but over a plain matrix/list of final-position
+runs the SAME statistical KS/AD structural-bias scan as the "Bias scanning"
+section above, but over a plain matrix/list of final-position
 vectors collected from ANY externally-driven algorithm — e.g. 30
 `sz_algo_solve()` runs of the random search above over `sz_eval_session_f0()`:
 
@@ -1440,7 +1430,7 @@ Output (live run):
 
     verdict: no_evidence
 
-**Permutation/TSP authoring (M3-8).** `sz_eval_session_tsp(name, budget,
+**Permutation/TSP authoring.** `sz_eval_session_tsp(name, budget,
 seed)` mirrors py-sezgi's TSP session; `ctx` gains `ctx$kind()`
 (`"float"`/`"permutation"`), `ctx$n()`, `ctx$random_permutation()` (a
 uniformly random **1-based** tour, matching `sz_solve_tsp`'s own
@@ -1456,22 +1446,21 @@ both languages derive `random_permutation()` from the identical
 cross-language hex anchor (`r-sezgi/tests/testthat/test-tsp-two-opt.R`).
 
 **Scope rulings.** This ask/tell surface itself stays base-R closures/
-environments (unchanged by M4-2 — no R6 involved anywhere in
-`sz_algorithm`/`sz_algo_solve`/`R/algo.R`); M3-5 scope ruling 4 ("R stays
-base-R, no R6") was SUPERSEDED for the class-first surface only (M4-2
-ruling 1, `Imports: R6 (>= 2.4.0)` — see `docs/DECISIONS.md`'s M4-2
-record), not for this ask/tell surface, which needed no class system to
+environments (unchanged by the R6 addition — no R6 involved anywhere in
+`sz_algorithm`/`sz_algo_solve`/`R/algo.R`); the earlier scope ruling
+("R stays base-R, no R6") was SUPERSEDED for the class-first surface only
+(`Imports: R6 (>= 2.4.0)`), not for this ask/tell surface, which needed no class system to
 begin with and was not touched. Float and Permutation problems (v1,
-widened from Float-only by M3-8) — Binary/Int/Categorical and mixed-typed
+widened from Float-only later on) — Binary/Int/Categorical and mixed-typed
 problems have no ask/tell session type yet, matching
 `AskTellAlgorithm`/`AlgoContext`'s own scope above exactly. `sz_algorithm`/
 `sz_algo_solve` port the pinned `examples/r/gwo.R` script onto this surface
 verbatim as `examples/r/oop/gwo.R` — the ONE worked twin proving the
 surface (not a full 17-algorithm R wave like `examples/python/oop/`'s —
-see `examples/README.md`'s "R authoring example (M3-5)" section and
-`docs/DECISIONS.md`'s M3-5 record for the draw-order analysis and gate).
-**R callable-objective sessions: NARROWED by M4-2, not closed** (M3-5
-scope ruling 5). M4-2 closed the "no engine-solve path for an R callable
+see `examples/README.md`'s "R authoring example" section for the
+draw-order analysis and gate).
+**R callable-objective sessions: NARROWED by the class-first addition, not
+closed.** It closed the "no engine-solve path for an R callable
 at all" half of this deferral: `sezgi::Problem` + `sz_solve_r_problem()`
 (above) let an R researcher's own function run INSIDE the Rust engine
 loop, per-generation batched, with full determinism. What is STILL open:
@@ -1480,8 +1469,7 @@ own SESSION-backed ask/tell surface here — there is no
 `sz_eval_session`-style counting/logging session type for an arbitrary R
 callable, so an R-authored ask/tell algorithm (as opposed to an
 engine-hosted `Algorithm`/`PopulationAlgorithm`/`LocalSearch` subclass)
-still cannot evaluate its own R function through THIS surface. See
-`docs/DECISIONS.md`'s M4-2 record for the precise wording.
+still cannot evaluate its own R function through THIS surface.
 
 ## Examples
 
@@ -1499,26 +1487,25 @@ hho,alo,abc,gsa}.rs`). See `examples/README.md` for the full catalog table
 teaches vs. its preset).
 
 `examples/python/nsga2_zdt1.py` / `examples/r/nsga2_zdt1.R` are a separate
-matched PAIR (M3-2): NSGA-II on ZDT1, run directly through the Rust core in
+matched PAIR: NSGA-II on ZDT1, run directly through the Rust core in
 both languages (bit-identical output, not merely statistically
 comparable). No `specs/nsga2_zdt1.toml` exists — see "Multi-objective
-optimization (M3-2)" above for why.
+optimization" above for why.
 
 `examples/python/cec2022_shade.py`/`examples/r/cec2022_shade.R` and
 `examples/python/tsp_ga_perm.py`/`examples/r/tsp_ga_perm.R` are two more
-matched PAIRs (M3-3; the CEC pair's R-side gap closed in M3-5): SHADE on
+matched PAIRs (the CEC pair's R-side gap closed later on): SHADE on
 CEC 2022 f3, and ga-perm on TSPLIB berlin52, both through
 `sezgi.solve()`/`sz_solve_*`, both bit-identical between languages. See
-"CEC 2022 benchmark suite (M3-3)" and "Permutation problems and TSP
-(M3-3)" above.
+"CEC 2022 benchmark suite" and "Permutation problems and TSP" above.
 
-`examples/python/cec2014_lshade.py`/`examples/r/cec2014_lshade.R` (M3-6)
+`examples/python/cec2014_lshade.py`/`examples/r/cec2014_lshade.R`
 are a matched PAIR for the CEC 2014 suite: L-SHADE (the CEC 2014
 competition's own 1st-place algorithm) on CEC 2014 f1, through
 `sezgi.solve()`/`sz_solve_cec2014`, bit-identical between languages. See
-"CEC 2014 / CEC 2017 benchmark suites (M3-6)" above.
+"CEC 2014 / CEC 2017 benchmark suites" above.
 
-`examples/python/wfg4_nsga2.py`/`examples/r/wfg4_nsga2.R` (M3-7) is a
+`examples/python/wfg4_nsga2.py`/`examples/r/wfg4_nsga2.R` is a
 matched PAIR for the MO remainders: NSGA-II on WFG4, called directly
 through `sezgi.mo.nsga2()`/`sz_nsga2()` (like `nsga2_zdt1.py`/`.R`, not
 `sezgi.solve()` — see "Multi-objective optimization" above), with
@@ -1527,15 +1514,15 @@ through `sezgi.mo.nsga2()`/`sz_nsga2()` (like `nsga2_zdt1.py`/`.R`, not
 `sz_mo_hypervolume()`, bit-identical between languages (gated by a
 committed testthat anchor, `r-sezgi/tests/testthat/test-mo.R`).
 
-`examples/python/onemax_ga.py`/`examples/r/onemax_ga.R` (M3-8) is a matched
-PAIR for the typed-operator milestone: `ga_bin` on the `OneMax` diagnostic
+`examples/python/onemax_ga.py`/`examples/r/onemax_ga.R` is a matched
+PAIR for the typed-operator work: `ga_bin` on the `OneMax` diagnostic
 problem, through `sezgi.solve()`/`sz_solve_onemax`, bit-identical between
-languages (a deliberately non-converging parameter set, per the M3-8 Task
-10 cross-language-anchor convention, so the anchor pins the run's actual
+languages (a deliberately non-converging parameter set, per the
+cross-language-anchor convention, so the anchor pins the run's actual
 trajectory, not just "reached the trivial known optimum"). See "Typed
-operators, mixed spaces, and diagnostic problems (M3-8)" above.
+operators, mixed spaces, and diagnostic problems" above.
 
-`examples/python/oop/tsp_two_opt.py`/`examples/r/oop/tsp_two_opt.R` (M3-8)
+`examples/python/oop/tsp_two_opt.py`/`examples/r/oop/tsp_two_opt.R`
 is a matched PAIR for ABC-TSP authoring: a first-improvement 2-opt local
 search (`sezgi.AskTellAlgorithm`/`sz_algorithm`, `ctx.random_permutation()` +
 `ctx.two_opt()`) on TSPLIB berlin52 from one random start, bit-identical
@@ -1546,35 +1533,36 @@ pure-script counterpart exists to reproduce) — each gets its own
 determinism/anchored-output/cross-language-hex test file instead
 (`py-sezgi/tests/test_tsp_two_opt_example.py`,
 `r-sezgi/tests/testthat/test-tsp-two-opt.R`). See "Write your own
-algorithm, ask/tell style (Python) (M3-4)" above for the worked walkthrough.
+algorithm, ask/tell style (Python)" above for the worked walkthrough.
 
 `examples/python/oop/custom_de_variant.py` and
-`examples/python/oop/custom_local_search.py` (M4-1) are two more
+`examples/python/oop/custom_local_search.py` are two more
 engine-hosted worked examples, over the NEW class-first `sezgi.Algorithm`
 family bases (`PopulationAlgorithm`/`LocalSearch`, not the ask/tell
 surface above): a DE/rand/1-shaped `vary()` override and a
 `neighbor()`-only local search, both on `sezgi.bbob(1, 10, 1)`. Like
 `tsp_two_opt.py`, both sit outside the 17-pair OOP-twin parity gate (no
 pure-script counterpart), each gated by its own anchored pytest.
-`examples/python/oop/feature_selection.py` (M4-1) demonstrates
+`examples/python/oop/feature_selection.py` demonstrates
 `sezgi.recipes.FeatureSelection` recovering a known informative-column
 mask via `GeneticAlgorithm`'s Binary auto-dispatch. `tsp_two_opt.py` (and
 its 18 `examples/python/oop/*.py` siblings) also now import
-`sezgi.AskTellAlgorithm` instead of `sezgi.Algorithm` (M4-1's rename — see
-"Write your own algorithm, ask/tell style (Python)" above); no example's
+`sezgi.AskTellAlgorithm` instead of `sezgi.Algorithm` (renamed when the
+class-first door was added — see "Write your own algorithm, ask/tell style
+(Python)" above); no example's
 printed numbers changed. See "Author your own algorithm (Python,
 class-first)" and "Data recipes: feature selection" above, and
 `examples/README.md`'s own catalog rows, for the full walkthroughs.
 
 `examples/r/oop/custom_de_variant.R` and `examples/r/oop/
-custom_local_search.R` (M4-2) are the R twins of the two Python examples
+custom_local_search.R` are the R twins of the two Python examples
 above, over the NEW class-first `sezgi::Algorithm` family bases
 (`PopulationAlgorithm`/`LocalSearch`, not the `sz_algorithm`/
 `sz_algo_solve` ask/tell surface above): the same DE/rand/1-shaped
 `vary()` override and `neighbor()`-only local search, both on
 `sz_builtin_bbob(1, 10, 1)`. Like `tsp_two_opt.R`, both sit outside the
 17-pair OOP-twin parity gate (no pure-script counterpart), each gated by
-its own `stopifnot()` anchor. `examples/r/oop/feature_selection.R` (M4-2)
+its own `stopifnot()` anchor. `examples/r/oop/feature_selection.R`
 demonstrates `FeatureSelection` recovering a known informative-column mask
 via `GeneticAlgorithm`'s Binary auto-dispatch, over an independently
 derived R dataset (not shared with the Python twin's own fixture). See
@@ -1590,238 +1578,18 @@ full walkthroughs.
 
 ## Status
 
-M4-1 (Python class-first front door + engine-hosted authoring) **complete**
-— a course correction (user direction 2026-09-02) turning the Python
-interface into a class-first front door: built-in algorithms as
-configurable classes, new algorithms authored by subclassing the new
-engine-hosted `sezgi.Algorithm` template base (hooks run INSIDE the Rust
-engine loop as real `Generator`/`Initializer` components via a captured
-Python callback, NOT a Python-owned loop), and user problems authored by
-subclassing `sezgi.Problem` (with two data recipes) — while `solve()`/
-`presets.*` remain fully working compat internals and **the Rust core
-stayed byte-untouched throughout** (`git diff --stat -- crates/` empty at
-every one of the six tasks' gates, confirming the research doc's §B6
-zero-core-change feasibility verdict HELD in practice, not just in
-theory). Delivered: five space builders (`Float`/`Int`/`Categorical`/
-`Binary`/`Permutation`/`Space`) and the `Problem` ABC over a
-newly-block-typed callable bridge; the `PyRng`/`EngineCtx`/`PopView`
-bridge (clone-out/mutate/write-back RNG protocol, verified byte-identical
-to the engine's own per-stage stream reconstruction); `Algorithm`/
-`PopulationAlgorithm`/`LocalSearch` family bases; 28 built-in wrapper
-classes (one per `presets.rs` builder) plus `GeneticAlgorithm` auto-dispatch,
-`DifferentialEvolution` variants, and a run-only `NSGA2` class skin (29
-classes total, table-driven, proven bit-identical to the underlying
-`solve()`/preset call at the same seed); the `FeatureSelection`/
-`MixedTuning` data recipes. `sezgi.Algorithm`'s old ask/tell surface is
-renamed `sezgi.AskTellAlgorithm` (`sezgi.algo.Algorithm` kept as a compat
-alias; 18 `examples/python/oop/*.py` scripts and their tests updated,
-import/name-only). See "Quickstart (Python)" through "Internals & spec
-files" above for the full walkthrough and `docs/DECISIONS.md`'s "M4-1
-completed" record for the six scope rulings, the provenance table (hook
-taxonomy modeled after pymoo 0.6.2 and jMetal v7.5's public APIs, no code
-copied), the honest-degrade note (Python-component specs are
-process-local, no TOML persistence), and all eight deferrals born this
-milestone (R mirror of the class surface, MO authoring, `ctx.eval`
-mid-generate evaluations, Mixed auto-dispatch for `GeneticAlgorithm`, and
-four more, including two pre-existing engine gaps found along the way).
-Next: v1.0 prep (see the checklist), or the R mirror of this milestone's
-class surface.
-
-M3-8 (mixed-type operators) **complete** — closes deferred group D from the
-M3-2/M3-7 records: Binary/Int/Categorical typed operator families
-(`gen/ga-bin`/`gen/ga-int`/`gen/ga-cat` plus standalone halves, KanGAL
-binary reuse + pymoo 0.6.2 Integer/Choice conventions as the executable
-oracles, Eiben & Smith 2015 §4.2-4.3 as the citable textbook taxonomy);
-three diagnostic problems (`OneMax`/`IntQuadratic`/`CatMatch`, honestly
-NOT a benchmark suite) making every typed preset reachable end to end; a
-per-block `gen/compound` generator implementing the design spec §3's own
-"compound operator" mechanism for mixed search spaces, as a COMPONENT (no
-engine/spec-validator surgery); mixed-space NSGA-II support (Float+Int+
-Categorical+Binary in any combination, Permutation still rejected as
-out-of-scope for MO search) built on an M3-7 carry-forward that unifies
-`nsga2_run`'s float/binary main loops first (bit-identity re-proved against
-every frozen golden in the same commit) and dedupes the
-`axis_grid`/`grid_r`/`cartesian_product` sampling helpers; permutation/TSP
-authoring in both `sezgi.AskTellAlgorithm` (`ctx.kind`/`ctx.n`/
-`ctx.random_permutation()`/`ctx.two_opt()`) and `sz_algorithm` (1-based
-mirror); Python and R bindings for the whole typed surface plus the four
-M3-7-parked binding tests (nsga2-on-WFG, a constrained logged dtlz8 run,
-degenerate hypervolume fronts, one nsga2 m>3 run); and a matched
-`onemax_ga`/`tsp_two_opt` example-pair set. See `docs/DECISIONS.md`'s
-"M3-8 completed" record for the full method-provenance table (including
-pymoo's exact re-fetched source shas, quoted verbatim), the six scope
-rulings, the operator inventory as shipped, and every deferral born this
-milestone (a documented pymoo-vs-sezgi Integer-mutation gate divergence, a
-proposed-but-not-implemented `validate_space` build hook, the Binary
-dual-encoding split between `solve()` and `mo.nsga2`, and the
-single-block-per-kind typed-generator convention). Next: v1.0 prep (see
-the checklist).
-
-M3-7 (multi-objective remainders) **complete** — closes every deferred MO
-capability from M3-2: a constraint channel (`MoProblem::evaluate_constraints_batch`)
-and Deb's constrained-domination in NSGA-II, transcribed from KanGAL
-`nsga2r.c`'s own `check_dominance`; a binary genotype path (two-point
-crossover + bit-flip mutation, also from the C — the plan's own
-"one-point crossover" sketch was wrong, corrected under the standing
-code-over-report ruling); DTLZ8/DTLZ9 (the constraint-surface pair, Eq.
-6.26/6.27 of the 2005 book chapter, including a documented `// sezgi
-decision:` for DTLZ8's undefined `M=2` corner); ZDT5 (the 80-bit
-binary-coded T5, Zitzler-Deb-Thiele 2000 Definition 4); the full
-WFG1-WFG9 scalable toolkit (Huband, Hingston, Barone & While, recovered
-via a dead-host Wayback Machine chain after IEEE/ResearchGate/Semantic
-Scholar all failed, cross-checked against a compiled copy of the official
-C++ toolkit at ~1e-15 and against pymoo 0.6.2 with zero divergences across
-288 comparisons); a general-`M` exact hypervolume (the WFG algorithm,
-While, Bradstreet & Barone 2012, also Wayback-recovered) with an explicit,
-never-defaulted reference point (Ishibuchi, Imada, Setoguchi & Nojima
-2018 cited for why); and archive-first "sezgi-moa v1" run logging
-(COCO bbob-biobj/MO-IOHinspector cited as design precedent, no
-compatibility claim). Python (`sezgi.mo.*`) and R (`sz_nsga2`/`sz_mo_*`)
-bindings expose the full surface with cross-language bit-equal output; a
-matched `wfg4_nsga2` Python/R example pair, gated by a committed testthat
-anchor. WFG/hv reference code stayed ORACLE-ONLY throughout — never
-vendored (see `docs/DECISIONS.md`'s M3-7 record for the license findings
-on each). MO component-graph spec integration remains deferred to v2
-(unchanged since M3-2); `Int`/`Categorical`/`Binary` typed operators and
-mixed-representation NSGA-II remain M3-8 scope, deliberately not
-pre-empted by this milestone's binary-only NSGA-II path. See
-`docs/DECISIONS.md`'s "M3-7 completed" record for the full
-method-provenance table, every divergence found, and the closed
-carry-forward items. Next: v1.0 prep (see the checklist), or M3-8
-(Int/Categorical/Binary typed operators, mixed spaces).
-
-M3-6 (CEC 2014 + CEC 2017 benchmark suites) **complete** — the full CEC
-2014 suite (30 fids: unimodal, simple multimodal, hybrid F17-F22,
-composition F23-F30) and the CEC 2017 suite (fid `{1} ∪ {3..=30}`, fid 2
-officially withdrawn and rejected with a dedicated error), both at dims
-`{10,30}` (vendored data: CEC 2014 106 files/2,811,834 bytes, CEC 2017
-111 files/3,280,439 bytes as stored in git — both superseding the plan's
-pre-research byte estimates), reusing the CEC 2022-derived shared basic-function library
-(`crates/problems/src/cec_basics.rs`) byte-for-byte; every
-report-vs-official-C divergence found and resolved per the standing
-code-over-report ruling, including two VERIFIED reference-C bugs
-replicated deliberately; Python (`sezgi.problems.cec2014`/`cec2017`) and
-R (`sz_solve_cec2014`/`sz_solve_cec2017`, `sz_eval_session_cec2014`/
-`sz_eval_session_cec2017`) bindings with suite-aware IOH logging
-(`"sezgi-cec2014"`/`"sezgi-cec2017"`, riding M3-5's `RunKey.suite`
-machinery unchanged, no logger changes needed); a matched Python/R
-example pair (L-SHADE, the CEC 2014 competition's own winner, on CEC
-2014 f1, bit-identical between languages). Independent cross-validation
-against a freshly compiled official C reference (primary) and
-`opfunu==1.0.4` (secondary) confirms sezgi matches the C reference to
-machine precision; opfunu itself agrees with sezgi only on CEC 2014 fid
-1-16+28 and CEC 2017 fid 1 — four source-evidenced opfunu-side
-divergence classes per suite, none a sezgi defect. A `R CMD build
-r-sezgi` tarball measurement found the current build far under CRAN's
-~5MB guideline only because it does not yet vendor its path-dependency
-crates or any CEC/TSPLIB data at all (the M2d-3 structural blocker,
-still open); the actual vendored-data total across all CEC suites plus
-TSPLIB now measures 7.2MB, over the guideline, with a dim-10-only trim
-recorded as a fallback decision for the user at v1.0, not applied here.
-See `docs/DECISIONS.md`'s "M3-6 completed" record for the full
-method-provenance table, every divergence quoted, and the CRAN
-measurement's full detail. Next: v1.0 prep (see the checklist).
-
-M3-5 (frontend parity and logging gaps) **complete** — closed every deferred
-parity/logging gap from M3-3/M3-4: a `suite` discriminator on `RunKey`/
-record reconstruction (label-stable for BBOB, suite-prefixed otherwise,
-backward-compatible with old journals/record dicts) fixing the M3-4 final
-review's silent BBOB/CEC-2022 collision at its root; custom-session IOH
-logging widened from BBOB-only to BBOB + CEC 2022, at both entry points
-(`EvalSession.for_problem` and the module-level `solve()`); `log_dir`
-threaded through `bbob_records`; `sz_solve_cec2022` (r-sezgi), closing the
-M3-3 R-side CEC solve gap — `examples/r/cec2022_shade.R` now runs the SAME
-SHADE preset as its Python twin, bit-identical; generic R eval sessions
-(`sz_eval_session_cec2022`, `sz_eval_session_f0`) with `$dim()`/`$bounds()`
-accessors on every session; and the pure-R algorithm-authoring surface
-(`sz_algorithm`/`sz_algo_solve`, base R only — closures and condition
-classes, no R6/S4) plus `sz_bias_structural_positions`, proven by ONE
-worked twin (`examples/r/oop/gwo.R`) reproducing `examples/r/gwo.R`'s
-`evals_used`/`best_f`/`gap` output STRING-EXACTLY at the same seed. See
-`docs/DECISIONS.md`'s "M3-5 completed" record for the full ruling list,
-every closed v1.0 item, and the new deferral (R callable-objective
-sessions). Next: v1.0 prep (see the checklist), or the next approved group
-of deferred milestones (CEC 2014/2017, MO remainder, mixed-type problems).
-
-M3-4 (Python algorithm authoring + OOP example twins) **complete** — the
-ask/tell `Algorithm` ABC (`py-sezgi/python/sezgi/algo.py`, renamed
-`sezgi.AskTellAlgorithm` in M4-1): a subclassable
-`setup(ctx)`/`step(ctx)` template over `AlgoContext`/`EvalSession`, chosen
-over pure ask/tell because mid-generation evaluation patterns (TLBO's
-teacher/learner passes, HHO's dives) cannot be expressed as a single ask;
-`bbob_records`, a multi-scenario sweep helper feeding custom-algorithm runs
-into `results_matrix`/`per_budget_packages` in the same record shape
-`run_experiment` produces; a generalized `EvalSession` (`SessionMeta`,
-`f_opt: Option<f64>`, `EvalSession.for_problem` accepting BBOB/CEC2022/
-callable problems) with the calling-convention (`vectorized`) carried on
-the `from_callable` handle, honored identically by `solve()` and
-`for_problem`; the `bias.f0`/`bias.structural_positions` bridge letting a
-structural-bias scan run over final positions collected from ANY
-externally-driven algorithm; and OOP twins of **all 17** example
-algorithms (`examples/python/oop/`) behind a 17-pair parity gate
-(`py-sezgi/tests/test_examples_oop_parity.py`) comparing each twin's
-printed `%.6g` output fields string-exactly against its pre-existing pure
-script, which remains untouched (raw f64 bit-pattern equality of
-`best_f`/`gap`/`best_x` for all 17 pairs was additionally verified at the
-2026-08-30 final whole-branch review — see `examples/README.md`'s "OOP
-twins" section). Scope: continuous problems only in
-v1 (TSP/permutation authoring deferred); Python authoring only (R deferred
-to the v1.0 checklist below). See `docs/DECISIONS.md`'s "M3-4 completed"
-record for the full ruling list. Next: v1.0 prep (see the checklist).
-
-M3-3 (CEC 2022 benchmark suite + permutation problems/TSP) **complete** —
-all 12 CEC 2022 fids (`crates/problems/src/cec2022/`, ~868KB vendored
-data, no upstream LICENSE file, attributed) with five adjudicated
-report-vs-official-C discrepancies (F3, F4, F5, the fid-7 weight-array
-misprint, and the fid-7 SchafferF7 dead-segment bug) resolved in the C
-code's favor per the standing code-over-report ruling; independent
-cross-validation against a freshly compiled official C reference (primary)
-and `opfunu==1.0.4` (secondary, six new opfunu bug classes root-caused);
-permutation operators (`init/perm-random`, `gen/ox`, `gen/perm-swap`) and
-the fused `gen/ga-perm` preset; a TSPLIB95 `EUC_2D` loader with three
-vendored instances (berlin52/eil51/st70) and their published-optimal-tour
-goldens; Python (`sezgi.problems.*`) and R (`sz_cec2022_*`/`sz_tsp_*`)
-bindings, with R disclosed as lacking a `solve()`-integrated CEC2022
-binding (direct evaluation only); four live example scripts (two matched
-Python/R pairs). See `docs/DECISIONS.md`'s "M3-3 completed" record for the
-full method-provenance table, every discrepancy quoted verbatim, and the
-v1.0 readiness checklist. Next: v1.0 prep (see the checklist).
-
-M3-2 (multi-objective optimization) **complete** — NSGA-II (Deb, Pratap,
-Agarwal & Meyarivan 2002) as a self-contained, seeded reference runner
-(`crates/components/src/nsga2.rs`) over a new parallel MO core surface
-(`MoProblem`/`MoEvaluator`/`MoPopulation`, `crates/core/src/mo.rs`); the
-ZDT (Zitzler, Deb & Thiele 2000) and DTLZ (Deb, Thiele, Laumanns & Zitzler
-2005) test-problem suites (`crates/problems`); 2-objective hypervolume and
-IGD quality indicators (`crates/stats/src/moo_indicators.rs`); a KanGAL
-(`nsga2r.c`) source-code finding that the reference tournament uses raw
-pairwise dominance rather than reading rank (a paper-vs-code divergence,
-C behavior implemented and documented); Python (`sezgi.mo.*`) and R
-(`sz_nsga2`/`sz_mo_*`) bindings with 1:1 key mirroring and cross-language
-bit-equal output; a matched Python/R NSGA-II-on-ZDT1 example pair. MO
-component-graph spec integration (an `ExperimentSpec` you assemble NSGA-II
-from) is deferred to v2 — see `docs/DECISIONS.md`'s "M3-2 completed"
-record for the full method-provenance table, every ruling, and the
-deferrals list. Next: M3-3 (CEC benchmark suites, mixed-type problems).
-
-M3-1 (bias-scanning module) **complete** — `crates/bias` (structural bias,
-central bias, and a one-call `bias_report`), exposed as `sezgi.bias.*` /
-`sz_bias_*` in both frontends with cross-language bit-equal output; a
-pre-M3 engine follow-up (`RunResult::best_f` unified with the
-Evaluator-observed minimum, closing the M2d-4 HHO divergence caveat). The
-signature/Rajwar-Deep test (a third planned bias check) is BLOCKED and
-deferred — its primary source is paywalled with no accessible preprint or
-reference implementation. See `docs/DECISIONS.md`'s "M3-1 completed" record
-for the full method-provenance table, pinned statistical formulas, and every
-ruling made along the way. Next: M3-2 (multi-objective: NSGA-II, ZDT/DTLZ).
-
-M2d-4 (second and final labeled-metaphor wave) **complete** — twelve more algorithm presets (SCA, JAYA, MFO, SSA, FA, BA, FPA, TLBO, HHO, ALO, ABC, GSA) with pinned deterministic draw orders and primary-source citations, completing the labeled-metaphor catalog at **17 algorithms**, plus their pure-Python/pure-R/spec example triplets under `examples/` (**51 example artifacts** total across all 17); new reusable components `replace/bat-loudness-greedy`, `replace/abc-trial-greedy`, `adapter/abc-onlooker-scout`; TLBO as the project's first multi-stage-per-generation preset (`gen/tlbo-teacher` + `gen/tlbo-learner`); HHO as the project's first in-generator (not adapter) mid-evaluation generator. See `docs/DECISIONS.md`'s "M2d-4 completed" record for the full per-algorithm provenance table (source artifact + sketch-vs-verified deltas found) and the wave's consolidated rulings, including the wave-wide current-pop-argmin parked convention and its MFO-flame/ALO-antlion carve-out.
-
-M2d-3 (labeled metaphor presets, ask/tell `EvalSession`, CRAN dry run) **complete** — five labeled-metaphor algorithm presets (GWO, WOA, Harmony Search, Cuckoo Search/Lévy, GOA) with pinned deterministic draw orders and primary-source citations; ask/tell `EvalSession`/`sz_eval_session()` exposed in both Python and R (no internal RNG, seed-as-label, constructor-only IOH logging); a budget-meta-key lift in IOH logging with two read-side reconciliation policies (`dedupe_same_budget`, `canonical_anytime`); a core-engine `global_best` fix; an `R CMD check --as-cran` dry run and a `cargo vendor` dry run (both recorded, not resolved — see below); `f64_to_u64` strictness and an `ExperimentError::Parse`/`InvalidSpec` diagnostics split. See `docs/DECISIONS.md` for the full M2d-3 record, including the CRAN check's verbatim output and the vendoring restructuring options (decision deferred to v1.0 prep — the R package currently depends on sibling workspace crates by path, which is not CRAN-submittable as-is). Next: the bias-scanning showcase (M3). License: MIT.
+sezgi is at version 0.1.0. The library ships 29 built-in algorithm
+classes over one deterministic Rust engine, Python and R frontends that
+are bit-exact against each other for shared algorithms, BBOB/CEC
+2014/2017/2022 benchmark suites, NSGA-II multi-objective optimization
+over ZDT/DTLZ/WFG, IOH-format logging with ECDF/COCO export, a
+statistical-comparison toolkit, and a structural-bias scanner. The full
+documentation site is at <https://tdelphi1981.github.io/sezgi/>.
+License: MIT.
 
 ## Algorithms
 
-sezgi M2b ships 13 reference algorithm presets (with Rust function names):
+sezgi ships 13 reference algorithm presets (with Rust function names):
 
 | Algorithm | Preset Function |
 |-----------|-----------------|

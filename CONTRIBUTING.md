@@ -126,11 +126,9 @@ the docs build if it touches `docs/site/` or anything a doc page renders.
   passing all applicable gates on its own.
 - Describe, in the PR body, which of the three gates (cargo / pytest /
   testthat) and the docs build were run, and their result counts.
-- `docs/DECISIONS.md` is the project's running record of architectural
-  and scope decisions, milestone by milestone. A PR that makes a
-  non-trivial design choice, or that closes or narrows a previously
-  recorded deferral, is expected to add or update an entry there rather
-  than leave the decision undocumented.
+- A PR that makes a non-trivial design choice is expected to state that
+  choice and its rationale in the PR body rather than leave the decision
+  undocumented.
 - See the [issue templates](.github/ISSUE_TEMPLATE/) for bug reports and
   feature requests, and the
   [pull request template](.github/PULL_REQUEST_TEMPLATE.md) for what a

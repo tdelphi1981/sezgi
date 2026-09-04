@@ -1,10 +1,9 @@
 """ga-perm (a fused permutation GA -- OX1 crossover + swap mutation in one
 generator, see crates/components/src/presets.rs::ga_perm's doc) on
 berlin52, the classic TSPLIB (Reinelt) benchmark instance -- a matched
-Python/R example pair for sezgi's M3-3 TSPLIB/permutation-problem suite.
+Python/R example pair for sezgi's TSPLIB/permutation-problem suite.
 See examples/r/tsp_ga_perm.R for the R counterpart (1-based tour indices
-there vs. this script's 0-based, per r-sezgi's own indexing convention --
-see docs/DECISIONS.md's M3-3 record).
+there vs. this script's 0-based, per r-sezgi's own indexing convention).
 
 Runs through the same `sezgi.solve()` spec-JSON path every other preset
 uses: `sezgi.presets.ga_perm(pop_size, budget)` + `sezgi.problems.tsp(name)`.

@@ -395,8 +395,8 @@ use sezgi_core::state::StateReq;
 ///
 /// ## Tier note
 ///
-/// Labeled metaphor preset (this crate's standard three-tier convention,
-/// per `docs/DECISIONS.md`): faithful to the verified primary artifacts'
+/// Labeled metaphor preset (this crate's standard three-tier convention):
+/// faithful to the verified primary artifacts'
 /// equations and loop structure, pinned draw order, property-tested, but
 /// NOT validated against any publication's reported benchmark numbers.
 ///

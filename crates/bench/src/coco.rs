@@ -28,8 +28,8 @@
 //! FORMAT DEFINITION, not by an arbitrary scope cut: it errors, naming the
 //! offending suite, if any input scenario's [`IohScenario::suite`] is not
 //! [`crate::experiment::SUITE_BBOB`]. This is a permanent design boundary
-//! (see `docs/DECISIONS.md`'s M3-5 record), not a v1.0 deferral — a mixed
-//! BBOB+CEC tree (a documented, tested pattern since M3-5 Task 1/2) must be
+//! (a documented design constraint), not a v1.0 deferral — a mixed
+//! BBOB+CEC tree (a documented, tested pattern) must be
 //! filtered to its BBOB scenarios before calling this function.
 //!
 //! ## `// sezgi simplification:` tags

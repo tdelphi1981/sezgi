@@ -870,8 +870,8 @@ fn sz_solve_bbob(
 
 /// Runs an algorithm spec on a CEC 2022 (Kumar, Price, Mohamed, Hadi &
 /// Suganthan 2021) function via [`Cec2022::new`] and returns the result --
-/// M3-5 Task 4, closing the M3-3 gap (`docs/DECISIONS.md`'s M3-3 record,
-/// ruling (g)): r-sezgi previously bound only direct evaluation
+/// added later than the rest of the CEC surface, closing the gap where
+/// r-sezgi previously bound only direct evaluation
 /// (`sz_cec2022_evaluate`/`sz_cec2022_f_star`), with no `solve()`-integrated
 /// path, unlike py-sezgi's `sezgi.problems.cec2022(...)` + `sezgi.solve()`.
 /// Mirrors `sz_solve_bbob`/`sz_solve_tsp` exactly (`Engine::from_spec` +
@@ -1473,11 +1473,10 @@ fn sz_solve_mixed_diagnostic(
 // M4-2 Task 2: R-callable problem bridge -- lets an R6 `Problem` subclass
 // instance (`R/problem.R`) be solved by the SAME `Engine` every other
 // `sz_solve_*` binding uses, closing the long-standing "R callable-objective
-// sessions" deferral (`docs/DECISIONS.md:839-845`). Mirrors py-sezgi's
+// sessions" deferral. Mirrors py-sezgi's
 // `solve_with_py_generator`/`from_callable_spaced` shape
 // (`py-sezgi/src/lib.rs`), but with R's own GC-protection and
-// error-propagation design -- see this milestone's research doc
-// (`docs/superpowers/research/2026-09-02-r-class-front-door.md`) §C1-§C4.
+// error-propagation design.
 // ===========================================================================
 
 /// RAII guard over `savvy::protect::{insert,release}_from_preserved_list` --
@@ -1969,10 +1968,9 @@ fn sz_solve_r_problem(
 // pointer RNG handle -- an R-authored `generate(pop, fitness, rng,
 // iteration)` closure running INSIDE the Rust engine's generate stage. The
 // R mirror of py-sezgi's `solve_with_py_generator`/`PyGenerator`/`PyRng`
-// (`py-sezgi/src/lib.rs`), built on T2's `Preserved`/`AbortToken`/
+// (`py-sezgi/src/lib.rs`), built on `Preserved`/`AbortToken`/
 // `run_with_r_bridge`/`RProblem` (reused unchanged, see their own docs
-// above) plus this milestone's research doc §C1/§C2/§C3/§C5
-// (`docs/superpowers/research/2026-09-02-r-class-front-door.md`).
+// above).
 // ===========================================================================
 
 /// An owned per-call RNG handle exposed to an R-authored `generate`/
@@ -1991,9 +1989,9 @@ fn sz_solve_r_problem(
 /// mutated state is read back via [`take_external_pointer_value`] -- which
 /// hands back OWNERSHIP of the (possibly-advanced) `SzRng` AND nulls the
 /// R-side pointer (`R_ClearExternalPtr`) in the SAME call. This is a
-/// DELIBERATE IMPROVEMENT over M4-1's stale-handle fix, which was
-/// docstring-only ("valid only for the duration of one `generate()` call",
-/// `docs/DECISIONS.md`'s M4-1 record, commit `f242af2`): here, a callback
+/// DELIBERATE IMPROVEMENT over an earlier stale-handle fix, which was
+/// docstring-only ("valid only for the duration of one `generate()` call"):
+/// here, a callback
 /// that STORES `ctx$rng` in its own enclosure across iterations gets a
 /// clear `savvy::Error::InvalidPointer` ("This external pointer is already
 /// consumed or deleted") on any later use, rather than silently reading

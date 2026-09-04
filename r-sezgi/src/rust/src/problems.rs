@@ -6,10 +6,8 @@
 //!
 //! Mirrors py-sezgi's `sezgi.problems` module (M3-3 Task 9 for CEC 2022 +
 //! TSP, M3-6 Task 9 for CEC 2014 + CEC 2017; `py-sezgi/src/lib.rs`)
-//! key-for-key for these direct-evaluation entry points -- see
-//! `.superpowers/sdd/2026-08-31-sezgi-m3-3/task-9-report.md` and
-//! `.superpowers/sdd/2026-08-31-sezgi-m3-6/task-9-report.md` for the full
-//! provenance. `sz_preset_ga_perm` / `sz_solve_tsp` / `sz_solve_cec2022` /
+//! key-for-key for these direct-evaluation entry points.
+//! `sz_preset_ga_perm` / `sz_solve_tsp` / `sz_solve_cec2022` /
 //! `sz_solve_cec2014` / `sz_solve_cec2017` (the solve()-eligible half of
 //! py-sezgi's `sezgi.problems`/`sezgi.presets`) live in `solve.rs` instead,
 //! alongside every other `sz_preset_*` / `sz_solve_*` binding -- py-sezgi

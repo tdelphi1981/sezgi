@@ -1374,8 +1374,8 @@ NULL
 
 #' Runs an algorithm spec on a CEC 2022 (Kumar, Price, Mohamed, Hadi &
 #' Suganthan 2021) function via [`Cec2022::new`] and returns the result --
-#' M3-5 Task 4, closing the M3-3 gap (`docs/DECISIONS.md`'s M3-3 record,
-#' ruling (g)): r-sezgi previously bound only direct evaluation
+#' added later than the rest of the CEC surface, closing the gap where
+#' r-sezgi previously bound only direct evaluation
 #' (`sz_cec2022_evaluate`/`sz_cec2022_f_star`), with no `solve()`-integrated
 #' path, unlike py-sezgi's `sezgi.problems.cec2022(...)` + `sezgi.solve()`.
 #' Mirrors `sz_solve_bbob`/`sz_solve_tsp` exactly (`Engine::from_spec` +
@@ -2067,9 +2067,9 @@ class(`EvalSession`) <- c("sezgi::EvalSession__bundle", "savvy_sezgi__sealed")
 #' mutated state is read back via [`take_external_pointer_value`] -- which
 #' hands back OWNERSHIP of the (possibly-advanced) `SzRng` AND nulls the
 #' R-side pointer (`R_ClearExternalPtr`) in the SAME call. This is a
-#' DELIBERATE IMPROVEMENT over M4-1's stale-handle fix, which was
-#' docstring-only ("valid only for the duration of one `generate()` call",
-#' `docs/DECISIONS.md`'s M4-1 record, commit `f242af2`): here, a callback
+#' DELIBERATE IMPROVEMENT over an earlier stale-handle fix, which was
+#' docstring-only ("valid only for the duration of one `generate()` call"):
+#' here, a callback
 #' that STORES `ctx$rng` in its own enclosure across iterations gets a
 #' clear `savvy::Error::InvalidPointer` ("This external pointer is already
 #' consumed or deleted") on any later use, rather than silently reading

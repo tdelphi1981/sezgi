@@ -28,8 +28,6 @@ one.
 - [ ] This does not require an engine-level (`crates/core`) change to
       the RNG model or determinism guarantees, OR: it does, and I have
       described the tradeoff above.
-- [ ] I have checked `docs/DECISIONS.md` for related prior rulings or
-      deferrals this proposal might affect.
 
 ## Additional context
 

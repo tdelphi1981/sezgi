@@ -19,7 +19,7 @@
 //! serve as a research-grade evaluation target. Do not cite these as
 //! benchmark results; they are smoke tests with known answers.
 //!
-//! ## Design spec §3 (quoted, `docs/superpowers/specs/2026-08-27-sezgi-design.md`)
+//! ## Design spec §3
 //!
 //! "`SearchSpace = [ Float(lo,hi)×n | Int(lo,hi)×n | Categorical(k)×n |
 //! Permutation(n) | Binary(n) ]`. `Genotype` consists of separate typed
