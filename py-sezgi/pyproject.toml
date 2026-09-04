@@ -6,9 +6,38 @@ build-backend = "maturin"
 name = "sezgi"
 version = "0.1.0"
 description = "Rust-core, component-based metaheuristic optimization library"
+readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
 dependencies = ["numpy>=1.24"]
+authors = [
+  { name = "Tolga Berber", email = "tolga.berber@fen.ktu.edu.tr" },
+  { name = "Beyzanur Siyah" },
+  { name = "Emir Karayağız" },
+]
+keywords = [
+  "metaheuristics",
+  "optimization",
+  "evolutionary-algorithms",
+  "benchmarking",
+  "reproducibility",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "Operating System :: OS Independent",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+[project.urls]
+Homepage = "https://tdelphi1981.github.io/sezgi/"
+Documentation = "https://tdelphi1981.github.io/sezgi/"
+Repository = "https://github.com/tdelphi1981/sezgi"
+Issues = "https://github.com/tdelphi1981/sezgi/issues"
 
 [tool.maturin]
 python-source = "python"
