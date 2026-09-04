@@ -33,7 +33,7 @@ Participation in this project is governed by `CODE_OF_CONDUCT.md`
 - **Bug reports and feature requests**: use the repository's issue
   tracker, with the templates under `.github/ISSUE_TEMPLATE/`
   (`bug_report.md`, `feature_request.md`).
-- **Support / questions**: `tolga.berber.81@gmail.com` (the maintainer
+- **Support / questions**: `tolga.berber@fen.ktu.edu.tr` (the maintainer
   address published in `r-sezgi/DESCRIPTION`), or the issue tracker for
   anything that might be useful to other users as well.
 

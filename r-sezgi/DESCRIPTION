@@ -1,7 +1,7 @@
 Package: sezgi
 Title: Metaheuristic Optimization with a Rust Core
 Version: 0.1.0
-Authors@R: person("Tolga", "Berber", email = "tolga.berber.81@gmail.com", role = c("aut", "cre"))
+Authors@R: person("Tolga", "Berber", email = "tolga.berber@fen.ktu.edu.tr", role = c("aut", "cre"))
 Description: R frontend for the sezgi metaheuristic optimization library.
     Algorithms are serializable component graphs executed by a Rust core with
     reproducible, bit-exact cross-language trajectories.
