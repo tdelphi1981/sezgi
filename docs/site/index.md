@@ -71,8 +71,13 @@ See [Quickstart](quickstart.md) for the full, verified walk-through.
 
 - **29 built-in algorithm classes** spanning genetic/evolutionary,
   swarm-intelligence, physics-inspired, and local-search families, each
-  citing its source and stating its parity tier honestly (labeled
-  metaphor vs. author's-own-source vs. sezgi simplification).
+  citing its source in its own class docstring (see
+  [Built-in algorithm classes](api/builtins.md)). The honest parity-tier
+  taxonomy behind those citations (labeled metaphor vs.
+  author's-own-source vs. sezgi simplification) is maintained in the
+  repository's `examples/README.md` algorithm catalog and in
+  `crates/components/src/presets.rs`'s own doc comments, not restated
+  per-tier on this site's API pages.
 - **A subclassable `Algorithm`/`PopulationAlgorithm`/`LocalSearch`
   hierarchy** for authoring new algorithms that run *inside* the Rust
   engine loop (not a Python-owned ask/tell loop) — only the
