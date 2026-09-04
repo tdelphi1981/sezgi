@@ -893,7 +893,7 @@ fn sz_solve_bbob(
 ///   reported best is guaranteed to lie within the declared domain.
 ///
 /// # Errors
-/// A savvy error for `fid` outside `1..=12`, `dim` outside `{2,10,20}`,
+/// A savvy error for `fid` outside `1..=12`, `dim` outside `\{2,10,20\}`,
 /// `dim = 2` for a hybrid function, any [`sezgi_core::spec`] parse error, or
 /// any [`sezgi_core::engine`] run error.
 /// @export
@@ -957,7 +957,7 @@ fn sz_solve_cec2022(
 ///   reported best is guaranteed to lie within the declared domain.
 ///
 /// # Errors
-/// A savvy error for `fid` outside `1..=30`, `dim` outside `{10,30}`, any
+/// A savvy error for `fid` outside `1..=30`, `dim` outside `\{10,30\}`, any
 /// [`sezgi_core::spec`] parse error, or any [`sezgi_core::engine`] run error.
 /// @export
 #[savvy]
@@ -1020,8 +1020,8 @@ fn sz_solve_cec2014(
 ///   reported best is guaranteed to lie within the declared domain.
 ///
 /// # Errors
-/// A savvy error for `fid` outside `{1} union {3..=30}`, `dim` outside
-/// `{10,30}`, any [`sezgi_core::spec`] parse error, or any
+/// A savvy error for `fid` outside `\{1\} union \{3..=30\}`, `dim` outside
+/// `\{10,30\}`, any [`sezgi_core::spec`] parse error, or any
 /// [`sezgi_core::engine`] run error. `fid = 2` raises a dedicated error --
 /// the Rust [`sezgi_problems::Cec2017Error::Withdrawn`] message is surfaced
 /// VERBATIM.
@@ -1390,9 +1390,9 @@ fn sz_solve_cat_match(
 ///
 /// @param spec_toml Algorithm spec as TOML text (e.g. a mixed-space
 ///   `gen/compound` document).
-/// @param n_float Length of the `Block::Float{-5,5,..}` block (double, cast
+/// @param n_float Length of the `Block::Float\{-5,5,..\}` block (double, cast
 ///   to `usize`).
-/// @param n_int Length of the `Block::Int{-5,5,..}` block (double, cast to
+/// @param n_int Length of the `Block::Int\{-5,5,..\}` block (double, cast to
 ///   `usize`).
 /// @param k_cat Category count per gene of the `Block::Categorical` block
 ///   (double, cast to `u32`).

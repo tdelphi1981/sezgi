@@ -41,7 +41,7 @@ ACCEPT() DESIGN (read carefully -- this is not the naive reading of
 over the engine's default `replace/mu-plus-lambda` replacer. At
 `pop_size = 1` (mu = 1), with `generate()` here always returning
 exactly ONE offspring (lambda = 1), that replacer ALWAYS keeps the
-strictly-better (or, on an exact tie, the OLD) of {current, neighbor}
+strictly-better (or, on an exact tie, the OLD) of \{current, neighbor\}
 as the NEXT call's `pop$x`/`pop$f`'s own first entry -- a structural,
 UNCONDITIONAL guarantee of `replace/mu-plus-lambda` itself, not a
 decision `accept()` makes. Two direct consequences: (1) the fitness

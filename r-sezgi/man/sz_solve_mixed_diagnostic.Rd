@@ -51,10 +51,10 @@ sz_solve_mixed_diagnostic(
 \item{spec_toml}{Algorithm spec as TOML text (e.g. a mixed-space
 `gen/compound` document).}
 
-\item{n_float}{Length of the `Block::Float{-5,5,..}` block (double, cast
+\item{n_float}{Length of the `Block::Float\{-5,5,..\}` block (double, cast
 to `usize`).}
 
-\item{n_int}{Length of the `Block::Int{-5,5,..}` block (double, cast to
+\item{n_int}{Length of the `Block::Int\{-5,5,..\}` block (double, cast to
 `usize`).}
 
 \item{k_cat}{Category count per gene of the `Block::Categorical` block

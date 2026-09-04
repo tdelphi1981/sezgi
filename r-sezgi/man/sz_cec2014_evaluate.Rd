@@ -23,7 +23,7 @@ sz_cec2014_evaluate(fid, dim, x)
 A numeric scalar.
 
 # Errors
-A savvy error for `fid` outside `1..=30`, `dim` outside `{10,30}`, or
+A savvy error for `fid` outside `1..=30`, `dim` outside `\{10,30\}`, or
 `length(x) != dim`.
 }
 \description{

@@ -222,7 +222,7 @@ NULL
 #' @returns A numeric scalar.
 #'
 #' # Errors
-#' A savvy error for `fid` outside `1..=30`, `dim` outside `{10,30}`, or
+#' A savvy error for `fid` outside `1..=30`, `dim` outside `\{10,30\}`, or
 #' `length(x) != dim`.
 #' @export
 `sz_cec2014_evaluate` <- function(`fid`, `dim`, `x`) {
@@ -260,8 +260,8 @@ NULL
 #' @returns A numeric scalar.
 #'
 #' # Errors
-#' A savvy error for `fid` outside `{1} union {3..=30}`, `dim` outside
-#' `{10,30}`, or `length(x) != dim`. `fid = 2` raises a dedicated error --
+#' A savvy error for `fid` outside `\{1\} union \{3..=30\}`, `dim` outside
+#' `\{10,30\}`, or `length(x) != dim`. `fid = 2` raises a dedicated error --
 #' the Rust [`sezgi_problems::Cec2017Error::Withdrawn`] message is surfaced
 #' VERBATIM, distinct from an ordinary out-of-range `fid`.
 #' @export
@@ -279,7 +279,7 @@ NULL
 #' @returns A numeric scalar.
 #'
 #' # Errors
-#' A savvy error if `fid` is outside `{1} union {3..=30}` (`fid = 2`
+#' A savvy error if `fid` is outside `\{1\} union \{3..=30\}` (`fid = 2`
 #' included, via the [`sezgi_problems::Cec2017Error::Withdrawn`] message).
 #' @export
 `sz_cec2017_f_star` <- function(`fid`) {
@@ -299,7 +299,7 @@ NULL
 #' @returns A numeric scalar.
 #'
 #' # Errors
-#' A savvy error for `fid` outside `1..=12`, `dim` outside `{2,10,20}`,
+#' A savvy error for `fid` outside `1..=12`, `dim` outside `\{2,10,20\}`,
 #' `dim = 2` for a hybrid function, or `length(x) != dim`.
 #' @export
 `sz_cec2022_evaluate` <- function(`fid`, `dim`, `x`) {
@@ -1337,7 +1337,7 @@ NULL
 #'   reported best is guaranteed to lie within the declared domain.
 #'
 #' # Errors
-#' A savvy error for `fid` outside `1..=30`, `dim` outside `{10,30}`, any
+#' A savvy error for `fid` outside `1..=30`, `dim` outside `\{10,30\}`, any
 #' [`sezgi_core::spec`] parse error, or any [`sezgi_core::engine`] run error.
 #' @export
 `sz_solve_cec2014` <- function(`spec_json`, `fid`, `dim`, `master_seed`, `run_id`) {
@@ -1362,8 +1362,8 @@ NULL
 #'   reported best is guaranteed to lie within the declared domain.
 #'
 #' # Errors
-#' A savvy error for `fid` outside `{1} union {3..=30}`, `dim` outside
-#' `{10,30}`, any [`sezgi_core::spec`] parse error, or any
+#' A savvy error for `fid` outside `\{1\} union \{3..=30\}`, `dim` outside
+#' `\{10,30\}`, any [`sezgi_core::spec`] parse error, or any
 #' [`sezgi_core::engine`] run error. `fid = 2` raises a dedicated error --
 #' the Rust [`sezgi_problems::Cec2017Error::Withdrawn`] message is surfaced
 #' VERBATIM.
@@ -1397,7 +1397,7 @@ NULL
 #'   reported best is guaranteed to lie within the declared domain.
 #'
 #' # Errors
-#' A savvy error for `fid` outside `1..=12`, `dim` outside `{2,10,20}`,
+#' A savvy error for `fid` outside `1..=12`, `dim` outside `\{2,10,20\}`,
 #' `dim = 2` for a hybrid function, any [`sezgi_core::spec`] parse error, or
 #' any [`sezgi_core::engine`] run error.
 #' @export
@@ -1468,9 +1468,9 @@ NULL
 #'
 #' @param spec_toml Algorithm spec as TOML text (e.g. a mixed-space
 #'   `gen/compound` document).
-#' @param n_float Length of the `Block::Float{-5,5,..}` block (double, cast
+#' @param n_float Length of the `Block::Float\{-5,5,..\}` block (double, cast
 #'   to `usize`).
-#' @param n_int Length of the `Block::Int{-5,5,..}` block (double, cast to
+#' @param n_int Length of the `Block::Int\{-5,5,..\}` block (double, cast to
 #'   `usize`).
 #' @param k_cat Category count per gene of the `Block::Categorical` block
 #'   (double, cast to `u32`).

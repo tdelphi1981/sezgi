@@ -17,7 +17,7 @@ sz_cec2017_f_star(fid)
 A numeric scalar.
 
 # Errors
-A savvy error if `fid` is outside `{1} union {3..=30}` (`fid = 2`
+A savvy error if `fid` is outside `\{1\} union \{3..=30\}` (`fid = 2`
 included, via the [`sezgi_problems::Cec2017Error::Withdrawn`] message).
 }
 \description{
