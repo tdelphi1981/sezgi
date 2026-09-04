@@ -49,6 +49,10 @@ replacement, exploration/exploitation, encodings) rather than hiding it;
 and practitioners who want a dependable, well-documented library rather
 than a loose collection of reference scripts.
 
+See [About > Statement of need](about/statement-of-need.md) for the
+fuller, JOSS-style version of this statement, including an honest
+comparison to pymoo, jMetal, and ecr.
+
 ## The class-first pitch
 
 Every built-in algorithm is a class. Every problem is either a native
@@ -109,3 +113,5 @@ See [Quickstart](quickstart.md) for the full, verified walk-through.
 - [API reference](api/spaces.md) — the full Python API, auto-generated
   from the library's own docstrings.
 - [R surface](r.md) — the R6 mirror and its documentation.
+- [About](about/statement-of-need.md) — the full statement of need,
+  state-of-the-field comparison, and community/contributing guidelines.

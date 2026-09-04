@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: >-
+  If you use sezgi in your research, please cite it using the metadata
+  below.
+type: software
+title: sezgi
+version: 0.1.0
+date-released: "2026-09-04"
+abstract: >-
+  A Rust-core, component-based metaheuristic optimization library with
+  Python and R frontends, built for deterministic, cross-language
+  bit-exact reproducibility of algorithm runs.
+authors:
+  - family-names: Berber
+    given-names: Tolga
+    email: tolga.berber.81@gmail.com
+license: MIT
+repository-code: "PLACEHOLDER — set to the public repository URL once published; see docs/DECISIONS.md's M4-3 record for the six-month public-history requirement this depends on"
+keywords:
+  - metaheuristics
+  - optimization
+  - evolutionary-algorithms
+  - reproducibility
+  - rust
+  - python
+  - r

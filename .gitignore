@@ -15,3 +15,4 @@ r-sezgi_*.tar.gz
 # download cache (vendored fonts/mermaid, re-downloaded on a clean cache).
 /site
 /.cache
+docs/scripts/__pycache__/

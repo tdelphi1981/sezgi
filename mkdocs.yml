@@ -110,3 +110,6 @@ nav:
       - Benchmark problems: api/problems.md
   - Examples gallery: examples.md
   - R surface: r.md
+  - About:
+      - Statement of need: about/statement-of-need.md
+      - Community: about/community.md
