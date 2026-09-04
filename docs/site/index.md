@@ -110,6 +110,9 @@ See [Quickstart](quickstart.md) for the full, verified walk-through.
 - [Install](install.md) — Python (`uv`) and R.
 - [Quickstart](quickstart.md) — the 10-line class-first path, run and
   verified.
+- [Notebooks](notebooks/01-interactive-quickstart.ipynb) — the same ground
+  as executed, downloadable Jupyter notebooks you can open and re-run
+  yourself.
 - [API reference](api/spaces.md) — the full Python API, auto-generated
   from the library's own docstrings.
 - [R surface](r.md) — the R6 mirror and its documentation.

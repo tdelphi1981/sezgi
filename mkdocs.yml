@@ -34,6 +34,22 @@ plugins:
   - privacy
   - offline
   - markdown-exec
+  - mkdocs-jupyter:
+      execute: false
+      include_source: true
+      # Restrict to notebooks only. mkdocs-jupyter's default `include`
+      # pattern also considers every *.md file a candidate and probes each
+      # one with `jupytext.read()`, which shells out to the `pandoc`
+      # binary per file -- pandoc's own markdown reader does not
+      # understand pymdownx/MkDocs-flavored syntax (admonitions, mermaid
+      # superfences, attr_list) and emits spurious "Div ... unclosed ...
+      # closing implicitly" parse warnings straight to the process's
+      # stderr for every such file (bypassing Python's own logging/
+      # warnings machinery entirely, so --strict cannot catch or promote
+      # them). `ignore: ["*.md"]` short-circuits `should_include()` before
+      # it ever calls `jupytext.read()`, so no `.md` page in this site is
+      # probed and no pandoc subprocess is spawned for it.
+      ignore: ["*.md"]
   - mkdocstrings:
       handlers:
         python:
@@ -92,6 +108,11 @@ nav:
       - Mixed-space tuning: tutorials/06-mixed-space-tuning.md
       - Multi-objective optimization with NSGA-II: tutorials/07-nsga2-multi-objective.md
       - Comparing algorithms and statistics: tutorials/08-comparing-algorithms.md
+  - Notebooks (executed):
+      - Interactive quickstart: notebooks/01-interactive-quickstart.ipynb
+      - Writing your own algorithm: notebooks/02-your-own-algorithm.ipynb
+      - Benchmarking and statistics: notebooks/03-benchmarking-and-statistics.ipynb
+      - Metaheuristics 101: notebooks/04-metaheuristics-101.ipynb
   - Concepts & architecture:
       - Engine flow: concepts/engine-flow.md
       - Class hierarchy: concepts/class-hierarchy.md

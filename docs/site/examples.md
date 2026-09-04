@@ -7,6 +7,10 @@ not a snippet reproduced for the docs. Run any of them directly:
 py-sezgi/.venv/bin/python examples/python/oop/gwo.py
 ```
 
+Prefer an interactive, cell-by-cell walkthrough instead? See the
+[Notebooks](notebooks/01-interactive-quickstart.ipynb) section for four
+executed Jupyter notebooks covering the same class-first surface.
+
 This gallery is a curated subset (12 of the full catalog's ~51 scripts):
 six representative picks from the 19 parameterized OOP algorithm twins,
 the five engine-hosted authoring examples (`examples/python/oop/engine/`),
