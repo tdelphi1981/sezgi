@@ -302,16 +302,31 @@ fn sz_tsp_load(name_or_text: &str) -> savvy::Result<Sexp> {
     let mut coords = OwnedRealSexp::try_from_slice(coords_flat.as_slice())?;
     coords.set_dim(&[n, 2])?;
 
-    let known_optimum: Sexp = match t.known_optimum() {
-        Some(v) => OwnedRealSexp::try_from_scalar(v)?.into(),
-        None => NullSexp.into(),
-    };
-
     let mut out = OwnedListSexp::new(4, true)?;
     out.set_name_and_value(0, "name", OwnedStringSexp::try_from(t.name())?)?;
     out.set_name_and_value(1, "n_cities", OwnedRealSexp::try_from_scalar(n as f64)?)?;
     out.set_name_and_value(2, "coords", coords)?;
-    out.set_name_and_value(3, "known_optimum", known_optimum)?;
+    // Same fix as `sz_solve_r_problem`'s result tail (`solve.rs`; see its
+    // comment for the full explanation): savvy 0.10.2's `set_name_and_value`
+    // allocates `set_name`'s CHARSXP unconditionally on every call before
+    // attaching `v` -- so `known_optimum`'s already-bare `Sexp` (both match
+    // arms below drop their `Owned*Sexp` token, or hold `NullSexp`, via
+    // `.into()`) would sit unprotected across that guaranteed allocation.
+    // Fixed by attaching via `set_value` first (nothing allocates between
+    // `known_optimum`'s construction and `SET_VECTOR_ELT`) and naming via
+    // `set_name` second -- AND, unlike the single-field `solve.rs` sites,
+    // `known_optimum` is constructed HERE, immediately before its own
+    // `set_value` call, rather than earlier alongside `coords` (its
+    // original position): constructing it earlier would leave it
+    // unprotected across the `name`/`n_cities`/`coords` fields' own
+    // `set_name_and_value` calls above, each of which is an equally
+    // unconditional allocation.
+    let known_optimum: Sexp = match t.known_optimum() {
+        Some(v) => OwnedRealSexp::try_from_scalar(v)?.into(),
+        None => NullSexp.into(),
+    };
+    out.set_value(3, known_optimum)?;
+    out.set_name(3, "known_optimum")?;
     Ok(out.into())
 }
 
