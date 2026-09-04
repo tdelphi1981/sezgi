@@ -1,5 +1,6 @@
 site_name: sezgi
 site_description: Rust-core, component-based metaheuristic optimization library
+site_url: https://tdelphi1981.github.io/sezgi/
 docs_dir: docs/site
 site_dir: site
 

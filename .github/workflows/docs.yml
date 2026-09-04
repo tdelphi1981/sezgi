@@ -1,0 +1,62 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create virtual environment
+        run: uv venv py-sezgi/.venv
+
+      - name: Install docs dependencies and maturin
+        run: uv pip install --python py-sezgi/.venv/bin/python --group py-sezgi/pyproject.toml:docs maturin
+
+      - name: Build sezgi extension
+        run: py-sezgi/.venv/bin/maturin develop --release -m py-sezgi/Cargo.toml
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/py-sezgi/.venv
+
+      - name: Build documentation (strict)
+        run: py-sezgi/.venv/bin/mkdocs build --strict
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
