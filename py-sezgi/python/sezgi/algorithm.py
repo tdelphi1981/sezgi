@@ -62,8 +62,19 @@ class Algorithm(abc.ABC):
 
     @abc.abstractmethod
     def generate(self, pop, ctx):
-        """REQUIRED: produce this generation's offspring. See the class
-        docstring for `pop`/`ctx`'s shape and the return-value convention."""
+        """REQUIRED: produce this generation's offspring.
+
+        pop: the current population view -- `pop.individuals` (a Python
+            list, one entry per genotype, bare/tuple-converted the same way
+            `sezgi.Problem.evaluate(x)`'s own `x` is) and `pop.fitness` (a
+            numpy 1-D `float64` array, parallel to `pop.individuals`).
+        ctx: this call's context -- `ctx.iteration`, `ctx.space`, `ctx.rng`.
+
+        See the class docstring for the exact shape of both arguments.
+
+        Returns an iterable of x-values, the SAME bare/tuple convention as
+        `pop.individuals` -- offspring count is this hook's own choice, not
+        checked against `pop`'s size."""
         raise NotImplementedError
 
     def initialize(self, n, ctx):

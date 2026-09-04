@@ -177,7 +177,7 @@ impl Problem for MixedDiagnostic {
     }
 }
 
-#[pyclass(name = "Problem")]
+#[pyclass(name = "Problem", module = "sezgi._sezgi")]
 struct PyProblem { inner: Inner }
 
 /// Shared calling convention for a `from_callable(...)` handle's Python
@@ -514,7 +514,7 @@ impl Problem for SpacedCallableProblem<'_> {
 /// Every method here delegates 1:1 to `RngStream`'s own pub API
 /// (`crates/core/src/rng.rs:28-59`) -- no new RNG logic, just a thin Python
 /// handle over it.
-#[pyclass]
+#[pyclass(module = "sezgi._sezgi")]
 struct PyRng { inner: RngStream }
 
 #[pymethods]
@@ -617,7 +617,7 @@ fn space_to_py(py: Python<'_>, space: &SearchSpace) -> PyResult<Py<PyList>> {
 /// by value would instead hand back a NEW wrapper around a snapshot of the
 /// field on every access, silently discarding whatever the previous access
 /// mutated).
-#[pyclass]
+#[pyclass(module = "sezgi._sezgi")]
 struct EngineCtx {
     #[pyo3(get)]
     iteration: u64,
@@ -644,7 +644,7 @@ struct EngineCtx {
 /// here rather than a plain Python list for the same reason: cheap,
 /// zero-surprise interop with numpy-based Python code (`pop.fitness.mean()`
 /// etc. work directly).
-#[pyclass]
+#[pyclass(module = "sezgi._sezgi")]
 struct PopView {
     #[pyo3(get)]
     individuals: Py<PyList>,
@@ -1654,7 +1654,7 @@ enum SessionKind {
 /// own "called after evaluation has started" guard (`LogAfterEval`) is
 /// unreachable through this binding by construction; it exists purely as a
 /// Rust-level invariant, not a case Python callers can trigger.
-#[pyclass(name = "EvalSession")]
+#[pyclass(name = "EvalSession", module = "sezgi._sezgi")]
 struct PyEvalSession {
     inner: Option<SessionKind>,
 }

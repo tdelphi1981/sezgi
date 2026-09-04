@@ -16,6 +16,8 @@ Covers the brief's own pinned test list:
 (e) validate_space veto surfaces before any generate() call.
 (f) run() accepts both a Problem subclass instance and a native handle.
 """
+import math
+
 import pytest
 import sezgi
 from sezgi import _sezgi
@@ -58,8 +60,14 @@ def test_custom_algorithm_deterministic_and_anchored():
     r2 = TournamentMutation().run(Sphere(n=3), budget=800, seed=1, pop_size=20)
     assert r1 == r2
     # ANCHORED (per this project's convention): measured once at this exact
-    # config (n=3, budget=800, seed=1, pop_size=20), then pinned.
-    assert r1.best_f == 0.0005424421612573647
+    # config (n=3, budget=800, seed=1, pop_size=20), then pinned. ULP
+    # anchor closure (M4-3 Task 3): a bit-exact float literal is fragile
+    # across toolchain/FMA/platform float-rounding differences that do not
+    # reflect an actual behavior change, so this ONE pinned literal is
+    # compared with a tight relative tolerance instead of `==` -- the
+    # adjacent determinism assert above (r1 == r2, same-process, same
+    # build) stays EXACT, since that one really must be bit-identical.
+    assert math.isclose(r1.best_f, 0.0005424421612573647, rel_tol=1e-12)
     assert r1.evals_used == 800
     assert r1.algo == "tournamentmutation"
     assert r1.f_opt is None and r1.gap is None  # Sphere() has no known optimum

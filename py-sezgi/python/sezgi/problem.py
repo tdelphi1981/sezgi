@@ -30,7 +30,27 @@ from sezgi.spaces import Space, as_space
 
 class Problem(abc.ABC):
     """Subclass and implement `evaluate`/`space`; `optimum`/`batch_evaluate`
-    are optional overrides."""
+    are optional overrides.
+
+    Genotype -> Python conversion table (PINNED; `block_value_to_py`/
+    `genotype_to_py` in `py-sezgi/src/lib.rs`), applied to `evaluate`'s own
+    `x` argument:
+
+        Float block          -> list[float]
+        Int block             -> list[int]
+        Categorical block      -> list[int]   (category INDICES 0..k, not labels)
+        Binary block           -> list[bool]
+        Permutation block       -> list[int]
+
+    A single-block space's `x` is that one block's own converted value,
+    passed BARE. A multi-block space's `x` is a Python tuple of per-block
+    converted values, in `space()`'s block order.
+
+    A subclass instance is usable anywhere a native `Problem` handle is
+    (`sezgi.solve`, `EvalSession.for_problem`, `Algorithm.run`, ...) --
+    every such entry point routes it through `as_native_problem`, which
+    calls `_to_native()` once to build the actual handle passed to the
+    Rust engine."""
 
     @abc.abstractmethod
     def evaluate(self, x):
@@ -45,7 +65,14 @@ class Problem(abc.ABC):
     @abc.abstractmethod
     def space(self):
         """Declares the search space: a `sezgi.Space(...)`, or a bare block
-        (`sezgi.Float(...)`, `sezgi.Binary(...)`, ...)."""
+        (`sezgi.Float(...)`, `sezgi.Binary(...)`, ...) -- see `as_space`,
+        which accepts either.
+
+        Called once, from `_to_native()`, when this `Problem` is converted
+        to a native handle (e.g. at the start of `sezgi.solve(...)` or
+        `Algorithm.run(...)`) -- not re-evaluated per generation, so the
+        returned space must not depend on mutable instance state that
+        changes during a run."""
         raise NotImplementedError
 
     def optimum(self):
