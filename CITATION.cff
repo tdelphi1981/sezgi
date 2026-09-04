@@ -15,7 +15,7 @@ authors:
     given-names: Tolga
     email: tolga.berber.81@gmail.com
 license: MIT
-repository-code: "PLACEHOLDER — set to the public repository URL once published; see docs/DECISIONS.md's M4-3 record for the six-month public-history requirement this depends on"
+repository-code: "https://github.com/tdelphi1981/sezgi"
 keywords:
   - metaheuristics
   - optimization
