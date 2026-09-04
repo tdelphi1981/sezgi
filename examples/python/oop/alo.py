@@ -13,9 +13,6 @@ The antlion population persists across generations in self.pop/self.fitness
 """
 import sezgi
 
-DIM = 5
-BUDGET = 2000
-POP_SIZE = 25  # ant/antlion count
 SEED = 42
 
 
@@ -100,15 +97,28 @@ def clamp(x, lo, hi):
 
 
 class Alo(sezgi.AskTellAlgorithm):
+    """Ant Lion Optimizer (Mirjalili 2015, Advances in Engineering
+    Software 83, 80-98), modeling the random-walk-around-antlion +
+    roulette-wheel selection + mu-plus-lambda elitism cycle explicitly
+    over `sezgi.AskTellAlgorithm`'s ask/tell loop. `dim`: problem
+    dimensionality. `pop_size`: ant/antlion count. `budget`: total
+    evaluation budget, used to derive `t_max` (ALO.m's `Max_iter`) once
+    at setup time as `max(1, budget // pop_size)`."""
+
     name = "alo"
 
+    def __init__(self, dim=5, pop_size=25, budget=2000):
+        self.dim = dim
+        self.pop_size = pop_size
+        self.budget = budget
+
     def setup(self, ctx):
-        self.pop = [ctx.random_point() for _ in range(POP_SIZE)]
+        self.pop = [ctx.random_point() for _ in range(self.pop_size)]
         self.fitness = ctx.evaluate(self.pop)
 
         # t_max = ALO.m's Max_iter, derived once from (budget, pop_size) --
         # both constant across the run, so this is identical every call.
-        self.t_max = max(1, BUDGET // POP_SIZE)
+        self.t_max = max(1, self.budget // self.pop_size)
         self.generation = 0  # ALO.m's Current_iter = generation + 2 (1-based, iteration 1 = setup)
 
     def step(self, ctx):
@@ -118,28 +128,28 @@ class Alo(sezgi.AskTellAlgorithm):
         i_ratio = alo_i_ratio(progress)
         row = min(self.generation + 1, self.t_max)
 
-        elite_idx = min(range(POP_SIZE), key=lambda i: (self.fitness[i], i))
+        elite_idx = min(range(self.pop_size), key=lambda i: (self.fitness[i], i))
         elite = self.pop[elite_idx]
         weights = alo_roulette_weights(self.fitness)
 
         offspring = []
-        for _ in range(POP_SIZE):
+        for _ in range(self.pop_size):
             u_sel = ctx.rng.random()
             sel_idx = alo_roulette_select(weights, u_sel)
             selected = self.pop[sel_idx]
 
-            ra = alo_walk_around(DIM, self.t_max, row, lo, hi, i_ratio, selected, ctx.rng)
-            re = alo_walk_around(DIM, self.t_max, row, lo, hi, i_ratio, elite, ctx.rng)
-            xs = [clamp((ra[d] + re[d]) / 2.0, lo, hi) for d in range(DIM)]
+            ra = alo_walk_around(self.dim, self.t_max, row, lo, hi, i_ratio, selected, ctx.rng)
+            re = alo_walk_around(self.dim, self.t_max, row, lo, hi, i_ratio, elite, ctx.rng)
+            xs = [clamp((ra[d] + re[d]) / 2.0, lo, hi) for d in range(self.dim)]
             offspring.append(xs)
 
         new_fitness = ctx.evaluate(offspring)
 
         # replace/mu-plus-lambda: pop first, offspring second, stable sort
-        # ascending by fitness, truncate to POP_SIZE.
+        # ascending by fitness, truncate to pop_size.
         combined = list(zip(self.fitness, self.pop)) + list(zip(new_fitness, offspring))
         combined.sort(key=lambda item: item[0])
-        combined = combined[:POP_SIZE]
+        combined = combined[:self.pop_size]
         self.fitness = [f for f, _ in combined]
         self.pop = [p for _, p in combined]
 
@@ -147,7 +157,8 @@ class Alo(sezgi.AskTellAlgorithm):
 
 
 def main():
-    res = Alo().solve(sezgi.bbob(1, DIM, 1), budget=BUDGET, seed=SEED)
+    algo = Alo()
+    res = algo.solve(sezgi.bbob(1, algo.dim, 1), budget=algo.budget, seed=SEED)
     print(f"alo (oop): evals_used={res.evals_used} best_f={res.best_f:.6g} "
           f"gap={res.gap:.6g}")
 

@@ -78,6 +78,14 @@ class FeatureSelection(Problem):
     """
 
     def __init__(self, X, y, scorer, penalty=0.0):
+        """X: a 2D array-like (n_samples, n_features) -- coerced via
+        np.asarray, ValueError if not 2D. y: the target array-like, coerced
+        via np.asarray unchanged (shape/dtype are the caller's
+        responsibility -- scorer receives it as-is). scorer(X_sub, y) ->
+        float: caller-supplied, MINIMIZE convention (see the class
+        docstring). penalty: feature-count regularization weight, default
+        0.0 (no preference for smaller subsets) -- see the class docstring
+        for the exact evaluate() formula."""
         self.X = np.asarray(X)
         if self.X.ndim != 2:
             raise ValueError(f"X must be 2D, got shape {self.X.shape}")
@@ -87,9 +95,17 @@ class FeatureSelection(Problem):
         self.n_features = self.X.shape[1]
 
     def space(self):
+        """sezgi.Binary(n_features) -- see the class docstring for the
+        boolean-mask genotype convention this implies."""
         return Binary(self.n_features)
 
     def evaluate(self, mask):
+        """mask: a length-n_features bool-coercible sequence (the genotype
+        sezgi.Problem's bridge hands this method, per Binary's own
+        conversion). Returns float("inf") for the empty mask (no scorer
+        call), otherwise scorer(X[:, mask], y) + the popcount-fraction
+        penalty term -- see the class docstring for the exact formula and
+        the rationale for both choices."""
         mask_arr = np.asarray(mask, dtype=bool)
         k = int(mask_arr.sum())
         if k == 0:
@@ -137,11 +153,22 @@ class MixedTuning(Problem):
     """
 
     def __init__(self, space, objective):
+        """space: any declared sezgi.Space -- a single block
+        (sezgi.Float(...), sezgi.Categorical(...), ...) or a multi-block
+        sezgi.Space(...), returned unchanged by space(). objective(x) ->
+        float: caller-supplied, MINIMIZE convention, called unchanged by
+        evaluate() with x in space's own genotype shape (see the class
+        docstring for a worked example)."""
         self._space = space
         self.objective = objective
 
     def space(self):
+        """Returns the space given at construction time, unchanged."""
         return self._space
 
     def evaluate(self, x):
+        """Delegates to self.objective(x) unchanged -- x follows
+        sezgi.Problem's own genotype conversion table for self.space()
+        (bare value for a single-block space, a tuple of per-block values
+        in space() order for a multi-block one)."""
         return self.objective(x)

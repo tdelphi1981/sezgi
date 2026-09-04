@@ -11,24 +11,18 @@ import math
 
 import sezgi
 
-DIM = 5
 BUDGET = 2000
-POP_SIZE = 25  # number of fireflies
 SEED = 42
-ALPHA0 = 0.5
-BETA0 = 1.0
-BETAMIN = 0.2
-GAMMA = 1.0
 
 
-def fa_beta(r2):
+def fa_beta(r2, beta0, betamin, gamma):
     """Floored attractiveness: beta -> betamin (not 0) as r2/gamma grow."""
-    return (BETA0 - BETAMIN) * math.exp(-GAMMA * r2) + BETAMIN
+    return (beta0 - betamin) * math.exp(-gamma * r2) + betamin
 
 
-def fa_alpha(progress):
+def fa_alpha(progress, alpha0):
     """Closed-form substitute for alpha_new's per-generation geometric decay."""
-    return ALPHA0 * (1e-4 / 0.9) ** progress
+    return alpha0 * (1e-4 / 0.9) ** progress
 
 
 def clamp(x, lo, hi):
@@ -36,35 +30,55 @@ def clamp(x, lo, hi):
 
 
 class Fa(sezgi.AskTellAlgorithm):
+    """Firefly Algorithm (Yang, "Nature-Inspired Metaheuristic
+    Algorithms", 2nd ed., Luniver Press, 2010), modeling the pairwise
+    attractiveness-weighted double-loop update over
+    `sezgi.AskTellAlgorithm`'s ask/tell loop. `dim`: problem
+    dimensionality. `pop_size`: number of fireflies. `alpha0`: initial
+    step-scale coefficient, geometrically decayed via a closed-form
+    substitute for `alpha_new`'s per-generation decay. `beta0`: maximum
+    attractiveness (at zero distance). `betamin`: floor attractiveness
+    the pairwise weight decays toward (never 0) as distance grows.
+    `gamma`: light-absorption coefficient controlling that decay rate."""
+
     name = "fa"
+
+    def __init__(self, dim=5, pop_size=25, alpha0=0.5, beta0=1.0,
+                 betamin=0.2, gamma=1.0):
+        self.dim = dim
+        self.pop_size = pop_size
+        self.alpha0 = alpha0
+        self.beta0 = beta0
+        self.betamin = betamin
+        self.gamma = gamma
 
     def setup(self, ctx):
         lo, hi = ctx.bounds
-        self.pop = [ctx.random_point() for _ in range(POP_SIZE)]
+        self.pop = [ctx.random_point() for _ in range(self.pop_size)]
         self.fitness = ctx.evaluate(self.pop)
-        self.scale = [hi - lo for _ in range(DIM)]
+        self.scale = [hi - lo for _ in range(self.dim)]
 
     def step(self, ctx):
         lo, hi = ctx.bounds
         progress = min(max(ctx.evals_used / ctx.budget, 0.0), 1.0)
-        alpha = fa_alpha(progress)
+        alpha = fa_alpha(progress, self.alpha0)
 
         # Rank order: stable sort by fitness ascending, ties -> original
         # index -- REQUIRED for the verified in-place loop semantics, not
         # merely cosmetic (mirrors ffa_mincon's own pre-sort).
-        order = sorted(range(POP_SIZE), key=lambda i: (self.fitness[i], i))
+        order = sorted(range(self.pop_size), key=lambda i: (self.fitness[i], i))
         lighto = [self.fitness[i] for i in order]
         nso = [list(self.pop[i]) for i in order]  # FROZEN rank-ordered snapshot
         ns = [list(row) for row in nso]           # LIVE working copy, mutated in place
 
-        for i in range(POP_SIZE):
-            for j in range(POP_SIZE):
+        for i in range(self.pop_size):
+            for j in range(self.pop_size):
                 # r2 from the LIVE working copy on BOTH sides -- verified
                 # quirk: not the frozen nso snapshot.
-                r2 = sum((ns[i][d] - ns[j][d]) ** 2 for d in range(DIM))
+                r2 = sum((ns[i][d] - ns[j][d]) ** 2 for d in range(self.dim))
                 if lighto[i] > lighto[j]:
-                    beta = fa_beta(r2)
-                    for d in range(DIM):
+                    beta = fa_beta(r2, self.beta0, self.betamin, self.gamma)
+                    for d in range(self.dim):
                         u = ctx.rng.random()
                         step = alpha * (u - 0.5) * self.scale[d]
                         # self LIVE (accumulates across repeated j hits),
@@ -82,7 +96,8 @@ class Fa(sezgi.AskTellAlgorithm):
 
 
 def main():
-    res = Fa().solve(sezgi.bbob(1, DIM, 1), budget=BUDGET, seed=SEED)
+    algo = Fa()
+    res = algo.solve(sezgi.bbob(1, algo.dim, 1), budget=BUDGET, seed=SEED)
     print(f"fa (oop): evals_used={res.evals_used} best_f={res.best_f:.6g} "
           f"gap={res.gap:.6g}")
 

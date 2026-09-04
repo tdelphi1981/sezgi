@@ -10,15 +10,17 @@ gate is `py-sezgi/tests/test_oop_families.py`.
 """
 import sezgi
 
-F = 0.5  # DE differential weight
-
 
 class CustomDERandOne(sezgi.PopulationAlgorithm):
     """DE/rand/1-shaped vary(): for each parent slot, draws THREE donor
     indices via ctx.rng.next_below(len(parents)) and combines them as
-    r1 + F * (r2 - r3) -- the classic DE/rand/1 mutation, applied directly
+    r1 + f * (r2 - r3) -- the classic DE/rand/1 mutation, applied directly
     over the tournament-selected parent pool this base's default select()
-    already built. No separate crossover step (kept deliberately small)."""
+    already built. No separate crossover step (kept deliberately small).
+    `f`: DE differential weight, scaling the donor difference."""
+
+    def __init__(self, f=0.5):
+        self.f = f
 
     def vary(self, parents, ctx):
         n = len(parents)
@@ -28,7 +30,7 @@ class CustomDERandOne(sezgi.PopulationAlgorithm):
             r2 = ctx.rng.next_below(n)
             r3 = ctx.rng.next_below(n)
             a, b, c = parents[r1], parents[r2], parents[r3]
-            offspring.append([ai + F * (bi - ci) for ai, bi, ci in zip(a, b, c)])
+            offspring.append([ai + self.f * (bi - ci) for ai, bi, ci in zip(a, b, c)])
         return offspring
 
 

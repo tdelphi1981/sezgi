@@ -10,9 +10,7 @@ import math
 
 import sezgi
 
-DIM = 5
 BUDGET = 2000
-POP_SIZE = 30
 SEED = 42
 
 
@@ -30,10 +28,20 @@ def clamp(x, lo, hi):
 
 
 class Woa(sezgi.AskTellAlgorithm):
+    """Whale Optimization Algorithm (Mirjalili & Lewis 2016, "The Whale
+    Optimization Algorithm", Advances in Engineering Software), modeling
+    the probability-gated shrinking-encirclement/spiral-bubble-net update
+    explicitly over `sezgi.AskTellAlgorithm`'s ask/tell loop. `dim`:
+    problem dimensionality. `pop_size`: number of whales."""
+
     name = "woa"
 
+    def __init__(self, dim=5, pop_size=30):
+        self.dim = dim
+        self.pop_size = pop_size
+
     def setup(self, ctx):
-        self.pop = [ctx.random_point() for _ in range(POP_SIZE)]
+        self.pop = [ctx.random_point() for _ in range(self.pop_size)]
         self.fitness = ctx.evaluate(self.pop)
 
     def step(self, ctx):
@@ -42,11 +50,11 @@ class Woa(sezgi.AskTellAlgorithm):
         a = 2.0 - 2.0 * progress
         a2 = -1.0 - progress
 
-        best = min(range(POP_SIZE), key=lambda i: (self.fitness[i], i))
+        best = min(range(self.pop_size), key=lambda i: (self.fitness[i], i))
         x_best = self.pop[best]
 
         offspring = []
-        for i in range(POP_SIZE):
+        for i in range(self.pop_size):
             x = self.pop[i]
             # p, and then r1/r2 (search branch) or l_raw (spiral branch),
             # are all drawn ONCE per whale, before the dimension loop --
@@ -58,18 +66,18 @@ class Woa(sezgi.AskTellAlgorithm):
                 r1, r2 = ctx.rng.random(), ctx.rng.random()
                 big_a = 2.0 * a * r1 - a
                 big_c = 2.0 * r2
-                for d in range(DIM):
+                for d in range(self.dim):
                     if abs(big_a) < 1.0:
                         target_d = x_best[d]
                     else:
-                        j = ctx.rng.randrange(POP_SIZE)  # may equal i, matches reference MATLAB
+                        j = ctx.rng.randrange(self.pop_size)  # may equal i, matches reference MATLAB
                         target_d = self.pop[j][d]
                     val = woa_encircle_step(target_d, x[d], big_a, big_c)
                     new_x.append(clamp(val, lo, hi))
             else:
                 l_raw = ctx.rng.random()
                 l = (a2 - 1.0) * l_raw + 1.0
-                for d in range(DIM):
+                for d in range(self.dim):
                     val = woa_spiral_step(x_best[d], x[d], l)
                     new_x.append(clamp(val, lo, hi))
             offspring.append(new_x)
@@ -79,7 +87,8 @@ class Woa(sezgi.AskTellAlgorithm):
 
 
 def main():
-    res = Woa().solve(sezgi.bbob(1, DIM, 1), budget=BUDGET, seed=SEED)
+    algo = Woa()
+    res = algo.solve(sezgi.bbob(1, algo.dim, 1), budget=BUDGET, seed=SEED)
     print(f"woa (oop): evals_used={res.evals_used} best_f={res.best_f:.6g} "
           f"gap={res.gap:.6g}")
 

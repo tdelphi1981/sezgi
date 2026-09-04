@@ -10,9 +10,7 @@ import math
 
 import sezgi
 
-DIM = 5
 BUDGET = 2000
-POP_SIZE = 30  # number of salps
 SEED = 42
 
 
@@ -34,12 +32,25 @@ def clamp(x, lo, hi):
 
 
 class Ssa(sezgi.AskTellAlgorithm):
+    """Salp Swarm Algorithm (Mirjalili, Gandomi, Mirjalili, Saremi,
+    Faris & Mirjalili 2017, Advances in Engineering Software 114,
+    163-191), modeling the leader-follower salp-chain update explicitly
+    over `sezgi.AskTellAlgorithm`'s ask/tell loop -- leaders move toward
+    food, followers chain off the immediately preceding, already-updated
+    salp in the same sweep. `dim`: problem dimensionality. `pop_size`:
+    number of salps (split into a fixed positional leader/follower
+    half, not fitness-based)."""
+
     name = "ssa"
 
+    def __init__(self, dim=5, pop_size=30):
+        self.dim = dim
+        self.pop_size = pop_size
+
     def setup(self, ctx):
-        self.pop = [ctx.random_point() for _ in range(POP_SIZE)]
+        self.pop = [ctx.random_point() for _ in range(self.pop_size)]
         self.fitness = ctx.evaluate(self.pop)
-        self.leader_count = POP_SIZE // 2  # fixed positional split, not fitness-based
+        self.leader_count = self.pop_size // 2  # fixed positional split, not fitness-based
 
     def step(self, ctx):
         lo, hi = ctx.bounds
@@ -48,18 +59,18 @@ class Ssa(sezgi.AskTellAlgorithm):
 
         # Food: current-population fitness argmin, ties -> lower index,
         # computed once before any draws.
-        food_idx = min(range(POP_SIZE), key=lambda i: (self.fitness[i], i))
+        food_idx = min(range(self.pop_size), key=lambda i: (self.fitness[i], i))
         food = self.pop[food_idx]
 
         # Built SEQUENTIALLY in ascending index order: followers chain off
         # the already-computed offspring entries from earlier this same
         # sweep (SSA.m's in-place transpose-and-reassign semantics).
         offspring = []
-        for i in range(POP_SIZE):
+        for i in range(self.pop_size):
             x_old = self.pop[i]
             if i < self.leader_count:
                 new_x = []
-                for d in range(DIM):
+                for d in range(self.dim):
                     # Pinned draw order: c2, then c3, per (leader, d).
                     c2 = ctx.rng.random()
                     c3 = ctx.rng.random()
@@ -68,7 +79,7 @@ class Ssa(sezgi.AskTellAlgorithm):
                 # Follower: zero draws; chains off offspring[i-1], the
                 # ALREADY-COMPUTED entry from this same sweep.
                 prev = offspring[i - 1]
-                new_x = [clamp(ssa_follower_dim_step(x_old[d], prev[d]), lo, hi) for d in range(DIM)]
+                new_x = [clamp(ssa_follower_dim_step(x_old[d], prev[d]), lo, hi) for d in range(self.dim)]
             offspring.append(new_x)
 
         # replace/generational: SSA.m overwrites every salp unconditionally.
@@ -77,7 +88,8 @@ class Ssa(sezgi.AskTellAlgorithm):
 
 
 def main():
-    res = Ssa().solve(sezgi.bbob(1, DIM, 1), budget=BUDGET, seed=SEED)
+    algo = Ssa()
+    res = algo.solve(sezgi.bbob(1, algo.dim, 1), budget=BUDGET, seed=SEED)
     print(f"ssa (oop): evals_used={res.evals_used} best_f={res.best_f:.6g} "
           f"gap={res.gap:.6g}")
 

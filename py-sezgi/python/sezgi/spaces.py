@@ -25,7 +25,16 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Float:
-    """A continuous block: `n` coordinates, each in `[lo, hi]`."""
+    """A continuous block: `n` coordinates, each in `[lo, hi]`.
+
+    Accepted bare wherever a `sezgi.Space` is expected -- `sezgi.Problem.
+    space()` may return a `Float(...)` directly instead of wrapping it in
+    `Space(Float(...))` (see `as_space`). Converts to `list[float]` when it
+    becomes (all or part of) `evaluate`'s `x` argument (see
+    `sezgi.problem`'s own conversion table).
+
+        Float(-5.0, 5.0, 10)   # 10 coordinates, each in [-5.0, 5.0]
+    """
     lo: float
     hi: float
     n: int
@@ -36,7 +45,14 @@ class Float:
 
 @dataclass(frozen=True)
 class Int:
-    """An integer block: `n` coordinates, each in `[lo, hi]` (inclusive)."""
+    """An integer block: `n` coordinates, each in `[lo, hi]` (inclusive).
+
+    Accepted bare wherever a `sezgi.Space` is expected -- see `Float`'s own
+    docstring. Converts to `list[int]` (see `sezgi.problem`'s conversion
+    table).
+
+        Int(0, 9, 5)   # 5 coordinates, each an integer in [0, 9]
+    """
     lo: int
     hi: int
     n: int
@@ -47,7 +63,14 @@ class Int:
 
 @dataclass(frozen=True)
 class Categorical:
-    """A categorical block: `n` genes, each a category index in `0..k`."""
+    """A categorical block: `n` genes, each a category index in `0..k`.
+
+    Accepted bare wherever a `sezgi.Space` is expected -- see `Float`'s own
+    docstring. Converts to `list[int]` -- category INDICES (`0..k`), not
+    labels (see `sezgi.problem`'s conversion table).
+
+        Categorical(k=4, n=3)   # 3 genes, each an index in {0, 1, 2, 3}
+    """
     k: int
     n: int
 
@@ -57,7 +80,14 @@ class Categorical:
 
 @dataclass(frozen=True)
 class Binary:
-    """A binary block: `n` bits."""
+    """A binary block: `n` bits.
+
+    Accepted bare wherever a `sezgi.Space` is expected -- see `Float`'s own
+    docstring. Converts to `list[bool]` (see `sezgi.problem`'s conversion
+    table).
+
+        Binary(8)   # 8 bits
+    """
     n: int
 
     def _to_dict(self):
@@ -66,7 +96,14 @@ class Binary:
 
 @dataclass(frozen=True)
 class Permutation:
-    """A permutation block: one permutation of `range(n)`."""
+    """A permutation block: one permutation of `range(n)`.
+
+    Accepted bare wherever a `sezgi.Space` is expected -- see `Float`'s own
+    docstring. Converts to `list[int]`, a 0-based permutation of `range(n)`
+    (see `sezgi.problem`'s conversion table).
+
+        Permutation(10)   # one permutation of range(10), e.g. a TSP tour
+    """
     n: int
 
     def _to_dict(self):
@@ -88,6 +125,14 @@ class Space:
     """
 
     def __init__(self, *blocks):
+        """Composes `blocks`, in the given order, into one search space.
+
+        blocks: one or more `Float`/`Int`/`Categorical`/`Binary`/
+            `Permutation` instances, in the order `evaluate`'s `x` tuple
+            should present them (see the class docstring).
+
+        Raises `ValueError` if called with no blocks, `TypeError` if any
+        argument is not one of the five block types."""
         if not blocks:
             raise ValueError("Space() requires at least one block")
         for b in blocks:
@@ -118,8 +163,15 @@ class Space:
 
 
 def as_space(obj) -> Space:
-    """Accepts a `Space`, or a bare block (wrapped into a single-block
-    `Space`). Raises `TypeError` for anything else."""
+    """Normalizes a `sezgi.Problem.space()` return value to a `Space`.
+
+    obj: a `Space` (returned unchanged), or a bare block instance
+        (`Float`/`Int`/`Categorical`/`Binary`/`Permutation`, wrapped into a
+        single-block `Space`).
+
+    Raises `TypeError` for anything else. Used by `Problem._to_native()`
+    and `Algorithm`'s own space handling wherever a `space()` result needs
+    to become an actual `Space`."""
     if isinstance(obj, Space):
         return obj
     if isinstance(obj, _BLOCK_TYPES):

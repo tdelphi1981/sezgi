@@ -1,9 +1,17 @@
 """sezgi — Rust-core, component-based metaheuristic optimization."""
+import functools
 import json
 from types import SimpleNamespace
 
 from sezgi._sezgi import EvalSession, bbob, from_callable
 from sezgi import _sezgi
+
+# Tracks `py-sezgi/Cargo.toml`'s `[package] version` (via `version.workspace
+# = true`, resolved from the workspace root `Cargo.toml`'s `[workspace.
+# package] version`) -- kept in sync BY HAND, there is no build-time
+# templating wiring the two together, so bump this whenever that version
+# changes.
+__version__ = "0.1.0"
 
 # M4-1 Task 1: `sezgi.Problem` is now the subclassable Python ABC
 # (`py-sezgi/python/sezgi/problem.py`), NOT the native `#[pyclass]` handle
@@ -240,23 +248,29 @@ def per_budget_packages(records, rope=0.0, samples=20000, seed=1, aggregate="mea
 
 
 def _preset(fn):
+    # `_preset`'s wrapper is a transparent pass-through (same *args/**kwargs
+    # shape as `fn` itself, only post-processing the return value), so
+    # `functools.wraps` is a clean fit here -- it recovers `__doc__`,
+    # `__name__` and `__qualname__` from the wrapped native `preset_*`
+    # function (previously all destroyed: the bare closure above always
+    # graded as MISSING, `__name__ == "wrapper"`) and sets `__wrapped__`,
+    # so `inspect.signature(sezgi.presets.X)` also now reports the native
+    # function's own `(pop_size, budget, ...)` signature instead of the
+    # uninformative `(*args, **kwargs)`. Most native `preset_*` bodies are
+    # themselves still undocumented (`py-sezgi/src/lib.rs`) -- authoring
+    # those doc comments is separate follow-up work, out of this task's
+    # scope; this fix only stops the wrapper itself from throwing away
+    # whatever documentation already exists (today: `preset_ga_bin`/
+    # `ga_int`/`ga_cat`).
+    @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         return json.loads(fn(*args, **kwargs))
     return wrapper
 
 
-# All presets from crates/components/src/presets.rs are exposed here.
-#
-# es_mu_plus_lambda takes the mutation distribution as a `dist` string plus
-# its (flattened, all-distributions-superimposed) params, parsed on the Rust
-# side by `parse_distribution` in py-sezgi/src/lib.rs:
-#   dist="uniform"                    -> no extra params
-#   dist="gaussian", mean=0.0, sigma=0.5
-#   dist="cauchy",   loc=0.0,  scale=1.0
-#   dist="levy",     alpha=1.5
-#   dist="student_t", nu=3.0
-#   dist="laplace",  loc=0.0,  scale=1.0
-# An unrecognized `dist` raises ValueError ("unknown distribution ...").
+# All presets from crates/components/src/presets.rs are exposed here, one
+# `sezgi.presets.X(pop_size, budget, ...)` builder per preset (see
+# `_preset`'s own docstring for the wrapping mechanism).
 presets = SimpleNamespace(
     de_rand_1=_preset(_sezgi.preset_de_rand_1),
     de_best_1=_preset(_sezgi.preset_de_best_1),
@@ -296,16 +310,75 @@ presets = SimpleNamespace(
     ga_cat=_preset(_sezgi.preset_ga_cat),
 )
 
+# `preset_es_mu_plus_lambda` (`py-sezgi/src/lib.rs`) itself carries no doc
+# comment yet, so `_preset`'s `functools.wraps` rescue has nothing to
+# recover here -- this docstring is assigned directly, converting what used
+# to be a `#`-comment block above `presets = SimpleNamespace(...)` (now
+# removed) into the real, autodoc-visible thing.
+presets.es_mu_plus_lambda.__doc__ = """Builds an ES (mu+lambda) preset.
+
+pop_size, budget: as in every other `sezgi.presets.*` builder.
+dist: the mutation distribution, plus its own (flattened,
+    all-distributions-superimposed) parameters -- parsed on the Rust side
+    by `parse_distribution` (`py-sezgi/src/lib.rs`):
+
+        dist="uniform"                        -- no extra params
+        dist="gaussian", mean=0.0, sigma=0.5
+        dist="cauchy",   loc=0.0,  scale=1.0
+        dist="levy",     alpha=1.5
+        dist="student_t", nu=3.0
+        dist="laplace",  loc=0.0,  scale=1.0
+
+    Raises `ValueError` ("unknown distribution ...") for an unrecognized
+    `dist`."""
+
+
 def _paper_package(algo_names, problem_names, results, rope=0.0, samples=20000, seed=1):
+    """`stats.paper_package(algo_names, problem_names, results, rope=0.0,
+    samples=20000, seed=1) -> dict`
+
+    Runs the FULL statistical comparison suite (stats.friedman + Nemenyi CD
+    + pairwise stats.wilcoxon with Holm correction + pairwise
+    stats.cliffs_delta + pairwise stats.bayesian_signed_rank +
+    stats.plackett_luce) over one results matrix in a single call, ready to
+    drop into a paper. results: rows = problems (matching problem_names,
+    one row each), columns = algorithms (matching algo_names).
+    rope/samples/seed are forwarded to the Bayesian sub-tests. Returns a
+    dict with keys friedman, nemenyi_cd, pairwise_wilcoxon_holm (list of
+    [i, j, p_value] rows, Holm-corrected), cliffs (list of [i, j, delta]
+    rows), bayes (list of [i, j, {p_left, p_rope, p_right}] rows),
+    plackett_luce, latex_summary, latex_tests -- see each individual
+    stats.* function's own docstring for its sub-result's shape."""
     return _sezgi.stats_paper_package(algo_names, problem_names, results,
                                       rope=rope, samples=samples, seed=seed)
 
 
 def _bayesian_signed_rank(a, b, rope=0.0, samples=20000, seed=1):
+    """`stats.bayesian_signed_rank(a, b, rope=0.0, samples=20000, seed=1)
+    -> dict`
+
+    A Bayesian alternative to stats.wilcoxon for two PAIRED samples, with a
+    Region Of Practical Equivalence (rope: |a[i] - b[i]| <= rope counts as
+    "practically equal"). samples draws from the posterior (Monte Carlo);
+    seed makes the draw reproducible. Returns a dict (minimize convention,
+    lower is better, values sum to 1.0): p_left (P(a practically better
+    than b)), p_rope (P(practically equivalent)), p_right (P(b practically
+    better than a))."""
     return _sezgi.stats_bayesian_signed_rank(a, b, rope=rope, samples=samples, seed=seed)
 
 
 def _bayesian_plackett_luce(rankings, samples=2000, burn_in=500, seed=1):
+    """`stats.bayesian_plackett_luce(rankings, samples=2000, burn_in=500,
+    seed=1) -> dict`
+
+    A Bayesian (posterior-sampling) counterpart to stats.plackett_luce:
+    same rankings input (a list of lists, each a permutation of 0..k item
+    indices, best-to-worst), but returns a posterior distribution over
+    worths instead of a single point estimate. burn_in draws are discarded
+    before samples are recorded; seed makes the draw reproducible. Returns
+    a dict: mean_worths (posterior mean per item, sums to 1.0), ci_low/
+    ci_high (per-item 95% credible interval), p_best (per-item posterior
+    probability of the largest worth), samples (the recorded draw count)."""
     return _sezgi.stats_bayesian_plackett_luce(rankings, samples=samples, burn_in=burn_in, seed=seed)
 
 
@@ -336,20 +409,83 @@ def _spec_json(spec):
 
 
 def _bias_structural(spec, dim, budget, runs=30, seed=0):
+    """Runs `crates/bias`'s structural-bias battery (M3-1 Task 8): `runs`
+    independent runs of `spec` on the BIAS-toolbox null problem
+    (`bias.f0`), then a KS/AD/Holm test of whether the runs' final
+    positions cluster away from uniform.
+
+    spec: dict (JSON-compatible algorithm spec) or a JSON string -- same
+        convention as `solve`'s own `spec` argument.
+    dim, budget: as in `solve`.
+    runs: number of independent runs whose final positions feed the
+        KS/AD/Holm battery (mirrors `crates/bias`'s own MIN_RUNS floor).
+    seed: master seed for the `runs` independent runs.
+
+    Returns a dict with keys `per_dim_ks` (list of `{d, p_value, n}`),
+    `per_dim_ad` (list of `{a2, p_value, n}`), `holm_rejections_ks`,
+    `holm_rejections_ad`, `verdict` ("no_evidence" or "evidence"), `detail`
+    (`None` for "no_evidence", the evidence-not-accusation detail string
+    otherwise), `final_positions` (runs x dim)."""
     return _sezgi.bias_structural(_spec_json(spec), dim, budget, runs=runs, seed=seed)
 
 
 def _bias_structural_positions(final_positions):
+    """The bias bridge for externally-authored algorithms (M3-4 Task 4):
+    runs the SAME KS/AD/Holm battery as `bias.structural`, but over
+    caller-supplied `final_positions` (each row one run's final best x,
+    e.g. collected from repeated `Algorithm.solve(bias.f0(...))` calls)
+    instead of an `AlgorithmSpec`-driven engine run.
+
+    final_positions: a runs x dim matrix (list of equal-length rows); dim
+        is inferred from row length.
+
+    Returns the SAME shape `bias.structural` returns (see its own
+    docstring). Raises `ValueError` for fewer than 5 rows or ragged rows
+    (mirrors `crates/bias`'s own MIN_RUNS floor)."""
     return _sezgi.bias_structural_positions(final_positions)
 
 
 def _bias_central(spec, dim, budget, fids=None, instances_shifted=None, runs_per=20, seed=0):
+    """Runs `crates/bias`'s central-bias test (M3-1 Task 8): compares
+    `spec`'s performance on a set of BBOB functions at their original
+    optimum vs. an instance-shifted (off-center) variant.
+
+    spec, dim, budget: as in `bias.structural`.
+    fids: BBOB function IDs to test; defaults to `crates/bias`'s own
+        `[1, 4, 13]` when omitted. Raises `ValueError` for a fid in
+        `{5, 6, 20, 24}` (not translation-invariant).
+    instances_shifted: BBOB instances for the shifted variant; defaults to
+        `crates/bias`'s own `[1, 2]` when omitted.
+    runs_per: independent runs per (fid, instance, variant).
+    seed: master seed.
+
+    Returns a dict with keys `gap_centered`, `gap_shifted`, `wilcoxon`
+    (`{w_statistic, z, p_value, n_effective, method}`), `effect`,
+    `verdict` ("no_evidence" or "evidence"), `detail` (`None` for
+    "no_evidence", the evidence-not-accusation detail string otherwise)."""
     return _sezgi.bias_central(_spec_json(spec), dim, budget, fids=fids,
                                instances_shifted=instances_shifted, runs_per=runs_per, seed=seed)
 
 
 def _bias_report(spec, dim, budget, seed=0, structural_runs=None, central_fids=None,
                   central_instances=None, central_runs_per=None):
+    """Runs the full bias report (M3-1 Task 8): `bias.structural` and
+    `bias.central` together, plus a LaTeX-ready summary.
+
+    spec, dim, budget, seed: as in `bias.structural`/`bias.central`.
+    structural_runs: forwarded to `bias.structural` as its own `runs`
+        argument (that default, 30, applies when omitted).
+    central_fids, central_instances, central_runs_per: forwarded to
+        `bias.central` as `fids`, `instances_shifted`, `runs_per`
+        respectively (their own defaults apply when omitted).
+
+    Returns a dict with keys `structural` (`bias.structural`'s own
+    shape), `central` (`bias.central`'s own shape), `signature` (always
+    `None` today -- the T6 Rajwar-Deep signature-bias test is DEFERRED in
+    `crates/bias` itself: no reachable source fully specifies its
+    statistical procedure), `latex_summary` (str, never containing the
+    literal "NaN"), `plot_data` (`{final_positions, gap_centered,
+    gap_shifted}`)."""
     return _sezgi.bias_report(_spec_json(spec), dim, budget, seed=seed,
                               structural_runs=structural_runs, central_fids=central_fids,
                               central_instances=central_instances,
@@ -357,49 +493,13 @@ def _bias_report(spec, dim, budget, seed=0, structural_runs=None, central_fids=N
 
 
 # Bias-scanning namespace (M3-1 Task 8): mirrors crates/bias's public
-# structs 1:1 by field name.
-#
-# Every dict returned here that carries a verdict has two flat keys:
-# `verdict` ("no_evidence" or "evidence") and `detail` (None for
+# structs 1:1 by field name -- see each bound function's own docstring
+# above for its exact contract. Every dict returned by structural/
+# structural_positions/central/report that carries a verdict has two flat
+# keys: `verdict` ("no_evidence" or "evidence") and `detail` (None for
 # "no_evidence", the evidence-not-accusation detail string otherwise).
-#
-# bias.structural(spec, dim, budget, runs=30, seed=0) -> dict with keys
-#   per_dim_ks (list of {d, p_value, n}), per_dim_ad (list of
-#   {a2, p_value, n}), holm_rejections_ks, holm_rejections_ad,
-#   verdict, detail, final_positions (runs x dim).
-#
-# bias.f0(dim, seed) -> Problem (M3-4 Task 4): a handle for the BIAS-toolbox
-#   null problem (every evaluation an independent U(0,1) draw over [0,1]^dim,
-#   uncorrelated with the queried point) -- usable with
-#   EvalSession.for_problem / Algorithm.solve exactly like any other
-#   continuous Problem handle. optimum() is always None (no landscape to have
-#   an optimum), so log_dir is rejected the same way it is for
-#   from_callable(...).
-#
-# bias.structural_positions(final_positions) -> dict (M3-4 Task 4): the
-#   bias bridge for externally-authored algorithms -- runs the SAME
-#   KS/AD/Holm battery as bias.structural, but over caller-supplied
-#   final_positions (each row one run's final best x, e.g. collected from
-#   repeated Algorithm.solve(bias.f0(...)) calls) instead of an
-#   AlgorithmSpec-driven engine run. dim is inferred from row length. Same
-#   return shape as bias.structural. Raises ValueError for fewer than 5 rows
-#   or ragged rows (mirrors crates/bias's own MIN_RUNS floor).
-#
-# bias.central(spec, dim, budget, fids=None, instances_shifted=None,
-#   runs_per=20, seed=0) -> dict with keys gap_centered, gap_shifted,
-#   wilcoxon ({w_statistic, z, p_value, n_effective, method}), effect,
-#   verdict, detail. fids/instances_shifted default to crates/bias's own
-#   [1, 4, 13] / [1, 2] when omitted. Raises ValueError for a fid in
-#   {5, 6, 20, 24} (not translation-invariant).
-#
-# bias.report(spec, dim, budget, seed=0, structural_runs=None,
-#   central_fids=None, central_instances=None, central_runs_per=None) ->
-#   dict with keys structural (bias.structural's own shape), central
-#   (bias.central's own shape), signature (always None today -- the T6
-#   Rajwar-Deep signature-bias test is DEFERRED in crates/bias itself:
-#   no reachable source fully specifies its statistical procedure),
-#   latex_summary (str, never containing the literal "NaN"), plot_data
-#   ({final_positions, gap_centered, gap_shifted}).
+# `bias.f0` binds `_sezgi.bias_f0` directly (no wrapper needed -- it takes
+# no spec/JSON argument), so its docstring already reaches Python unchanged.
 bias = SimpleNamespace(
     structural=_bias_structural,
     structural_positions=_bias_structural_positions,
@@ -412,6 +512,42 @@ def _mo_nsga2(problem, dim, pop_size, budget, m=None, seed=0,
               eta_c=20.0, eta_m=20.0, p_c=0.9, p_m=None,
               p_c_bin=0.9, p_m_bin=None, p_c_cat=0.9, p_m_cat=None,
               k=None, l=None, log_dir=None, label=None):
+    """`mo.nsga2(problem, dim, pop_size, budget, m=None, seed=0, eta_c=20.0,
+    eta_m=20.0, p_c=0.9, p_m=None, p_c_bin=0.9, p_m_bin=None, p_c_cat=0.9,
+    p_m_cat=None, k=None, l=None, log_dir=None, label=None) -> dict`
+
+    Runs NSGA-II (Deb et al. 2002) over one of this module's built-in
+    multi-objective problem families -- see this file's own "Problem
+    strings" note above for `problem`/`dim`/`m`/`k`/`l`'s per-family
+    validation rules.
+
+    Returns a dict with keys individuals (list of float-lists, one per
+    final-population member -- a Binary block's bits are flattened to
+    0.0/1.0), objectives (list of float-lists, parallel to individuals),
+    front0 (list of ints: indices of the final population's non-dominated
+    set), evals_used (int), and violations (list of floats, <= 0.0,
+    0.0 = feasible; present ONLY when the problem is constrained -- dtlz8/
+    dtlz9 today).
+
+    eta_c/eta_m/p_c default to the NSGA-II paper's own pinned experimental
+    settings (Deb et al. 2002, Sec. IV.A); p_m=None resolves on the Rust
+    side to 1/n_variables. p_c_bin/p_m_bin are the binary-genotype
+    counterparts (consulted only for zdt5's all-Binary space); p_c_bin
+    defaults to 0.9 (mirroring p_c; the paper gives no verified
+    binary-specific default), p_m_bin=None resolves to 1/l (the paper's own
+    stated binary default). p_c_cat/p_m_cat are the Categorical-genotype
+    counterparts (consulted only for a Mixed space containing a Categorical
+    block -- no problem string in this module's own catalog builds one
+    today, so they are currently validated but inert, exactly like
+    p_c_bin/p_m_bin on every non-zdt5 problem); p_c_cat defaults to 0.9
+    (mirroring p_c_bin's own reasoning), p_m_cat=None resolves to 1/n_cat
+    (n_cat = the space's total flattened Categorical dimension).
+
+    pop_size must be >= 4 AND a multiple of 4 (a KanGAL-faithful tightening
+    of the naive "even, >= 4" rule) or this raises ValueError. When log_dir
+    is given, the run is additionally streamed to
+    <log_dir>/<label>-s<seed>.moa (sezgi-moa v1 format); label is then
+    REQUIRED (ValueError otherwise)."""
     return _sezgi.mo_nsga2(problem, dim, pop_size, budget, m=m, seed=seed,
                            eta_c=eta_c, eta_m=eta_m, p_c=p_c, p_m=p_m,
                            p_c_bin=p_c_bin, p_m_bin=p_m_bin,
@@ -420,6 +556,14 @@ def _mo_nsga2(problem, dim, pop_size, budget, m=None, seed=0,
 
 
 def _mo_pareto_front(problem, dim, n, m=None, k=None, l=None):
+    """`mo.pareto_front(problem, dim, n, m=None, k=None, l=None) -> list of
+    float-lists, or None`
+
+    A deterministic `n`-point sample of the analytic Pareto front in
+    OBJECTIVE space for one of this module's built-in problem families --
+    same `problem`/`dim`/`m`/`k`/`l` mapping and validation as `mo.nsga2`.
+    Returns None when the problem has no known analytic front sample at
+    this `m` (e.g. DTLZ5/DTLZ6 with m > 3, or WFG1/WFG2 unconditionally)."""
     return _sezgi.mo_pareto_front(problem, dim, n, m=m, k=k, l=l)
 
 

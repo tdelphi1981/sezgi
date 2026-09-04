@@ -8,9 +8,7 @@ enforced by py-sezgi/tests/test_examples_oop_parity.py.
 """
 import sezgi
 
-DIM = 5
 BUDGET = 2000
-POP_SIZE = 30  # candidate count
 SEED = 42
 
 
@@ -25,41 +23,53 @@ def clamp(x, lo, hi):
 
 
 class Jaya(sezgi.AskTellAlgorithm):
+    """JAYA (Rao 2016, "Jaya: A Simple and New Optimization Algorithm for
+    Solving Constrained and Unconstrained Optimization Problems",
+    International Journal of Industrial Engineering Computations 7(1),
+    19-34), modeling the move-toward-best/away-from-worst update (Eq. 1)
+    explicitly over `sezgi.AskTellAlgorithm`'s ask/tell loop. `dim`:
+    problem dimensionality. `pop_size`: candidate count."""
+
     name = "jaya"
 
+    def __init__(self, dim=5, pop_size=30):
+        self.dim = dim
+        self.pop_size = pop_size
+
     def setup(self, ctx):
-        self.pop = [ctx.random_point() for _ in range(POP_SIZE)]
+        self.pop = [ctx.random_point() for _ in range(self.pop_size)]
         self.fitness = ctx.evaluate(self.pop)
 
     def step(self, ctx):
         lo, hi = ctx.bounds
         # Current-population argmin/argmax, both computed before any draws.
-        best = min(range(POP_SIZE), key=lambda i: (self.fitness[i], i))
-        worst = max(range(POP_SIZE), key=lambda i: (self.fitness[i], i))
+        best = min(range(self.pop_size), key=lambda i: (self.fitness[i], i))
+        worst = max(range(self.pop_size), key=lambda i: (self.fitness[i], i))
         x_best, x_worst = self.pop[best], self.pop[worst]
 
         # Pinned: r1[d], r2[d] drawn ONCE PER DIMENSION PER GENERATION,
         # shared across every agent (the paper's own worked example reuses
         # the same pair across all candidates) -- not fresh per (i, d).
-        r1 = [ctx.rng.random() for _ in range(DIM)]
-        r2 = [ctx.rng.random() for _ in range(DIM)]
+        r1 = [ctx.rng.random() for _ in range(self.dim)]
+        r2 = [ctx.rng.random() for _ in range(self.dim)]
 
         offspring = [
             [clamp(jaya_dim_step(self.pop[i][d], x_best[d], x_worst[d], r1[d], r2[d]), lo, hi)
-             for d in range(DIM)]
-            for i in range(POP_SIZE)
+             for d in range(self.dim)]
+            for i in range(self.pop_size)
         ]
         new_fitness = ctx.evaluate(offspring)
 
         # replace/one-to-one-greedy: the paper's Fig. 1 flowchart accepts
         # X' only if strictly better, else keeps the previous solution.
-        for i in range(POP_SIZE):
+        for i in range(self.pop_size):
             if new_fitness[i] < self.fitness[i]:
                 self.pop[i], self.fitness[i] = offspring[i], new_fitness[i]
 
 
 def main():
-    res = Jaya().solve(sezgi.bbob(1, DIM, 1), budget=BUDGET, seed=SEED)
+    algo = Jaya()
+    res = algo.solve(sezgi.bbob(1, algo.dim, 1), budget=BUDGET, seed=SEED)
     print(f"jaya (oop): evals_used={res.evals_used} best_f={res.best_f:.6g} "
           f"gap={res.gap:.6g}")
 

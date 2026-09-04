@@ -3,6 +3,40 @@
 **sezgi** (Turkish for "intuition") is a Rust-core, component-based metaheuristic
 optimization library with Python and R frontends. Design doc: `docs/superpowers/specs/2026-08-27-sezgi-design.md`.
 
+## Statement of need
+
+Metaheuristic-optimization research has a reproducibility problem: RNG
+draw order and operator details are rarely pinned precisely enough for a
+third party to reproduce a run byte-for-byte, and a large share of
+"novel" nature-inspired algorithms turns out, on close inspection, to be
+a known method with new vocabulary (see the equivalence-critique
+literature cited throughout `examples/README.md`'s algorithm catalog).
+sezgi exists for optimization researchers who need cross-language,
+bit-exact reproducibility; students who want a library that teaches the
+field's actual structure rather than hiding it; and practitioners who
+want a dependable, class-first library rather than a loose collection of
+reference scripts. One Rust engine drives both the Python and R
+frontends, so a shared seed reproduces byte-identical runs across
+languages. See `docs/site/about/statement-of-need.md` (or the built
+docs site) for the full statement, including a state-of-the-field
+comparison to pymoo, jMetal, and ecr.
+
+## Documentation
+
+The full documentation site (installation, a 6-page Learn track, 8
+executed tutorials, architecture diagrams, the auto-generated Python API
+reference, and a 12-entry examples gallery) is built locally with MkDocs:
+
+    uv pip install --python py-sezgi/.venv/bin/python \
+      mkdocs==1.6.1 mkdocs-material==9.7.7 mkdocstrings==1.0.6 \
+      mkdocstrings-python==2.0.8 markdown-exec==1.12.3 \
+      pymdown-extensions==11.0.2 matplotlib==3.11.1
+    py-sezgi/.venv/bin/mkdocs build --strict   # or: ... serve
+    open site/index.html
+
+See `CONTRIBUTING.md` for the full development setup and `docs/site/`
+for the page sources.
+
 ## Quickstart (Python)
 
 Every built-in algorithm is a class; every problem is either a native

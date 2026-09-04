@@ -10,9 +10,7 @@ import math
 
 import sezgi
 
-DIM = 5
 BUDGET = 2000
-POP_SIZE = 30  # number of search agents
 SEED = 42
 
 
@@ -29,10 +27,21 @@ def clamp(x, lo, hi):
 
 
 class Sca(sezgi.AskTellAlgorithm):
+    """Sine Cosine Algorithm (Mirjalili 2016, "SCA: A Sine Cosine
+    Algorithm for Solving Optimization Problems", Knowledge-Based
+    Systems 96, 120-133), modeling the sin/cos-branched
+    move-toward-destination update (Eq. 3.1/3.2) explicitly over
+    `sezgi.AskTellAlgorithm`'s ask/tell loop. `dim`: problem
+    dimensionality. `pop_size`: number of search agents."""
+
     name = "sca"
 
+    def __init__(self, dim=5, pop_size=30):
+        self.dim = dim
+        self.pop_size = pop_size
+
     def setup(self, ctx):
-        self.pop = [ctx.random_point() for _ in range(POP_SIZE)]
+        self.pop = [ctx.random_point() for _ in range(self.pop_size)]
         self.fitness = ctx.evaluate(self.pop)
 
     def step(self, ctx):
@@ -43,14 +52,14 @@ class Sca(sezgi.AskTellAlgorithm):
 
         # Destination_position: current population's fitness argmin,
         # ties -> lower index.
-        best = min(range(POP_SIZE), key=lambda i: (self.fitness[i], i))
+        best = min(range(self.pop_size), key=lambda i: (self.fitness[i], i))
         x_best = self.pop[best]
 
         offspring = []
-        for i in range(POP_SIZE):
+        for i in range(self.pop_size):
             x = self.pop[i]
             new_x = []
-            for d in range(DIM):
+            for d in range(self.dim):
                 # Pinned draw order: r2, then r3, then r4, fresh for every
                 # (i, d) -- always all three, regardless of branch.
                 r2 = 2.0 * math.pi * ctx.rng.random()
@@ -66,7 +75,8 @@ class Sca(sezgi.AskTellAlgorithm):
 
 
 def main():
-    res = Sca().solve(sezgi.bbob(1, DIM, 1), budget=BUDGET, seed=SEED)
+    algo = Sca()
+    res = algo.solve(sezgi.bbob(1, algo.dim, 1), budget=BUDGET, seed=SEED)
     print(f"sca (oop): evals_used={res.evals_used} best_f={res.best_f:.6g} "
           f"gap={res.gap:.6g}")
 

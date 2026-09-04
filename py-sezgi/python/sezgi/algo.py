@@ -47,6 +47,25 @@ class BudgetExhausted(Exception):
 
 @dataclass
 class SolveResult:
+    """The result of any front door's run: returned by
+    `AskTellAlgorithm.solve`, `sezgi.Algorithm.run`, and every
+    `sezgi.builtins` wrapper class's `run()` alike -- one result shape
+    everywhere, per this milestone's own design ruling (see
+    `_wrap_result`'s own docstring for the shared construction).
+
+    algo: the algorithm's name, as recorded in the result (see each
+        caller's own `name`/`algo_name` resolution).
+    seed: the run's master seed.
+    budget: the run's evaluation budget.
+    evals_used: evaluations actually consumed (`<= budget`).
+    best_x: the best point evaluated -- a length-`dim` list of floats for a
+        Float-typed session, a tour (list of ints) for a permutation-typed
+        one, or the block-converted value `sezgi.Problem.evaluate` would
+        receive (bare/tuple, see `sezgi.problem`'s conversion table) for an
+        engine-hosted `sezgi.Algorithm` run.
+    best_f: the fitness/objective value at `best_x`.
+    f_opt: the problem's known optimum, or `None` if it has none.
+    gap: `best_f - f_opt`, or `None` when `f_opt` is `None`."""
     algo: str
     seed: int
     budget: int
@@ -86,6 +105,12 @@ class AlgoContext:
     cities/positions -- `dim` reads oddly for a tour, `n` doesn't)."""
 
     def __init__(self, session, dim, bounds, seed, kind):
+        """Constructed internally by the `AskTellAlgorithm` run loop --
+        subclasses receive an already-built `ctx`, they never construct one
+        themselves. session: the `EvalSession` this context wraps. dim/
+        bounds/seed/kind: see the class docstring for `n`/`bounds`/`kind`'s
+        exact semantics; `seed` seeds this context's own `random.Random`
+        (`self.rng`)."""
         self._session = session
         self.dim = dim
         self.n = dim                  # same value as `dim`; see class doc
@@ -95,24 +120,57 @@ class AlgoContext:
 
     @property
     def budget(self):
+        """The run's total evaluation budget, as given to `solve()`.
+
+        A fixed value for the whole run -- `setup()`/`step()` never change
+        it; compare against `evals_used`/`remaining` to know how much is
+        left."""
         return self._session.budget()
 
     @property
     def evals_used(self):
+        """Evaluations consumed so far.
+
+        Updated by every `evaluate()` call (each accepted batch adds
+        `len(points)`); read this BEFORE calling `step()` again to size the
+        next batch against `remaining`."""
         return self._session.evals_used()
 
     @property
     def remaining(self):
+        """Evaluations left before the budget is exhausted
+        (`budget - evals_used`).
+
+        `evaluate()` itself already checks this and raises
+        `BudgetExhausted` for an over-large batch; reading `remaining`
+        directly lets `step()` size its own batch instead of guessing."""
         return self._session.budget() - self._session.evals_used()
 
     @property
     def f_opt(self):
+        """The problem's known optimum (a float), or `None` if it has none
+        -- see `sezgi.Problem.optimum`'s own doc for what "known" means.
+
+        Fixed for the whole run; used by `solve()`'s own driver to compute
+        the returned `SolveResult.gap`."""
         return self._session.f_opt()
 
     def best(self):
+        """Returns `(best_x, best_f)`, the best point evaluated so far, or
+        `None` if nothing has been evaluated yet.
+
+        `best_x`'s shape matches `evaluate()`'s own `points` rows (a
+        length-`dim` list of floats, or a tour, per `self.kind`)."""
         return self._session.best()
 
     def random_point(self):
+        """A uniformly random point in `self.bounds` (one coordinate per
+        `self.dim`), drawn from `self.rng` (this context's own seeded
+        `random.Random` -- NOT the underlying session's Rust-side stream;
+        see `random_permutation()`'s own doc for that distinction).
+
+        Raises `ValueError` for a permutation-typed context (`self.bounds
+        is None`) -- use `random_permutation()` instead."""
         if self.bounds is None:
             raise ValueError(
                 "random_point() is only available for float-typed problems "
@@ -194,13 +252,28 @@ class AskTellAlgorithm(abc.ABC):
     `AlgoContext`, same `SolveResult`. See the module-level `Algorithm =
     AskTellAlgorithm` compat alias below for the old import path."""
 
-    name = None  # default resolves to cls.__name__.lower()
+    name = None
+    """Optional label overriding `type(self).__name__.lower()` for the
+    result's `algo` field and the underlying `EvalSession`'s own
+    `algo_name` (default `None`: use the class name, lowercased)."""
 
     @abc.abstractmethod
-    def setup(self, ctx): ...
+    def setup(self, ctx):
+        """REQUIRED: called once, before the first `step()`, to perform
+        any one-time initialization (e.g. seeding an initial population via
+        `ctx.evaluate(...)`). `ctx` is this run's `AlgoContext` -- see the
+        class docstring."""
+        ...
 
     @abc.abstractmethod
-    def step(self, ctx): ...
+    def step(self, ctx):
+        """REQUIRED: called repeatedly, once per iteration, until the
+        budget is exhausted (`ctx.remaining <= 0`). Each call MUST evaluate
+        at least one point (via `ctx.evaluate(...)`) or raise
+        `BudgetExhausted` itself -- `solve()`'s own driver raises
+        `RuntimeError` if a `step()` call consumes no budget at all (see
+        `solve()`'s own docstring)."""
+        ...
 
     def solve(self, problem, budget, seed, log_dir=None):
         """problem: routed through `sezgi.as_native_problem` (final-review
