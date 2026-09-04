@@ -31,10 +31,12 @@ bit-for-bit matched against its pure-script twin
 
 ## Engine-hosted authoring (`sezgi.Algorithm` family, class-first)
 
-These five (`examples/python/oop/engine/`) each demonstrate ONE distinct
-way to author against the M4-1 engine-hosted class surface
-(`sezgi.Algorithm`/`PopulationAlgorithm`/`LocalSearch`/`Problem`) —
-Tutorials 3, 4, and 6 walk through the same hooks these scripts exercise.
+These seven (five under `examples/python/oop/engine/`, plus two more from
+`examples/python/oop/` demonstrating the same engine-hosted surface) each
+demonstrate ONE distinct way to author against the M4-1 engine-hosted
+class surface (`sezgi.Algorithm`/`PopulationAlgorithm`/`LocalSearch`/
+`Problem`) — Tutorials 3, 4, and 6 walk through the same hooks these
+scripts exercise.
 
 | Example | File | Category | What it teaches |
 |---|---|---|---|

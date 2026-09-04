@@ -1,14 +1,28 @@
 """Figure: a single seeded run's convergence curve (best-f vs. evaluations
 used), for the Quickstart page.
 
-Mechanism: sezgi runs are deterministic under a fixed `(problem, budget,
-seed)` (see `docs/site/concepts/rng-and-determinism.md`), so truncating the
-SAME seeded run at successively larger budgets reproduces exactly what that
-one run's own trajectory looked like at each point -- an anytime view built
-entirely from real `.run()` calls, no internal engine hooks needed. This is
-the same truncation trick `docs/site/learn/06-reading-convergence-curves.md`
-narrates in prose; this script is its figure-producing twin, plus a second,
-denser problem/algorithm pair for the Quickstart page itself.
+Mechanism: 12 INDEPENDENT `.run()` calls, one per budget in BUDGETS below,
+same `(problem, algorithm, seed)` every time -- not a single logged run
+truncated/replayed after the fact (that is a DIFFERENT technique,
+`read_ioh_records`'s curtailed-view reconstruction, narrated in
+`docs/site/learn/06-reading-convergence-curves.md` and drawn by
+`fig_budget_anytime_curve.py`). `GeneticAlgorithm`'s generator
+(`crates/components/src/ga.rs`'s `GaRealGenerator::generate`) never reads
+the total budget while it runs -- unlike a budget-adaptive preset such as
+`lshade`, whose population-shrinking schedule reads `termination.budget`
+to plan its FULL run (see `docs/DECISIONS.md`'s "CURTAILED VIEW" entry) --
+so an independent run at a smaller budget lands on the same point a
+longer run with the same seed would have reached, WHENEVER the two runs
+complete the same number of generations. That is true at 11 of this
+script's own 12 BUDGETS; `budget=450` is the one exception (the engine
+only evaluates whole generation batches, so a `budget=450` request stops
+at `evals_used=440`, one generation short of where a longer run's own
+trajectory actually stood at evaluation #450) -- confirmed by comparing
+this script's own independent-run output against a curtailed-view replay
+of a single logged budget=2000 run at the same seed. The resulting curve
+is still a faithful, real convergence curve (every plotted point is a
+genuine `.run()` result); only the "exact reproduction at every budget"
+claim would be false, and is not made here.
 """
 import sezgi
 from _figutil import png_path, write_sidecar

@@ -52,11 +52,19 @@ algorithm.
 
 ## A look at convergence
 
-The 10-line run above, re-run at 12 increasing budgets (same problem,
-algorithm, and seed each time — sezgi's determinism means a larger-budget
-run reproduces exactly where the same seeded run's own trajectory stood at
-every smaller budget, see
-[Determinism and the RNG model](concepts/rng-and-determinism.md)):
+The 10-line run above, re-run at 12 increasing budgets — same problem,
+algorithm, and seed each time, each budget run as its own independent
+`.run()` call. `GeneticAlgorithm`'s generator never reads the total
+budget while it runs (unlike budget-adaptive presets such as `lshade`,
+see [Determinism and the RNG model](concepts/rng-and-determinism.md)), so
+an independent run at a smaller budget lands on the same point a longer
+run with the same seed would have reached, *whenever the two runs
+complete the same number of generations* — true at 11 of the 12 budgets
+plotted here (the one exception, `budget=450`, stops one partial
+generation short of where a longer run's own trajectory stood at
+evaluation #450, since the engine only evaluates whole generation
+batches; see `docs/DECISIONS.md`'s "CURTAILED VIEW" entry for the general
+case):
 
 ![Convergence curve: GeneticAlgorithm on bbob(1, 5, 1), seed=1](assets/figures/convergence_curve.png)
 
