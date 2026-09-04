@@ -1,0 +1,91 @@
+site_name: sezgi
+site_description: Rust-core, component-based metaheuristic optimization library
+docs_dir: docs/site
+site_dir: site
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+
+plugins:
+  - search
+  - privacy
+  - offline
+  - markdown-exec
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: ["py-sezgi/python"]
+          options:
+            force_inspection: true # REQUIRED: 26 of 29 builtin classes are type()-generated
+            show_source: false
+            members_order: source
+            # Deliberately NOT "google": the project's actual docstring
+            # voice is plain prose with an informal "name: description"
+            # parameter list, not true Google-style "Args:"/"Returns:"
+            # sections. Probed: docstring_style=google mis-parses the
+            # first "name: description" line as a Google param entry and
+            # renders it as a broken, half-collapsed <details> block,
+            # splitting one sentence across a summary/body pair. null
+            # (no structured parsing) renders the authored prose intact.
+            docstring_style: null
+            show_root_heading: true
+            show_root_full_path: false
+            merge_init_into_class: true
+            separate_signature: true
+            show_signature_annotations: true
+
+markdown_extensions:
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Install: install.md
+  - Quickstart: quickstart.md
+  - API reference:
+      - Problem and spaces: api/spaces.md
+      - Problem ABC and conversion: api/problem.md
+      - Algorithm, PopulationAlgorithm, LocalSearch: api/algorithm.md
+      - AskTellAlgorithm and AlgoContext: api/asktell.md
+      - Built-in algorithm classes (29): api/builtins.md
+      - Recipes: api/recipes.md
+      - "Solve / compat internals": api/compat.md
+      - Presets: api/presets.md
+      - Statistics: api/stats.md
+      - Bias scanning: api/bias.md
+      - Multi-objective (mo): api/mo.md
+      - Benchmark problems: api/problems.md
+  - R surface: r.md
