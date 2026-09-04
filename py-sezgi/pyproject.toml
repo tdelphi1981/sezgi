@@ -33,4 +33,5 @@ docs = [
   "mkdocstrings-python==2.0.8",
   "markdown-exec==1.12.3",
   "pymdown-extensions==11.0.2",
+  "matplotlib==3.11.1",
 ]

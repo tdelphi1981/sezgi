@@ -82,6 +82,15 @@ nav:
       - Encodings and search spaces: learn/04-encodings-and-search-spaces.md
       - Comparing algorithms fairly: learn/05-comparing-algorithms-fairly.md
       - Reading convergence curves: learn/06-reading-convergence-curves.md
+  - Tutorials (executed):
+      - Your first optimization: tutorials/01-first-optimization.md
+      - Defining your own Problem: tutorials/02-your-own-problem.md
+      - Writing an Algorithm subclass: tutorials/03-algorithm-subclass.md
+      - PopulationAlgorithm and LocalSearch: tutorials/04-population-and-local-search.md
+      - Feature selection recipe: tutorials/05-feature-selection.md
+      - Mixed-space tuning: tutorials/06-mixed-space-tuning.md
+      - Multi-objective optimization with NSGA-II: tutorials/07-nsga2-multi-objective.md
+      - Comparing algorithms and statistics: tutorials/08-comparing-algorithms.md
   - Concepts & architecture:
       - Engine flow: concepts/engine-flow.md
       - Class hierarchy: concepts/class-hierarchy.md
@@ -99,4 +108,5 @@ nav:
       - Bias scanning: api/bias.md
       - Multi-objective (mo): api/mo.md
       - Benchmark problems: api/problems.md
+  - Examples gallery: examples.md
   - R surface: r.md

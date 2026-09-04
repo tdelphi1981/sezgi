@@ -67,6 +67,17 @@ space that **mixes** block kinds has no single `ga_*` preset in sezgi
 today; it must be built by hand around `gen/compound`
 (`crates/components/src/compound.rs`).
 
+## Three block kinds, sampled
+
+The figure below shows what three of these encodings actually LOOK like,
+sampled directly from the engine's own initial-population sampler (the
+same `init/uniform` path every algorithm's `run()` seeds from, captured
+via the `generate()` hook Tutorial 3 teaches): a continuous `Float(-5, 5,
+2)` box, a `Categorical(4, 1)` choice sampled 100 times, and one
+`Permutation(8)` ordering:
+
+![Three encodings sampled: Float(-5, 5, 2) as a 2D scatter, Categorical(4, 1) as a count histogram, Permutation(8) as one ordering](../assets/figures/encoding_space.png)
+
 ## A composed space, block by block
 
 ```mermaid

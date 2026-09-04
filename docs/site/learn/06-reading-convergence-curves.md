@@ -7,11 +7,14 @@ can have gotten there completely differently (one steady, one stuck-then-
 jumping), and that difference matters when choosing an algorithm or a
 budget.
 
-!!! note "Figure note"
-    This page describes what a convergence curve shows and sketches its
-    shape conceptually (below). A rendered matplotlib figure over a real
-    logged run arrives in a later milestone task; this page does not link
-    to it, so nothing here breaks under a strict build.
+## The curve, rendered
+
+`docs/scripts/fig_budget_anytime_curve.py` runs exactly the scenario
+walked through by hand below (`DifferentialEvolution(pop_size=20)` on
+`bbob(1, 5, 1)`, seed=1) at a denser set of budgets, plotted both ways —
+raw best-so-far and log-gap, side by side:
+
+![Budget/anytime curve: DifferentialEvolution on bbob(1, 5, 1), seed=1, raw best-so-far and log-gap views](../assets/figures/budget_anytime_curve.png)
 
 ## Anytime behavior, read without a plot
 

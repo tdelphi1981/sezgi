@@ -50,6 +50,16 @@ algorithm.
 - `f_opt`, `gap` — the problem's known optimum (`None` if unknown) and
   `best_f - f_opt`.
 
+## A look at convergence
+
+The 10-line run above, re-run at 12 increasing budgets (same problem,
+algorithm, and seed each time — sezgi's determinism means a larger-budget
+run reproduces exactly where the same seeded run's own trajectory stood at
+every smaller budget, see
+[Determinism and the RNG model](concepts/rng-and-determinism.md)):
+
+![Convergence curve: GeneticAlgorithm on bbob(1, 5, 1), seed=1](assets/figures/convergence_curve.png)
+
 ## Your own problem
 
 Subclass `sezgi.Problem` and implement `space()` and `evaluate(x)`:

@@ -69,6 +69,17 @@ is visible in the printed gap — but **one seeded run is an illustration,
 not evidence**: see page 5 before drawing any conclusion from a result like
 this one.
 
+## The same comparison, over several seeds
+
+A single seeded run above is only an illustration. The figure below runs
+the same two algorithms on the same problem across 8 seeds each, at six
+increasing budgets, plotting the MEAN gap with a shaded min/max band —
+the first place on this site a reader sees run-to-run spread drawn
+directly, before [page 5](05-comparing-algorithms-fairly.md) introduces a
+real statistical test for it:
+
+![Multi-seed convergence bands: RandomSearch vs DifferentialEvolution on bbob(1, 5, 1), 8 seeds each](../assets/figures/multiseed_band.png)
+
 ## The decision, as a diagram
 
 ```mermaid
