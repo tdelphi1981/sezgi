@@ -75,6 +75,17 @@ nav:
   - Home: index.md
   - Install: install.md
   - Quickstart: quickstart.md
+  - Learn — metaheuristics from scratch:
+      - What metaheuristics are, and when to use one: learn/01-what-are-metaheuristics.md
+      - Anatomy of a population-based algorithm: learn/02-anatomy-of-a-population-algorithm.md
+      - Exploration vs exploitation: learn/03-exploration-vs-exploitation.md
+      - Encodings and search spaces: learn/04-encodings-and-search-spaces.md
+      - Comparing algorithms fairly: learn/05-comparing-algorithms-fairly.md
+      - Reading convergence curves: learn/06-reading-convergence-curves.md
+  - Concepts & architecture:
+      - Engine flow: concepts/engine-flow.md
+      - Class hierarchy: concepts/class-hierarchy.md
+      - Determinism and the RNG model: concepts/rng-and-determinism.md
   - API reference:
       - Problem and spaces: api/spaces.md
       - Problem ABC and conversion: api/problem.md

@@ -75,5 +75,11 @@ spaces via `Space(*blocks)`).
 
 ## Next steps
 
+- New to metaheuristics? Start the
+  [Learn track](learn/01-what-are-metaheuristics.md) — six introductory
+  pages, each with a runnable snippet and a diagram.
+- [Concepts & architecture](concepts/engine-flow.md) for how the engine
+  loop, the Python class hierarchy, and the RNG determinism model actually
+  work.
 - [API reference](api/spaces.md) for the full auto-generated Python API.
 - [R surface](r.md) if you want the same guarantees from R.
