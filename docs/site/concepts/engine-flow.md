@@ -20,8 +20,12 @@ exactly as written, not as an idealized textbook version of it.
    then evaluates it (charging `pop_size` evaluations against the budget).
 4. Enters the outer loop, which repeats until a `target` fitness is reached
    or the budget is exhausted:
-   - For **each configured stage** (most presets have one; TLBO and ABC
-     have two — see `presets.rs`):
+   - For **each configured stage** (most presets have one; `tlbo` is the
+     only preset with two — `gen/tlbo-teacher` then `gen/tlbo-learner`,
+     `presets.rs:600-620`. `abc` has one stage with an `Adapter` attached
+     — its extra per-cycle evaluation cost comes from that adapter's own
+     internal evaluations, not from a second engine stage,
+     `presets.rs:695-708`):
      1. `Generator::generate(pop, ctx)` produces offspring.
      2. Boundary repair (`boundary/clamp` in every documented preset)
         repairs each offspring against the search space.
@@ -64,7 +68,7 @@ flowchart TD
 
     LOOP -->|no| STAGES
 
-    subgraph STAGES["For each configured stage (1 for most presets, 2 for TLBO/ABC)"]
+    subgraph STAGES["For each configured stage (1 for most presets, incl. abc's single\nstage+adapter; 2 only for tlbo: teacher then learner)"]
       direction TB
       GEN["Generator.generate(pop, ctx)\n-- e.g. gen/de-shade, gen/pso, gen/step,\n   or a Python Algorithm.generate() callback"]
       GEN --> REPAIR["BoundaryHandler.repair\n(boundary/clamp)"]
@@ -83,7 +87,7 @@ flowchart TD
     LOOP -->|yes| DONE(["RunResult{best_f, best_x,\nevals_used, iterations}"])
 ```
 
-<!-- Source: crates/core/src/engine.rs (`Engine::run`, lines 83-248: RNG stream derivation at 91-106, initialization at 108-122, the per-stage generate/repair/evaluate/replace/adapt sequence at 149-190, restart handling at 192-232, the RunResult construction at 237-248) -->
+<!-- Source: crates/core/src/engine.rs (`Engine::run`, lines 83-248: RNG stream derivation at 91-106, initialization at 108-122, the per-stage generate/repair/evaluate/replace/adapt sequence at 149-190, restart handling at 192-232, the RunResult construction at 237-248); crates/components/src/presets.rs:600-620 (`tlbo`, the only 2-stage preset) and :695-708 (`abc`, 1 stage with an adapter) -->
 
 ## Next
 

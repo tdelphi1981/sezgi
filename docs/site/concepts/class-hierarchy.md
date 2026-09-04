@@ -33,18 +33,27 @@ below for why).
   `crates/components/src/presets.rs` preset builder (34 builders; some
   presets, like DE's three variants, are collapsed under one wrapper via a
   `variant=` kwarg), plus `NSGA2` (a thin `sezgi.mo.nsga2` skin, not a
-  `presets.rs` builder). Every one of them is a plain `object` subclass,
-  not a `Problem`/`Algorithm` subclass at all — `__init__(pop_size=...,
-  **preset_kwargs)` then `run(problem, budget, seed=0, ...)`, internally
-  building an `AlgorithmSpec` and calling `sezgi.solve()` (the same
-  compat-layer entry point `sezgi.Algorithm.run` and `AskTellAlgorithm.
-  solve` both funnel their own results through, via the shared
-  `_wrap_result` helper in `algo.py`).
+  `presets.rs` builder). None of them is a `Problem`/`Algorithm` subclass —
+  all 29 are plain `object` subclasses. **28 of the 29** share one uniform
+  shape: `__init__(pop_size=..., **preset_kwargs)` then `run(problem,
+  budget, seed=0, ...)`, internally building an `AlgorithmSpec` and calling
+  `sezgi.solve()` (the same compat-layer entry point `sezgi.Algorithm.run`
+  funnels its own result through, via the shared `_wrap_result` helper in
+  `algo.py`). **`NSGA2` is the one exception**: its `__init__`/`run()`
+  signatures mirror `sezgi.mo.nsga2`'s own multi-objective parameter set
+  instead (`run(problem, dim, budget, m=None, k=None, l=None, seed=0,
+  ...)`), and — per its own class docstring — `run()` returns
+  `mo.nsga2`'s own raw dict (`individuals`, `objectives`, `front0`,
+  `evals_used`, `violations` when constrained), **not**
+  `sezgi.algo.SolveResult`: that dataclass's fields (`best_x`/`best_f`/
+  `f_opt`/`gap`) assume a single-objective run with one best point, which
+  does not fit a multi-objective Pareto front.
 
-All four families converge on one result shape: `sezgi.algo.SolveResult`
+`sezgi.Algorithm`, `sezgi.AskTellAlgorithm`, and 28 of the 29 built-in
+wrapper classes converge on one result shape: `sezgi.algo.SolveResult`
 (`algo` name, `seed`, `budget`, `evals_used`, `best_x`, `best_f`, `f_opt`,
-`gap`) — there is exactly one result type across the whole class-first
-surface, by design.
+`gap`). `NSGA2` is the documented exception to that convergence — see
+above.
 
 ## As a class diagram
 
@@ -86,9 +95,15 @@ classDiagram
     }
 
     class BuiltinWrapper {
-        <<29 classes, e.g. GeneticAlgorithm,\nDifferentialEvolution, ParticleSwarm,\nRandomSearch, SimulatedAnnealing, NSGA2, ...>>
+        <<28 of 29 classes, e.g. GeneticAlgorithm,\nDifferentialEvolution, ParticleSwarm,\nRandomSearch, SimulatedAnnealing, ...>>
         +__init__(pop_size, **preset_kwargs)
         +run(problem, budget, seed, run_id, log_dir) SolveResult
+    }
+
+    class NSGA2 {
+        <<the 1 exception -- thin skin over sezgi.mo.nsga2>>
+        +__init__(pop_size, eta_c, eta_m, ...)
+        +run(problem, dim, budget, m, k, l, seed, ...) dict
     }
 
     class SolveResult {
@@ -102,21 +117,40 @@ classDiagram
         f_opt
         gap
     }
+    class MoNsga2Dict {
+        <<mo.nsga2's own dict, NOT SolveResult>>
+        individuals
+        objectives
+        front0
+        evals_used
+        violations
+    }
     Algorithm ..> SolveResult : run() returns
     AskTellAlgorithm ..> SolveResult : solve() returns
     BuiltinWrapper ..> SolveResult : run() returns
+    NSGA2 ..> MoNsga2Dict : run() returns
 ```
 
 <!-- Source: py-sezgi/python/sezgi/problem.py (`Problem` ABC); py-sezgi/python/sezgi/recipes.py (`FeatureSelection`, `MixedTuning`); py-sezgi/python/sezgi/algorithm.py (`Algorithm`, `PopulationAlgorithm`, `LocalSearch`); py-sezgi/python/sezgi/algo.py (`AskTellAlgorithm`, `SolveResult`, the module-level `Algorithm = AskTellAlgorithm` compat alias); py-sezgi/python/sezgi/builtins.py (the 29 wrapper classes, `_PRESET_TABLE`, `_run_spec`) -->
 
 ## The compat layer underneath
 
-None of these four families is a reimplementation of the others — they are
-four different front doors onto the *same* `sezgi.solve()` /
-`_sezgi.solve_with_py_generator()` compat internals, which in turn build an
-`AlgorithmSpec` and hand it to the one `Engine::run` loop described in
-[Engine flow](engine-flow.md). See
-[Solve / compat internals](../api/compat.md) for that layer's own reference.
+Three of these four families are genuinely one implementation underneath:
+`sezgi.Algorithm.run`, the 29 built-in wrapper classes' `run()`, and a
+hand-written spec passed straight to `sezgi.solve()` are different front
+doors onto the *same* `sezgi.solve()` / `_sezgi.solve_with_py_generator()`
+compat internals, which build an `AlgorithmSpec` and hand it to the one
+`Engine::run` loop described in [Engine flow](engine-flow.md).
+
+`sezgi.AskTellAlgorithm` is **not** part of that convergence — as its own
+description above says, `AskTellAlgorithm.solve()` drives a pure-Python
+`setup()`/`step()` loop directly over `EvalSession`'s ask/tell core; it
+never builds an `AlgorithmSpec` and never calls `Engine::run` or
+`solve_with_py_generator` at all. The engine only supplies that session's
+own evaluation counting, budget enforcement, and deterministic RNG stream
+— the generation loop itself is entirely `AskTellAlgorithm`'s own Python
+code. See [Solve / compat internals](../api/compat.md) for the three
+converging families' own reference.
 
 ## Next
 

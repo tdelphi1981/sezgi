@@ -34,12 +34,20 @@ for budget in (100, 300, 900, 2700):
     print(f"budget={budget:5d} best_f={result.best_f:12.6g} gap={result.gap:12.6g}")
 ```
 
-Reading this table: the gap drops by roughly an order of magnitude between
-`budget=100` and `budget=300`, then keeps dropping but by less each step —
-a **plateau approaching a floor**, not a stall. Whether a plateau means
-"converged" or "stuck" cannot be told from the numbers alone; it depends on
-whether the floor is close to the problem's known optimum (as it is here,
-`f_opt` for BBOB f1 is known) or far from it.
+Reading this table: in **absolute** terms the gap's improvement shrinks
+each step (`7.45 → 0.81 → 0.0015 → ~0`) — the curve flattens toward a
+floor, not a stall. But on a **log scale** (the natural scale for a gap
+approaching zero) the rate is not slowing down at all: roughly one order
+of magnitude between `budget=100` and `300`, then over *two* orders of
+magnitude between `300` and `900`, then over *eight* between `900` and
+`2700` — the relative rate of improvement is accelerating here, which is
+exactly the fast local convergence a differential-evolution-style search
+shows once it is inside the right basin. A **plateau approaching a floor**
+still describes the absolute-scale shape, but "diminishing returns" would
+be the wrong read of the log-scale one. Whether the floor itself means
+"converged" or "stuck" cannot be told from either view alone; it depends
+on whether the floor is close to the problem's known optimum (as it is
+here, `f_opt` for BBOB f1 is known) or far from it.
 
 ## Three honest ways to view the same run
 
