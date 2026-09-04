@@ -90,7 +90,7 @@ flowchart LR
     Q -->|no| STUCK["Stuck at a local optimum --\nmore budget alone won't fix this"]
 ```
 
-<!-- Source: crates/core/src/engine.rs (deterministic per-seed trajectory, so a budget-truncated re-run reproduces the same run's own history); py-sezgi/python/sezgi/__init__.py (`ecdf`, `read_ioh_records`, `coco_export` -- the IOH-logging-backed anytime-view surface) -->
+<!-- Source: crates/core/src/engine.rs (deterministic per-seed trajectory, so a budget-truncated re-run reproduces the same run's own history only when every budget completes whole generations and the generator is not budget-adaptive); py-sezgi/python/sezgi/__init__.py (`ecdf`, `read_ioh_records`, `coco_export` -- the IOH-logging-backed anytime-view surface) -->
 
 ## Next
 

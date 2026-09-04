@@ -39,15 +39,15 @@ by the project's own R/Python parity test suites, not merely asserted.
 | `sezgi.Algorithm` | `sezgi::Algorithm` | Engine-hosted `generate(pop, ctx)` base. |
 | `sezgi.PopulationAlgorithm` | `sezgi::PopulationAlgorithm` | `select()`/`vary()` split. |
 | `sezgi.LocalSearch` | `sezgi::LocalSearch` | `neighbor()`/`accept()` split. |
-| `sezgi.AskTellAlgorithm` | `sezgi::AskTellAlgorithm` | `setup()`/`step()` ask/tell surface. |
+| `sezgi.AskTellAlgorithm` | `sz_algorithm()` / `sz_algo_solve()` | `setup()`/`step()` ask/tell surface, expressed as base-R functions (scope ruling: no R6 here). |
 | `sezgi.GeneticAlgorithm`, ..., 29 built-in classes | `sezgi::GeneticAlgorithm`, ..., 29 built-in classes | One R6 class per Python wrapper class, table-driven on both sides from the same `crates/components/src/presets.rs` builder set. |
-| `sezgi.solve(spec, problem, ...)` | `sz_solve(spec, problem, ...)` | Compat internals (see [Solve / compat internals](api/compat.md)). |
+| `sezgi.solve(spec, problem, ...)` | `sz_solve_bbob()`, `sz_solve_onemax()`, `sz_solve_tsp()`, `sz_solve_cec2014()`/`cec2017()`/`cec2022()`, `sz_solve_cat_match()`, `sz_solve_int_quadratic()`, `sz_solve_mixed_diagnostic()` | Per-problem compat internals (see [Solve / compat internals](api/compat.md)). |
 | `sezgi.presets.*` | `sz_preset_*` | Same preset catalog, one builder per algorithm variant. |
 | `sezgi.run_experiment` | `sz_run_experiment` | Same `ExperimentSpec`/IOH-logging semantics. |
 | `sezgi.stats.*` | `sz_stats_*` (via `R/stats.R`) | Same statistical-comparison suite. |
 | `sezgi.bias.*` | `sz_bias_*` | Same structural/central bias scanner. |
 | `sezgi.mo.*` | `sz_nsga2`, `sz_mo_hypervolume_2d`, `sz_mo_igd`, `sz_mo_pareto_front`, ... | Same NSGA-II runner and MO indicators, bit-exact against the Python bindings. |
-| `sezgi.Float`/`Int`/`Categorical`/`Binary`/`Permutation`/`Space` | `sezgi::Float`/`Int`/`Categorical`/`Binary`/`Permutation`/`Space` | Same five space builders. |
+| `sezgi.Float`/`Int`/`Categorical`/`Binary`/`Permutation`/`Space` | `sz_float`/`sz_int`/`sz_categorical`/`sz_binary`/`sz_permutation`/`sz_space` | Same space builders. |
 | `sezgi.recipes.FeatureSelection`/`MixedTuning` | `sezgi::FeatureSelection`/`MixedTuning` | Same two data recipes. |
 
 ## No overclaim

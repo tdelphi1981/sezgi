@@ -41,7 +41,7 @@ below for why).
   funnels its own result through, via the shared `_wrap_result` helper in
   `algo.py`). **`NSGA2` is the one exception**: its `__init__`/`run()`
   signatures mirror `sezgi.mo.nsga2`'s own multi-objective parameter set
-  instead (`run(problem, dim, budget, m=None, k=None, l=None, seed=0,
+  instead (`run(problem, dim, budget, m=None, seed=0, k=None, l=None,
   ...)`), and — per its own class docstring — `run()` returns
   `mo.nsga2`'s own raw dict (`individuals`, `objectives`, `front0`,
   `evals_used`, `violations` when constrained), **not**
