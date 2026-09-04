@@ -7,20 +7,21 @@ OUTSIDE `test_examples_oop_parity.py`'s 17-pair gate; its own gate is
 """
 import sezgi
 
-STEP = 0.3  # perturbation half-width
-
 
 class CustomPerturbationSearch(sezgi.LocalSearch):
     """neighbor(): perturbs every coordinate of x by an independent
-    uniform draw in [-STEP, STEP] via ctx.rng.next_f64(). The base's
+    uniform draw in [-step, step] via ctx.rng.next_f64(). The base's
     default greedy accept() (f_new <= f_old) tracks whichever of
     {current, neighbor} the engine's own replace/mu-plus-lambda replacer
     already keeps at pop_size=1 -- see sezgi.LocalSearch's own class
     docstring (ACCEPT() DESIGN) for exactly what accept() does and does
-    not control here."""
+    not control here. `step`: perturbation half-width."""
+
+    def __init__(self, step=0.3):
+        self.step = step
 
     def neighbor(self, x, ctx):
-        return [xi + (ctx.rng.next_f64() - 0.5) * 2 * STEP for xi in x]
+        return [xi + (ctx.rng.next_f64() - 0.5) * 2 * self.step for xi in x]
 
 
 def main():

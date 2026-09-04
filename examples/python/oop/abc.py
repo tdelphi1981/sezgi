@@ -23,11 +23,8 @@ reproduces directly.
 import sezgi
 from sezgi.algo import BudgetExhausted
 
-DIM = 5
 BUDGET = 2000
-POP_SIZE = 20  # food-source count SN (== sezgi's pop_size, NOT NP=2*SN)
 SEED = 42
-LIMIT = POP_SIZE * DIM  # abc_limit: SN*dim (Karaboga & Akay 2009's rule of thumb)
 
 
 def abc_dim_step(x_i_j, x_k_j, phi):
@@ -74,23 +71,38 @@ def clamp(x, lo, hi):
 
 
 class Abc(sezgi.AskTellAlgorithm):
+    """Artificial Bee Colony (Karaboga 2005, TR-06, Erciyes University;
+    Karaboga & Basturk 2007, Journal of Global Optimization 39(3),
+    459-471), modeling the employed/onlooker/scout cycle explicitly, one
+    stage at a time, over `sezgi.AskTellAlgorithm`'s ask/tell loop.
+    `dim`: problem dimensionality. `pop_size`: food-source count SN (==
+    sezgi's own `pop_size`, NOT Karaboga's colony size `NP=2*SN` -- there
+    is only ever one array of solutions). `limit`: the scout phase's
+    trial-abandonment threshold (default `pop_size * dim`, Karaboga &
+    Akay 2009's dimension-scaling rule of thumb)."""
+
     name = "abc"
 
+    def __init__(self, dim=5, pop_size=20, limit=None):
+        self.dim = dim
+        self.pop_size = pop_size
+        self.limit = limit if limit is not None else pop_size * dim
+
     def setup(self, ctx):
-        self.pop = [ctx.random_point() for _ in range(POP_SIZE)]
+        self.pop = [ctx.random_point() for _ in range(self.pop_size)]
         self.fitness = ctx.evaluate(self.pop)
-        self.trials = [0] * POP_SIZE
+        self.trials = [0] * self.pop_size
 
     def step(self, ctx):
         lo, hi = ctx.bounds
 
         # ---- Employed phase: frozen batch, one candidate per source ----
         candidates = []
-        for i in range(POP_SIZE):
-            j, k, phi = abc_draw_move(POP_SIZE, DIM, i, ctx.rng)
+        for i in range(self.pop_size):
+            j, k, phi = abc_draw_move(self.pop_size, self.dim, i, ctx.rng)
             candidates.append([clamp(v, lo, hi) for v in abc_candidate(self.pop[i], self.pop[k], j, phi)])
         new_fitness = ctx.evaluate(candidates)
-        for i in range(POP_SIZE):
+        for i in range(self.pop_size):
             if new_fitness[i] < self.fitness[i]:
                 self.pop[i], self.fitness[i], self.trials[i] = candidates[i], new_fitness[i], 0
             else:
@@ -100,10 +112,10 @@ class Abc(sezgi.AskTellAlgorithm):
         transformed = [abc_fitness_transform(f) for f in self.fitness]
         prob = abc_probabilities(transformed)
         i, t, budget_exhausted = 0, 0, False
-        while t < POP_SIZE and not budget_exhausted:
+        while t < self.pop_size and not budget_exhausted:
             if ctx.rng.random() < prob[i]:
                 t += 1
-                j, k, phi = abc_draw_move(POP_SIZE, DIM, i, ctx.rng)
+                j, k, phi = abc_draw_move(self.pop_size, self.dim, i, ctx.rng)
                 candidate = abc_candidate(self.pop[i], self.pop[k], j, phi)
                 candidate[j] = clamp(candidate[j], lo, hi)
                 try:
@@ -115,12 +127,12 @@ class Abc(sezgi.AskTellAlgorithm):
                         self.pop[i], self.fitness[i], self.trials[i] = candidate, f, 0
                     else:
                         self.trials[i] += 1
-            i = (i + 1) % POP_SIZE
+            i = (i + 1) % self.pop_size
 
         # ---- Scout phase: at most one re-randomized source per cycle ----
         if not budget_exhausted:
             scout_idx = abc_scout_target(self.trials)
-            if self.trials[scout_idx] > LIMIT:
+            if self.trials[scout_idx] > self.limit:
                 new_pos = ctx.random_point()
                 try:
                     f = ctx.evaluate([new_pos])[0]
@@ -131,7 +143,8 @@ class Abc(sezgi.AskTellAlgorithm):
 
 
 def main():
-    res = Abc().solve(sezgi.bbob(1, DIM, 1), budget=BUDGET, seed=SEED)
+    algo = Abc()
+    res = algo.solve(sezgi.bbob(1, algo.dim, 1), budget=BUDGET, seed=SEED)
     print(f"abc (oop): evals_used={res.evals_used} best_f={res.best_f:.6g} "
           f"gap={res.gap:.6g}")
 

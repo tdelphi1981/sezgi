@@ -11,9 +11,7 @@ import math
 
 import sezgi
 
-DIM = 5
 BUDGET = 2000
-POP_SIZE = 30  # number of search agents (also the flame archive size)
 SEED = 42
 
 
@@ -44,10 +42,21 @@ def clamp(x, lo, hi):
 
 
 class Mfo(sezgi.AskTellAlgorithm):
+    """Moth-Flame Optimization (Mirjalili 2015, Knowledge-Based Systems
+    89, 228-249), modeling the logarithmic-spiral moth-toward-flame
+    update plus the elitist flame-archive merge/truncate mechanism
+    explicitly over `sezgi.AskTellAlgorithm`'s ask/tell loop. `dim`:
+    problem dimensionality. `pop_size`: number of search agents (also
+    the flame archive size)."""
+
     name = "mfo"
 
+    def __init__(self, dim=5, pop_size=30):
+        self.dim = dim
+        self.pop_size = pop_size
+
     def setup(self, ctx):
-        self.pop = [ctx.random_point() for _ in range(POP_SIZE)]
+        self.pop = [ctx.random_point() for _ in range(self.pop_size)]
         self.fitness = ctx.evaluate(self.pop)
 
         # Bootstrap: generation 0 seeds the flame archive from the sorted
@@ -58,15 +67,15 @@ class Mfo(sezgi.AskTellAlgorithm):
         lo, hi = ctx.bounds
         progress = min(max(ctx.evals_used / ctx.budget, 0.0), 1.0)
         a = -1.0 - progress
-        flame_count = mfo_flame_count(POP_SIZE, progress)
+        flame_count = mfo_flame_count(self.pop_size, progress)
 
         offspring = []
-        for i in range(POP_SIZE):
+        for i in range(self.pop_size):
             x = self.pop[i]
             own_flame = self.flames[i]
             target_flame = self.flames[min(i, flame_count - 1)]
             new_x = []
-            for d in range(DIM):
+            for d in range(self.dim):
                 t = (a - 1.0) * ctx.rng.random() + 1.0
                 new_x.append(clamp(mfo_dim_step(x[d], own_flame[d], target_flame[d], t), lo, hi))
             offspring.append(new_x)
@@ -77,13 +86,14 @@ class Mfo(sezgi.AskTellAlgorithm):
         self.pop, self.fitness = offspring, new_fitness
 
         # adapter/mfo-flame-update: merge this generation's freshly moved
-        # moths against the PREVIOUS flames, truncate back to POP_SIZE.
+        # moths against the PREVIOUS flames, truncate back to pop_size.
         self.flame_fitness, self.flames = merge_and_truncate(
             self.fitness, self.pop, self.flame_fitness, self.flames)
 
 
 def main():
-    res = Mfo().solve(sezgi.bbob(1, DIM, 1), budget=BUDGET, seed=SEED)
+    algo = Mfo()
+    res = algo.solve(sezgi.bbob(1, algo.dim, 1), budget=BUDGET, seed=SEED)
     print(f"mfo (oop): evals_used={res.evals_used} best_f={res.best_f:.6g} "
           f"gap={res.gap:.6g}")
 

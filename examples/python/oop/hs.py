@@ -8,13 +8,8 @@ enforced by py-sezgi/tests/test_examples_oop_parity.py.
 """
 import sezgi
 
-DIM = 5
 BUDGET = 2000
-HMS = 30  # harmony memory size (sezgi's "pop_size" for this preset)
 SEED = 42
-HMCR = 0.9
-PAR = 0.3
-BW_FRACTION = 0.01
 
 
 def hs_dim_step(hmcr, par, bw_d, lo_d, hi_d, memory_d, rng):
@@ -36,33 +31,50 @@ def clamp(x, lo, hi):
 
 
 class Hs(sezgi.AskTellAlgorithm):
+    """Harmony Search (Geem, Kim & Loganathan 2001, "A new heuristic
+    optimization algorithm: harmony search", Simulation), modeling the
+    memory-consideration / pitch-adjustment / random-selection cycle
+    explicitly over `sezgi.AskTellAlgorithm`'s ask/tell loop. `dim`:
+    problem dimensionality. `hms`: harmony memory size (sezgi's
+    `pop_size` for this preset). `hmcr`: harmony memory considering
+    rate. `par`: pitch-adjustment rate. `bw_fraction`: pitch-adjustment
+    bandwidth, as a fraction of the search-space width per dimension."""
+
     name = "hs"
+
+    def __init__(self, dim=5, hms=30, hmcr=0.9, par=0.3, bw_fraction=0.01):
+        self.dim = dim
+        self.hms = hms
+        self.hmcr = hmcr
+        self.par = par
+        self.bw_fraction = bw_fraction
 
     def setup(self, ctx):
         lo, hi = ctx.bounds
-        self.bw = [BW_FRACTION * (hi - lo)] * DIM
-        self.memory = [ctx.random_point() for _ in range(HMS)]
+        self.bw = [self.bw_fraction * (hi - lo)] * self.dim
+        self.memory = [ctx.random_point() for _ in range(self.hms)]
         self.fitness = ctx.evaluate(self.memory)
 
     def step(self, ctx):
         lo, hi = ctx.bounds
         new_harmony = [
-            hs_dim_step(HMCR, PAR, self.bw[d], lo, hi,
+            hs_dim_step(self.hmcr, self.par, self.bw[d], lo, hi,
                         [row[d] for row in self.memory], ctx.rng)
-            for d in range(DIM)
+            for d in range(self.dim)
         ]
         new_harmony = [clamp(v, lo, hi) for v in new_harmony]
         new_f = ctx.evaluate([new_harmony])[0]
 
         # replace/worst-if-better: replace the current worst iff new_f beats it.
-        worst = max(range(HMS), key=lambda k: self.fitness[k])
+        worst = max(range(self.hms), key=lambda k: self.fitness[k])
         if new_f < self.fitness[worst]:
             self.memory[worst] = new_harmony
             self.fitness[worst] = new_f
 
 
 def main():
-    res = Hs().solve(sezgi.bbob(1, DIM, 1), budget=BUDGET, seed=SEED)
+    algo = Hs()
+    res = algo.solve(sezgi.bbob(1, algo.dim, 1), budget=BUDGET, seed=SEED)
     print(f"hs (oop): evals_used={res.evals_used} best_f={res.best_f:.6g} "
           f"gap={res.gap:.6g}")
 
