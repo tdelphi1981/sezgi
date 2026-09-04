@@ -1,14 +1,31 @@
 Package: sezgi
-Title: Metaheuristic Optimization with a Rust Core
+Title: Metaheuristic Optimization with a 'Rust' Core
 Version: 0.1.0
-Authors@R: person("Tolga", "Berber", email = "tolga.berber@fen.ktu.edu.tr", role = c("aut", "cre"))
-Description: R frontend for the sezgi metaheuristic optimization library.
-    Algorithms are serializable component graphs executed by a Rust core with
-    reproducible, bit-exact cross-language trajectories.
+Authors@R: c(
+    person("Tolga", "Berber", email = "tolga.berber@fen.ktu.edu.tr",
+           role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-6487-5581")),
+    person("Beyzanur", "Siyah", role = "aut",
+           comment = c(ORCID = "0000-0002-2071-3724")),
+    person("Emir", "Karayağız", role = "aut",
+           comment = c(ORCID = "0009-0005-1673-621X")),
+    person("The authors of the dependency Rust crates", role = "ctb",
+           comment = "see inst/AUTHORS file for details"))
+Description: Build and run metaheuristic optimization algorithms as
+    serializable component graphs executed by a 'Rust' core, with
+    reproducible, bit-exact trajectories shared across the 'R' and
+    'Python' frontends. Includes population and local-search algorithm
+    presets, standard benchmark suites (BBOB, CEC 2014/2017/2022, TSP),
+    multi-objective indicators, structural-bias diagnostics and
+    statistical comparison tools.
 License: MIT + file LICENSE
 Encoding: UTF-8
-SystemRequirements: Cargo (Rust's package manager), rustc
+Depends: R (>= 4.2)
 Imports: R6 (>= 2.4.0)
 Suggests: testthat (>= 3.0.0), jsonlite
+SystemRequirements: Cargo (Rust's package manager), rustc (>= 1.88)
+URL: https://github.com/tdelphi1981/sezgi
+BugReports: https://github.com/tdelphi1981/sezgi/issues
 Config/testthat/edition: 3
 Config/roxygen2/version: 8.1.0
+Config/sezgi/MSRV: 1.88.0
