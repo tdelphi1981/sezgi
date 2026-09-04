@@ -250,6 +250,41 @@ def _make_preset_class(class_name, preset_attr, mode, default_pop_size,
             self.pop_size = default_pop_size if pop_size is None else pop_size
         self.preset_kwargs = preset_kwargs
 
+    if mode == "pop_budget":
+        __init__.__doc__ = (
+            f"Constructs a {class_name} instance; see the class docstring "
+            "for the algorithm itself.\n"
+            f"pop_size: population size for sezgi.presets.{preset_attr}, "
+            f"defaults to {default_pop_size} (see the class docstring for "
+            "where this default comes from).\n"
+            "**preset_kwargs: forwarded UNCHANGED to "
+            f"sezgi.presets.{preset_attr}(pop_size, budget, **preset_kwargs) "
+            f"at run() time -- any keyword that preset's own Rust signature "
+            f"accepts beyond pop_size/budget ({source}).")
+    elif mode == "budget_only":
+        __init__.__doc__ = (
+            f"Constructs a {class_name} instance; see the class docstring "
+            "for the algorithm itself.\n"
+            f"pop_size: NOT a free parameter -- {class_name} is a "
+            "single-trajectory search, fixed at 1 by "
+            f"sezgi.presets.{preset_attr}'s own Rust signature ({source}); "
+            "passing anything other than None or 1 raises ValueError.\n"
+            "**preset_kwargs: forwarded UNCHANGED to "
+            f"sezgi.presets.{preset_attr}(budget, **preset_kwargs) at "
+            "run() time.")
+    else:  # dim_budget
+        __init__.__doc__ = (
+            f"Constructs a {class_name} instance; see the class docstring "
+            "for the algorithm itself.\n"
+            f"pop_size: NOT a free parameter -- {class_name} DERIVES its "
+            "population from the problem's own dimensionality at run() "
+            f"time (sezgi.presets.{preset_attr}'s own formula, {source} -- "
+            "see the class docstring for the exact formula); passing "
+            "anything other than None raises ValueError.\n"
+            "**preset_kwargs: forwarded UNCHANGED to "
+            f"sezgi.presets.{preset_attr}(dim, budget, **preset_kwargs) at "
+            "run() time.")
+
     def run(self, problem, budget, seed=0, run_id=0, log_dir=None):
         native = as_native_problem(problem)
         preset_fn = getattr(sezgi.presets, preset_attr)
@@ -345,6 +380,15 @@ class GeneticAlgorithm(object):
     """
 
     def __init__(self, pop_size=20, representation=None, **preset_kwargs):
+        """pop_size: population size, forwarded to whichever ga_* preset
+        run() ultimately dispatches to (default 20, matching this module's
+        own convention for the ga_* presets -- see _PRESET_TABLE's header
+        comment). representation: overrides auto-dispatch entirely when
+        given (one of "real"/"perm"/"bin"/"int"/"cat"); None (default)
+        means auto-dispatch from the problem's own space at run() time --
+        see the class docstring for the full dispatch table and the Mixed-
+        space error. **preset_kwargs: forwarded UNCHANGED to the dispatched
+        sezgi.presets.ga_*(pop_size, budget, **preset_kwargs) at run() time."""
         if representation is not None and representation not in _GA_REPRESENTATION_TO_PRESET:
             raise ValueError(
                 "representation must be one of "
@@ -383,6 +427,12 @@ class GeneticAlgorithm(object):
         return representation
 
     def run(self, problem, budget, seed=0, run_id=0, log_dir=None):
+        """Resolves the representation (auto-dispatch from problem.space(),
+        or self.representation if forced), runs the matching
+        sezgi.presets.ga_* preset via sezgi.solve(), and wraps the result
+        in sezgi.algo.SolveResult. Sets self.dispatched_representation as a
+        side effect (see the class docstring). Raises NotImplementedError
+        for a Mixed-kind space unless representation= was given."""
         native = as_native_problem(problem)
         representation = self._resolve_representation(native)
         self.dispatched_representation = representation
@@ -415,6 +465,14 @@ class DifferentialEvolution(object):
     (unlike GeneticAlgorithm's space-driven auto-dispatch)."""
 
     def __init__(self, pop_size=20, variant="rand1", **preset_kwargs):
+        """pop_size: population size, forwarded to whichever de_*/jde preset
+        run() dispatches to (default 20, matching this module's own
+        convention -- all three variants share the same (pop_size, budget)
+        signature, presets.rs:8-54). variant: one of "rand1" (default,
+        sezgi.presets.de_rand_1) / "best1" (de_best_1) / "jde" (jde) -- see
+        the class docstring for what each variant means. **preset_kwargs:
+        forwarded UNCHANGED to the dispatched preset at run() time (none of
+        the three currently accept any beyond pop_size/budget)."""
         if variant not in _DE_VARIANT_TO_PRESET:
             raise ValueError(
                 f"variant must be one of {sorted(_DE_VARIANT_TO_PRESET)}, "
@@ -424,6 +482,9 @@ class DifferentialEvolution(object):
         self.preset_kwargs = preset_kwargs
 
     def run(self, problem, budget, seed=0, run_id=0, log_dir=None):
+        """Runs the preset self.variant selected at construction time
+        (sezgi.presets.de_rand_1 / de_best_1 / jde) via sezgi.solve(), and
+        wraps the result in sezgi.algo.SolveResult."""
         native = as_native_problem(problem)
         preset_attr = _DE_VARIANT_TO_PRESET[self.variant]
         preset_fn = getattr(sezgi.presets, preset_attr)
@@ -481,6 +542,17 @@ class NSGA2(object):
     def __init__(self, pop_size, eta_c=20.0, eta_m=20.0, p_c=0.9,
                  p_m=None, p_c_bin=0.9, p_m_bin=None, p_c_cat=0.9,
                  p_m_cat=None):
+        """The algorithm-configuration half of mo.nsga2's parameters (see
+        the class docstring for why the split is here and not at run()).
+        pop_size: population size -- REQUIRED, no default (mo.nsga2 itself
+        requires >= 4 and a multiple of 4; ValueError at run() time
+        otherwise). eta_c/eta_m/p_c: NSGA-II paper's own pinned experimental
+        settings (Deb et al. 2002, Sec. IV.A) as the defaults. p_m: None
+        (default) resolves on the Rust side to 1/n_variables. p_c_bin/
+        p_m_bin/p_c_cat/p_m_cat: the Binary/Categorical-genotype
+        counterparts, consulted only when the problem's space contains that
+        block kind -- see mo.nsga2's own docstring for each default's
+        provenance."""
         self.pop_size = pop_size
         self.eta_c = eta_c
         self.eta_m = eta_m

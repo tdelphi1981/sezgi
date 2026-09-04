@@ -177,6 +177,20 @@ impl Problem for MixedDiagnostic {
     }
 }
 
+/// The native handle type every problem constructor in `sezgi` returns --
+/// `sezgi.bbob(...)`, `sezgi.problems.*` (CEC 2014/2017/2022, TSP, OneMax,
+/// IntQuadratic, CatMatch, the mixed-space diagnostic), `sezgi.from_callable`/
+/// `_sezgi.from_callable_spaced` (a user Python function wrapped as a
+/// `Problem`), and `sezgi.bias.f0`. It is also what `sezgi.Problem`'s own
+/// `as_native_problem` conversion (`py-sezgi/python/sezgi/problem.py`)
+/// produces from a Python-authored `Problem` subclass before a run, so
+/// `sezgi.solve()`/every wrapper class's `run()` always sees exactly this
+/// type regardless of which side (native or Python) built the problem.
+///
+/// Read-only introspection: `dim()`, `bounds()` (continuous spaces only),
+/// `blocks()` (per-block kind descriptors, driving `GeneticAlgorithm`'s
+/// auto-dispatch), `optimum()` (the known optimum, or `None`). See each
+/// method's own doc for its exact contract.
 #[pyclass(name = "Problem", module = "sezgi._sezgi")]
 struct PyProblem { inner: Inner }
 
@@ -519,11 +533,18 @@ struct PyRng { inner: RngStream }
 
 #[pymethods]
 impl PyRng {
-    /// `[0,1)` draw, 53-bit precision -- delegates to `RngStream::next_f64`.
+    /// `[0,1)` draw, 53-bit precision (`1.0` itself is never returned) --
+    /// delegates to `RngStream::next_f64`. Deterministic: replaying the same
+    /// master seed and the same call sequence against this stream (per
+    /// `ctx.rng`'s own write-back protocol) reproduces the identical value
+    /// every time.
     fn next_f64(&mut self) -> f64 { self.inner.next_f64() }
 
-    /// `[0, n)` integer draw (rejection sampling, no modulo bias) --
-    /// delegates to `RngStream::next_below`.
+    /// `[0, n)` integer draw -- `n` itself is EXCLUSIVE, never returned.
+    /// Uses rejection sampling (no modulo bias), so every value in `0..n` is
+    /// equiprobable regardless of `n`'s relationship to the stream's own
+    /// word size. Delegates to `RngStream::next_below`; `n == 0` panics (no
+    /// value in an empty range to return).
     fn next_below(&mut self, n: u64) -> u64 { self.inner.next_below(n) }
 
     /// Derives an independent child stream (e.g. for a restart-style
@@ -619,10 +640,26 @@ fn space_to_py(py: Python<'_>, space: &SearchSpace) -> PyResult<Py<PyList>> {
 /// mutated).
 #[pyclass(module = "sezgi._sezgi")]
 struct EngineCtx {
+    /// The current generation index, 0-based -- the same counter the Rust
+    /// engine loop increments once per generation (`Engine::run`'s own
+    /// `Ctx::iteration`, `crates/core/src/component.rs:7-13`).
     #[pyo3(get)]
     iteration: u64,
+    /// The problem's search space, per-block, in the SAME encoding
+    /// `sezgi.Problem.blocks()` returns (a list of dicts, one per block, in
+    /// `space.blocks()` order): `{"kind": "float"/"int"/"categorical"/
+    /// "binary"/"permutation", ...}` -- see `space_to_py`'s own doc for the
+    /// exact per-kind fields. Fixed for the whole run; read it inside
+    /// `generate` to size or validate offspring against the space.
     #[pyo3(get)]
     space: Py<PyList>,
+    /// This call's slice of the engine's own RNG stream, as a live
+    /// `_sezgi.PyRng` handle -- see [`PyRng`]'s own doc for the determinism
+    /// protocol (same seed => same sequence) and [`PyGenerator::generate`]'s
+    /// doc for exactly when its final state is written back into the
+    /// engine. Every access returns the SAME underlying object, so repeated
+    /// `ctx.rng.next_f64()` calls observe one advancing stream, not fresh
+    /// snapshots.
     #[pyo3(get)]
     rng: Py<PyRng>,
 }
@@ -646,8 +683,16 @@ struct EngineCtx {
 /// etc. work directly).
 #[pyclass(module = "sezgi._sezgi")]
 struct PopView {
+    /// One entry per population member's `x` value, converted via
+    /// `genotype_to_py` -- bare for a single-block space, a tuple of
+    /// per-block values (in `ctx.space` order) for a multi-block one. Same
+    /// convention `sezgi.Problem.evaluate(x)` uses, so a value read here can
+    /// be handed to a Python-side objective unchanged.
     #[pyo3(get)]
     individuals: Py<PyList>,
+    /// A numpy 1-D `float64` array, parallel to `individuals` (lower is
+    /// better) -- a plain numpy array, not a Python list, so `pop.fitness.
+    /// mean()`/`.argmin()`/etc. work directly without conversion.
     #[pyo3(get)]
     fitness: Py<PyAny>,
 }
@@ -969,7 +1014,11 @@ fn bounds_of(space: &SearchSpace) -> PyResult<(f64, f64)> {
 /// `sezgi.from_callable(...)` / `sezgi.problems.tsp(...)` returns.
 #[pymethods]
 impl PyProblem {
-    /// The search space's dimensionality (`space().dim()`).
+    /// The search space's dimensionality (`space().dim()`) -- the flattened
+    /// coordinate count across every block (e.g. a Float(5) + Int(3) space
+    /// reports `dim() == 8`), NOT the block count `blocks()` returns. Used
+    /// throughout the package wherever a dim-shaped preset needs the
+    /// problem's own size (e.g. `LSHADE`'s `18*dim` population formula).
     fn dim(&self) -> usize {
         match &self.inner {
             Inner::Bbob(p) => p.space().dim(),
@@ -1097,6 +1146,17 @@ where
     }
 }
 
+/// `sezgi.bbob(fid, dim, instance)` -- a `solve()`-eligible `Problem` handle
+/// for a COCO/BBOB noiseless single-objective function
+/// (`crates/problems/src/bbob/mod.rs`, a from-definitions reimplementation,
+/// not a COCO binding). `fid` is the BBOB function id, `1..=24`; `dim` is
+/// the search dimensionality (`>= 2`); `instance` selects the per-instance
+/// random shift/rotation (seeded from `BBOB_SEED_BASE + fid` and `instance`
+/// together, so the same `(fid, dim, instance)` always yields byte-identical
+/// `x_opt`/rotation/optimum across runs).
+///
+/// # Errors
+/// `ValueError` for `fid` outside `1..=24`, or `dim < 2`.
 #[pyfunction]
 fn bbob(fid: u32, dim: usize, instance: u32) -> PyResult<PyProblem> {
     Ok(PyProblem { inner: Inner::Bbob(
@@ -1927,6 +1987,14 @@ impl PyEvalSession {
         }
     }
 
+    /// Evaluations consumed so far -- every `evaluate(xs)` call adds
+    /// `len(xs)` to this counter, regardless of whether any individual row
+    /// improved on the running best. Starts at 0; `budget - evals_used` is
+    /// the remaining allowance a caller should check before its next batch.
+    ///
+    /// # Errors
+    /// `ValueError("session finished")` if `finish()` has already been
+    /// called on this session.
     fn evals_used(&self) -> PyResult<u64> {
         Ok(match self.inner.as_ref().ok_or_else(session_finished_err)? {
             SessionKind::Float(s) => s.evals_used(),
@@ -1934,6 +2002,14 @@ impl PyEvalSession {
         })
     }
 
+    /// The total evaluation budget this session was constructed with --
+    /// fixed for the session's lifetime (the constructor's own `budget`
+    /// argument), NOT reduced as `evaluate()` is called (see `evals_used()`
+    /// for the running count against it).
+    ///
+    /// # Errors
+    /// `ValueError("session finished")` if `finish()` has already been
+    /// called on this session.
     fn budget(&self) -> PyResult<u64> {
         Ok(match self.inner.as_ref().ok_or_else(session_finished_err)? {
             SessionKind::Float(s) => s.budget(),
@@ -2711,6 +2787,12 @@ fn extract_matrix(obj: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<f64>>> {
     Ok(result)
 }
 
+/// `sezgi.stats.friedman(results)` -- the Friedman rank test for comparing
+/// 3+ algorithms across multiple problems (a non-parametric alternative to
+/// repeated-measures ANOVA). `results`: a 2D array-like, rows = problems,
+/// columns = algorithms (same shape `results_matrix` produces). Returns a
+/// dict: `statistic` (the chi-square statistic), `p_value`, `mean_ranks`
+/// (list of floats, one per algorithm/column -- lower rank is better).
 #[pyfunction]
 fn stats_friedman(py: Python<'_>, results: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let matrix = extract_matrix(results)?;
@@ -2722,6 +2804,11 @@ fn stats_friedman(py: Python<'_>, results: &Bound<'_, PyAny>) -> PyResult<Py<PyD
     Ok(d.into())
 }
 
+/// `sezgi.stats.wilcoxon(a, b)` -- the Wilcoxon signed-rank test for two
+/// PAIRED samples (`a[i]`/`b[i]` from the same problem/seed). Returns a
+/// dict: `w_statistic`, `z`, `p_value`, `n_effective` (pairs after dropping
+/// zero-difference ties), `method` ("exact" when `n_effective <= 25` with
+/// no tied |difference| ranks, "normal_approx" otherwise).
 #[pyfunction]
 fn stats_wilcoxon(
     py: Python<'_>,
@@ -2746,6 +2833,12 @@ fn stats_wilcoxon(
     Ok(d.into())
 }
 
+/// `sezgi.stats.cliffs_delta(a, b)` -- Cliff's delta, a non-parametric
+/// effect size for two INDEPENDENT samples (unlike `wilcoxon`, `a`/`b` need
+/// not be paired or equal length): `(greater - less) / (len(a) * len(b))`,
+/// where `greater`/`less` count pairs `(ai, bj)` with `ai > bj` / `ai < bj`.
+/// Range `[-1, 1]`; `0` = no stochastic dominance either way. Pass the
+/// result to `stats.cliffs_magnitude` for a qualitative label.
 #[pyfunction]
 fn stats_cliffs_delta(a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<f64> {
     let av = extract_f64_vec(a)?;
@@ -2753,11 +2846,25 @@ fn stats_cliffs_delta(a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<f6
     cliffs_delta(&av, &bv).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
+/// `sezgi.stats.cliffs_magnitude(delta)` -- Romano et al.'s qualitative
+/// bucketing of a Cliff's delta value (as returned by `stats.cliffs_delta`)
+/// into `"negligible"` (`|delta| < 0.147`), `"small"` (`< 0.33`),
+/// `"medium"` (`< 0.474`), or `"large"` (otherwise) -- thresholds applied to
+/// `|delta|`, so the sign (direction) is discarded.
 #[pyfunction]
 fn stats_cliffs_magnitude(delta: f64) -> &'static str {
     cliffs_magnitude(delta)
 }
 
+/// `sezgi.stats.bayesian_signed_rank(a, b, rope=0.0, samples=20000,
+/// seed=1)` -- a Bayesian alternative to `stats.wilcoxon` for two PAIRED
+/// samples, with a Region Of Practical Equivalence (`rope`: differences
+/// with `|a[i] - b[i]| <= rope` count as "practically equal" rather than a
+/// win for either side). `samples` draws from the posterior (Monte Carlo);
+/// `seed` makes the draw reproducible. Returns a dict (values sum to 1.0,
+/// minimize convention, lower is better): `p_left` = P(`a` practically
+/// better than `b`), `p_rope` = P(practically equivalent, within `rope`),
+/// `p_right` = P(`b` practically better than `a`).
 #[pyfunction]
 #[pyo3(signature = (a, b, rope=0.0, samples=20000, seed=1))]
 fn stats_bayesian_signed_rank(
@@ -2779,6 +2886,16 @@ fn stats_bayesian_signed_rank(
     Ok(d.into())
 }
 
+/// `sezgi.stats.plackett_luce(rankings)` -- fits a Plackett-Luce model
+/// (Minorization-Maximization) to a set of full rankings over the same `k`
+/// items. `rankings`: a list of lists, each a permutation of `0..k` (item
+/// indices, best-to-worst; every ranking must cover all `k` items). Returns
+/// a dict: `worths` (list of `k` non-negative floats, one per item,
+/// normalized to sum to 1.0 -- a higher worth means the item tends to rank
+/// better), `p_best` (list of `k` floats, the PL-model probability each
+/// item is ranked first -- numerically identical to `worths` under Luce's
+/// choice axiom, kept as a distinct field for API clarity), `iterations`
+/// (MM iterations to convergence, capped at 10000).
 #[pyfunction]
 fn stats_plackett_luce(py: Python<'_>, rankings: Vec<Vec<usize>>) -> PyResult<Py<PyDict>> {
     let r = plackett_luce(&rankings).map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -2789,6 +2906,16 @@ fn stats_plackett_luce(py: Python<'_>, rankings: Vec<Vec<usize>>) -> PyResult<Py
     Ok(d.into())
 }
 
+/// `sezgi.stats.bayesian_plackett_luce(rankings, samples=2000, burn_in=500,
+/// seed=1)` -- a Bayesian (posterior-sampling) counterpart to
+/// `stats.plackett_luce`: same `rankings` input, but returns a posterior
+/// distribution over worths instead of a single MM point estimate.
+/// `burn_in` draws are discarded before `samples` are recorded; `seed`
+/// makes the draw reproducible. Returns a dict: `mean_worths` (posterior
+/// mean, one per item, sums to 1.0), `ci_low`/`ci_high` (per-item central
+/// 95% credible interval, 2.5th/97.5th percentile of the recorded draws),
+/// `p_best` (per-item posterior probability of having the largest worth),
+/// `samples` (the recorded draw count, echoing the argument).
 #[pyfunction]
 #[pyo3(signature = (rankings, samples=2000, burn_in=500, seed=1))]
 fn stats_bayesian_plackett_luce(
@@ -2869,6 +2996,22 @@ fn paper_package_to_dict(py: Python<'_>, pkg: &PaperPackage) -> PyResult<Py<PyDi
     Ok(d.into())
 }
 
+/// `sezgi.stats.paper_package(algo_names, problem_names, results, rope=0.0,
+/// samples=20000, seed=1)` -- runs the FULL statistical comparison suite
+/// (`stats.friedman` + Nemenyi CD + pairwise `stats.wilcoxon` with Holm
+/// correction + pairwise `stats.cliffs_delta` + pairwise
+/// `stats.bayesian_signed_rank` + `stats.plackett_luce`) over one
+/// `results` matrix in a single call, ready to drop into a paper. `results`:
+/// rows = problems (matching `problem_names`, one row each), columns =
+/// algorithms (matching `algo_names`). `rope`/`samples`/`seed` are forwarded
+/// to the Bayesian sub-tests. Returns a dict: `friedman` (nested dict, as
+/// `stats.friedman`'s own return shape), `nemenyi_cd` (float, the Nemenyi
+/// critical difference for a post-hoc CD diagram), `pairwise_wilcoxon_holm`
+/// (list of `[i, j, p_value]` rows, one per algorithm pair, Holm-corrected
+/// for multiple comparisons), `cliffs` (list of `[i, j, delta]` rows),
+/// `bayes` (list of `[i, j, {p_left, p_rope, p_right}]` rows), `plackett_luce`
+/// (nested dict, as `stats.plackett_luce`'s own return shape), `latex_summary`
+/// / `latex_tests` (ready-to-paste LaTeX table strings).
 #[pyfunction]
 #[pyo3(signature = (algo_names, problem_names, results, rope=0.0, samples=20000, seed=1))]
 fn stats_paper_package(
@@ -3933,93 +4076,231 @@ fn mo_read_moa(py: Python<'_>, path: &str, at: Option<u64>) -> PyResult<Py<PyDic
     Ok(d.into())
 }
 
+/// `sezgi.presets.de_rand_1(pop_size, budget)` -- DE/rand/1/bin (Storn &
+/// Price 1997), the classic Differential Evolution mutation/crossover:
+/// gen/de (strategy="rand1", f=0.5, cr=0.9) paired with
+/// replace/one-to-one-greedy. `pop_size` is the caller's choice (no
+/// canonical value from a single source).
 #[pyfunction] fn preset_de_rand_1(pop_size: usize, budget: u64) -> String {
     presets::de_rand_1(pop_size, budget).to_json()
 }
+/// `sezgi.presets.de_best_1(pop_size, budget)` -- DE/best/1/bin: same shape
+/// as `preset_de_rand_1`, but the mutation base vector is the current best
+/// individual (strategy="best1", f=0.5, cr=0.9) instead of a random one --
+/// more exploitative, faster convergence at the cost of diversity.
 #[pyfunction] fn preset_de_best_1(pop_size: usize, budget: u64) -> String {
     presets::de_best_1(pop_size, budget).to_json()
 }
+/// `sezgi.presets.jde(pop_size, budget)` -- self-adaptive jDE (Brest,
+/// Greiner, Boskovic, Mernik & Zumer 2006): gen/de-jde (F self-adapts per
+/// individual in [0.1, 0.9], CR self-adapts, both with adaptation rate
+/// tau1=tau2=0.1) paired with replace/one-to-one-greedy and
+/// adapter/jde-commit (persists each individual's own adapted F/CR across
+/// generations). No fixed F/CR to tune, unlike `de_rand_1`/`de_best_1`.
 #[pyfunction] fn preset_jde(pop_size: usize, budget: u64) -> String {
     presets::jde(pop_size, budget).to_json()
 }
+/// `sezgi.presets.ga_real(pop_size, budget)` -- real-coded Genetic
+/// Algorithm: gen/ga-real (tournament_k=2, SBX crossover pc=0.9 eta_c=15.0,
+/// polynomial mutation eta_m=20.0) paired with replace/mu-plus-lambda.
+/// `pop_size` is the caller's choice (no canonical value from a single
+/// source). One of the 5 representations `GeneticAlgorithm` auto-dispatches
+/// to for an all-Float space.
 #[pyfunction] fn preset_ga_real(pop_size: usize, budget: u64) -> String {
     presets::ga_real(pop_size, budget).to_json()
 }
+/// `sezgi.presets.pso(pop_size, budget)` -- Particle Swarm Optimization
+/// (Clerc & Kennedy constriction variant, spec name "pso/clerc-kennedy"):
+/// gen/pso (w=0.7298, c1=c2=1.49618) paired with replace/pso-commit.
+/// `pop_size` is the swarm size (caller's choice, no canonical value from a
+/// single source).
 #[pyfunction] fn preset_pso(pop_size: usize, budget: u64) -> String {
     presets::pso(pop_size, budget).to_json()
 }
+/// `sezgi.presets.gwo(pop_size, budget)` -- Grey Wolf Optimizer (Mirjalili,
+/// Mirjalili & Lewis 2014): gen/gwo paired with replace/generational
+/// (non-elitist by construction). `pop_size` is the pack size; canonical is
+/// 30 per the source paper.
 #[pyfunction] fn preset_gwo(pop_size: usize, budget: u64) -> String {
     presets::gwo(pop_size, budget).to_json()
 }
+/// `sezgi.presets.woa(pop_size, budget)` -- Whale Optimization Algorithm
+/// (Mirjalili & Lewis 2016): gen/woa paired with replace/generational.
+/// `pop_size` is the school size; canonical is 30 per the source paper.
 #[pyfunction] fn preset_woa(pop_size: usize, budget: u64) -> String {
     presets::woa(pop_size, budget).to_json()
 }
+/// `sezgi.presets.harmony_search(pop_size, budget)` -- Harmony Search (Geem,
+/// Kim & Loganathan 2001): gen/hs paired with replace/worst-if-better.
+/// `pop_size` is HMS (Harmony Memory Size); canonical is 30 per the source
+/// paper.
 #[pyfunction] fn preset_harmony_search(pop_size: usize, budget: u64) -> String {
     presets::harmony_search(pop_size, budget).to_json()
 }
+/// `sezgi.presets.cuckoo_search(pop_size, budget)` -- Cuckoo Search (Yang &
+/// Deb 2009): gen/cuckoo_levy paired with replace/one-to-one-greedy and
+/// adapter/abandon-worst-fraction (pa=0.25). `pop_size` is the nest count;
+/// canonical is 25 per the source paper.
 #[pyfunction] fn preset_cuckoo_search(pop_size: usize, budget: u64) -> String {
     presets::cuckoo_search(pop_size, budget).to_json()
 }
+/// `sezgi.presets.goa(pop_size, budget)` -- Grasshopper Optimisation
+/// Algorithm (Saremi, Mirjalili & Lewis 2017): gen/goa paired with
+/// replace/generational. `pop_size` is the swarm size; canonical is 30 per
+/// the source paper.
 #[pyfunction] fn preset_goa(pop_size: usize, budget: u64) -> String {
     presets::goa(pop_size, budget).to_json()
 }
+/// `sezgi.presets.sca(pop_size, budget)` -- Sine Cosine Algorithm (Mirjalili
+/// 2016): gen/sca paired with replace/generational. `pop_size` is the
+/// number of search agents; canonical is 30 per the source paper.
 #[pyfunction] fn preset_sca(pop_size: usize, budget: u64) -> String {
     presets::sca(pop_size, budget).to_json()
 }
+/// `sezgi.presets.jaya(pop_size, budget)` -- JAYA (Rao 2016): gen/jaya
+/// paired with replace/one-to-one-greedy. `pop_size` is the candidate
+/// count; canonical is 30 per this crate's own convention (the paper itself
+/// demonstrates with 5).
 #[pyfunction] fn preset_jaya(pop_size: usize, budget: u64) -> String {
     presets::jaya(pop_size, budget).to_json()
 }
+/// `sezgi.presets.mfo(pop_size, budget)` -- Moth-Flame Optimization
+/// (Mirjalili 2015): gen/mfo paired with replace/generational and
+/// adapter/mfo-flame-update (the flame memory). `pop_size` is the number of
+/// search agents; canonical is 30 per the source paper.
 #[pyfunction] fn preset_mfo(pop_size: usize, budget: u64) -> String {
     presets::mfo(pop_size, budget).to_json()
 }
+/// `sezgi.presets.ssa(pop_size, budget)` -- Salp Swarm Algorithm (Mirjalili
+/// et al. 2017): gen/ssa paired with replace/generational. `pop_size` is
+/// the number of salps; canonical is 30 per the source paper.
 #[pyfunction] fn preset_ssa(pop_size: usize, budget: u64) -> String {
     presets::ssa(pop_size, budget).to_json()
 }
+/// `sezgi.presets.firefly(pop_size, budget)` -- Firefly Algorithm (Yang,
+/// X.-S., Nature-Inspired Metaheuristic Algorithms, 2nd ed., Luniver Press,
+/// 2010): gen/fa paired with replace/generational. `pop_size` is the number
+/// of fireflies; canonical is 25 per this crate's own convention (the
+/// source's own demo uses 20).
 #[pyfunction] fn preset_firefly(pop_size: usize, budget: u64) -> String {
     presets::firefly(pop_size, budget).to_json()
 }
+/// `sezgi.presets.bat(pop_size, budget)` -- Bat Algorithm (Yang, X.-S. 2010,
+/// NICSO): gen/ba paired with replace/bat-loudness-greedy. `pop_size` is
+/// the number of bats; canonical is 30 per this crate's own convention (the
+/// source's own demo uses 20).
 #[pyfunction] fn preset_bat(pop_size: usize, budget: u64) -> String {
     presets::bat(pop_size, budget).to_json()
 }
+/// `sezgi.presets.fpa(pop_size, budget)` -- Flower Pollination Algorithm
+/// (Yang, X.-S. 2012, UCNC): gen/fpa paired with replace/one-to-one-greedy.
+/// `pop_size` is the flower/pollen-gamete count; canonical is 25 per the
+/// source's demo.
 #[pyfunction] fn preset_fpa(pop_size: usize, budget: u64) -> String {
     presets::fpa(pop_size, budget).to_json()
 }
+/// `sezgi.presets.tlbo(pop_size, budget)` -- Teaching-Learning-Based
+/// Optimization (Rao, Savsani & Vakharia 2011): a multi-stage preset,
+/// gen/tlbo-teacher then gen/tlbo-learner, each paired with
+/// replace/one-to-one-greedy. `pop_size` is the class size; canonical is 30
+/// per the source paper. A full generation costs `2*pop_size` evaluations.
 #[pyfunction] fn preset_tlbo(pop_size: usize, budget: u64) -> String {
     presets::tlbo(pop_size, budget).to_json()
 }
+/// `sezgi.presets.hho(pop_size, budget)` -- Harris Hawks Optimization
+/// (Heidari, Mirjalili, Faris, Aljarah, Mafarja & Chen 2019): gen/hho
+/// paired with replace/generational. `pop_size` is the hawk count;
+/// canonical is 30 per the source's own demo.
 #[pyfunction] fn preset_hho(pop_size: usize, budget: u64) -> String {
     presets::hho(pop_size, budget).to_json()
 }
+/// `sezgi.presets.alo(pop_size, budget)` -- Ant Lion Optimizer (Mirjalili
+/// 2015): gen/alo paired with replace/mu-plus-lambda. `pop_size` is the
+/// ant/antlion count; canonical is 25 per this crate's own convention.
 #[pyfunction] fn preset_alo(pop_size: usize, budget: u64) -> String {
     presets::alo(pop_size, budget).to_json()
 }
+/// `sezgi.presets.abc(pop_size, budget)` -- Artificial Bee Colony (Karaboga
+/// 2005, TR-06 / Karaboga & Basturk 2007): gen/abc-employed paired with
+/// replace/abc-trial-greedy and adapter/abc-onlooker-scout. `pop_size` IS
+/// SN (the food-source count), NOT Karaboga's colony size NP=2*SN;
+/// canonical is 20 per this crate's own resolved convention. A full cycle
+/// costs `2*pop_size` evaluations (+1 when a scout fires).
 #[pyfunction] fn preset_abc(pop_size: usize, budget: u64) -> String {
     presets::abc(pop_size, budget).to_json()
 }
+/// `sezgi.presets.gsa(pop_size, budget)` -- Gravitational Search Algorithm
+/// (Rashedi, Nezamabadi-pour & Saryazdi 2009): gen/gsa paired with
+/// replace/generational. `pop_size` is the agent count; canonical is 30 per
+/// this crate's own convention.
 #[pyfunction] fn preset_gsa(pop_size: usize, budget: u64) -> String {
     presets::gsa(pop_size, budget).to_json()
 }
+/// `sezgi.presets.sa(budget)` -- Simulated Annealing (Metropolis
+/// acceptance, geometric cooling t0=1.0, alpha=0.999): gen/step (gaussian,
+/// sigma=0.5) paired with replace/metropolis. Single-trajectory: this
+/// preset has NO `pop_size` parameter -- its own population is fixed at 1
+/// internally.
 #[pyfunction] fn preset_sa(budget: u64) -> String {
     presets::sa(budget).to_json()
 }
+/// `sezgi.presets.shade(pop_size, budget)` -- SHADE (Success-History-based
+/// Adaptive DE, Tanabe & Fukunaga 2013): gen/de-shade (h=6, p=0.11) paired
+/// with replace/shade and adapter/shade-history. `pop_size` is the caller's
+/// choice (no canonical value from a single source).
 #[pyfunction] fn preset_shade(pop_size: usize, budget: u64) -> String {
     presets::shade(pop_size, budget).to_json()
 }
+/// `sezgi.presets.lshade(dim, budget)` -- L-SHADE (Linear-population-size-
+/// reduction SHADE, Tanabe & Fukunaga 2014): same gen/de-shade +
+/// replace/shade as `shade`, plus adapter/shade-lshade for the linear
+/// population shrink. Takes `dim`, not `pop_size`: the initial population
+/// is DERIVED as `18*dim` (this preset's own formula), not a free
+/// parameter.
 #[pyfunction] fn preset_lshade(dim: usize, budget: u64) -> String {
     presets::lshade(dim, budget).to_json()
 }
+/// `sezgi.presets.cmaes(pop_size, budget)` -- (mu/mu_w,lambda)-CMA-ES
+/// (Hansen's tutorial form, positive-weights variant): gen/cma paired with
+/// replace/cma-update. `pop_size` is lambda; Hansen's own guideline is
+/// `4+floor(3*ln(dim))` (see `cmaes_ipop`, which computes this
+/// automatically) -- this preset leaves the choice to the caller.
 #[pyfunction] fn preset_cmaes(pop_size: usize, budget: u64) -> String {
     presets::cmaes(pop_size, budget).to_json()
 }
+/// `sezgi.presets.cmaes_ipop(dim, budget)` -- CMA-ES with IPOP-style
+/// stagnation restarts (M2b Task 12): same gen/cma + replace/cma-update
+/// stage as `cmaes`, plus restart/stagnation (patience=2000, sizing=ipop,
+/// factor=2.0, max_pop=512). Takes `dim`, not `pop_size`: the starting
+/// population is DERIVED as `4+floor(3*ln(dim))` (Hansen's default,
+/// computed here since IPOP restarts scale from it), not a free parameter.
 #[pyfunction] fn preset_cmaes_ipop(dim: usize, budget: u64) -> String {
     presets::cmaes_ipop(dim, budget).to_json()
 }
+/// `sezgi.presets.nelder_mead(dim, budget)` -- Nelder-Mead simplex (M2b Task
+/// 13): gen/nelder-mead paired with replace/nelder-mead. Takes `dim`, not
+/// `pop_size`: the population is DERIVED as `dim+1` (the population IS the
+/// simplex), not a free parameter.
 #[pyfunction] fn preset_nelder_mead(dim: usize, budget: u64) -> String {
     presets::nelder_mead(dim, budget).to_json()
 }
+/// `sezgi.presets.random_search(pop_size, budget)` -- uniform random
+/// resampling: gen/uniform-resample paired with replace/mu-plus-lambda --
+/// the baseline every other algorithm in this crate should beat. `pop_size`
+/// is the caller's choice (no canonical value from a single source).
 #[pyfunction] fn preset_random_search(pop_size: usize, budget: u64) -> String {
     presets::random_search(pop_size, budget).to_json()
 }
+/// `sezgi.presets.ga_perm(pop_size, budget)` (M3-3 Task 4) -- Permutation
+/// GA, validated on TSP instances: mirrors `ga_real`'s own preset structure
+/// (init + boundary + one stage pairing a fused crossover+mutation
+/// generator with replace/mu-plus-lambda), swapped to the Permutation
+/// representation -- init/perm-random (Fisher-Yates) and gen/ga-perm
+/// (fused OX-crossover + swap-mutation, tournament_k=2, pc=0.8) in place of
+/// `ga_real`'s init/uniform and gen/ga-real. One of the 5 representations
+/// `GeneticAlgorithm` auto-dispatches to for an all-Permutation space (see
+/// `crates/components/src/presets.rs` for the full rationale, including why
+/// `boundary/clamp` is reused as a documented no-op here).
 #[pyfunction] fn preset_ga_perm(pop_size: usize, budget: u64) -> String {
     presets::ga_perm(pop_size, budget).to_json()
 }
@@ -4064,6 +4345,18 @@ fn parse_distribution(
     }
 }
 
+/// `sezgi.presets.es_mu_plus_lambda(pop_size, budget, dist="gaussian", ...)`
+/// -- (mu+lambda)-Evolution Strategy: gen/step over a caller-selected
+/// mutation distribution paired with replace/mu-plus-lambda. `dist` selects
+/// the distribution ("gaussian" (default) | "cauchy" | "levy" |
+/// "student_t" | "laplace" | "uniform"), each consuming a subset of the
+/// remaining keyword parameters: `mean=`/`sigma=` for gaussian,
+/// `loc=`/`scale=` for cauchy/laplace, `alpha=` for levy, `nu=` for
+/// student_t (uniform takes none). `pop_size` is the caller's choice (no
+/// canonical value from a single source).
+///
+/// # Errors
+/// `ValueError` for an unrecognized `dist`.
 #[pyfunction]
 #[pyo3(signature = (pop_size, budget, dist="gaussian", mean=0.0, sigma=0.5, loc=0.0, scale=1.0, alpha=1.5, nu=3.0))]
 #[allow(clippy::too_many_arguments)]

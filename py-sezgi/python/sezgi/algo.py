@@ -105,6 +105,12 @@ class AlgoContext:
     cities/positions -- `dim` reads oddly for a tour, `n` doesn't)."""
 
     def __init__(self, session, dim, bounds, seed, kind):
+        """Constructed internally by the `AskTellAlgorithm` run loop --
+        subclasses receive an already-built `ctx`, they never construct one
+        themselves. session: the `EvalSession` this context wraps. dim/
+        bounds/seed/kind: see the class docstring for `n`/`bounds`/`kind`'s
+        exact semantics; `seed` seeds this context's own `random.Random`
+        (`self.rng`)."""
         self._session = session
         self.dim = dim
         self.n = dim                  # same value as `dim`; see class doc

@@ -334,15 +334,51 @@ dist: the mutation distribution, plus its own (flattened,
 
 
 def _paper_package(algo_names, problem_names, results, rope=0.0, samples=20000, seed=1):
+    """`stats.paper_package(algo_names, problem_names, results, rope=0.0,
+    samples=20000, seed=1) -> dict`
+
+    Runs the FULL statistical comparison suite (stats.friedman + Nemenyi CD
+    + pairwise stats.wilcoxon with Holm correction + pairwise
+    stats.cliffs_delta + pairwise stats.bayesian_signed_rank +
+    stats.plackett_luce) over one results matrix in a single call, ready to
+    drop into a paper. results: rows = problems (matching problem_names,
+    one row each), columns = algorithms (matching algo_names).
+    rope/samples/seed are forwarded to the Bayesian sub-tests. Returns a
+    dict with keys friedman, nemenyi_cd, pairwise_wilcoxon_holm (list of
+    [i, j, p_value] rows, Holm-corrected), cliffs (list of [i, j, delta]
+    rows), bayes (list of [i, j, {p_left, p_rope, p_right}] rows),
+    plackett_luce, latex_summary, latex_tests -- see each individual
+    stats.* function's own docstring for its sub-result's shape."""
     return _sezgi.stats_paper_package(algo_names, problem_names, results,
                                       rope=rope, samples=samples, seed=seed)
 
 
 def _bayesian_signed_rank(a, b, rope=0.0, samples=20000, seed=1):
+    """`stats.bayesian_signed_rank(a, b, rope=0.0, samples=20000, seed=1)
+    -> dict`
+
+    A Bayesian alternative to stats.wilcoxon for two PAIRED samples, with a
+    Region Of Practical Equivalence (rope: |a[i] - b[i]| <= rope counts as
+    "practically equal"). samples draws from the posterior (Monte Carlo);
+    seed makes the draw reproducible. Returns a dict (minimize convention,
+    lower is better, values sum to 1.0): p_left (P(a practically better
+    than b)), p_rope (P(practically equivalent)), p_right (P(b practically
+    better than a))."""
     return _sezgi.stats_bayesian_signed_rank(a, b, rope=rope, samples=samples, seed=seed)
 
 
 def _bayesian_plackett_luce(rankings, samples=2000, burn_in=500, seed=1):
+    """`stats.bayesian_plackett_luce(rankings, samples=2000, burn_in=500,
+    seed=1) -> dict`
+
+    A Bayesian (posterior-sampling) counterpart to stats.plackett_luce:
+    same rankings input (a list of lists, each a permutation of 0..k item
+    indices, best-to-worst), but returns a posterior distribution over
+    worths instead of a single point estimate. burn_in draws are discarded
+    before samples are recorded; seed makes the draw reproducible. Returns
+    a dict: mean_worths (posterior mean per item, sums to 1.0), ci_low/
+    ci_high (per-item 95% credible interval), p_best (per-item posterior
+    probability of the largest worth), samples (the recorded draw count)."""
     return _sezgi.stats_bayesian_plackett_luce(rankings, samples=samples, burn_in=burn_in, seed=seed)
 
 
@@ -476,6 +512,42 @@ def _mo_nsga2(problem, dim, pop_size, budget, m=None, seed=0,
               eta_c=20.0, eta_m=20.0, p_c=0.9, p_m=None,
               p_c_bin=0.9, p_m_bin=None, p_c_cat=0.9, p_m_cat=None,
               k=None, l=None, log_dir=None, label=None):
+    """`mo.nsga2(problem, dim, pop_size, budget, m=None, seed=0, eta_c=20.0,
+    eta_m=20.0, p_c=0.9, p_m=None, p_c_bin=0.9, p_m_bin=None, p_c_cat=0.9,
+    p_m_cat=None, k=None, l=None, log_dir=None, label=None) -> dict`
+
+    Runs NSGA-II (Deb et al. 2002) over one of this module's built-in
+    multi-objective problem families -- see this file's own "Problem
+    strings" note above for `problem`/`dim`/`m`/`k`/`l`'s per-family
+    validation rules.
+
+    Returns a dict with keys individuals (list of float-lists, one per
+    final-population member -- a Binary block's bits are flattened to
+    0.0/1.0), objectives (list of float-lists, parallel to individuals),
+    front0 (list of ints: indices of the final population's non-dominated
+    set), evals_used (int), and violations (list of floats, <= 0.0,
+    0.0 = feasible; present ONLY when the problem is constrained -- dtlz8/
+    dtlz9 today).
+
+    eta_c/eta_m/p_c default to the NSGA-II paper's own pinned experimental
+    settings (Deb et al. 2002, Sec. IV.A); p_m=None resolves on the Rust
+    side to 1/n_variables. p_c_bin/p_m_bin are the binary-genotype
+    counterparts (consulted only for zdt5's all-Binary space); p_c_bin
+    defaults to 0.9 (mirroring p_c; the paper gives no verified
+    binary-specific default), p_m_bin=None resolves to 1/l (the paper's own
+    stated binary default). p_c_cat/p_m_cat are the Categorical-genotype
+    counterparts (consulted only for a Mixed space containing a Categorical
+    block -- no problem string in this module's own catalog builds one
+    today, so they are currently validated but inert, exactly like
+    p_c_bin/p_m_bin on every non-zdt5 problem); p_c_cat defaults to 0.9
+    (mirroring p_c_bin's own reasoning), p_m_cat=None resolves to 1/n_cat
+    (n_cat = the space's total flattened Categorical dimension).
+
+    pop_size must be >= 4 AND a multiple of 4 (a KanGAL-faithful tightening
+    of the naive "even, >= 4" rule) or this raises ValueError. When log_dir
+    is given, the run is additionally streamed to
+    <log_dir>/<label>-s<seed>.moa (sezgi-moa v1 format); label is then
+    REQUIRED (ValueError otherwise)."""
     return _sezgi.mo_nsga2(problem, dim, pop_size, budget, m=m, seed=seed,
                            eta_c=eta_c, eta_m=eta_m, p_c=p_c, p_m=p_m,
                            p_c_bin=p_c_bin, p_m_bin=p_m_bin,
@@ -484,6 +556,14 @@ def _mo_nsga2(problem, dim, pop_size, budget, m=None, seed=0,
 
 
 def _mo_pareto_front(problem, dim, n, m=None, k=None, l=None):
+    """`mo.pareto_front(problem, dim, n, m=None, k=None, l=None) -> list of
+    float-lists, or None`
+
+    A deterministic `n`-point sample of the analytic Pareto front in
+    OBJECTIVE space for one of this module's built-in problem families --
+    same `problem`/`dim`/`m`/`k`/`l` mapping and validation as `mo.nsga2`.
+    Returns None when the problem has no known analytic front sample at
+    this `m` (e.g. DTLZ5/DTLZ6 with m > 3, or WFG1/WFG2 unconditionally)."""
     return _sezgi.mo_pareto_front(problem, dim, n, m=m, k=k, l=l)
 
 
