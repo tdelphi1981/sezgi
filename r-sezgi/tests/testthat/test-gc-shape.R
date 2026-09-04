@@ -71,6 +71,7 @@
 # site 8 times.
 
 test_that("repeated sz_mo_read_moa reads complete correctly under gctorture(TRUE)", {
+  skip_on_cran()
   log_dir <- tempfile("sezgi-moa-gcshape-")
   dir.create(log_dir)
   sz_nsga2("zdt1", dim = 2, pop_size = 4, budget = 12, seed = 1,
@@ -120,6 +121,7 @@ test_that("repeated sz_mo_read_moa reads complete correctly under gctorture(TRUE
 # untortured baseline (this doubles as the post-fix determinism check).
 
 test_that("repeated sz_bias_report runs complete correctly under gctorture(TRUE)", {
+  skip_on_cran()
   spec <- sz_preset_random_search(4, 8)
   bias_args <- list(dim = 2, budget = 8, seed = 1, structural_runs = 5,
                     central_runs_per = 5, central_fids = c(1),
@@ -170,6 +172,7 @@ test_that("repeated sz_bias_report runs complete correctly under gctorture(TRUE)
 # reuse fails the rep it happens in.
 
 test_that("repeated sz_tsp_load runs complete correctly under gctorture(TRUE)", {
+  skip_on_cran()
   gctorture(TRUE)
   on.exit(gctorture(FALSE))
 

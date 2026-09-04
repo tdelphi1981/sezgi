@@ -315,6 +315,7 @@ test_that("a validate_space callback that stop()s (a genuine R condition) also v
 # used) ---------------------------------------------------------------------
 
 test_that("validate_space sees correct descriptors for a large (24-block) mixed space and vetoes cleanly, under gctorture(TRUE)", {
+  skip_on_cran()
   gctorture(TRUE)
   on.exit(gctorture(FALSE))
 
@@ -395,6 +396,7 @@ test_that("mixed Float+Permutation space solves end-to-end via sz_solve_r_genera
 # deterministic failure (research doc §F1) -----------------------------
 
 test_that("a short sz_solve_r_generator_bbob run completes correctly under gctorture(TRUE)", {
+  skip_on_cran()
   gctorture(TRUE)
   on.exit(gctorture(FALSE))
 
@@ -461,6 +463,7 @@ test_that("SzRng$next_below(n) and $split(child_id) work as advertised, exercise
 # tail under sustained allocator pressure the way the single-run test
 # above cannot.
 test_that("repeated sz_solve_r_generator_bbob runs complete correctly under gctorture(TRUE)", {
+  skip_on_cran()
   gctorture(TRUE)
   on.exit(gctorture(FALSE))
 

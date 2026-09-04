@@ -165,6 +165,7 @@
 #' @return An `environment` exposing `evaluate`, `evals_used`, `budget`,
 #'   `remaining`, `best`, `f_opt`, `dim`, `bounds`, `random_point`, `kind`,
 #'   `n`, `random_permutation`, `two_opt`.
+#' @importFrom stats runif
 #' @noRd
 .sz_algo_context <- function(session) {
   ctx <- new.env(parent = emptyenv())
