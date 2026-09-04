@@ -20,9 +20,14 @@ raw best-so-far and log-gap, side by side:
 
 Because sezgi runs are deterministic under a fixed `(problem, budget,
 seed)` (see [Determinism and the RNG model](../concepts/rng-and-determinism.md)),
-truncating the *same* seeded run at successively larger budgets reproduces
-exactly what that run's own trajectory looked like at each point — an
-"anytime" view without needing a live plot:
+four *independent* same-seeded runs at increasing budgets line up with
+one run's own trajectory here — but only because every budget below is a
+whole multiple of the population size (each run completes whole
+generations) and `DifferentialEvolution`'s generator does not adapt to
+the budget. At a budget that cuts a generation short, or with a
+budget-adaptive algorithm such as `LSHADE`, independent runs can diverge
+from the long run's prefix (the quickstart's convergence section shows a
+concrete counterexample):
 
 ```python exec="true" source="above"
 import sezgi
@@ -30,8 +35,9 @@ import sezgi
 problem = sezgi.bbob(1, 5, 1)
 seed = 1
 
-# Same seed, increasing budgets: each row is where THIS SAME run's
-# trajectory stood at that many evaluations -- not four independent runs.
+# Four independent same-seeded runs. They reproduce one long run's
+# trajectory here because each budget completes whole generations
+# (multiples of pop_size=20) and this generator is not budget-adaptive.
 for budget in (100, 300, 900, 2700):
     result = sezgi.DifferentialEvolution(pop_size=20).run(problem, budget=budget, seed=seed)
     print(f"budget={budget:5d} best_f={result.best_f:12.6g} gap={result.gap:12.6g}")
