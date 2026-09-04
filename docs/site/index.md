@@ -54,8 +54,9 @@ than a loose collection of reference scripts.
 Every built-in algorithm is a class. Every problem is either a native
 handle (`sezgi.bbob(...)`, `sezgi.problems.onemax(...)`, ...) or a
 `sezgi.Problem` subclass you author yourself. `.run()` accepts either,
-and every wrapper's `.run()` returns the same `SolveResult` shape
-regardless of which class produced it:
+and every scalar wrapper's `.run()` returns the same `SolveResult` shape
+regardless of which class produced it (`NSGA2`, the multi-objective
+skin, returns its own result dictionary instead):
 
 ```python
 import sezgi

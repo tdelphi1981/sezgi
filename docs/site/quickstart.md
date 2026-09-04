@@ -3,7 +3,9 @@
 Every built-in algorithm is a class; every problem is a native handle
 (`sezgi.bbob(...)`, `sezgi.problems.onemax(...)`, ...) or a
 `sezgi.Problem` subclass you author yourself. `.run()` accepts either and
-always returns the same `SolveResult` shape.
+returns the same `SolveResult` shape across every scalar optimizer
+(`NSGA2` is the one exception: it returns the multi-objective result
+dictionary its own docstring describes).
 
 ## The 10-line path
 
