@@ -1,5 +1,20 @@
 # Community
 
+## Team
+
+sezgi is developed at the Department of Computer Science, Faculty of
+Science, Karadeniz Technical University (KTU), Trabzon, Türkiye:
+
+- **Tolga Berber** (Assoc. Prof.) —
+  [AVESIS](https://avesis.ktu.edu.tr/tberber) ·
+  [ORCID 0000-0002-6487-5581](https://orcid.org/0000-0002-6487-5581)
+- **Beyzanur Siyah** (Research Assistant) —
+  [AVESIS](https://avesis.ktu.edu.tr/beyzanursiyah) ·
+  [ORCID 0000-0002-2071-3724](https://orcid.org/0000-0002-2071-3724)
+- **Emir Karayağız** (Research Assistant) —
+  [AVESIS](https://avesis.ktu.edu.tr/emirkarayagiz) ·
+  [ORCID 0009-0005-1673-621X](https://orcid.org/0009-0005-1673-621X)
+
 ## Contributing
 
 See `CONTRIBUTING.md` in the repository root for development setup (Rust
@@ -25,7 +40,7 @@ Participation in this project is governed by `CODE_OF_CONDUCT.md`
 ## Citing sezgi
 
 `CITATION.cff` in the repository root carries the citation metadata
-(author, version, license). Cite it if sezgi contributes to published
+(authors, version, license). Cite it if sezgi contributes to published
 research.
 
 ## Design decisions

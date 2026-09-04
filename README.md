@@ -25,7 +25,9 @@ comparison to pymoo, jMetal, and ecr.
 
 The full documentation site (installation, a 6-page Learn track, 8
 executed tutorials, architecture diagrams, the auto-generated Python API
-reference, and a 12-entry examples gallery) is built locally with MkDocs:
+reference, and a 12-entry examples gallery) is published at
+**<https://tdelphi1981.github.io/sezgi/>** (rebuilt from `main` on every
+push by `.github/workflows/docs.yml`). To build it locally with MkDocs:
 
     uv pip install --python py-sezgi/.venv/bin/python \
       mkdocs==1.6.1 mkdocs-material==9.7.7 mkdocstrings==1.0.6 \
@@ -36,6 +38,21 @@ reference, and a 12-entry examples gallery) is built locally with MkDocs:
 
 See `CONTRIBUTING.md` for the full development setup and `docs/site/`
 for the page sources.
+
+## Team
+
+sezgi is developed at the Department of Computer Science, Faculty of
+Science, Karadeniz Technical University (KTU), Trabzon, Türkiye:
+
+- **Tolga Berber** (Assoc. Prof.) —
+  [AVESIS](https://avesis.ktu.edu.tr/tberber) ·
+  [ORCID 0000-0002-6487-5581](https://orcid.org/0000-0002-6487-5581)
+- **Beyzanur Siyah** (Research Assistant) —
+  [AVESIS](https://avesis.ktu.edu.tr/beyzanursiyah) ·
+  [ORCID 0000-0002-2071-3724](https://orcid.org/0000-0002-2071-3724)
+- **Emir Karayağız** (Research Assistant) —
+  [AVESIS](https://avesis.ktu.edu.tr/emirkarayagiz) ·
+  [ORCID 0009-0005-1673-621X](https://orcid.org/0009-0005-1673-621X)
 
 ## Quickstart (Python)
 

@@ -14,6 +14,16 @@ authors:
   - family-names: Berber
     given-names: Tolga
     email: tolga.berber.81@gmail.com
+    orcid: "https://orcid.org/0000-0002-6487-5581"
+    affiliation: "Department of Computer Science, Karadeniz Technical University"
+  - family-names: Siyah
+    given-names: Beyzanur
+    orcid: "https://orcid.org/0000-0002-2071-3724"
+    affiliation: "Department of Computer Science, Karadeniz Technical University"
+  - family-names: Karayağız
+    given-names: Emir
+    orcid: "https://orcid.org/0009-0005-1673-621X"
+    affiliation: "Department of Computer Science, Karadeniz Technical University"
 license: MIT
 repository-code: "https://github.com/tdelphi1981/sezgi"
 keywords:
