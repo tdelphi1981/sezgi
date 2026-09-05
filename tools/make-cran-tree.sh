@@ -98,7 +98,10 @@ else
 fi
 
 # 2. embed the six sibling crates, without their tests/benches/target -- the
-#    CRAN tree never builds or runs those.
+#    CRAN tree never builds or runs those. mkdir -p first: not every rsync
+#    creates the destination's missing parent directories (GNU rsync 3.x
+#    does not; macOS openrsync does).
+mkdir -p "$PKG_DIR/src/rust/vendor-workspace"
 for c in core components problems bench stats bias; do
   rsync -a --exclude 'tests/' --exclude 'benches/' --exclude 'target/' \
     "$ROOT/crates/$c/" "$PKG_DIR/src/rust/vendor-workspace/$c/"
