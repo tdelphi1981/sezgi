@@ -92,10 +92,24 @@
 //! `https://raw.githubusercontent.com/pdrozdowski/TSPLib.Net/master/TSPLIB95/tsp/`
 //! (provided the same three `.tsp` files -- confirmed BYTE-IDENTICAL to the
 //! `mastqe` copies by diff -- plus all three `.opt.tour` files, which
-//! `mastqe`'s repo does not carry). TSPLIB is a freely redistributed
-//! academic benchmark dataset (Reinelt's own site describes it as
-//! public-domain research data); the vendored files here are copied
-//! verbatim, byte-for-byte, with no reformatting.
+//! `mastqe`'s repo does not carry).
+//!
+//! ## Licensing finding (mirrors `cec2014/mod.rs`'s and `cec2022/mod.rs`'s
+//! scope rulings)
+//!
+//! The canonical Heidelberg site
+//! (`comopt.ifi.uni-heidelberg.de/software/TSPLIB95/`, checked directly, not
+//! assumed) carries NO copyright notice, license statement, terms of use or
+//! redistribution policy of any kind -- it does not describe the data as
+//! "public domain" or as anything else. The data is nonetheless
+//! universally redistributed and parsed by TSP-adjacent software without a
+//! license grant from Reinelt, e.g. CRAN's `TSP` package and PyPI's
+//! `tsplib95`. Per the same scope ruling the CEC suites follow, the three
+//! `EUC_2D` instances vendored here (`berlin52`, `eil51`, `st70`) are kept
+//! on that established community-norm basis -- vendored with prominent
+//! attribution (this doc) rather than withheld -- and this status is
+//! documented rather than asserted away. The files are copied verbatim,
+//! byte-for-byte, with no reformatting.
 //!
 //! Independent scratch verification (outside this crate, Python, not part
 //! of this task's deliverable) parsed each vendored `.opt.tour` file,

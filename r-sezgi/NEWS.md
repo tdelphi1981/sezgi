@@ -1,3 +1,9 @@
+# sezgi 0.1.1
+
+* Provenance and licensing documentation: corrected TSPLIB status note,
+  added inst/COPYRIGHTS and Copyright field, rescoped LICENSE.note, added
+  THIRD-PARTY-NOTICES; no functional changes.
+
 # sezgi 0.1.0
 
 * Initial release. sezgi ships 29 built-in algorithm classes over one

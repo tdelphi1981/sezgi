@@ -1,0 +1,117 @@
+sezgi -- copyright and provenance notes
+========================================
+
+This file documents copyright ownership for material bundled in this
+package beyond the package's own source code, as referenced by the
+`Copyright` field in DESCRIPTION. See LICENSE.note (generated at release
+time) for the licenses of the vendored Rust dependency crates in
+src/rust/vendor.tar.xz -- that note is scoped to those crates only and
+does not cover the material below.
+
+(a) The sezgi package itself
+-----------------------------
+
+Copyright (c) 2026 Tolga Berber, Beyzanur Siyah, Emir Karayağız.
+
+Licensed under the MIT license (see the top-level LICENSE file). This
+covers the R, Rust and documentation source written for sezgi -- i.e.
+everything except the material in sections (b)-(d) below.
+
+(b) CEC 2014 / 2017 / 2022 benchmark data tables
+--------------------------------------------------
+
+Bundled at src/rust/vendor-workspace/problems/data/{cec2014,cec2017,cec2022}/:
+shift-vector, rotation-matrix and shuffle-index text files used by the
+CEC Special Session and Competition benchmark suites.
+
+Source: the organizers' own official repositories --
+`github.com/P-N-Suganthan/CEC2014`, `github.com/P-N-Suganthan/CEC2017-BoundContrained`
+and `github.com/P-N-Suganthan/2022-SO-BO` (J. J. Liang, B. Y. Qu, P. N.
+Suganthan and coauthors).
+
+License status: none. The GitHub API reports `license: null` for all
+three repositories, and none carries a LICENSE file at its root (checked
+directly, not assumed). There is consequently no license grant, but also
+no restriction asserted by the organizers.
+
+Basis for redistribution: an established community norm, not a license.
+IOHexperimenter (BSD-3-Clause, github.com/IOHprofiler/IOHexperimenter)
+ships the byte-identical CEC 2022 `M_*`/`shift_data_*`/`shuffle_data_*`
+files under its own permissive license with no separate grant from the
+CEC organisers. The CEC2014 and CEC2017 repositories' own readmes
+("Available implementations") advertise third-party CRAN packages built
+on this data as a first-class route to the benchmark. The CRAN packages
+`cecs` and `cec2013` (both since removed from CRAN for unrelated
+technical reasons) redistributed this same family of data with only
+their own R authors listed as copyright holders. sezgi follows the same
+norm: vendored with prominent attribution rather than withheld. See the
+module documentation in `crates/problems/src/cec2014/mod.rs`,
+`cec2017/mod.rs` and `cec2022/mod.rs` for the full per-suite provenance
+record, including file-by-file source URLs and hashes.
+
+(c) TSPLIB benchmark instances
+--------------------------------
+
+Bundled at src/rust/vendor-workspace/problems/data/tsplib/: the
+`berlin52`, `eil51` and `st70` `EUC_2D` instances and their published
+`.opt.tour` optimal tours.
+
+Source: Gerhard Reinelt's TSPLIB95, fetched via two independent GitHub
+mirrors (`github.com/mastqe/tsplib`, `github.com/pdrozdowski/TSPLib.Net`),
+confirmed byte-identical to each other.
+
+License status: none. The canonical Heidelberg distribution site
+(comopt.ifi.uni-heidelberg.de/software/TSPLIB95/) carries no copyright
+notice, license statement, terms of use or redistribution policy of any
+kind (checked directly). The data is nonetheless universally
+redistributed and parsed by TSP-adjacent software without a license
+grant from Reinelt -- e.g. CRAN's `TSP` package and PyPI's `tsplib95`.
+sezgi vendors these three instances on that same community-norm basis.
+See `crates/problems/src/tsp.rs`'s module documentation for the full
+provenance record.
+
+(d) Quoted reference-source excerpts in documentation comments
+-------------------------------------------------------------------
+
+Several Rust source files quote short excerpts of third-party reference
+implementations inside `//!`/`///` documentation comments, for provenance
+verification (pinning sezgi's own, independently-written Rust code
+against the reference behaviour it reimplements). The excerpts are never
+compiled; they are inert documentation, immediately followed by sezgi's
+own analysis. Full terms and verbatim notice text, where the source
+requires notice retention, are given in the repository-root
+THIRD-PARTY-NOTICES.md file (also bundled with this package -- see
+below). Summary:
+
+  - `crates/components/src/nsga2.rs`, `bin_ops.rs`: excerpts from Dr.
+    Kalyanmoy Deb's KanGAL NSGA-II reference C (github.com/darnir/nsga2
+    mirror). (C) Kalyanmoy Deb 2005; academic use and modification
+    permitted, commercial use restricted, acknowledgement requested.
+  - `crates/components/src/tlbo.rs`: excerpts from Yarpiz's `tlbo.m`
+    (Kalami Heris 2015, yarpiz.com), BSD-2-style, notice retention
+    required -- reproduced in THIRD-PARTY-NOTICES.md.
+  - `crates/components/src/abc.rs`: excerpts from Karaboga & Basturk's
+    `ABCorig.m` (Erciyes University, 2009).
+  - `crates/components/src/alo.rs`, `fa.rs`, `fpa.rs`, `ssa.rs`, `ba.rs`,
+    `gsa.rs`, `hho.rs`: excerpts from the respective algorithm authors'
+    own MATLAB File Exchange submissions (Mirjalili, Yang, Rashedi,
+    Heidari).
+  - `crates/problems/src/wfg.rs`: excerpts from the official WFG toolkit
+    C++ (Copyright 2006, github.com/richardeverson/wfg,
+    github.com/lbradstreet/WFG-hypervolume mirrors).
+  - `crates/problems/src/cec2014/mod.rs`, `cec2017/mod.rs`,
+    `cec2022/mod.rs`: excerpts from the CEC organisers' own reference C
+    implementations and competition technical reports -- see (b) above
+    for the license status of that source.
+
+These originals remain the property of their respective authors; sezgi
+claims no ownership of the quoted material and quotes it solely for
+provenance documentation, with attribution given in place.
+
+Also see
+--------
+
+The repository's THIRD-PARTY-NOTICES.md (https://github.com/tdelphi1981/sezgi/blob/main/THIRD-PARTY-NOTICES.md)
+gives the full per-source inventory, including verbatim notice text
+where a source requires it (Yarpiz's BSD-2-style notice). This file is
+the CRAN-package-local summary of the same material.

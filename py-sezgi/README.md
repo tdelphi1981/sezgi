@@ -41,4 +41,6 @@ reference — is at <https://tdelphi1981.github.io/sezgi/>.
 
 MIT. Developed at the Department of Computer Science, Karadeniz
 Technical University. Source code:
-<https://github.com/tdelphi1981/sezgi>.
+<https://github.com/tdelphi1981/sezgi>. Third-party notices for vendored
+benchmark data and quoted reference-source excerpts: see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

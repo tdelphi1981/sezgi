@@ -33,17 +33,60 @@ repository's root Cargo.toml or workspace:
    `{ path = "../../../crates/<name>" }`; in the embedded tree those crates
    live at src/rust/vendor-workspace/<name>/ instead, so rewrite the path.
 
-The values used to de-inherit (WS_VERSION/WS_EDITION/WS_LICENSE) mirror the
-repository's root Cargo.toml [workspace.package] table; keep them in sync if
-that table ever changes.
+The values used to de-inherit (WS_VERSION/WS_EDITION/WS_LICENSE) are read
+directly from the repository's root Cargo.toml [workspace.package] table
+(see `read_workspace_package` below), so a version bump there does not
+require a matching edit here.
 """
 import re
 import sys
 import pathlib
 
-WS_VERSION = "0.1.0"
-WS_EDITION = "2021"
-WS_LICENSE = "MIT"
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def read_workspace_package(repo_root: pathlib.Path) -> dict[str, str]:
+    """Parse the [workspace.package] table of the repo's root Cargo.toml.
+
+    Line-oriented, not a full TOML parser, matching this file's own
+    manifest-editing style elsewhere: the table has a fixed, hand-written
+    shape (one `key = "value"` per line) and is never machine-generated.
+    """
+    manifest = repo_root / "Cargo.toml"
+    text = manifest.read_text()
+    lines = text.splitlines()
+    start = next(
+        (i for i, line in enumerate(lines) if line.strip() == "[workspace.package]"),
+        None,
+    )
+    if start is None:
+        raise SystemExit(f"error: {manifest}: no [workspace.package] table found")
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if lines[i].startswith("["):
+            end = i
+            break
+    block = "\n".join(lines[start:end])
+
+    def extract(key: str) -> str:
+        m = re.search(rf'(?m)^{key}\s*=\s*"([^"]*)"', block)
+        if m is None:
+            raise SystemExit(
+                f"error: {manifest}: [workspace.package] has no '{key}' key"
+            )
+        return m.group(1)
+
+    return {
+        "version": extract("version"),
+        "edition": extract("edition"),
+        "license": extract("license"),
+    }
+
+
+_ws = read_workspace_package(REPO_ROOT)
+WS_VERSION = _ws["version"]
+WS_EDITION = _ws["edition"]
+WS_LICENSE = _ws["license"]
 
 
 def deinherit_and_strip_dev_deps(manifest_path: pathlib.Path) -> None:

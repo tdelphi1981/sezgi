@@ -188,8 +188,15 @@ note_lines <- c(
   "src/rust/Cargo.lock).",
   "",
   "The authorships and the licenses are listed below. In summary, all",
-  "libraries are distributed under the MIT license, the Apache-2.0",
-  "license, or a MIT/Apache-2.0 dual license."
+  "libraries vendored in src/rust/vendor.tar.xz are distributed under the",
+  "MIT license, the Apache-2.0 license, or a MIT/Apache-2.0 dual license.",
+  "This note covers ONLY those vendored Rust crates; it makes no claim",
+  "about any other bundled material.",
+  "",
+  "For the bundled benchmark data (CEC 2014/2017/2022 coefficient/",
+  "rotation/shuffle tables, TSPLIB instances) and the quoted third-party",
+  "reference-source excerpts in this package's documentation comments,",
+  "see inst/COPYRIGHTS."
 )
 if (length(footnoted) > 0) {
   note_lines <- c(note_lines, "", sprintf("See the note%s below the crate list.",

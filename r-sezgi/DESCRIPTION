@@ -1,6 +1,6 @@
 Package: sezgi
 Title: Metaheuristic Optimization with a 'Rust' Core
-Version: 0.1.0
+Version: 0.1.1
 Authors@R: c(
     person("Tolga", "Berber", email = "tolga.berber@fen.ktu.edu.tr",
            role = c("aut", "cre"),
@@ -19,6 +19,8 @@ Description: Build and run metaheuristic optimization algorithms as
     multi-objective indicators, structural-bias diagnostics and
     statistical comparison tools.
 License: MIT + file LICENSE
+Copyright: sezgi authors, except as documented in inst/COPYRIGHTS (bundled
+    benchmark data and quoted reference excerpts)
 Encoding: UTF-8
 Depends: R (>= 4.2)
 Imports: R6 (>= 2.4.0)

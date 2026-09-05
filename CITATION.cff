@@ -4,8 +4,8 @@ message: >-
   below.
 type: software
 title: sezgi
-version: 0.1.0
-date-released: "2026-09-04"
+version: 0.1.1
+date-released: "2026-09-05"
 abstract: >-
   A Rust-core, component-based metaheuristic optimization library with
   Python and R frontends, built for deterministic, cross-language

@@ -1619,14 +1619,15 @@ full walkthroughs.
 
 ## Status
 
-sezgi is at version 0.1.0. The library ships 29 built-in algorithm
+sezgi is at version 0.1.1. The library ships 29 built-in algorithm
 classes over one deterministic Rust engine, Python and R frontends that
 are bit-exact against each other for shared algorithms, BBOB/CEC
 2014/2017/2022 benchmark suites, NSGA-II multi-objective optimization
 over ZDT/DTLZ/WFG, IOH-format logging with ECDF/COCO export, a
 statistical-comparison toolkit, and a structural-bias scanner. The full
 documentation site is at <https://tdelphi1981.github.io/sezgi/>.
-License: MIT.
+License: MIT. Third-party notices: see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## Algorithms
 
