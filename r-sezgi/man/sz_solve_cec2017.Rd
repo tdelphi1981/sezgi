@@ -29,8 +29,8 @@ A named list with `best_f` (double), `evals` (double), and
   reported best is guaranteed to lie within the declared domain.
 
 # Errors
-A savvy error for `fid` outside `{1} union {3..=30}`, `dim` outside
-`{10,30}`, any [`sezgi_core::spec`] parse error, or any
+A savvy error for `fid` outside `\{1\} union \{3..=30\}`, `dim` outside
+`\{10,30\}`, any [`sezgi_core::spec`] parse error, or any
 [`sezgi_core::engine`] run error. `fid = 2` raises a dedicated error --
 the Rust [`sezgi_problems::Cec2017Error::Withdrawn`] message is surfaced
 VERBATIM.

@@ -26,8 +26,8 @@ suite.}
 A numeric scalar.
 
 # Errors
-A savvy error for `fid` outside `{1} union {3..=30}`, `dim` outside
-`{10,30}`, or `length(x) != dim`. `fid = 2` raises a dedicated error --
+A savvy error for `fid` outside `\{1\} union \{3..=30\}`, `dim` outside
+`\{10,30\}`, or `length(x) != dim`. `fid = 2` raises a dedicated error --
 the Rust [`sezgi_problems::Cec2017Error::Withdrawn`] message is surfaced
 VERBATIM, distinct from an ordinary out-of-range `fid`.
 }

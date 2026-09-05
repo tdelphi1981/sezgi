@@ -1,3 +1,10 @@
+# Even when `cargo` is on `PATH`, `rustc` might not in some cases. This adds
+# ~/.cargo/bin to PATH to address such cases -- mirrors configure (the
+# non-Windows script), which already does this; configure.win did not.
+if [ -d "${HOME}/.cargo/bin" ]; then
+  export PATH="${PATH}:${HOME}/.cargo/bin"
+fi
+
 CARGO_VERSION="$(cargo --version)"
 
 if [ $? -ne 0 ]; then
@@ -36,8 +43,23 @@ if [ -n "${SAVVY_FEATURES}" ]; then
   FEATURE_FLAGS="--features '${SAVVY_FEATURES}'"
 fi
 
+# ---------------------------------------------------------------------------
+# CRAN release-tarball mode. See configure (non-Windows) for the rationale;
+# this is the same `test -f src/rust/vendor.tar.xz` switch.
+# ---------------------------------------------------------------------------
+if [ -f "src/rust/vendor.tar.xz" ]; then
+  VENDORING=yes
+  OFFLINE_OPTION=--offline
+  echo "using vendored Rust sources: src/rust/vendor.tar.xz"
+else
+  VENDORING=no
+  OFFLINE_OPTION=
+fi
+
 sed \
   -e "s/@TARGET@/x86_64-pc-windows-gnu/" \
   -e "s/@PROFILE@/${PROFILE}/" \
   -e "s/@FEATURE_FLAGS@/${FEATURE_FLAGS}/" \
+  -e "s/@VENDORING@/${VENDORING}/" \
+  -e "s/@OFFLINE_OPTION@/${OFFLINE_OPTION}/" \
   src/Makevars.win.in > src/Makevars.win

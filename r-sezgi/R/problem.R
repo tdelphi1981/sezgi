@@ -78,6 +78,14 @@ NULL
 #'     population as `xs` (see `.sz_make_evaluate_shim`'s own doc).}
 #' }
 #'
+#' @examples
+#' Sphere <- R6::R6Class("Sphere", inherit = Problem, public = list(
+#'   space = function() sz_space(sz_float(-5, 5, 2)),
+#'   evaluate = function(x) sum(x^2),
+#'   optimum = function() 0
+#' ))
+#' prob <- Sphere$new()
+#' prob$evaluate(c(1, 2))
 #' @export
 Problem <- R6::R6Class("Problem",
   public = list(

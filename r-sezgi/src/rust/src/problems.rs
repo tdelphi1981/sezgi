@@ -111,7 +111,7 @@ fn load_tsp(name_or_text: &str) -> savvy::Result<Tsp> {
 /// @returns A numeric scalar.
 ///
 /// # Errors
-/// A savvy error for `fid` outside `1..=12`, `dim` outside `{2,10,20}`,
+/// A savvy error for `fid` outside `1..=12`, `dim` outside `\{2,10,20\}`,
 /// `dim = 2` for a hybrid function, or `length(x) != dim`.
 /// @export
 #[savvy]
@@ -167,7 +167,7 @@ fn sz_cec2022_f_star(fid: f64) -> savvy::Result<Sexp> {
 /// @returns A numeric scalar.
 ///
 /// # Errors
-/// A savvy error for `fid` outside `1..=30`, `dim` outside `{10,30}`, or
+/// A savvy error for `fid` outside `1..=30`, `dim` outside `\{10,30\}`, or
 /// `length(x) != dim`.
 /// @export
 #[savvy]
@@ -224,8 +224,8 @@ fn sz_cec2014_f_star(fid: f64) -> savvy::Result<Sexp> {
 /// @returns A numeric scalar.
 ///
 /// # Errors
-/// A savvy error for `fid` outside `{1} union {3..=30}`, `dim` outside
-/// `{10,30}`, or `length(x) != dim`. `fid = 2` raises a dedicated error --
+/// A savvy error for `fid` outside `\{1\} union \{3..=30\}`, `dim` outside
+/// `\{10,30\}`, or `length(x) != dim`. `fid = 2` raises a dedicated error --
 /// the Rust [`sezgi_problems::Cec2017Error::Withdrawn`] message is surfaced
 /// VERBATIM, distinct from an ordinary out-of-range `fid`.
 /// @export
@@ -259,7 +259,7 @@ fn sz_cec2017_evaluate(fid: f64, dim: f64, x: RealSexp) -> savvy::Result<Sexp> {
 /// @returns A numeric scalar.
 ///
 /// # Errors
-/// A savvy error if `fid` is outside `{1} union {3..=30}` (`fid = 2`
+/// A savvy error if `fid` is outside `\{1\} union \{3..=30\}` (`fid = 2`
 /// included, via the [`sezgi_problems::Cec2017Error::Withdrawn`] message).
 /// @export
 #[savvy]
@@ -285,6 +285,9 @@ fn sz_cec2017_f_star(fid: f64) -> savvy::Result<Sexp> {
 /// A savvy error for any [`TspError`] (unknown vendored name that also fails
 /// to parse as TSPLIB text, malformed TSPLIB text, unsupported
 /// `EDGE_WEIGHT_TYPE`, ...).
+/// @examples
+/// tsp <- sz_tsp_load("berlin52")
+/// tsp$n_cities
 /// @export
 #[savvy]
 fn sz_tsp_load(name_or_text: &str) -> savvy::Result<Sexp> {

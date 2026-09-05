@@ -22,7 +22,7 @@ sz_cec2022_evaluate(fid, dim, x)
 A numeric scalar.
 
 # Errors
-A savvy error for `fid` outside `1..=12`, `dim` outside `{2,10,20}`,
+A savvy error for `fid` outside `1..=12`, `dim` outside `\{2,10,20\}`,
 `dim = 2` for a hybrid function, or `length(x) != dim`.
 }
 \description{

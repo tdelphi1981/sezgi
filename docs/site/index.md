@@ -107,7 +107,8 @@ See [Quickstart](quickstart.md) for the full, verified walk-through.
 
 ## Where to go next
 
-- [Install](install.md) — Python (`uv`) and R.
+- [Install](install.md) — `pip install sezgi` / `uv pip install sezgi`
+  for Python, r-universe for R (development installs also documented).
 - [Quickstart](quickstart.md) — the 10-line class-first path, run and
   verified.
 - [Notebooks](notebooks/01-interactive-quickstart.ipynb) — the same ground

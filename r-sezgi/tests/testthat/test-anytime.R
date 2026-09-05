@@ -196,8 +196,19 @@ test_that("sz_coco_export writes an .info file with the correct first line", {
   expect_true(length(written) > 0)
   expect_true(all(file.exists(written)))
 
+  # Membership checks below normalize separators on both sides before
+  # comparing. `written` comes back from the Rust layer as `Path::join`-built
+  # strings: it preserves whatever separator style `out_dir` itself already
+  # used (R's file.path() always emits "/", even on Windows) but appends
+  # further path components with the platform's native separator ("\" on
+  # Windows), so a single returned path can legitimately mix "/" and "\".
+  # A path built purely with file.path() (all "/") therefore will not
+  # string-match such an entry on Windows even when it names the same file.
+  # normalizePath(..., winslash = "/") canonicalizes both sides the same way.
+  written_norm <- normalizePath(written, winslash = "/", mustWork = FALSE)
+
   info_path <- file.path(out_dir, "de", "bbobexp_f1.info")
-  expect_true(info_path %in% written)
+  expect_true(normalizePath(info_path, winslash = "/", mustWork = FALSE) %in% written_norm)
 
   first_line <- readLines(info_path, n = 1)
   expect_identical(
@@ -207,8 +218,8 @@ test_that("sz_coco_export writes an .info file with the correct first line", {
 
   dat_path <- file.path(out_dir, "de", "data_f1", "bbobexp_f1_DIM5.dat")
   tdat_path <- file.path(out_dir, "de", "data_f1", "bbobexp_f1_DIM5.tdat")
-  expect_true(dat_path %in% written)
-  expect_true(tdat_path %in% written)
+  expect_true(normalizePath(dat_path, winslash = "/", mustWork = FALSE) %in% written_norm)
+  expect_true(normalizePath(tdat_path, winslash = "/", mustWork = FALSE) %in% written_norm)
 })
 
 # ---------------------------------------------------------------------

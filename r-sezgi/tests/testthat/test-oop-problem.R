@@ -165,6 +165,7 @@ test_that("an R condition raised inside evaluate() survives to the R session UNC
 # deterministic failure (research doc §F1) -----------------------------
 
 test_that("a short solve completes correctly under gctorture(TRUE)", {
+  skip_on_cran()
   gctorture(TRUE)
   on.exit(gctorture(FALSE))
 
@@ -417,6 +418,7 @@ test_that("a batch_evaluate() returning the wrong length errors clearly, not sil
 # =========================================================================
 
 test_that("a large 24-block mixed-space Problem solves correctly across repeated gctorture(TRUE) solves", {
+  skip_on_cran()
   gctorture(TRUE)
   on.exit(gctorture(FALSE))
 
@@ -476,6 +478,7 @@ test_that("a large 24-block mixed-space Problem solves correctly across repeated
 # generator-path loop in `test-oop-bridge.R` (which covers
 # `run_r_generator`'s identical result-tail fix).
 test_that("repeated sz_solve_onemax runs (the proven crasher shape) complete correctly under gctorture(TRUE)", {
+  skip_on_cran()
   gctorture(TRUE)
   on.exit(gctorture(FALSE))
 

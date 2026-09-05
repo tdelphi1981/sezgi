@@ -29,3 +29,7 @@ Loads a TSPLIB `EUC_2D` instance, either a vendored instance name
 (`"berlin52"`, `"eil51"`, `"st70"`) or raw TSPLIB file text (see
 [`load_tsp`]).
 }
+\examples{
+tsp <- sz_tsp_load("berlin52")
+tsp$n_cities
+}

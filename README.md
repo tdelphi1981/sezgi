@@ -1,5 +1,7 @@
 # sezgi
 
+[![PyPI version](https://img.shields.io/pypi/v/sezgi.svg)](https://pypi.org/project/sezgi/)
+
 **sezgi** (Turkish for "intuition") is a Rust-core, component-based metaheuristic
 optimization library with Python and R frontends.
 
@@ -55,6 +57,16 @@ Science, Karadeniz Technical University (KTU), Trabzon, Türkiye:
   [ORCID 0009-0005-1673-621X](https://orcid.org/0009-0005-1673-621X)
 
 ## Quickstart (Python)
+
+Install from PyPI (prebuilt wheels for Linux x86_64/aarch64, macOS
+universal2, and Windows x64, Python >= 3.9 — no Rust toolchain needed):
+
+    pip install sezgi
+    # or
+    uv pip install sezgi
+
+See "Development install (Python)" below to build from a repo checkout
+instead.
 
 Every built-in algorithm is a class; every problem is either a native
 handle (`sezgi.bbob(...)`, `sezgi.problems.onemax(...)`, ...) or a
@@ -386,11 +398,32 @@ the same per-algorithm curves as a named list, `sz_coco_export("logs/",
 2000)` reconstructs the same data.frame shape `sz_run_experiment` returns,
 feeding directly into `sz_per_budget_packages`/`sz_results_matrix`.
 
+### Development install (Python)
+
+Building from a repo checkout instead of PyPI (needed only if you're
+modifying sezgi itself, or want an unreleased change):
+
+    uv venv py-sezgi/.venv
+    uv pip install --python py-sezgi/.venv/bin/python maturin
+    cd py-sezgi
+    uv run --python .venv/bin/python maturin develop --release
+
+See [Install](https://tdelphi1981.github.io/sezgi/install/) on the
+documentation site for the full prerequisites (Rust toolchain) and a
+non-`uv` path.
+
 ## Quickstart (R)
 
-Install from the repo root (the Rust core builds via `cargo` on install):
+Install from [r-universe](https://tdelphi1981.r-universe.dev) (tracks
+`main`; goes green once this branch is merged — if the universe dashboard
+shows a build failure, use the source install below instead):
 
-    R CMD INSTALL r-sezgi
+    install.packages("sezgi",
+      repos = c("https://tdelphi1981.r-universe.dev", "https://cloud.r-project.org"))
+
+A CRAN submission is in progress; once accepted, plain
+`install.packages("sezgi")` will work. See "Development install (R)"
+below to build from a repo checkout.
 
 Then:
 
@@ -444,6 +477,14 @@ R also has a class-first surface now (mirroring Python's — see
 configurable R6 class, and `sezgi::Problem`/`sezgi::Algorithm` are
 subclassable bases. `sz_solve_*`/`sz_preset_*`/`sz_algorithm` above remain
 fully supported — see "Internals & spec files (R)" further down.
+
+### Development install (R)
+
+Building from a repo checkout instead of r-universe/CRAN (needed only if
+you're modifying sezgi itself, or want an unreleased change) — the Rust
+core builds via `cargo` as part of R's own install step:
+
+    R CMD INSTALL r-sezgi
 
 ## Author your own algorithm (R, class-first)
 

@@ -220,6 +220,8 @@ test_that("sz_mo_pareto_front rejects an unrecognized problem string", {
 # Python run via `struct.pack('>d', x).hex()` (big-endian byte order,
 # matching f64_bits_hex()'s little-endian-raw-then-reversed output).
 test_that("R sz_nsga2 is bit-identical to the Python/Rust zdt1 anchor invocation", {
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  skip_on_cran()
   r <- sz_nsga2("zdt1", dim = 5, pop_size = 8, budget = 200, seed = 20260830)
 
   expect_identical(r$evals_used, 200)
@@ -702,6 +704,8 @@ test_that("sz_mo_read_moa rejects a missing file", {
 # byte convention).
 
 test_that("R sz_nsga2 is bit-identical to the Python/Rust wfg4 anchor invocation", {
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  skip_on_cran()
   # Python: sezgi.mo.nsga2(problem="wfg4", dim=None, pop_size=8, budget=200,
   #   seed=20260901, m=2, k=4, l=4) gives evals_used=200, front0=[0..7] (all
   #   non-dominated), objectives[0] = [0.29462747543859824, 4.003752471477419],
@@ -719,6 +723,8 @@ test_that("R sz_nsga2 is bit-identical to the Python/Rust wfg4 anchor invocation
 })
 
 test_that("R sz_nsga2 is bit-identical to the Python/Rust zdt5 anchor invocation", {
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  skip_on_cran()
   # Python: sezgi.mo.nsga2(problem="zdt5", dim=None, pop_size=8, budget=200,
   #   seed=20260901) gives evals_used=200, front0=[0..7] (all non-dominated),
   #   objectives[0] = [8.0, 3.625], objectives[7][1] (last) = 1.588235294117647.
@@ -749,6 +755,8 @@ test_that("R sz_nsga2 is bit-identical to the Python/Rust zdt5 anchor invocation
 # base R, no extra dependency) -- the Python match above is the
 # cross-language evidence, measured once and quoted here.
 test_that("sz_nsga2 log_dir run is byte-identical to the Python-produced .moa file (cross-language md5 anchor)", {
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  skip_on_cran()
   log_dir <- tempfile("sezgi-moa-r-anchor-")
   dir.create(log_dir)
   r <- sz_nsga2("zdt1", dim = 5, pop_size = 8, budget = 60, seed = 777,
@@ -774,6 +782,8 @@ test_that("sz_nsga2 log_dir run is byte-identical to the Python-produced .moa fi
 # front's nadir (2.0, 4.0) x 1.1, see that script's own module docstring
 # for the derivation), byte-compared, not a decimal-literal eyeball match.
 test_that("R wfg4_nsga2 example scenario is bit-identical to the Python/Rust golden (archive size, evals_used, hypervolume)", {
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  skip_on_cran()
   problem <- "wfg4"
   m <- 2
   pop_size <- 40

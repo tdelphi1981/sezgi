@@ -125,3 +125,7 @@ NSGA-II (Deb, Pratap, Agarwal & Meyarivan 2002) run on a ZDT/DTLZ/WFG
 multi-objective test problem. See `crates/components/src/nsga2.rs` for
 the full algorithm provenance.
 }
+\examples{
+r <- sz_nsga2("zdt1", dim = 5, pop_size = 8, budget = 40, seed = 1)
+length(r$front0)
+}

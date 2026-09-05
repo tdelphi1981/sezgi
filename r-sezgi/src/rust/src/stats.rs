@@ -234,6 +234,8 @@ fn sz_stats_friedman(m: RealSexp) -> savvy::Result<Sexp> {
 ///   `n_effective <= 25` and there are no zero differences or tied `|d|`
 ///   ranks; see `sezgi_stats::wilcoxon_signed_rank`'s doc comment for the
 ///   full eligibility rule (the exact p-value formula is semver-pinned).
+/// @examples
+/// sz_stats_wilcoxon(c(1, 2, 3, 4, 5), c(2, 1, 4, 3, 6))
 /// @export
 #[savvy]
 fn sz_stats_wilcoxon(a: RealSexp, b: RealSexp) -> savvy::Result<Sexp> {

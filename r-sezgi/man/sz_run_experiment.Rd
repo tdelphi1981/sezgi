@@ -49,3 +49,22 @@ Mirrors py-sezgi's `run_experiment()`: `journal = NULL` runs directly
 path runs through the checkpoint executor, which resumes from -- and
 appends to -- an existing journal file at that path.
 }
+\examples{
+spec_toml <- '
+name = "quick"
+seeds = [1]
+budgets = [100]
+
+[[algorithms]]
+name = "de1"
+preset = { kind = "de_rand_1", pop_size = 10 }
+
+[[problems]]
+suite = "bbob"
+fid = 1
+dim = 2
+instances = [1]
+'
+df <- sz_run_experiment(spec_toml)
+df$evals
+}

@@ -349,16 +349,22 @@ test_that("cec2014 and cec2017 sessions at the same fid do not collide in one lo
 #   "
 
 test_that("R sz_cec2014_evaluate is bit-identical to the Python anchor (fid=1, dim=10, x=1..10)", {
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  skip_on_cran()
   v <- sz_cec2014_evaluate(fid = 1, dim = 10, x = as.double(1:10))
   expect_identical(f64_bits_hex(v), "41ede0fc4e670ae0")
 })
 
 test_that("R sz_cec2017_evaluate is bit-identical to the Python anchor (fid=1, dim=10, x=1..10)", {
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  skip_on_cran()
   v <- sz_cec2017_evaluate(fid = 1, dim = 10, x = as.double(1:10))
   expect_identical(f64_bits_hex(v), "421953d501114189")
 })
 
 test_that("R sz_solve_cec2014 (SHADE) is bit-identical to the Python/Rust golden (fid=3, dim=10, seed=99)", {
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  skip_on_cran()
   spec <- sz_preset_shade(20, 1000)
   r <- sz_solve_cec2014(spec, fid = 3, dim = 10, master_seed = 99, run_id = 0)
   expect_identical(f64_bits_hex(r$best_f), "409d39e5345a120f")
@@ -366,6 +372,8 @@ test_that("R sz_solve_cec2014 (SHADE) is bit-identical to the Python/Rust golden
 })
 
 test_that("R sz_solve_cec2017 (SHADE) is bit-identical to the Python/Rust golden (fid=3, dim=10, seed=99)", {
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  skip_on_cran()
   spec <- sz_preset_shade(20, 1000)
   r <- sz_solve_cec2017(spec, fid = 3, dim = 10, master_seed = 99, run_id = 0)
   expect_identical(f64_bits_hex(r$best_f), "409a08b80eb77c91")
@@ -382,6 +390,8 @@ test_that("R sz_solve_cec2017 (SHADE) is bit-identical to the Python/Rust golden
 # decimal-literal eyeball match.
 
 test_that("R sz_solve_cec2014 (L-SHADE) is bit-identical to the Python/Rust golden (fid=1, dim=10, seed=20260830 -- the example pair's own scenario)", {
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  skip_on_cran()
   spec <- sz_preset_lshade(10, 9000)
   r <- sz_solve_cec2014(spec, fid = 1, dim = 10, master_seed = 20260830, run_id = 0)
   expect_identical(f64_bits_hex(r$best_f), "4066875c33a1c67b")

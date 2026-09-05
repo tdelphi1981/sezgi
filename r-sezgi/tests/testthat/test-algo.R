@@ -179,7 +179,7 @@ test_that("end-to-end bias scan of an R-authored algorithm on f0", {
       dir <- parent
     }
   }
-  stop("could not locate repo root (examples/r/gwo.R not found walking up from getwd()/test_path())")
+  skip("example scripts not available (not in a repo checkout)")
 }
 
 test_that("R OOP gwo twin matches the pure gwo.R script (subprocess, string-exact)", {

@@ -2,6 +2,8 @@ TARGET = @TARGET@
 
 PROFILE = @PROFILE@
 FEATURE_FLAGS = @FEATURE_FLAGS@
+VENDORING = @VENDORING@
+OFFLINE_OPTION = @OFFLINE_OPTION@
 
 # Add flags if necessary
 RUSTFLAGS =
@@ -11,17 +13,37 @@ LIBDIR = $(TARGET_DIR)/$(TARGET)/$(subst dev,debug,$(PROFILE))
 STATLIB = $(LIBDIR)/libsezgi.a
 PKG_LIBS = -L$(LIBDIR) -lsezgi
 
-CARGO_BUILD_ARGS = --lib --profile $(PROFILE) $(FEATURE_FLAGS) --manifest-path=./rust/Cargo.toml --target-dir $(TARGET_DIR)
+# CRAN mode only (VENDORING = yes): keep every cargo write inside the
+# package directory instead of touching the user's ~/.cargo, and read
+# dependencies from the extracted vendor.tar.xz instead of the network.
+CARGOTMP = $(CURDIR)/.cargo
+VENDOR_DIR = $(CURDIR)/rust/vendor
+
+CARGO_BUILD_ARGS = --lib --profile $(PROFILE) $(FEATURE_FLAGS) --manifest-path=./rust/Cargo.toml --target-dir $(TARGET_DIR) $(OFFLINE_OPTION)
 
 all: $(SHLIB) clean_intermediate
 
 $(SHLIB): $(STATLIB)
 
 $(STATLIB):
+	# Vendoring (CRAN mode only). `.cargo` is created HERE, in the recipe,
+	# rather than shipped in the source tree, so that `R CMD check` never
+	# sees it as a hidden directory to warn about; clean_intermediate below
+	# removes it again once the build is done.
+	if [ "$(VENDORING)" = "yes" ]; then \
+	  mkdir -p "$(VENDOR_DIR)" && \
+	  $(TAR) --extract --xz --file "$(CURDIR)/rust/vendor.tar.xz" -C "$(CURDIR)/rust" && \
+	  mkdir -p "$(CARGOTMP)" && \
+	  cp "$(CURDIR)/rust/vendor-config.toml" "$(CARGOTMP)/config.toml"; \
+	fi
 	# In some environments, ~/.cargo/bin might not be included in PATH, so we need
 	# to set it here to ensure cargo can be invoked. It is appended to PATH and
 	# therefore is only used if cargo is absent from the user's PATH.
 	export PATH="$(PATH):$(HOME)/.cargo/bin" && \
+	  if [ "$(VENDORING)" = "yes" ]; then \
+	    export CARGO_HOME="$(CARGOTMP)" && \
+	    export CARGO_BUILD_JOBS=2; \
+	  fi && \
 	  export CC="$(CC)" && \
 	  export CFLAGS="$(CFLAGS)" && \
 	  export RUSTFLAGS="$(RUSTFLAGS)" && \
@@ -37,8 +59,9 @@ $(STATLIB):
 
 clean_intermediate: $(SHLIB)
 	rm -f $(STATLIB)
+	rm -Rf "$(CARGOTMP)" "$(VENDOR_DIR)"
 
 clean:
-	rm -Rf $(SHLIB) $(OBJECTS) $(STATLIB) ./rust/target
+	rm -Rf $(SHLIB) $(OBJECTS) $(STATLIB) ./rust/target "$(CARGOTMP)" "$(VENDOR_DIR)"
 
 .PHONY: all clean_intermediate clean

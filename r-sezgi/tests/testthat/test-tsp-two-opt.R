@@ -35,7 +35,7 @@
       dir <- parent
     }
   }
-  stop("could not locate repo root (examples/r/oop/tsp_two_opt.R not found walking up from getwd()/test_path())")
+  skip("example scripts not available (not in a repo checkout)")
 }
 
 f64_bits_hex <- function(x) {

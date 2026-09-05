@@ -36,7 +36,7 @@ A named list with `best_f` (double), `evals` (double), and
   reported best is guaranteed to lie within the declared domain.
 
 # Errors
-A savvy error for `fid` outside `1..=12`, `dim` outside `{2,10,20}`,
+A savvy error for `fid` outside `1..=12`, `dim` outside `\{2,10,20\}`,
 `dim = 2` for a hybrid function, any [`sezgi_core::spec`] parse error, or
 any [`sezgi_core::engine`] run error.
 }

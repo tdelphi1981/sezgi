@@ -24,3 +24,6 @@ plain value object, fields stored verbatim with no construction-time
 validation (bounds are enforced only once the space reaches the Rust
 core, e.g. `SearchSpace::new`, `crates/core/src/space.rs`).
 }
+\examples{
+sz_float(-5, 5, 3)
+}

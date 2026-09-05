@@ -222,7 +222,7 @@ NULL
 #' @returns A numeric scalar.
 #'
 #' # Errors
-#' A savvy error for `fid` outside `1..=30`, `dim` outside `{10,30}`, or
+#' A savvy error for `fid` outside `1..=30`, `dim` outside `\{10,30\}`, or
 #' `length(x) != dim`.
 #' @export
 `sz_cec2014_evaluate` <- function(`fid`, `dim`, `x`) {
@@ -260,8 +260,8 @@ NULL
 #' @returns A numeric scalar.
 #'
 #' # Errors
-#' A savvy error for `fid` outside `{1} union {3..=30}`, `dim` outside
-#' `{10,30}`, or `length(x) != dim`. `fid = 2` raises a dedicated error --
+#' A savvy error for `fid` outside `\{1\} union \{3..=30\}`, `dim` outside
+#' `\{10,30\}`, or `length(x) != dim`. `fid = 2` raises a dedicated error --
 #' the Rust [`sezgi_problems::Cec2017Error::Withdrawn`] message is surfaced
 #' VERBATIM, distinct from an ordinary out-of-range `fid`.
 #' @export
@@ -279,7 +279,7 @@ NULL
 #' @returns A numeric scalar.
 #'
 #' # Errors
-#' A savvy error if `fid` is outside `{1} union {3..=30}` (`fid = 2`
+#' A savvy error if `fid` is outside `\{1\} union \{3..=30\}` (`fid = 2`
 #' included, via the [`sezgi_problems::Cec2017Error::Withdrawn`] message).
 #' @export
 `sz_cec2017_f_star` <- function(`fid`) {
@@ -299,7 +299,7 @@ NULL
 #' @returns A numeric scalar.
 #'
 #' # Errors
-#' A savvy error for `fid` outside `1..=12`, `dim` outside `{2,10,20}`,
+#' A savvy error for `fid` outside `1..=12`, `dim` outside `\{2,10,20\}`,
 #' `dim = 2` for a hybrid function, or `length(x) != dim`.
 #' @export
 `sz_cec2022_evaluate` <- function(`fid`, `dim`, `x`) {
@@ -809,6 +809,8 @@ NULL
 #' @param pop_size Population size.
 #' @param budget Evaluation budget.
 #' @returns A character scalar with the algorithm spec as JSON.
+#' @examples
+#' sz_preset_de_rand_1(pop_size = 10, budget = 100)
 #' @export
 `sz_preset_de_rand_1` <- function(`pop_size`, `budget`) {
   .Call(savvy_sz_preset_de_rand_1__impl, `pop_size`, `budget`)
@@ -1288,6 +1290,10 @@ NULL
 #'   charge raw, pre-boundary-repair trial points against the budget before
 #'   boundary repair, and such a point can become the reported best if it
 #'   happens to be the run's own minimum.
+#' @examples
+#' spec <- sz_preset_de_rand_1(pop_size = 10, budget = 100)
+#' r <- sz_solve_bbob(spec, fid = 1L, dim = 2L, instance = 1L, master_seed = 1, run_id = 0)
+#' r$evals
 #' @export
 `sz_solve_bbob` <- function(`spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`) {
   .Call(savvy_sz_solve_bbob__impl, `spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`)
@@ -1337,7 +1343,7 @@ NULL
 #'   reported best is guaranteed to lie within the declared domain.
 #'
 #' # Errors
-#' A savvy error for `fid` outside `1..=30`, `dim` outside `{10,30}`, any
+#' A savvy error for `fid` outside `1..=30`, `dim` outside `\{10,30\}`, any
 #' [`sezgi_core::spec`] parse error, or any [`sezgi_core::engine`] run error.
 #' @export
 `sz_solve_cec2014` <- function(`spec_json`, `fid`, `dim`, `master_seed`, `run_id`) {
@@ -1362,8 +1368,8 @@ NULL
 #'   reported best is guaranteed to lie within the declared domain.
 #'
 #' # Errors
-#' A savvy error for `fid` outside `{1} union {3..=30}`, `dim` outside
-#' `{10,30}`, any [`sezgi_core::spec`] parse error, or any
+#' A savvy error for `fid` outside `\{1\} union \{3..=30\}`, `dim` outside
+#' `\{10,30\}`, any [`sezgi_core::spec`] parse error, or any
 #' [`sezgi_core::engine`] run error. `fid = 2` raises a dedicated error --
 #' the Rust [`sezgi_problems::Cec2017Error::Withdrawn`] message is surfaced
 #' VERBATIM.
@@ -1397,7 +1403,7 @@ NULL
 #'   reported best is guaranteed to lie within the declared domain.
 #'
 #' # Errors
-#' A savvy error for `fid` outside `1..=12`, `dim` outside `{2,10,20}`,
+#' A savvy error for `fid` outside `1..=12`, `dim` outside `\{2,10,20\}`,
 #' `dim = 2` for a hybrid function, any [`sezgi_core::spec`] parse error, or
 #' any [`sezgi_core::engine`] run error.
 #' @export
@@ -1468,9 +1474,9 @@ NULL
 #'
 #' @param spec_toml Algorithm spec as TOML text (e.g. a mixed-space
 #'   `gen/compound` document).
-#' @param n_float Length of the `Block::Float{-5,5,..}` block (double, cast
+#' @param n_float Length of the `Block::Float\{-5,5,..\}` block (double, cast
 #'   to `usize`).
-#' @param n_int Length of the `Block::Int{-5,5,..}` block (double, cast to
+#' @param n_int Length of the `Block::Int\{-5,5,..\}` block (double, cast to
 #'   `usize`).
 #' @param k_cat Category count per gene of the `Block::Categorical` block
 #'   (double, cast to `u32`).
@@ -1848,6 +1854,8 @@ NULL
 #'   `n_effective <= 25` and there are no zero differences or tied `|d|`
 #'   ranks; see `sezgi_stats::wilcoxon_signed_rank`'s doc comment for the
 #'   full eligibility rule (the exact p-value formula is semver-pinned).
+#' @examples
+#' sz_stats_wilcoxon(c(1, 2, 3, 4, 5), c(2, 1, 4, 3, 6))
 #' @export
 `sz_stats_wilcoxon` <- function(`a`, `b`) {
   .Call(savvy_sz_stats_wilcoxon__impl, `a`, `b`)
@@ -1869,6 +1877,9 @@ NULL
 #' A savvy error for any [`TspError`] (unknown vendored name that also fails
 #' to parse as TSPLIB text, malformed TSPLIB text, unsupported
 #' `EDGE_WEIGHT_TYPE`, ...).
+#' @examples
+#' tsp <- sz_tsp_load("berlin52")
+#' tsp$n_cities
 #' @export
 `sz_tsp_load` <- function(`name_or_text`) {
   .Call(savvy_sz_tsp_load__impl, `name_or_text`)

@@ -2,3 +2,7 @@
 ^src/rust/target$
 ^src/Makevars$
 ^src/Makevars\.win$
+# R-universe runs .prepare against its own checkout, before `R CMD build`
+# (see the file's own header); it never needs to be in the built tarball,
+# and R CMD check flags any top-level dotfile as a "hidden files" NOTE.
+^\.prepare$

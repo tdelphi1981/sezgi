@@ -24,3 +24,6 @@ A named list with `w_statistic`, `z`, `p_value`, `n_effective`,
 Wilcoxon signed-rank test for two paired samples (Pratt zero-handling and
 tie correction; see `sezgi_stats::wilcoxon_signed_rank`).
 }
+\examples{
+sz_stats_wilcoxon(c(1, 2, 3, 4, 5), c(2, 1, 4, 3, 6))
+}

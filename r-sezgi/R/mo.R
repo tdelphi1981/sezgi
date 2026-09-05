@@ -98,6 +98,9 @@
 #'   problem -- dtlz8/dtlz9 today) `violations` (numeric vector, `<= 0.0`,
 #'   `0.0` = feasible, parallel to `individuals`/`objectives`) -- mirrors
 #'   py-sezgi's `sezgi.mo.nsga2()` dict keys exactly.
+#' @examples
+#' r <- sz_nsga2("zdt1", dim = 5, pop_size = 8, budget = 40, seed = 1)
+#' length(r$front0)
 #' @export
 sz_nsga2 <- function(problem, dim, m = NULL, pop_size, budget, seed = 0,
                       eta_c = 20.0, eta_m = 20.0, p_c = 0.9, p_m = NULL,
