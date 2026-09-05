@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Rewrite Cargo manifests inside a source-embedded r-sezgi tree.
+
+Usage: cran_rewrite.py PKG_DIR
+
+PKG_DIR is a copy of r-sezgi/ into which the six sibling workspace crates
+(core, components, problems, bench, stats, bias) have already been copied
+under src/rust/vendor-workspace/<crate>/. This script performs the three
+manifest edits that make that copy buildable on its own, without the
+repository's root Cargo.toml or workspace:
+
+1. De-inherit workspace fields. Each embedded crate's Cargo.toml declares
+   `version.workspace = true`, `edition.workspace = true` and
+   `license.workspace = true`, which only resolve inside the monorepo's
+   workspace. Outside it, cargo fails with "error inheriting ... from
+   workspace root manifest". Replace each with the literal value taken from
+   the repository's root Cargo.toml ([workspace.package]).
+
+2. Drop [dev-dependencies] from each embedded crate. src/rust/Cargo.toml
+   keeps a bare `[workspace]` table so the embedded crates are visible as
+   path dependencies; cargo then treats them as workspace members and would
+   fold their dev-dependencies (test-only crates, e.g. tempfile) into
+   `cargo vendor`, bloating vendor.tar.xz with packages never compiled from
+   the tarball. Section removal is done line-by-line, keyed on lines that
+   are themselves a bare "[section]" header -- a regex that instead matches
+   "[dev-dependencies]...next [section]" as one span is unsafe here because
+   at least one embedded crate has a dependency value containing a bracketed
+   list, e.g. `serde_json = { version = "1", features =
+   ["float_roundtrip"] }`, which is not a section header and must survive.
+
+3. Repoint the bridge crate's six sibling-crate path dependencies. In the
+   repository, src/rust/Cargo.toml depends on
+   `{ path = "../../../crates/<name>" }`; in the embedded tree those crates
+   live at src/rust/vendor-workspace/<name>/ instead, so rewrite the path.
+
+The values used to de-inherit (WS_VERSION/WS_EDITION/WS_LICENSE) mirror the
+repository's root Cargo.toml [workspace.package] table; keep them in sync if
+that table ever changes.
+"""
+import re
+import sys
+import pathlib
+
+WS_VERSION = "0.1.0"
+WS_EDITION = "2021"
+WS_LICENSE = "MIT"
+
+
+def deinherit_and_strip_dev_deps(manifest_path: pathlib.Path) -> None:
+    text = manifest_path.read_text()
+    text = text.replace("version.workspace = true", f'version = "{WS_VERSION}"')
+    text = text.replace("edition.workspace = true", f'edition = "{WS_EDITION}"')
+    text = text.replace("license.workspace = true", f'license = "{WS_LICENSE}"')
+
+    kept_lines = []
+    in_dev_deps = False
+    for line in text.splitlines():
+        if line.startswith("["):
+            in_dev_deps = line.strip() == "[dev-dependencies]"
+        if not in_dev_deps:
+            kept_lines.append(line)
+    new_text = "\n".join(kept_lines).rstrip("\n") + "\n"
+    manifest_path.write_text(new_text)
+
+
+def repoint_bridge_paths(bridge_manifest: pathlib.Path) -> None:
+    text = bridge_manifest.read_text()
+    rewritten, count = re.subn(
+        r'path\s*=\s*"\.\./\.\./\.\./crates/([a-z]+)"',
+        r'path = "vendor-workspace/\1"',
+        text,
+    )
+    if count == 0:
+        raise SystemExit(
+            f"error: {bridge_manifest}: no '../../../crates/<name>' path "
+            "dependency found to rewrite -- has the bridge manifest shape "
+            "changed?"
+        )
+    bridge_manifest.write_text(rewritten)
+    print(f"rewrote {count} path dependencies in {bridge_manifest}")
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 2:
+        print(f"usage: {argv[0]} PKG_DIR", file=sys.stderr)
+        return 2
+
+    pkg = pathlib.Path(argv[1])
+    rust = pkg / "src" / "rust"
+    vendor_workspace = rust / "vendor-workspace"
+
+    manifests = sorted(vendor_workspace.glob("*/Cargo.toml"))
+    if not manifests:
+        raise SystemExit(
+            f"error: no Cargo.toml found under {vendor_workspace} -- embed "
+            "the sibling crates before running this script"
+        )
+    for manifest in manifests:
+        deinherit_and_strip_dev_deps(manifest)
+        print(f"rewrote {manifest.relative_to(pkg)}")
+
+    repoint_bridge_paths(rust / "Cargo.toml")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

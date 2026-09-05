@@ -47,6 +47,25 @@ if [ -n "${SAVVY_FEATURES}" ]; then
   FEATURE_FLAGS="--features '${SAVVY_FEATURES}'"
 fi
 
+# ---------------------------------------------------------------------------
+# CRAN release-tarball mode.
+#
+# `tools/make-cran-tree.sh` produces a self-contained package tree: the six
+# sibling workspace crates are copied into `src/rust/vendor-workspace/` and
+# the crates.io dependencies are packed into `src/rust/vendor.tar.xz`. The
+# presence of that archive is the ONLY switch: in a normal in-repo checkout
+# it does not exist, so cargo keeps using `~/.cargo`, the network, and the
+# `../../../crates` path dependencies exactly as before.
+# ---------------------------------------------------------------------------
+if [ -f "src/rust/vendor.tar.xz" ]; then
+  VENDORING=yes
+  OFFLINE_OPTION=--offline
+  echo "using vendored Rust sources: src/rust/vendor.tar.xz"
+else
+  VENDORING=no
+  OFFLINE_OPTION=
+fi
+
 # Set macOS deployment target for the Rust cc crate.
 #
 # The cc crate (used by savvy's build.rs to compile unwind_protect_wrapper.c)
@@ -69,5 +88,7 @@ sed \
   -e "s/@TARGET@/${TARGET}/" \
   -e "s/@PROFILE@/${PROFILE}/" \
   -e "s/@FEATURE_FLAGS@/${FEATURE_FLAGS}/" \
+  -e "s/@VENDORING@/${VENDORING}/" \
+  -e "s/@OFFLINE_OPTION@/${OFFLINE_OPTION}/" \
   -e "s|@BEFORE_CARGO_BUILD@|${BEFORE_CARGO_BUILD}|" \
   src/Makevars.in > src/Makevars

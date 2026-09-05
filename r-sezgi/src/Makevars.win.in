@@ -2,9 +2,11 @@ TARGET = @TARGET@
 
 PROFILE = @PROFILE@
 FEATURE_FLAGS = @FEATURE_FLAGS@
+VENDORING = @VENDORING@
+OFFLINE_OPTION = @OFFLINE_OPTION@
 
 # Add flags if necessary
-RUSTFLAGS = 
+RUSTFLAGS =
 
 TARGET_DIR = $(CURDIR)/rust/target
 LIBDIR = $(TARGET_DIR)/$(TARGET)/$(subst dev,debug,$(PROFILE))
@@ -14,6 +16,12 @@ PKG_LIBS = -L$(LIBDIR) -lsezgi -lws2_32 -ladvapi32 -luserenv -lbcrypt -lntdll
 # Rtools doesn't have the linker in the location that cargo expects, so we need
 # to overwrite it via configuration.
 CARGO_LINKER = x86_64-w64-mingw32.static.posix-gcc.exe
+
+# CRAN mode only (VENDORING = yes): keep every cargo write inside the
+# package directory instead of touching the user's ~/.cargo, and read
+# dependencies from the extracted vendor.tar.xz instead of the network.
+CARGOTMP = $(CURDIR)/.cargo
+VENDOR_DIR = $(CURDIR)/rust/vendor
 
 all: $(SHLIB) clean_intermediate
 
@@ -25,17 +33,33 @@ $(STATLIB):
 	# in actual, but we need this tweak to please the compiler.
 	mkdir -p $(LIBDIR)/libgcc_mock && touch $(LIBDIR)/libgcc_mock/libgcc_eh.a
 
+	# Vendoring (CRAN mode only). `.cargo` is created HERE, in the recipe,
+	# rather than shipped in the source tree, so that `R CMD check` never
+	# sees it as a hidden directory to warn about; clean_intermediate below
+	# removes it again once the build is done.
+	if [ "$(VENDORING)" = "yes" ]; then \
+	  mkdir -p "$(VENDOR_DIR)" && \
+	  $(TAR) --extract --xz --file "$(CURDIR)/rust/vendor.tar.xz" -C "$(CURDIR)/rust" && \
+	  mkdir -p "$(CARGOTMP)" && \
+	  cp "$(CURDIR)/rust/vendor-config.toml" "$(CARGOTMP)/config.toml"; \
+	fi
+
 	export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$(CARGO_LINKER)" && \
 	  export LIBRARY_PATH="$${LIBRARY_PATH};$(LIBDIR)/libgcc_mock" && \
+	  if [ "$(VENDORING)" = "yes" ]; then \
+	    export CARGO_HOME="$(CARGOTMP)" && \
+	    export CARGO_BUILD_JOBS=2; \
+	  fi && \
 	  export CC="$(CC)" && \
 	  export CFLAGS="$(CFLAGS)" && \
 	  export RUSTFLAGS="$(RUSTFLAGS)" && \
-	  cargo build --target $(TARGET) --lib --profile $(PROFILE) $(FEATURE_FLAGS) --manifest-path ./rust/Cargo.toml --target-dir $(TARGET_DIR)
+	  cargo build --target $(TARGET) --lib --profile $(PROFILE) $(FEATURE_FLAGS) --manifest-path ./rust/Cargo.toml --target-dir $(TARGET_DIR) $(OFFLINE_OPTION)
 
 clean_intermediate: $(SHLIB)
 	rm -f $(STATLIB)
+	rm -Rf "$(CARGOTMP)" "$(VENDOR_DIR)"
 
 clean:
-	rm -Rf $(SHLIB) $(OBJECTS) $(STATLIB) ./rust/target
+	rm -Rf $(SHLIB) $(OBJECTS) $(STATLIB) ./rust/target "$(CARGOTMP)" "$(VENDOR_DIR)"
 
 .PHONY: all clean_intermediate clean

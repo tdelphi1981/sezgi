@@ -1,0 +1,16 @@
+#!/bin/sh -e
+# r-sezgi/.prepare -- run by R-universe before `R CMD build`, against a full
+# checkout of the monorepo (R-universe clones the whole git repository, then
+# builds the `subdir` package from it). At that point the sibling `crates/`
+# directory this package's Rust code depends on via
+# `path = "../../../crates/<name>"` is present on disk, but `R CMD build`
+# only packages this directory, so those path dependencies would not survive
+# into the built tarball without this step.
+#
+# This delegates to the same embed+rewrite logic the CRAN release tarball
+# uses, run directly against this checkout (--in-place) rather than a copy,
+# and without vendoring the crates.io dependencies (--no-vendor): R-universe
+# build servers have network access and a warm cargo cache, so vendoring
+# here would only add a redundant local copy of what cargo fetches anyway,
+# and skipping it keeps the build unvendored/parallel.
+../tools/make-cran-tree.sh --in-place "$(pwd)" --no-vendor
