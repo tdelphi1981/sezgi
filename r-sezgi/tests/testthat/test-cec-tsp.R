@@ -277,11 +277,15 @@ test_that("sz_solve_cec2022 is bit-identical run-twice for the same seed", {
 #   "
 
 test_that("R sz_cec2022_evaluate is bit-identical to the Python anchor (fid=1, dim=10, x=1..10)", {
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  skip_on_cran()
   v <- sz_cec2022_evaluate(fid = 1, dim = 10, x = as.double(1:10))
   expect_identical(f64_bits_hex(v), "42244fbead4c2ae3")
 })
 
 test_that("R sz_cec2022_evaluate is bit-identical to the Python anchor (fid=6 hybrid, dim=10, x=1..10)", {
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  skip_on_cran()
   v <- sz_cec2022_evaluate(fid = 6, dim = 10, x = as.double(1:10))
   expect_identical(f64_bits_hex(v), "4206fb26783bc8a1")
 })
@@ -314,6 +318,8 @@ test_that("R sz_solve_tsp (ga-perm) is bit-identical to the Python/Rust golden (
 })
 
 test_that("R sz_solve_cec2022 (SHADE) is bit-identical to the Python/Rust golden (fid=3, dim=10, seed=99)", {
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  skip_on_cran()
   spec <- sz_preset_shade(20, 1000)
   r <- sz_solve_cec2022(spec, fid = 3, dim = 10, master_seed = 99, run_id = 0)
 
