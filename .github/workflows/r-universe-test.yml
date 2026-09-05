@@ -6,3 +6,4 @@ jobs:
     uses: r-universe-org/workflows/.github/workflows/build.yml@v3
     with:
       universe: ${{ github.repository_owner }}
+      subdir: r-sezgi
