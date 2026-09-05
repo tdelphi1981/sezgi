@@ -22,3 +22,6 @@ An object of class `c("sz_block_int", "sz_block")` with
 Mirrors `sezgi.Int` (`py-sezgi/python/sezgi/spaces.py`) exactly -- see
 [sz_float()]'s doc for the no-construction-time-validation note.
 }
+\examples{
+sz_int(0L, 10L, 2)
+}

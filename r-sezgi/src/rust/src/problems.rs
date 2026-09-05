@@ -285,6 +285,9 @@ fn sz_cec2017_f_star(fid: f64) -> savvy::Result<Sexp> {
 /// A savvy error for any [`TspError`] (unknown vendored name that also fails
 /// to parse as TSPLIB text, malformed TSPLIB text, unsupported
 /// `EDGE_WEIGHT_TYPE`, ...).
+/// @examples
+/// tsp <- sz_tsp_load("berlin52")
+/// tsp$n_cities
 /// @export
 #[savvy]
 fn sz_tsp_load(name_or_text: &str) -> savvy::Result<Sexp> {

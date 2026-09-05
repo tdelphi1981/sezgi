@@ -82,6 +82,8 @@ fn f64_to_i64(name: &str, x: f64) -> savvy::Result<i64> {
 /// @param pop_size Population size.
 /// @param budget Evaluation budget.
 /// @returns A character scalar with the algorithm spec as JSON.
+/// @examples
+/// sz_preset_de_rand_1(pop_size = 10, budget = 100)
 /// @export
 #[savvy]
 fn sz_preset_de_rand_1(pop_size: f64, budget: f64) -> savvy::Result<Sexp> {
@@ -813,6 +815,10 @@ fn registry() -> Registry {
 ///   charge raw, pre-boundary-repair trial points against the budget before
 ///   boundary repair, and such a point can become the reported best if it
 ///   happens to be the run's own minimum.
+/// @examples
+/// spec <- sz_preset_de_rand_1(pop_size = 10, budget = 100)
+/// r <- sz_solve_bbob(spec, fid = 1L, dim = 2L, instance = 1L, master_seed = 1, run_id = 0)
+/// r$evals
 /// @export
 #[savvy]
 fn sz_solve_bbob(

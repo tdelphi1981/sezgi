@@ -21,3 +21,6 @@ Builds a DE/rand/1/bin algorithm spec (uniform init, clamp boundary,
 one-to-one-greedy replacement) as JSON, ready to pass to
 `sz_solve_bbob()`.
 }
+\examples{
+sz_preset_de_rand_1(pop_size = 10, budget = 100)
+}

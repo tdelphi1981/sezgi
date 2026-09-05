@@ -354,6 +354,15 @@ NULL
 #'     both sides are typically called with named arguments anyway.}
 #' }
 #'
+#' @examples
+#' RandomStep <- R6::R6Class("RandomStep", inherit = Algorithm, public = list(
+#'   generate = function(pop, ctx) {
+#'     step <- vapply(seq_len(ncol(pop$x)), function(i) ctx$rng$next_f64() - 0.5, numeric(1))
+#'     matrix(pop$x[1, ] + step, nrow = 1)
+#'   }
+#' ))
+#' res <- RandomStep$new()$run(sz_builtin_bbob(1, 2, 1), budget = 100, pop_size = 1, seed = 1)
+#' res$evals_used
 #' @export
 Algorithm <- R6::R6Class("Algorithm",
   public = list(

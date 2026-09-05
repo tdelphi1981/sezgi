@@ -31,3 +31,8 @@ A named list with `best_f` (double), `evals` (double), and
 \description{
 Runs an algorithm spec on a BBOB problem and returns the result.
 }
+\examples{
+spec <- sz_preset_de_rand_1(pop_size = 10, budget = 100)
+r <- sz_solve_bbob(spec, fid = 1L, dim = 2L, instance = 1L, master_seed = 1, run_id = 0)
+r$evals
+}

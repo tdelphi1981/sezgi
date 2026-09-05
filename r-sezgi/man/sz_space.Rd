@@ -20,3 +20,6 @@ least one block is required, and every argument must inherit
 [sz_categorical()], [sz_binary()], or [sz_permutation()]) -- these are
 the only two validation rules `Space.__init__` itself performs.
 }
+\examples{
+sz_space(sz_float(-5, 5, 3), sz_int(0L, 10L, 2))
+}

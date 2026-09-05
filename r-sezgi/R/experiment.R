@@ -33,6 +33,24 @@
 #' @returns A data.frame with one row per run and columns `algo`, `fid`,
 #'   `dim`, `instance`, `seed`, `budget`, `suite`, `best_f`, `f_opt`,
 #'   `evals`.
+#' @examples
+#' spec_toml <- '
+#' name = "quick"
+#' seeds = [1]
+#' budgets = [100]
+#'
+#' [[algorithms]]
+#' name = "de1"
+#' preset = { kind = "de_rand_1", pop_size = 10 }
+#'
+#' [[problems]]
+#' suite = "bbob"
+#' fid = 1
+#' dim = 2
+#' instances = [1]
+#' '
+#' df <- sz_run_experiment(spec_toml)
+#' df$evals
 #' @export
 sz_run_experiment <- function(spec_toml, journal = NULL, parallel = TRUE, threads = NULL,
                                log_dir = NULL) {

@@ -40,6 +40,8 @@
 #'   `spaces.py`'s `Float.n` has no default either.
 #' @returns An object of class `c("sz_block_float", "sz_block")` with
 #'   elements `lo`, `hi`, `n`.
+#' @examples
+#' sz_float(-5, 5, 3)
 #' @export
 sz_float <- function(lo, hi, n) {
   structure(list(lo = lo, hi = hi, n = n), class = c("sz_block_float", "sz_block"))
@@ -53,6 +55,8 @@ sz_float <- function(lo, hi, n) {
 #' @inheritParams sz_float
 #' @returns An object of class `c("sz_block_int", "sz_block")` with
 #'   elements `lo`, `hi`, `n`.
+#' @examples
+#' sz_int(0L, 10L, 2)
 #' @export
 sz_int <- function(lo, hi, n) {
   structure(list(lo = lo, hi = hi, n = n), class = c("sz_block_int", "sz_block"))
@@ -112,6 +116,8 @@ sz_permutation <- function(n) {
 #' @param ... One or more `sz_block` objects, in space order.
 #' @returns An object of class `"sz_space"` with element `blocks` (a
 #'   `list` of the given blocks, in order).
+#' @examples
+#' sz_space(sz_float(-5, 5, 3), sz_int(0L, 10L, 2))
 #' @export
 sz_space <- function(...) {
   blocks <- list(...)

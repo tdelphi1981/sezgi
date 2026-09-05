@@ -809,6 +809,8 @@ NULL
 #' @param pop_size Population size.
 #' @param budget Evaluation budget.
 #' @returns A character scalar with the algorithm spec as JSON.
+#' @examples
+#' sz_preset_de_rand_1(pop_size = 10, budget = 100)
 #' @export
 `sz_preset_de_rand_1` <- function(`pop_size`, `budget`) {
   .Call(savvy_sz_preset_de_rand_1__impl, `pop_size`, `budget`)
@@ -1288,6 +1290,10 @@ NULL
 #'   charge raw, pre-boundary-repair trial points against the budget before
 #'   boundary repair, and such a point can become the reported best if it
 #'   happens to be the run's own minimum.
+#' @examples
+#' spec <- sz_preset_de_rand_1(pop_size = 10, budget = 100)
+#' r <- sz_solve_bbob(spec, fid = 1L, dim = 2L, instance = 1L, master_seed = 1, run_id = 0)
+#' r$evals
 #' @export
 `sz_solve_bbob` <- function(`spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`) {
   .Call(savvy_sz_solve_bbob__impl, `spec_json`, `fid`, `dim`, `instance`, `master_seed`, `run_id`)
@@ -1848,6 +1854,8 @@ NULL
 #'   `n_effective <= 25` and there are no zero differences or tied `|d|`
 #'   ranks; see `sezgi_stats::wilcoxon_signed_rank`'s doc comment for the
 #'   full eligibility rule (the exact p-value formula is semver-pinned).
+#' @examples
+#' sz_stats_wilcoxon(c(1, 2, 3, 4, 5), c(2, 1, 4, 3, 6))
 #' @export
 `sz_stats_wilcoxon` <- function(`a`, `b`) {
   .Call(savvy_sz_stats_wilcoxon__impl, `a`, `b`)
@@ -1869,6 +1877,9 @@ NULL
 #' A savvy error for any [`TspError`] (unknown vendored name that also fails
 #' to parse as TSPLIB text, malformed TSPLIB text, unsupported
 #' `EDGE_WEIGHT_TYPE`, ...).
+#' @examples
+#' tsp <- sz_tsp_load("berlin52")
+#' tsp$n_cities
 #' @export
 `sz_tsp_load` <- function(`name_or_text`) {
   .Call(savvy_sz_tsp_load__impl, `name_or_text`)
