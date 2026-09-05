@@ -112,7 +112,7 @@ library(sezgi)
 ```
 
 `r-sezgi/DESCRIPTION` declares the same Rust-toolchain prerequisite named
-above (`SystemRequirements: Cargo (Rust package manager)`); no other
+above (`SystemRequirements: Cargo (Rust's package manager), rustc (>= 1.88)`); no other
 system dependency is required.
 
 ### Building from source (Rust toolchain, both frontends)
