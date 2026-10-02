@@ -198,6 +198,68 @@ def test_ga_auto_dispatch_mixed_space_raises_honest_error():
     assert ga.dispatched_representation is None
 
 
+class _RecordingMultiBlock(sezgi.Problem):
+    """Multi-block problem recording the shape of every x evaluate() sees."""
+
+    def __init__(self, space):
+        self._space = space
+        self.seen = []
+
+    def space(self):
+        return self._space
+
+    def evaluate(self, x):
+        self.seen.append(x)
+        return float(sum(sum(abs(v) for v in blk) for blk in x))
+
+
+def _two_float_blocks():
+    return sezgi.Space(sezgi.Float(0.0, 10.0, 1), sezgi.Float(0.0, 10.0, 1))
+
+
+def test_ga_multiblock_float_every_evaluated_x_keeps_block_shape():
+    prob = _RecordingMultiBlock(_two_float_blocks())
+    ga = sezgi.GeneticAlgorithm(pop_size=6)
+    result = ga.run(prob, budget=60, seed=1)
+    assert ga.dispatched_representation == "real"
+    assert prob.seen
+    for x in prob.seen:
+        assert len(x) == 2
+        assert all(isinstance(b, list) and len(b) == 1 for b in x)
+    assert len(result.best_x) == 2
+    assert all(len(b) == 1 for b in result.best_x)
+
+
+def test_ga_multiblock_is_seed_deterministic():
+    r1 = sezgi.GeneticAlgorithm(pop_size=6).run(
+        _RecordingMultiBlock(_two_float_blocks()), budget=60, seed=4)
+    r2 = sezgi.GeneticAlgorithm(pop_size=6).run(
+        _RecordingMultiBlock(_two_float_blocks()), budget=60, seed=4)
+    assert r1.best_f == r2.best_f
+    assert r1.best_x == r2.best_x
+
+
+def test_ga_multiblock_three_binary_blocks_run():
+    space = sezgi.Space(sezgi.Binary(2), sezgi.Binary(3), sezgi.Binary(2))
+    prob = _RecordingMultiBlock(space)
+    ga = sezgi.GeneticAlgorithm(pop_size=6)
+    result = ga.run(prob, budget=60, seed=1)
+    assert ga.dispatched_representation == "bin"
+    for x in prob.seen:
+        assert [len(b) for b in x] == [2, 3, 2]
+    assert [len(b) for b in result.best_x] == [2, 3, 2]
+
+
+def test_ga_multiblock_forced_representation_matches_auto():
+    auto = sezgi.GeneticAlgorithm(pop_size=6).run(
+        _RecordingMultiBlock(_two_float_blocks()), budget=60, seed=2)
+    forced = sezgi.GeneticAlgorithm(pop_size=6, representation="real").run(
+        _RecordingMultiBlock(_two_float_blocks()), budget=60, seed=2)
+    assert auto.best_f == forced.best_f
+    assert auto.best_x == forced.best_x
+    assert len(forced.best_x) == 2
+
+
 def test_ga_representation_override_skips_auto_dispatch():
     """representation= forces a specific preset regardless of the
     problem's own space kind -- here forcing "cat" onto a Float problem,
