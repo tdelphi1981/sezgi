@@ -1,6 +1,7 @@
 # sezgi
 
 [![PyPI version](https://img.shields.io/pypi/v/sezgi.svg)](https://pypi.org/project/sezgi/)
+[![CRAN status](https://www.r-pkg.org/badges/version/sezgi)](https://cran.r-project.org/package=sezgi)
 
 **sezgi** (Turkish for "intuition") is a Rust-core, component-based metaheuristic
 optimization library with Python and R frontends.
@@ -414,16 +415,17 @@ non-`uv` path.
 
 ## Quickstart (R)
 
-Install from [r-universe](https://tdelphi1981.r-universe.dev) (tracks
-`main`; goes green once this branch is merged — if the universe dashboard
-shows a build failure, use the source install below instead):
+sezgi is [on CRAN](https://cran.r-project.org/package=sezgi):
+
+    install.packages("sezgi")
+
+For the development version (tracks `main`), install from
+[r-universe](https://tdelphi1981.r-universe.dev) instead:
 
     install.packages("sezgi",
       repos = c("https://tdelphi1981.r-universe.dev", "https://cloud.r-project.org"))
 
-A CRAN submission is in progress; once accepted, plain
-`install.packages("sezgi")` will work. See "Development install (R)"
-below to build from a repo checkout.
+See "Development install (R)" below to build from a repo checkout.
 
 Then:
 

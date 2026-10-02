@@ -1,5 +1,8 @@
 name: Test R-universe
-on: [push, pull_request]
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
 jobs:
   build:
     name: R-universe testing

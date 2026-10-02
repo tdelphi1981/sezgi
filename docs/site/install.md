@@ -28,21 +28,26 @@ python -c "import sezgi; print(sezgi.__version__)"
 
 ## Install in R
 
-Primary path: [r-universe](https://tdelphi1981.r-universe.dev), which
-builds and serves the R package as a binary/source repo:
+sezgi is [on CRAN](https://cran.r-project.org/package=sezgi), so the
+plain form works:
+
+```r
+install.packages("sezgi")
+```
+
+CRAN serves prebuilt binaries for Windows and macOS; on Linux it builds
+from source, which needs a Rust toolchain (rustc >= 1.88 and Cargo) —
+or use a binary-serving repo such as [Posit Package
+Manager](https://packagemanager.posit.co/).
+
+For the development version (tracks the `main` branch), install from
+[r-universe](https://tdelphi1981.r-universe.dev), which serves binaries
+for Linux, macOS, and Windows:
 
 ```r
 install.packages("sezgi",
   repos = c("https://tdelphi1981.r-universe.dev", "https://cloud.r-project.org"))
 ```
-
-The r-universe build tracks the `main` branch, so it stays green as long
-as `main` does. If the [universe
-dashboard](https://tdelphi1981.r-universe.dev) shows a build failure,
-fall back to the source install below.
-
-A CRAN submission is in progress; once accepted, the plain form —
-`install.packages("sezgi")` — will work without naming a repo at all.
 
 Then:
 

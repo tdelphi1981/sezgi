@@ -9,11 +9,11 @@ documented separately through R's own tooling:
   every exported symbol.
 - **`r-sezgi/DESCRIPTION`** for the package's own summary and system
   requirements (`SystemRequirements: Cargo (Rust's package manager), rustc (>= 1.88)`).
-- Install with
-  `install.packages("sezgi", repos = c("https://tdelphi1981.r-universe.dev", "https://cloud.r-project.org"))`
-  (see [Install → R](install.md#install-in-r) for the full path, including
-  the CRAN-submission note and the source-build fallback), then view any
-  page from an R session:
+- Install with `install.packages("sezgi")` — the package is [on
+  CRAN](https://cran.r-project.org/package=sezgi) (see
+  [Install → R](install.md#install-in-r) for the development version via
+  r-universe and the source-build fallback), then view any page from an
+  R session:
 
   ```r
   library(sezgi)
