@@ -51,6 +51,7 @@ jobs:
           args: --release --out dist -m py-sezgi/Cargo.toml
       - name: Smoke-import the built wheel
         run: |
+          python -m pip install numpy
           python -m pip install --no-index --find-links dist sezgi
           python -c "import sezgi; print('wheel import OK', sezgi.__version__)"
       - uses: actions/upload-artifact@v4
