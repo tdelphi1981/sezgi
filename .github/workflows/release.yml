@@ -32,6 +32,13 @@ jobs:
 
   macos:
     runs-on: macos-14
+    # Keep debuginfo in the macOS wheel: rustc's bundled llvm-objcopy
+    # (invoked by Cargo's default release strip = "debuginfo") emits a
+    # mis-aligned __LINKEDIT string pool that macOS 27's dyld refuses to
+    # load. Drop this once the toolchain ships the upstream LLVM
+    # alignment fix.
+    env:
+      CARGO_PROFILE_RELEASE_STRIP: none
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -42,6 +49,10 @@ jobs:
         with:
           target: universal2-apple-darwin
           args: --release --out dist -m py-sezgi/Cargo.toml
+      - name: Smoke-import the built wheel
+        run: |
+          python -m pip install --no-index --find-links dist sezgi
+          python -c "import sezgi; print('wheel import OK', sezgi.__version__)"
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-macos
