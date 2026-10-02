@@ -12,6 +12,7 @@ these are bit-exact goldens copied from the Rust test suite (see each test's
 own comment for provenance), matching this project's f64-pass-through
 mandate (T10 asserts R/Python bit-equality against these same values).
 """
+
 import sezgi
 import pytest
 

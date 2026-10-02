@@ -361,6 +361,13 @@ class GeneticAlgorithm(object):
         all-Int           -> presets.ga_int
         all-Categorical   -> presets.ga_cat
 
+    A multi-block space whose blocks all share one kind is dispatched the
+    same way, but run() wraps one copy of the preset's generator per block
+    in a gen/compound generator (init/boundary/replacer/termination stay the
+    preset's own), so every block is recombined independently. Other flat
+    presets used on a multi-block space fail fast with the engine's
+    GenotypeShapeMismatch guard.
+
     A space MIXING block kinds (e.g. Float + Int together) has no ga_*
     preset in this milestone -- run() raises NotImplementedError naming the
     gen/compound generator (crates/components/src/compound.rs) via a
@@ -439,6 +446,21 @@ class GeneticAlgorithm(object):
         preset_attr = _GA_REPRESENTATION_TO_PRESET[representation]
         preset_fn = getattr(sezgi.presets, preset_attr)
         spec = preset_fn(self.pop_size, budget, **self.preset_kwargs)
+        n_blocks = len(native.blocks())
+        if n_blocks > 1:
+            # The ga_* presets' flat generators are single-block; wrap one
+            # per-block copy in gen/compound so every block is recombined
+            # independently and the genotype keeps its block structure.
+            stages = spec["stages"]
+            if len(stages) != 1:
+                raise RuntimeError(
+                    "GeneticAlgorithm: expected a single-stage ga_* preset "
+                    f"spec, got {len(stages)} stages")
+            gen = stages[0]["generator"]
+            stages[0]["generator"] = {
+                "kind": "gen/compound",
+                "blocks": [dict(gen) for _ in range(n_blocks)],
+            }
         return _run_spec("GeneticAlgorithm", spec, native, budget, seed,
                           run_id, log_dir)
 

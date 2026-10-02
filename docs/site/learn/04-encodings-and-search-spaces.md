@@ -63,7 +63,9 @@ for all-Categorical (`py-sezgi/python/sezgi/builtins.py`'s
 `GeneticAlgorithm._resolve_representation`) — because a crossover operator
 that makes sense on a permutation (order-preserving, no repeated city) is
 meaningless applied to an independent-bit binary string, and vice versa. A
-space that **mixes** block kinds has no single `ga_*` preset in sezgi
+multi-block space whose blocks all share one kind auto-dispatches through
+`gen/compound` inside `GeneticAlgorithm` (one generator copy per block).
+A space that **mixes** block kinds has no single `ga_*` preset in sezgi
 today; it must be built by hand around `gen/compound`
 (`crates/components/src/compound.rs`).
 

@@ -313,6 +313,58 @@ test_that("GeneticAlgorithm on a Mixed space raises an honest error naming the l
   )
 })
 
+test_that("GeneticAlgorithm multi-block Float space: every evaluate call sees per-block list, deterministic", {
+  seen_ok <- TRUE
+  mk <- function() {
+    R6::R6Class("TwoFloat", inherit = Problem, public = list(
+      space = function() sz_space(sz_float(0, 10, 1), sz_float(0, 10, 1)),
+      evaluate = function(x) {
+        if (!(is.list(x) && length(x) == 2L)) seen_ok <<- FALSE
+        sum(x[[1]]) + sum(x[[2]])
+      }
+    ))$new()
+  }
+  r1 <- GeneticAlgorithm$new(pop_size = 6)$run(mk(), budget = 60, seed = 7)
+  r2 <- GeneticAlgorithm$new(pop_size = 6)$run(mk(), budget = 60, seed = 7)
+  expect_true(seen_ok)
+  expect_true(is.finite(r1$best_f))
+  expect_true(is.list(r1$best_x) && length(r1$best_x) == 2L)
+  expect_true(r1$best_f < 10)
+  expect_identical(r1$best_f, r2$best_f)
+  expect_identical(r1$best_x, r2$best_x)
+})
+
+test_that("GeneticAlgorithm multi-block Float: Python parity anchor", {
+  skip_on_cran()
+  prob <- R6::R6Class("TwoFloatParity", inherit = Problem, public = list(
+    space = function() sz_space(sz_float(0, 10, 1), sz_float(0, 10, 1)),
+    evaluate = function(x) sum(x[[1]]) + sum(x[[2]])
+  ))$new()
+  res <- GeneticAlgorithm$new(pop_size = 6)$run(prob, budget = 60, seed = 7)
+  # Float golden anchored on the reference platform; foreign libm rounding diverges by ULPs.
+  expect_identical(res$best_f, 0.22094324572466703)
+})
+
+test_that("GeneticAlgorithm runs on a 3-block all-Binary space", {
+  prob <- R6::R6Class("ThreeBin", inherit = Problem, public = list(
+    space = function() sz_space(sz_binary(4), sz_binary(4), sz_binary(4)),
+    evaluate = function(x) sum(vapply(x, function(b) sum(!b), numeric(1)))
+  ))$new()
+  res <- GeneticAlgorithm$new(pop_size = 8)$run(prob, budget = 80, seed = 3)
+  expect_true(is.finite(res$best_f))
+})
+
+test_that("GeneticAlgorithm forced representation='real' works on a multi-block Float space", {
+  prob <- R6::R6Class("TwoFloatForced", inherit = Problem, public = list(
+    space = function() sz_space(sz_float(0, 10, 2), sz_float(0, 10, 2)),
+    evaluate = function(x) sum(x[[1]]) + sum(x[[2]])
+  ))$new()
+  ga <- GeneticAlgorithm$new(pop_size = 6, representation = "real")
+  res <- ga$run(prob, budget = 60, seed = 2)
+  expect_equal(ga$dispatched_representation, "real")
+  expect_true(is.finite(res$best_f))
+})
+
 test_that("GeneticAlgorithm representation= overrides auto-dispatch", {
   ga <- GeneticAlgorithm$new(representation = "real")
   res <- ga$run(float_problem(4), budget = 100, seed = 1)
@@ -398,4 +450,17 @@ test_that("NSGA2$run() returns sz_nsga2's own list shape, not an sz_result", {
   res <- NSGA2$new(pop_size = 8)$run("zdt1", dim = 5, budget = 40, seed = 1)
   expect_false(inherits(res, "sz_result"))
   expect_true(all(c("individuals", "objectives", "front0", "evals_used") %in% names(res)))
+})
+
+test_that(".sz_ga_wrap_compound guards malformed preset specs", {
+  wrap <- sezgi:::.sz_ga_wrap_compound
+  expect_error(wrap('{"stages": []}', 2L), "exactly one generator")
+  two <- paste0(
+    '{"stages": [{"generator": {"kind": "a"}}, ',
+    '{"generator": {"kind": "b"}}]}'
+  )
+  expect_error(wrap(two, 2L), "exactly one generator")
+  expect_error(wrap('{"generator": {"kind": "a"', 2L), "unbalanced")
+  ok <- wrap('{"stages": [{"generator": {"kind": "a"}}]}', 2L)
+  expect_match(ok, "gen/compound", fixed = TRUE)
 })
