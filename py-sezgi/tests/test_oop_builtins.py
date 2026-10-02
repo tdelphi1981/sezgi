@@ -23,6 +23,8 @@ Covers the brief's own pinned test list:
     including a WFG-specific anchor (fix round 1) proving k/l flow through
     the wrapper unchanged.
 """
+import json
+
 import pytest
 import sezgi
 
@@ -409,3 +411,26 @@ def test_nsga2_wfg_k_l_actually_change_the_result():
     result_a = n.run("wfg1", None, 40, m=2, seed=3, k=6, l=10)
     result_b = n.run("wfg1", None, 40, m=2, seed=3, k=4, l=20)
     assert result_a["objectives"] != result_b["objectives"]
+
+
+@pytest.mark.parametrize("name", ["ga_real", "ga_perm", "ga_bin", "ga_int", "ga_cat"])
+def test_ga_presets_single_stage_single_generator_no_braces(name):
+    # Pins the invariant r-sezgi's textual `.sz_ga_wrap_compound` rewrite
+    # depends on: one stage, one flat generator, no braces inside strings.
+    spec = getattr(sezgi.presets, name)(pop_size=20, budget=2000)
+    assert len(spec["stages"]) == 1
+    assert len(json.dumps(spec).split('"generator"')) == 2
+
+    def strings(o):
+        if isinstance(o, str):
+            yield o
+        elif isinstance(o, dict):
+            for k, v in o.items():
+                yield k
+                yield from strings(v)
+        elif isinstance(o, list):
+            for v in o:
+                yield from strings(v)
+
+    for s in strings(spec):
+        assert "{" not in s and "}" not in s, s

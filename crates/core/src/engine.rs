@@ -62,9 +62,9 @@ pub enum EngineError {
     /// `stage` is the 0-based index of the stage whose generator produced the
     /// offending offspring, or [`INIT_STAGE`] (`usize::MAX`) when the
     /// initializer's population was the offender (this covers both the
-    /// initial population and restart re-initialization). `detail` names expected vs
-    /// got.
-    #[error("genotype shape mismatch at {}: {detail}", stage_label(*stage))]
+    /// initial population and restart re-initialization). `detail` names
+    /// expected vs got.
+    #[error("genotype shape mismatch at {}: {detail}; a multi-block space needs a gen/compound generator (flat generators are single-block)", stage_label(*stage))]
     GenotypeShapeMismatch { stage: usize, detail: String },
 }
 
