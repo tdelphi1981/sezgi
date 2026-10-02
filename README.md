@@ -257,7 +257,9 @@ algorithm):
 
 `GeneticAlgorithm` auto-dispatches on the problem's space kind
 (Float/Permutation/Binary/Int/Categorical → `ga_real`/`ga_perm`/`ga_bin`/
-`ga_int`/`ga_cat`); a genuinely **Mixed space is rejected** with a
+`ga_int`/`ga_cat`); a multi-block space whose blocks share one kind is
+auto-dispatched via `gen/compound` (one generator copy per block); a
+genuinely **Mixed space is rejected** with a
 `NotImplementedError` naming `gen/compound` (the hand-spec workaround, see
 "Typed operators, mixed spaces, and diagnostic problems" above) —
 `representation=` forces a single-kind preset instead of introspecting the
@@ -615,7 +617,8 @@ not a shared fixture, so no cross-language numeric anchor is claimed here.
 `MixedTuning$new(space, objective)` is the general-purpose sibling — a
 one-line `Problem` binding an arbitrary objective over an arbitrary
 declared space. A single-kind (e.g. Float-only) space runs through
-`GeneticAlgorithm`'s own auto-dispatch directly; a genuinely **Mixed**
+`GeneticAlgorithm`'s own auto-dispatch directly (multi-block single-kind
+spaces included, via `gen/compound`); a genuinely **Mixed**
 space (more than one distinct block kind) has no `ga_*` preset to
 dispatch to, so it needs a hand-built `gen/compound` spec passed to
 `sezgi:::sz_solve_r_problem()` directly — the same workaround
@@ -1621,7 +1624,7 @@ full walkthroughs.
 
 ## Status
 
-sezgi is at version 0.1.1. The library ships 29 built-in algorithm
+sezgi is at version 0.1.2. The library ships 29 built-in algorithm
 classes over one deterministic Rust engine, Python and R frontends that
 are bit-exact against each other for shared algorithms, BBOB/CEC
 2014/2017/2022 benchmark suites, NSGA-II multi-objective optimization

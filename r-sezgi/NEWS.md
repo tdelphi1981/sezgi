@@ -1,3 +1,10 @@
+# sezgi 0.1.2
+
+* `GeneticAlgorithm` now auto-dispatches multi-block single-kind spaces
+  (e.g. several Float blocks) through `gen/compound`; mixed-kind spaces
+  still raise. Other flat presets run on a multi-block space now fail fast
+  with an engine genotype-shape error instead of silently corrupting.
+
 # sezgi 0.1.1
 
 * Provenance and licensing documentation: corrected TSPLIB status note,

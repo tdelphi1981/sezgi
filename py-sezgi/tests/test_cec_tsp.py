@@ -12,6 +12,8 @@ these are bit-exact goldens copied from the Rust test suite (see each test's
 own comment for provenance), matching this project's f64-pass-through
 mandate (T10 asserts R/Python bit-equality against these same values).
 """
+import json
+
 import sezgi
 import pytest
 
@@ -231,3 +233,26 @@ def test_ga_perm_deterministic_same_seed_run_twice():
     assert r1["best_f"] == 16175.0
     assert r1["evals_used"] == 992
     assert r1["iterations"] == 30
+
+
+@pytest.mark.parametrize("name", ["ga_real", "ga_perm", "ga_bin", "ga_int", "ga_cat"])
+def test_ga_presets_single_stage_single_generator_no_braces(name):
+    # Pins the invariant r-sezgi's textual `.sz_ga_wrap_compound` rewrite
+    # depends on: one stage, one flat generator, no braces inside strings.
+    spec = getattr(sezgi.presets, name)(pop_size=20, budget=2000)
+    assert len(spec["stages"]) == 1
+    assert len(json.dumps(spec).split('"generator"')) == 2
+
+    def strings(o):
+        if isinstance(o, str):
+            yield o
+        elif isinstance(o, dict):
+            for k, v in o.items():
+                yield k
+                yield from strings(v)
+        elif isinstance(o, list):
+            for v in o:
+                yield from strings(v)
+
+    for s in strings(spec):
+        assert "{" not in s and "}" not in s, s

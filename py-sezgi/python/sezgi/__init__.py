@@ -11,7 +11,7 @@ from sezgi import _sezgi
 # package] version`) -- kept in sync BY HAND, there is no build-time
 # templating wiring the two together, so bump this whenever that version
 # changes.
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 # `sezgi.Problem` is now the subclassable Python ABC
 # (`py-sezgi/python/sezgi/problem.py`), NOT the native `#[pyclass]` handle

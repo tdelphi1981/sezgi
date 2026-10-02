@@ -451,3 +451,16 @@ test_that("NSGA2$run() returns sz_nsga2's own list shape, not an sz_result", {
   expect_false(inherits(res, "sz_result"))
   expect_true(all(c("individuals", "objectives", "front0", "evals_used") %in% names(res)))
 })
+
+test_that(".sz_ga_wrap_compound guards malformed preset specs", {
+  wrap <- sezgi:::.sz_ga_wrap_compound
+  expect_error(wrap('{"stages": []}', 2L), "exactly one generator")
+  two <- paste0(
+    '{"stages": [{"generator": {"kind": "a"}}, ',
+    '{"generator": {"kind": "b"}}]}'
+  )
+  expect_error(wrap(two, 2L), "exactly one generator")
+  expect_error(wrap('{"generator": {"kind": "a"', 2L), "unbalanced")
+  ok <- wrap('{"stages": [{"generator": {"kind": "a"}}]}', 2L)
+  expect_match(ok, "gen/compound", fixed = TRUE)
+})
