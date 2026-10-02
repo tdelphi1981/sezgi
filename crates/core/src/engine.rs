@@ -52,6 +52,27 @@ pub enum EngineError {
     EmptyPopulation,
     #[error("budget ({budget}) is smaller than population size ({pop_size})")]
     BudgetSmallerThanPopulation { budget: u64, pop_size: usize },
+    /// A component emitted a genotype whose shape (block count, per-block
+    /// kind or length) does not match the search space. Every flat generator
+    /// reads `blocks[0]` by documented contract (see
+    /// `sezgi_components::compound`'s module doc), so a flat component run on
+    /// a multi-block space used to corrupt genotypes silently; this guard
+    /// turns that into a fast, named error. Checked BEFORE boundary repair.
+    ///
+    /// `stage` is the 0-based index of the stage whose generator produced the
+    /// offending offspring, or [`INIT_STAGE`] (`usize::MAX`) when the
+    /// initializer's population was the offender. `detail` names expected vs
+    /// got.
+    #[error("genotype shape mismatch at {}: {detail}", stage_label(*stage))]
+    GenotypeShapeMismatch { stage: usize, detail: String },
+}
+
+/// `EngineError::GenotypeShapeMismatch::stage` value meaning "the initial
+/// population" (as opposed to a generator stage index).
+pub const INIT_STAGE: usize = usize::MAX;
+
+fn stage_label(stage: usize) -> String {
+    if stage == INIT_STAGE { "initialization".into() } else { format!("stage {stage}") }
 }
 
 impl Engine {
@@ -112,6 +133,10 @@ impl Engine {
             self.init.initialize(self.pop_size, &mut ctx)
         };
         if individuals.is_empty() { return Err(EngineError::EmptyPopulation); }
+        for g in &individuals {
+            space.validate_genotype(g).map_err(|e| EngineError::GenotypeShapeMismatch {
+                stage: INIT_STAGE, detail: e.to_string() })?;
+        }
         let fitness = match eval.evaluate(&individuals) {
             Ok(f) => f,
             Err(_) => return Err(EngineError::BudgetSmallerThanPopulation {
@@ -154,6 +179,10 @@ impl Engine {
                                         eval: &mut eval, iteration: iterations };
                     gen.generate(&pop, &mut ctx)
                 };
+                for g in &offspring {
+                    space.validate_genotype(g).map_err(|e| EngineError::GenotypeShapeMismatch {
+                        stage: si, detail: e.to_string() })?;
+                }
                 for g in &mut offspring {
                     let mut ctx = Ctx { space, rng: &mut boundary_rng, bb: &mut bb,
                                         eval: &mut eval, iteration: iterations };
@@ -911,5 +940,114 @@ mod tests {
         let expected1: Vec<f64> = (0..spec.pop_size).map(|_| expected1.next_f64()).collect();
         assert_eq!(got1, expected1,
             "stage 1's generator must draw from RngStream::from_master(seed, &[run_id, 3])");
+    }
+
+    // ---- genotype shape guard ----
+
+    /// Two-block problem (Float n=2, Binary n=3); fitness = sum of floats.
+    struct TwoBlock { space: SearchSpace }
+    impl TwoBlock {
+        fn new() -> Self {
+            Self { space: SearchSpace::new(vec![
+                Block::Float { lo: -5.0, hi: 5.0, n: 2 },
+                Block::Binary { n: 3 },
+            ]).unwrap() }
+        }
+    }
+    impl Problem for TwoBlock {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> {
+            pop.iter().map(|g| match &g.blocks[0] {
+                BlockValues::Float(xs) => xs.iter().sum(),
+                _ => f64::INFINITY,
+            }).collect()
+        }
+    }
+
+    fn good_two_block() -> Genotype {
+        Genotype { blocks: vec![
+            BlockValues::Float(vec![1.0, 2.0]),
+            BlockValues::Bin(vec![true, false, true]),
+        ]}
+    }
+
+    /// Initializer/generator emitting a fixed-shape genotype.
+    #[derive(Clone)]
+    struct FixedShape(Genotype);
+    impl Initializer for FixedShape {
+        fn initialize(&self, n: usize, _c: &mut Ctx) -> Vec<Genotype> { vec![self.0.clone(); n] }
+        fn meta(&self) -> ComponentMeta { ComponentMeta::new("fixed-init", SupportedBlocks::All) }
+    }
+    impl Generator for FixedShape {
+        fn generate(&self, pop: &Population, _c: &mut Ctx) -> Vec<Genotype> {
+            vec![self.0.clone(); pop.len()]
+        }
+        fn meta(&self) -> ComponentMeta { ComponentMeta::new("fixed-gen", SupportedBlocks::All) }
+    }
+
+    fn shape_run(init: Genotype, gen: Genotype) -> Result<RunResult, EngineError> {
+        let mut reg = Registry::new();
+        reg.register_initializer("fixed-init", move |_| Ok(Box::new(FixedShape(init.clone()))));
+        reg.register_generator("fixed-gen", move |_| Ok(Box::new(FixedShape(gen.clone()))));
+        reg.register_replacer("greedy", |_| Ok(Box::new(Greedy)));
+        reg.register_boundary("no-b", |_| Ok(Box::new(NoB)));
+        let spec = AlgorithmSpec {
+            name: "shape".into(), pop_size: 4,
+            init: ComponentSpec { kind: "fixed-init".into(), params: serde_json::json!({}) },
+            boundary: ComponentSpec { kind: "no-b".into(), params: serde_json::json!({}) },
+            stages: vec![StageSpec {
+                generator: ComponentSpec { kind: "fixed-gen".into(), params: serde_json::json!({}) },
+                replacer: ComponentSpec { kind: "greedy".into(), params: serde_json::json!({}) },
+                adapter: None,
+            }],
+            termination: TerminationSpec { budget: 40, target: None },
+            restart: None,
+        };
+        let p = TwoBlock::new();
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        e.run(&p, RunConfig { master_seed: 1, run_id: 0 }, None)
+    }
+
+    #[test]
+    fn flat_generator_on_multiblock_space_is_rejected() {
+        let flat = Genotype { blocks: vec![BlockValues::Float(vec![1.0, 2.0])] };
+        match shape_run(good_two_block(), flat) {
+            Err(EngineError::GenotypeShapeMismatch { stage, detail }) => {
+                assert_eq!(stage, 0);
+                assert!(detail.contains("expected 2") && detail.contains("got 1"), "{detail}");
+            }
+            other => panic!("expected GenotypeShapeMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compound_shaped_generator_on_multiblock_space_runs() {
+        let r = shape_run(good_two_block(), good_two_block()).unwrap();
+        assert_eq!(r.best_x.blocks.len(), 2);
+    }
+
+    #[test]
+    fn bad_init_shape_reports_init_stage() {
+        let flat = Genotype { blocks: vec![BlockValues::Float(vec![1.0, 2.0])] };
+        match shape_run(flat, good_two_block()) {
+            Err(EngineError::GenotypeShapeMismatch { stage, .. }) => assert_eq!(stage, INIT_STAGE),
+            other => panic!("expected init-site GenotypeShapeMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn right_block_count_wrong_length_is_rejected() {
+        let bad = Genotype { blocks: vec![
+            BlockValues::Float(vec![1.0, 2.0]),
+            BlockValues::Bin(vec![true, false]), // n should be 3
+        ]};
+        match shape_run(good_two_block(), bad) {
+            Err(EngineError::GenotypeShapeMismatch { stage, detail }) => {
+                assert_eq!(stage, 0);
+                assert!(detail.contains("block 1") && detail.contains("length 3")
+                        && detail.contains("length 2"), "{detail}");
+            }
+            other => panic!("expected GenotypeShapeMismatch, got {other:?}"),
+        }
     }
 }

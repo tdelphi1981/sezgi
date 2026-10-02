@@ -56,6 +56,49 @@ impl SearchSpace {
     pub fn blocks(&self) -> &[Block] { &self.blocks }
     pub fn dim(&self) -> usize { self.blocks.iter().map(Block::dim).sum() }
 
+    /// Shape-only check: block COUNT equal to the space's, and per index the
+    /// `BlockValues` variant matches the `Block` kind and the value length
+    /// equals the block's `n`. Unlike [`Self::validate`] it does NOT inspect
+    /// the values (bounds, permutation validity), so it is safe to call on
+    /// raw pre-boundary-repair candidates. The error names expected vs got.
+    pub fn validate_genotype(&self, g: &Genotype) -> Result<(), SpaceError> {
+        let err = |reason: String| Err(SpaceError::InvalidGenotype { reason });
+        if g.blocks.len() != self.blocks.len() {
+            return err(format!("expected {} block(s), got {}",
+                               self.blocks.len(), g.blocks.len()));
+        }
+        for (i, (b, v)) in self.blocks.iter().zip(&g.blocks).enumerate() {
+            let (kind, n, got_kind, got_len) = match (b, v) {
+                (Block::Float { n, .. }, BlockValues::Float(x)) => ("Float", *n, "Float", x.len()),
+                (Block::Int { n, .. }, BlockValues::Int(x)) => ("Int", *n, "Int", x.len()),
+                (Block::Categorical { n, .. }, BlockValues::Cat(x)) => ("Categorical", *n, "Categorical", x.len()),
+                (Block::Permutation { n }, BlockValues::Perm(x)) => ("Permutation", *n, "Permutation", x.len()),
+                (Block::Binary { n }, BlockValues::Bin(x)) => ("Binary", *n, "Binary", x.len()),
+                _ => {
+                    let got = match v {
+                        BlockValues::Float(_) => "Float",
+                        BlockValues::Int(_) => "Int",
+                        BlockValues::Cat(_) => "Categorical",
+                        BlockValues::Perm(_) => "Permutation",
+                        BlockValues::Bin(_) => "Binary",
+                    };
+                    let want = match b {
+                        Block::Float { .. } => "Float",
+                        Block::Int { .. } => "Int",
+                        Block::Categorical { .. } => "Categorical",
+                        Block::Permutation { .. } => "Permutation",
+                        Block::Binary { .. } => "Binary",
+                    };
+                    return err(format!("block {i}: expected kind {want}, got {got}"));
+                }
+            };
+            if got_len != n {
+                return err(format!("block {i}: expected {kind} of length {n}, got {got_kind} of length {got_len}"));
+            }
+        }
+        Ok(())
+    }
+
     pub fn validate(&self, g: &Genotype) -> Result<(), SpaceError> {
         let err = |reason: String| Err(SpaceError::InvalidGenotype { reason });
         if g.blocks.len() != self.blocks.len() {
@@ -122,5 +165,45 @@ mod tests {
         let s = mixed_space();
         let bad = Genotype { blocks: vec![BlockValues::Float(vec![0.0; 3])] };
         assert!(s.validate(&bad).is_err());
+    }
+
+    #[test]
+    fn validate_genotype_accepts_exact_shape_even_out_of_bounds() {
+        let s = mixed_space();
+        let g = Genotype { blocks: vec![
+            BlockValues::Float(vec![99.0, 99.0, 99.0]), // out of bounds: shape only
+            BlockValues::Perm(vec![0, 0, 0, 0]),        // not a permutation: shape only
+        ]};
+        assert!(s.validate_genotype(&g).is_ok());
+    }
+
+    #[test]
+    fn validate_genotype_rejects_count_mismatch() {
+        let s = mixed_space();
+        let g = Genotype { blocks: vec![BlockValues::Float(vec![0.0; 3])] };
+        let e = s.validate_genotype(&g).unwrap_err().to_string();
+        assert!(e.contains("expected 2") && e.contains("got 1"), "{e}");
+    }
+
+    #[test]
+    fn validate_genotype_rejects_kind_mismatch() {
+        let s = mixed_space();
+        let g = Genotype { blocks: vec![
+            BlockValues::Float(vec![0.0; 3]),
+            BlockValues::Bin(vec![false; 4]),
+        ]};
+        let e = s.validate_genotype(&g).unwrap_err().to_string();
+        assert!(e.contains("block 1") && e.contains("Permutation") && e.contains("Binary"), "{e}");
+    }
+
+    #[test]
+    fn validate_genotype_rejects_length_mismatch() {
+        let s = mixed_space();
+        let g = Genotype { blocks: vec![
+            BlockValues::Float(vec![0.0; 3]),
+            BlockValues::Perm(vec![0, 1, 2]),
+        ]};
+        let e = s.validate_genotype(&g).unwrap_err().to_string();
+        assert!(e.contains("block 1") && e.contains("length 4") && e.contains("length 3"), "{e}");
     }
 }
