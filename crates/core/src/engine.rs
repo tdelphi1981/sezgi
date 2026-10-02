@@ -203,6 +203,11 @@ impl Engine {
                                         eval: &mut eval, iteration: iterations };
                     adapter.adapt(&mut pop, &mut ctx);
                 }
+                // Residual gap (documented, not guarded): an adapter that
+                // evaluates new individuals via `ctx.eval` and writes them
+                // into `pop` bypasses the shape guard above; the invariant
+                // currently relies on adapters being shape-correct.
+                //
                 // An adapter above may have evaluated brand-new individuals
                 // via `ctx.eval.evaluate(..)` and written them straight into
                 // `pop` without going through this loop's own generator-stage
@@ -250,6 +255,12 @@ impl Engine {
                         self.init.initialize(new_size, &mut ctx)
                     };
                     if individuals.is_empty() { return Err(EngineError::EmptyPopulation); }
+                    // Restart re-initialization is an init-site: same guard,
+                    // same `INIT_STAGE` encoding, BEFORE evaluation.
+                    for g in &individuals {
+                        space.validate_genotype(g).map_err(|e| EngineError::GenotypeShapeMismatch {
+                            stage: INIT_STAGE, detail: e.to_string() })?;
+                    }
                     match eval.evaluate(&individuals) {
                         Ok(fitness) => {
                             pop = Population { individuals, fitness };
@@ -1048,6 +1059,48 @@ mod tests {
                         && detail.contains("length 2"), "{detail}");
             }
             other => panic!("expected GenotypeShapeMismatch, got {other:?}"),
+        }
+    }
+
+    /// Initializer that is shape-correct on its first call and emits a flat
+    /// (wrong) shape on every later call, i.e. on restart re-initialization.
+    struct FlipInit { calls: std::sync::atomic::AtomicUsize }
+    impl Initializer for FlipInit {
+        fn initialize(&self, n: usize, _c: &mut Ctx) -> Vec<Genotype> {
+            let k = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let g = if k == 0 { good_two_block() }
+                    else { Genotype { blocks: vec![BlockValues::Float(vec![1.0, 2.0])] } };
+            vec![g; n]
+        }
+        fn meta(&self) -> ComponentMeta { ComponentMeta::new("flip-init", SupportedBlocks::All) }
+    }
+
+    #[test]
+    fn restart_reinit_with_wrong_shape_is_rejected() {
+        let mut reg = Registry::new();
+        reg.register_initializer("flip-init", |_| Ok(Box::new(FlipInit {
+            calls: std::sync::atomic::AtomicUsize::new(0) })));
+        reg.register_generator("fixed-gen", |_| Ok(Box::new(FixedShape(good_two_block()))));
+        reg.register_replacer("greedy", |_| Ok(Box::new(Greedy)));
+        reg.register_boundary("no-b", |_| Ok(Box::new(NoB)));
+        reg.register_restart("fire-at-3", |_| Ok(Box::new(FireAt3 { new_pop_size: 0 }) as Box<dyn Restart>));
+        let spec = AlgorithmSpec {
+            name: "flip".into(), pop_size: 4,
+            init: ComponentSpec { kind: "flip-init".into(), params: serde_json::json!({}) },
+            boundary: ComponentSpec { kind: "no-b".into(), params: serde_json::json!({}) },
+            stages: vec![StageSpec {
+                generator: ComponentSpec { kind: "fixed-gen".into(), params: serde_json::json!({}) },
+                replacer: ComponentSpec { kind: "greedy".into(), params: serde_json::json!({}) },
+                adapter: None,
+            }],
+            termination: TerminationSpec { budget: 500, target: None },
+            restart: Some(ComponentSpec { kind: "fire-at-3".into(), params: serde_json::json!({}) }),
+        };
+        let p = TwoBlock::new();
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        match e.run(&p, RunConfig { master_seed: 1, run_id: 0 }, None) {
+            Err(EngineError::GenotypeShapeMismatch { stage, .. }) => assert_eq!(stage, INIT_STAGE),
+            other => panic!("expected restart-site GenotypeShapeMismatch, got {other:?}"),
         }
     }
 }
