@@ -15,6 +15,12 @@ search space, read via `prob$space()`/`.sz_space_to_blocks()`:}
 }
 }
 \details{
+A multi-block space whose blocks all share one kind is dispatched the
+same way, but `$run()` wraps one copy of the preset's generator per block
+in a `gen/compound` generator (init/boundary/replacer/termination stay
+the preset's own), so every block is recombined independently. The same
+wrap applies when `representation` is forced.
+
 A space MIXING block kinds (e.g. Float + Int together) has no `ga_*`
 preset in this milestone -- `$run()` raises a clear error naming the
 limitation (mirrors py-sezgi's `GeneticAlgorithm`'s own identical

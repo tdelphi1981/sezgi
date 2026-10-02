@@ -403,6 +403,51 @@ rm(.sz_preset_row)
   representation
 }
 
+#' Wraps a single-stage `ga_*` preset spec's generator in a `gen/compound`
+#' generator holding one independent copy of the generator per block
+#' (mirrors py-sezgi's `GeneticAlgorithm.run()`). The spec is a JSON string
+#' and the package has no JSON runtime dependency, so the generator object
+#' is located and brace-matched textually (preset generators are flat
+#' objects whose strings contain no braces).
+#'
+#' @param spec_json Preset spec JSON.
+#' @param n_blocks Number of blocks (> 1).
+#' @returns The rewritten spec JSON string.
+#' @noRd
+.sz_ga_wrap_compound <- function(spec_json, n_blocks) {
+  key <- gregexpr('"generator"\\s*:\\s*\\{', spec_json)[[1]]
+  if (length(key) != 1L || key[[1]] < 0L) {
+    stop(
+      "GeneticAlgorithm: expected a single-stage ga_* preset spec with ",
+      "exactly one generator"
+    )
+  }
+  start <- key[[1]] + attr(key, "match.length")[[1]] - 1L
+  chars <- strsplit(substring(spec_json, start), "")[[1]]
+  depth <- 0L
+  end <- NA_integer_
+  for (i in seq_along(chars)) {
+    if (chars[[i]] == "{") {
+      depth <- depth + 1L
+    } else if (chars[[i]] == "}") {
+      depth <- depth - 1L
+      if (depth == 0L) {
+        end <- start + i - 1L
+        break
+      }
+    }
+  }
+  if (is.na(end)) {
+    stop("GeneticAlgorithm: malformed preset spec (unbalanced generator object)")
+  }
+  gen <- substr(spec_json, start, end)
+  wrapped <- sprintf(
+    '{"kind": "gen/compound", "blocks": [%s]}',
+    paste(rep(gen, n_blocks), collapse = ", ")
+  )
+  paste0(substr(spec_json, 1L, start - 1L), wrapped, substring(spec_json, end + 1L))
+}
+
 .sz_ga_representation_to_preset <- list(
   real = "ga_real", perm = "ga_perm", bin = "ga_bin", int = "ga_int", cat = "ga_cat"
 )
@@ -418,6 +463,12 @@ rm(.sz_preset_row)
 #'   \item{all-Int}{`sz_preset_ga_int`}
 #'   \item{all-Categorical}{`sz_preset_ga_cat`}
 #' }
+#'
+#' A multi-block space whose blocks all share one kind is dispatched the
+#' same way, but `$run()` wraps one copy of the preset's generator per block
+#' in a `gen/compound` generator (init/boundary/replacer/termination stay
+#' the preset's own), so every block is recombined independently. The same
+#' wrap applies when `representation` is forced.
 #'
 #' A space MIXING block kinds (e.g. Float + Int together) has no `ga_*`
 #' preset in this milestone -- `$run()` raises a clear error naming the
@@ -467,6 +518,12 @@ GeneticAlgorithm <- R6::R6Class("GeneticAlgorithm",
       self$dispatched_representation <- representation
       preset_fn <- .sz_preset_fn(.sz_ga_representation_to_preset[[representation]])
       spec_json <- do.call(preset_fn, c(list(self$pop_size, budget), self$preset_kwargs))
+      if (!inherits(problem, "sz_builtin_bbob")) {
+        n_blocks <- length(.sz_space_to_blocks(sz_as_problem(problem)$space()))
+        if (n_blocks > 1L) {
+          spec_json <- .sz_ga_wrap_compound(spec_json, n_blocks)
+        }
+      }
       .sz_preset_run(spec_json, problem, budget, seed, run_id, "geneticalgorithm")
     }
   )
