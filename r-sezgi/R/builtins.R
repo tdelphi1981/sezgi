@@ -156,7 +156,8 @@ NULL
 # gen/compound (crates/components/src/compound.rs) accepts any ELIGIBLE
 # registered sub-generator per block: stateless, pop-to-pop, no internal
 # evaluation, no nesting -- plus an explicit allow-list of self-contained
-# stateful generators (currently gen/gsa and gen/ba, since 0.1.5). HYBRID semantics: float blocks keep the preset's
+# stateful generators (currently gen/gsa and gen/ba since 0.1.5; gen/pso, gen/de-jde and
+# gen/mfo since 0.1.6). HYBRID semantics: float blocks keep the preset's
 # OWN generator (same kind and params as single-block); every non-float
 # block gets the fused GA variation default (gen/ga-bin, gen/ga-int,
 # gen/ga-cat, gen/ga-perm, registered default params). Parent selection and
@@ -173,7 +174,10 @@ NULL
 .sz_hybrid_presets <- c(
   "de_rand_1", "de_best_1", "gwo", "woa", "sca", "jaya", "goa", "ssa",
   "firefly", "fpa", "tlbo", "cuckoo_search", "alo", "es_mu_plus_lambda",
-  "gsa", "bat"
+  "gsa", "bat",
+  # since 0.1.6 (generator-owned state); "jde" is reached via
+  # DifferentialEvolution(variant = "jde").
+  "pso", "mfo", "jde"
 )
 
 .sz_why_stateful <- function(what) {
@@ -203,13 +207,10 @@ NULL
     "which cannot host the GA discrete sub-generators (gen/compound ",
     "requires population size >= 2)"
   ),
-  pso = paste0("gen/pso is stateful: ", .sz_why_stateful("velocity/pbest")),
   cmaes = paste0("gen/cma is stateful: ", .sz_why_stateful("CMA distribution")),
   cmaes_ipop = paste0("gen/cma is stateful: ", .sz_why_stateful("CMA distribution")),
   shade = paste0("gen/de-shade is stateful: ", .sz_why_stateful("success history")),
   lshade = paste0("gen/de-shade is stateful: ", .sz_why_stateful("success history")),
-  jde = paste0("gen/de-jde is stateful: ", .sz_why_stateful("per-individual jde_f/jde_cr")),
-  mfo = paste0("gen/mfo is stateful: ", .sz_why_stateful("flame memory")),
   abc = paste0("gen/abc-employed is stateful: ", .sz_why_stateful("abc/trials"))
 )
 
@@ -281,8 +282,8 @@ NULL
       paste0(
         "%s cannot run on a mixed or non-float space (block kinds %s): %s. ",
         "Only compound-eligible presets auto-dispatch (de, gwo, woa, sca, ",
-        "jaya, goa, ssa, firefly, fpa, tlbo, cuckoo_search, alo, es_mu_plus_lambda, gsa, bat; see gen/compound ",
-        "in crates/components/src/compound.rs)."
+        "jaya, goa, ssa, firefly, fpa, tlbo, cuckoo_search, alo, es_mu_plus_lambda, gsa, bat, pso, mfo; de includes ",
+        "variant='jde'; see gen/compound in crates/components/src/compound.rs)."
       ),
       class_name, paste0("[", paste(kinds, collapse = ", "), "]"), reason
     ), call. = FALSE)
@@ -487,18 +488,18 @@ NULL
 #' `sz_preset_es_mu_plus_lambda()` unchanged, via `...`) -- the ONLY table
 #' row whose preset takes kwargs beyond `pop_size`/`budget`.
 #'
-#' Mixed spaces (0.1.3, widened in 0.1.4 and 0.1.5): `AntLion`, `BatAlgorithm`,
+#' Mixed spaces (0.1.3, widened in 0.1.4, 0.1.5 and 0.1.6): `AntLion`, `BatAlgorithm`,
 #' `CuckooSearch`, `EvolutionStrategy`, `FireflyAlgorithm`,
 #' `FlowerPollination`, `GrasshopperOptimization`, `GravitationalSearch`,
-#' `GreyWolfOptimizer`, `JAYA`, `SalpSwarm`, `SineCosineAlgorithm`, `TLBO` and
-#' `WhaleOptimization` (plus [DifferentialEvolution] `rand_1`/`best_1`)
+#' `GreyWolfOptimizer`, `JAYA`, `MothFlameOptimization`, `ParticleSwarm`, `SalpSwarm`, `SineCosineAlgorithm`, `TLBO` and
+#' `WhaleOptimization` (plus [DifferentialEvolution] `rand_1`/`best_1`/`jde`)
 #' auto-dispatch on a mixed or non-float space to a HYBRID via
 #' `gen/compound`: the preset's own generator on float blocks, GA variation
 #' (`gen/ga-bin`/`gen/ga-int`/`gen/ga-cat`/`gen/ga-perm`, default params) on
 #' every other block; parent selection and replacement follow the preset's
 #' own pipeline. A space with NO float block gets zero preset-specific
 #' variation (all variation is GA). Stateful, one-offspring and
-#' internal-evaluation presets (e.g. `ParticleSwarm`, `CMAES`, `SHADE`,
+#' internal-evaluation presets (e.g. `CMAES`, `SHADE`,
 #' `HarmonySearch`, `HarrisHawks`), and `SimulatedAnnealing` (fixed
 #' population of 1), raise an error naming the reason. The
 #' eligible list mirrors py-sezgi's `builtins.py` (the source of truth).
@@ -725,8 +726,8 @@ GeneticAlgorithm <- R6::R6Class("GeneticAlgorithm",
 #' (`gen/ga-bin`/`gen/ga-int`/`gen/ga-cat`/`gen/ga-perm`, default params) on
 #' discrete blocks; parent selection and replacement follow the DE
 #' pipeline. A space with NO float block gets zero DE-specific variation
-#' (all variation is GA). `variant = "jde"` is stateful and errors on
-#' mixed spaces.
+#' (all variation is GA). `variant = "jde"` (self-adaptive F/CR,
+#' generator-owned state) also auto-dispatches to the hybrid since 0.1.6.
 #'
 #' See [sz_preset_classes]'s own doc for the problem-form support matrix
 #' and result shape (identical here).

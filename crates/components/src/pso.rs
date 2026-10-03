@@ -28,6 +28,19 @@ impl Generator for PsoGenerator {
             ctx.bb.insert("pso_pbest",
                 pop.individuals.iter().map(|g| floats(g).clone()).collect::<Vec<_>>());
             ctx.bb.insert("pso_pbest_f", pop.fitness.clone());
+        } else {
+            // Since 0.1.6 the pbest fold lives here (it used to run in
+            // `replace/pso-commit` at the end of the previous iteration):
+            // `pop` is the previous iteration's committed offspring, so a
+            // strictly better fitness replaces the personal best. RNG-free.
+            let new_pos: Vec<&Vec<f64>> = pop.individuals.iter().map(floats).collect();
+            let pf = ctx.bb.get_mut::<Vec<f64>>("pso_pbest_f").unwrap();
+            let mut improved: Vec<usize> = Vec::new();
+            for i in 0..n.min(pf.len()) {
+                if pop.fitness[i] < pf[i] { pf[i] = pop.fitness[i]; improved.push(i); }
+            }
+            let pb = ctx.bb.get_mut::<Vec<Vec<f64>>>("pso_pbest").unwrap();
+            for i in improved { pb[i] = new_pos[i].clone(); }
         }
         let gbest = {
             let pf = ctx.bb.get::<Vec<f64>>("pso_pbest_f").unwrap();
@@ -58,33 +71,20 @@ impl Generator for PsoGenerator {
     }
 }
 
+/// Commit replacer for `gen/pso`: positions carry over unconditionally
+/// (`pop = offspring`).
+///
+/// Since 0.1.6 the pbest/pbest_f fold lives in `gen/pso` (it runs at the top
+/// of the next `generate()` call from the committed population); this
+/// component is kept for spec compatibility and only performs the commit.
 pub struct PsoCommit;
 impl Replacer for PsoCommit {
-    fn replace(&self, pop: &mut Population, oi: Vec<Genotype>, of: Vec<f64>, ctx: &mut Ctx) {
-        // update pbest
-        let new_pos: Vec<Vec<f64>> = oi.iter().map(|g| floats(g).clone()).collect();
-        {
-            let pf = ctx.bb.get::<Vec<f64>>("pso_pbest_f").unwrap().clone();
-            let pb = ctx.bb.get_mut::<Vec<Vec<f64>>>("pso_pbest").unwrap();
-            for i in 0..of.len() {
-                if of[i] < pf[i] { pb[i] = new_pos[i].clone(); }
-            }
-            let pf = ctx.bb.get_mut::<Vec<f64>>("pso_pbest_f").unwrap();
-            for i in 0..of.len() {
-                if of[i] < pf[i] { pf[i] = of[i]; }
-            }
-        }
-        // positions carry over unconditionally
+    fn replace(&self, pop: &mut Population, oi: Vec<Genotype>, of: Vec<f64>, _ctx: &mut Ctx) {
         pop.individuals = oi;
         pop.fitness = of;
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta::new("replace/pso-commit", SupportedBlocks::Only(vec!["float"]))
-            .with_requires(vec![
-                StateReq::of::<Vec<Vec<f64>>>("pso_velocity"),
-                StateReq::of::<Vec<Vec<f64>>>("pso_pbest"),
-                StateReq::of::<Vec<f64>>("pso_pbest_f"),
-            ])
+        ComponentMeta::new("replace/pso-commit", SupportedBlocks::All)
     }
 }
 

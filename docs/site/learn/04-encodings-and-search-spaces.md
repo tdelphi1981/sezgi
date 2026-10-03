@@ -70,13 +70,15 @@ A space that **mixes** block kinds has no single `ga_*` preset, so
 (`crates/components/src/compound.rs`) accepts any registered generator that
 is stateless, pop-to-pop and free of internal evaluation — plus an explicit
 allow-list of self-contained stateful generators (currently `gen/gsa` and
-`gen/ba`, since 0.1.5) — and 15 presets
-(`DifferentialEvolution` rand1/best1, `GreyWolfOptimizer`,
+`gen/ba` since 0.1.5; `gen/pso`, `gen/de-jde` and `gen/mfo` since 0.1.6) — and 17 presets
+(`DifferentialEvolution` rand1/best1 — and, since 0.1.6, jde —
+`GreyWolfOptimizer`,
 `WhaleOptimization`, `SineCosineAlgorithm`, `JAYA`,
 `GrasshopperOptimization`, `SalpSwarm`, `FireflyAlgorithm`,
 `FlowerPollination`, `TLBO`, `CuckooSearch`, and — since 0.1.4 —
 `AntLion` and `EvolutionStrategy`, and — since 0.1.5 —
-`GravitationalSearch` and `BatAlgorithm`) auto-dispatch on a mixed
+`GravitationalSearch` and `BatAlgorithm`, and — since 0.1.6 —
+`ParticleSwarm` and `MothFlameOptimization`) auto-dispatch on a mixed
 space to a **hybrid**: the preset's own generator on float blocks, GA
 variation on binary/int/categorical/permutation blocks, with parent
 selection and replacement following the preset's own pipeline. A space with

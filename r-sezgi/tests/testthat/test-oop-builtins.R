@@ -483,7 +483,10 @@ for (case in list(
   list(name = "alo", make = function() AntLion$new()),
   list(name = "es", make = function() EvolutionStrategy$new()),
   list(name = "gsa", make = function() GravitationalSearch$new()),
-  list(name = "bat", make = function() BatAlgorithm$new())
+  list(name = "bat", make = function() BatAlgorithm$new()),
+  list(name = "pso", make = function() ParticleSwarm$new()),
+  list(name = "mfo", make = function() MothFlameOptimization$new()),
+  list(name = "de jde", make = function() DifferentialEvolution$new(variant = "jde"))
 )) {
   local({
     case <- case
@@ -502,14 +505,14 @@ for (case in list(
 }
 
 test_that("ineligible presets raise an honest error naming WHY on a mixed space", {
-  expect_error(
-    ParticleSwarm$new()$run(hybrid_problem(), budget = 200, seed = 1),
-    "stateful"
+  err <- tryCatch(
+    CMAES$new()$run(hybrid_problem(), budget = 200, seed = 1),
+    error = function(e) conditionMessage(e)
   )
-  expect_error(
-    DifferentialEvolution$new(variant = "jde")$run(hybrid_problem(), budget = 200, seed = 1),
-    "gen/de-jde is stateful"
-  )
+  expect_match(err, "stateful")
+  # hint list names the final eligible set (0.1.6: pso, mfo, de-jde in)
+  expect_match(err, "pso, mfo", fixed = TRUE)
+  expect_match(err, "variant='jde'", fixed = TRUE)
   expect_error(
     HarmonySearch$new()$run(hybrid_problem(), budget = 200, seed = 1),
     "OffspringCount::One"

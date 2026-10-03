@@ -53,7 +53,8 @@ def _run_spec(class_name, spec, native, budget, seed, run_id, log_dir):
 # registered sub-generator per block: stateless (empty requires/provides),
 # pop-to-pop (OffspringCount::PopLen), no internal evaluation, no nesting --
 # plus an explicit allow-list of self-contained stateful generators
-# (currently gen/gsa and gen/ba, since 0.1.5).
+# (currently gen/gsa and gen/ba since 0.1.5; gen/pso, gen/de-jde and
+# gen/mfo since 0.1.6).
 # A preset therefore auto-dispatches on a mixed (or non-float) space iff
 # every stage's generator is eligible AND every stage's replacer/adapter is
 # SupportedBlocks::All and stateless (verified per preset against
@@ -80,6 +81,9 @@ _HYBRID_PRESETS = {
     "cuckoo_search": "Cuckoo Search",
     "alo": "ALO", "es_mu_plus_lambda": "ES",
     "gsa": "GSA", "bat": "BA",
+    # since 0.1.6 (generator-owned state): pso, mfo, and the jde preset
+    # (reached via DifferentialEvolution(variant="jde")).
+    "pso": "PSO", "mfo": "MFO", "jde": "DE",
 }
 
 _WHY_STATEFUL = (
@@ -104,12 +108,10 @@ _HYBRID_INELIGIBLE = {
         "SimulatedAnnealing has a fixed population of 1 (single "
         "trajectory), which cannot host the GA discrete sub-generators "
         "(gen/compound requires population size >= 2)"),
-    "pso": "gen/pso is stateful: " + _WHY_STATEFUL.format(what="velocity/pbest"),
     "cmaes": "gen/cma is stateful: " + _WHY_STATEFUL.format(what="CMA distribution"),
     "cmaes_ipop": "gen/cma is stateful: " + _WHY_STATEFUL.format(what="CMA distribution"),
     "shade": "gen/de-shade is stateful: " + _WHY_STATEFUL.format(what="success history"),
     "lshade": "gen/de-shade is stateful: " + _WHY_STATEFUL.format(what="success history"),
-    "mfo": "gen/mfo is stateful: " + _WHY_STATEFUL.format(what="flame memory"),
     "abc": "gen/abc-employed is stateful: " + _WHY_STATEFUL.format(what="abc/trials"),
 }
 
@@ -143,7 +145,8 @@ def _check_hybrid_ineligible(class_name, preset_attr, native):
             f"(block kinds {kinds}): {reason}. Only compound-eligible "
             "presets auto-dispatch (sezgi.presets: de, gwo, woa, sca, "
             "jaya, goa, ssa, firefly, fpa, tlbo, cuckoo_search, alo, "
-            "es_mu_plus_lambda, gsa, bat; see "
+            "es_mu_plus_lambda, gsa, bat, pso, mfo; de includes "
+            "variant='jde'; see "
             "gen/compound in crates/components/src/compound.rs).")
 
 
@@ -622,8 +625,8 @@ class DifferentialEvolution(object):
     (gen/ga-bin / gen/ga-int / gen/ga-cat / gen/ga-perm, default params) on
     discrete blocks; parent selection and replacement follow the DE
     pipeline. A space with NO float block gets zero DE-specific variation
-    (all variation is GA). variant="jde" is stateful and raises NotImplementedError on
-    mixed spaces."""
+    (all variation is GA). variant="jde" (self-adaptive F/CR, generator-owned
+    state) also auto-dispatches to the hybrid since 0.1.6."""
 
     def __init__(self, pop_size=20, variant="rand1", **preset_kwargs):
         """pop_size: population size, forwarded to whichever de_*/jde preset
@@ -649,15 +652,6 @@ class DifferentialEvolution(object):
         native = as_native_problem(problem)
         preset_attr = _DE_VARIANT_TO_PRESET[self.variant]
         preset_fn = getattr(sezgi.presets, preset_attr)
-        if self.variant == "jde":
-            kinds = _block_kinds(native)
-            if _needs_compound(kinds):
-                raise NotImplementedError(
-                    "DifferentialEvolution(variant='jde') cannot run on a "
-                    f"mixed or non-float space (block kinds {kinds}): "
-                    "gen/de-jde is stateful: " + _WHY_STATEFUL.format(
-                        what="per-individual jde_f/jde_cr") + ". Use "
-                    "variant='rand1' or 'best1' for the compound hybrid.")
         spec = preset_fn(self.pop_size, budget, **self.preset_kwargs)
         _maybe_hybrid_wrap(spec, preset_attr, native)
         return _run_spec("DifferentialEvolution", spec, native, budget,

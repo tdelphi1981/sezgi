@@ -89,10 +89,11 @@
 //!    itself");
 //! 2. its `ComponentMeta::requires` and `provides` are both empty, OR its
 //!    kind is listed in [`SELF_CONTAINED_COMPOUND_KINDS`] (`gen/gsa`,
-//!    `gen/ba`: generators that bootstrap, read and write only their own
+//!    `gen/ba`, and since 0.1.6 `gen/pso`, `gen/de-jde`, `gen/mfo`:
+//!    generators that bootstrap, read, transition and write only their own
 //!    blackboard keys inside `generate`). A generator that keeps
-//!    engine-level blackboard state paired with a replacer/adapter (PSO,
-//!    CMA-ES, SHADE, jDE, ...) is rejected, since gen/compound cannot route
+//!    engine-level blackboard state paired with a replacer/adapter (CMA-ES,
+//!    SHADE, ...) is rejected, since gen/compound cannot route
 //!    that pairing per block;
 //! 3. its `ComponentMeta::offspring` is `OffspringCount::PopLen` (rejects
 //!    `gen/hs`, `gen/nelder-mead`, which emit one offspring per call);
@@ -249,7 +250,14 @@ fn block_tag(b: &Block) -> &'static str {
 /// Invariant: allow-listed stateful kinds must come from SINGLE-STAGE
 /// presets -- the nested-bb key "cmp{i}/bb" is per block, not per stage, so a
 /// multi-stage spec with stateful subs would share state across stages.
-const SELF_CONTAINED_COMPOUND_KINDS: &[&str] = &["gen/gsa", "gen/ba"];
+///
+/// Since 0.1.6 `gen/pso` (pbest fold), `gen/de-jde` (F/CR survival rollback)
+/// and `gen/mfo` (flame merge) perform their state transition at the top of
+/// `generate()`, so their companions (`replace/pso-commit`,
+/// `adapter/jde-commit`, `adapter/mfo-flame-update`) hold no state and the
+/// kinds qualify. The single-stage invariant above still applies.
+const SELF_CONTAINED_COMPOUND_KINDS: &[&str] =
+    &["gen/gsa", "gen/ba", "gen/pso", "gen/de-jde", "gen/mfo"];
 
 /// Builds one sub-generator from its `ComponentSpec` through a builtins
 /// registry (R-A) and applies the eligibility gates (R-B). `index` is the
@@ -750,9 +758,9 @@ mod tests {
     #[test]
     fn rejects_stateful_generator_with_blackboard_reason() {
         let r = err_reason(serde_json::json!({
-            "blocks": [{"kind": "gen/ga-bin"}, {"kind": "gen/pso"}]
+            "blocks": [{"kind": "gen/ga-bin"}, {"kind": "gen/cma"}]
         }));
-        assert!(r.contains("gen/pso"), "{r}");
+        assert!(r.contains("gen/cma"), "{r}");
         assert!(r.contains("block 1"), "{r}");
         assert!(r.contains("blackboard state"), "{r}");
         assert!(r.contains("paired replacer/adapter"), "{r}");
@@ -1393,13 +1401,57 @@ mod tests {
     }
 
     #[test]
-    fn pso_cma_shade_still_rejected_with_blackboard_message() {
-        for kind in ["gen/pso", "gen/cma", "gen/de-shade"] {
+    fn pso_jde_mfo_plus_ga_bin_accepted_and_generate_valid_shapes() {
+        for (kind, key) in [("gen/pso", "pso_velocity"), ("gen/de-jde", "jde_f"), ("gen/mfo", "mfo/flames")] {
+            let g = CompoundGenerator::from_params(&serde_json::json!({
+                "blocks": [{"kind": kind}, {"kind": "gen/ga-bin"}]
+            }))
+            .unwrap_or_else(|e| panic!("{kind} is on the self-contained allow-list: {e:?}"));
+            let space = float_bin_space(4, 6);
+            let (off, bb) = run_gens(&g, &space, float_bin_pop(6, 4, 6), 13, 2);
+            assert_eq!(off.len(), 6, "{kind}");
+            for o in &off {
+                assert!(matches!(&o.blocks[0], BlockValues::Float(x) if x.len() == 4), "{kind}");
+                assert!(matches!(&o.blocks[1], BlockValues::Bin(x) if x.len() == 6), "{kind}");
+            }
+            let nested = bb.get::<Blackboard>("cmp0/bb").expect("nested slot");
+            assert!(nested.contains(key), "{kind}: state must live in cmp0/bb");
+            assert!(!bb.contains(key), "{kind}: state must not leak into the parent blackboard");
+        }
+    }
+
+    #[test]
+    fn cma_shade_still_rejected_with_blackboard_message() {
+        for kind in ["gen/cma", "gen/de-shade"] {
             let r = err_reason(serde_json::json!({"blocks": [{"kind": "gen/ga-bin"}, {"kind": kind}]}));
             assert!(r.contains(kind), "{r}");
             assert!(r.contains("block 1"), "{r}");
             assert!(r.contains("blackboard state"), "{kind}: {r}");
         }
+    }
+
+    #[test]
+    fn pso_nested_state_persists_across_generate_calls() {
+        let g = CompoundGenerator::from_params(&serde_json::json!({
+            "blocks": [{"kind": "gen/pso"}, {"kind": "gen/ga-bin"}]
+        }))
+        .unwrap();
+        let space = float_bin_space(3, 4);
+        let (_, bb1) = run_gens(&g, &space, float_bin_pop(6, 3, 4), 5, 1);
+        let (_, bb3) = run_gens(&g, &space, float_bin_pop(6, 3, 4), 5, 3);
+        let (_, bb3b) = run_gens(&g, &space, float_bin_pop(6, 3, 4), 5, 3);
+        assert!(bb3.contains("cmp0/bb") && !bb3.contains("pso_velocity"));
+        assert_ne!(
+            nested_vel(&bb1, 0, "pso_velocity"),
+            nested_vel(&bb3, 0, "pso_velocity"),
+            "velocity must evolve between generations, not reset"
+        );
+        assert_eq!(nested_vel(&bb3, 0, "pso_velocity"), nested_vel(&bb3b, 0, "pso_velocity"));
+        let pb = nested_vel(&bb3, 0, "pso_pbest");
+        assert_eq!(pb.len(), 6);
+        assert!(pb.iter().all(|r| r.len() == 3));
+        let nested = bb3.get::<Blackboard>("cmp0/bb").unwrap();
+        assert_eq!(nested.get::<Vec<f64>>("pso_pbest_f").unwrap().len(), 6);
     }
 
     #[test]

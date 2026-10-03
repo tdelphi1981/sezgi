@@ -47,18 +47,19 @@ list[int])` (a `Categorical` block converts to indices, same as `Int`).
 `GeneticAlgorithm` auto-dispatches only over a SINGLE-kind space
 (all-Float, all-Binary, ...) — pointing it at a genuinely mixed space
 raises `NotImplementedError` before any run starts. Since 0.1.3, however,
-15 presets (`DifferentialEvolution` rand1/best1, `GreyWolfOptimizer`,
+17 presets (`DifferentialEvolution` rand1/best1/jde (jde since 0.1.6), `GreyWolfOptimizer`,
 `WhaleOptimization`, `SineCosineAlgorithm`, `JAYA`,
 `GrasshopperOptimization`, `SalpSwarm`, `FireflyAlgorithm`,
 `FlowerPollination`, `TLBO`, `CuckooSearch`, plus `AntLion` and
 `EvolutionStrategy` since 0.1.4, plus `GravitationalSearch` and
-`BatAlgorithm` since 0.1.5) run on a mixed space directly
+`BatAlgorithm` since 0.1.5, plus `ParticleSwarm` and
+`MothFlameOptimization` since 0.1.6) run on a mixed space directly
 as a **hybrid** through `gen/compound`: the preset's own generator varies
 the float blocks, and GA variation (`gen/ga-bin` / `gen/ga-int` /
 `gen/ga-cat` / `gen/ga-perm`, default parameters) varies every other block;
 parent selection and replacement follow the preset's own pipeline. A space
 with no float block gets zero preset-specific variation (all variation is
-GA). Stateful presets (PSO, CMA-ES, SHADE, ...) still raise
+GA). Stateful presets that keep structural state (CMA-ES, SHADE, ...) still raise
 `NotImplementedError` naming why.
 
 ```python

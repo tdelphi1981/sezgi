@@ -1,3 +1,19 @@
+# sezgi 0.1.6
+
+* Mixed-space hybrid auto-dispatch widened to 17 presets: `ParticleSwarm` and
+  `MothFlameOptimization` join the list (since 0.1.6), and
+  `DifferentialEvolution(variant = "jde")` is now allowed on mixed spaces
+  (float blocks keep the preset's own generator, GA variation on discrete
+  blocks; a space with no float block is all GA).
+* Engine: `gen/pso`, `gen/de-jde` and `gen/mfo` now own their state (PSO
+  velocity/pbest, jDE per-individual F/CR, MFO flame memory) and are on the
+  `gen/compound` self-contained allow-list. The companion components
+  (`replace/pso-commit`, `adapter/jde-commit`, `adapter/mfo-flame-update`) are
+  kept for spec compatibility; their state duties moved into the generators.
+  Single-block preset runs are bit-identical to 0.1.5.
+* Still excluded from hybrid dispatch (structural): `shade`/`lshade`, `cmaes`
+  (+ ipop), `abc`, `sa`, `harmony_search`, `nelder_mead`, `hho`.
+
 # sezgi 0.1.5
 
 * Mixed-space hybrid auto-dispatch widened to 15 presets:
