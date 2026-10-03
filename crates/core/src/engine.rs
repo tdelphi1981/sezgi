@@ -207,9 +207,10 @@ impl Engine {
                     // Post-adapter shape sweep: an adapter may write new
                     // individuals straight into `pop` (bypassing the generator
                     // guard above), so re-check the whole population here.
-                    // Adapter-conditional: without an adapter nothing mutates
-                    // genotypes after the pre-eval guard, so the sweep would be
-                    // redundant work.
+                    // Adapter-conditional: the other post-guard writers
+                    // (boundary repair, replacers) are shape-preserving or
+                    // Float-only meta-gated, so only an adapter can introduce
+                    // a shape change here; without one the sweep is redundant.
                     for g in &pop.individuals {
                         space.validate_genotype(g).map_err(|e| EngineError::GenotypeShapeMismatch {
                             stage: si, detail: e.to_string() })?;

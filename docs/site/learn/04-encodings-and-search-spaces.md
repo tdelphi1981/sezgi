@@ -68,11 +68,12 @@ multi-block space whose blocks all share one kind auto-dispatches through
 A space that **mixes** block kinds has no single `ga_*` preset, so
 `GeneticAlgorithm` rejects it. Since 0.1.3 `gen/compound`
 (`crates/components/src/compound.rs`) accepts any registered generator that
-is stateless, pop-to-pop and free of internal evaluation, and 11 presets
+is stateless, pop-to-pop and free of internal evaluation, and 13 presets
 (`DifferentialEvolution` rand1/best1, `GreyWolfOptimizer`,
 `WhaleOptimization`, `SineCosineAlgorithm`, `JAYA`,
 `GrasshopperOptimization`, `SalpSwarm`, `FireflyAlgorithm`,
-`FlowerPollination`, `TLBO`, `CuckooSearch`) auto-dispatch on a mixed
+`FlowerPollination`, `TLBO`, `CuckooSearch`, and — since 0.1.4 —
+`AntLion` and `EvolutionStrategy`) auto-dispatch on a mixed
 space to a **hybrid**: the preset's own generator on float blocks, GA
 variation on binary/int/categorical/permutation blocks, with parent
 selection and replacement following the preset's own pipeline. A space with
