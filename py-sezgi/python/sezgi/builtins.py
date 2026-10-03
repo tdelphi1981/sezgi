@@ -76,6 +76,7 @@ _HYBRID_PRESETS = {
     "sca": "SCA", "jaya": "JAYA", "goa": "GOA", "ssa": "SSA",
     "firefly": "FA", "fpa": "FPA", "tlbo": "TLBO",
     "cuckoo_search": "Cuckoo Search",
+    "alo": "ALO", "es_mu_plus_lambda": "ES",
 }
 
 _WHY_STATEFUL = (
@@ -96,6 +97,10 @@ _HYBRID_INELIGIBLE = {
         "gen/hho evaluates single-block genotypes against the full "
         "problem inside generate() (internal evaluation), which is "
         "unsound on a block slice"),
+    "sa": (
+        "SimulatedAnnealing has a fixed population of 1 (single "
+        "trajectory), which cannot host the GA discrete sub-generators "
+        "(gen/compound requires population size >= 2)"),
     "pso": "gen/pso is stateful: " + _WHY_STATEFUL.format(what="velocity/pbest"),
     "cmaes": "gen/cma is stateful: " + _WHY_STATEFUL.format(what="CMA distribution"),
     "cmaes_ipop": "gen/cma is stateful: " + _WHY_STATEFUL.format(what="CMA distribution"),
@@ -136,7 +141,8 @@ def _check_hybrid_ineligible(class_name, preset_attr, native):
             f"{class_name} cannot run on a mixed or non-float space "
             f"(block kinds {kinds}): {reason}. Only compound-eligible "
             "presets auto-dispatch (sezgi.presets: de, gwo, woa, sca, "
-            "jaya, goa, ssa, firefly, fpa, tlbo, cuckoo-search; see "
+            "jaya, goa, ssa, firefly, fpa, tlbo, cuckoo_search, alo, "
+            "es_mu_plus_lambda; see "
             "gen/compound in crates/components/src/compound.rs).")
 
 

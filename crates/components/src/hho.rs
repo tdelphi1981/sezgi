@@ -645,17 +645,19 @@ pub fn register(reg: &mut Registry) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn hho_meta_reports_internal_eval() {
-        let m = HhoGenerator::from_params(&serde_json::json!({})).unwrap().meta();
-        assert_eq!(m.kind, "gen/hho");
-        assert!(m.internal_eval); assert_eq!(m.offspring, OffspringCount::PopLen);
-    }
     use sezgi_core::engine::{Engine, RunConfig};
     use sezgi_core::problem::{Problem, SphereShifted, Evaluator};
     use sezgi_core::rng::RngStream;
     use sezgi_core::space::SearchSpace;
     use sezgi_core::state::Blackboard;
+
+    #[test]
+    fn hho_meta_reports_internal_eval() {
+        let m = HhoGenerator::from_params(&serde_json::json!({})).unwrap().meta();
+        assert_eq!(m.kind, "gen/hho");
+        assert!(m.internal_eval);
+        assert_eq!(m.offspring, OffspringCount::PopLen);
+    }
 
     fn g(xs: Vec<f64>) -> Genotype { Genotype { blocks: vec![BlockValues::Float(xs)] } }
 

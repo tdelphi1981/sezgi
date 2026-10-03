@@ -452,6 +452,7 @@ def test_ga_presets_single_stage_single_generator_no_braces(name):
     (lambda: sezgi.NelderMead(), "OffspringCount::One"),
     (lambda: sezgi.HarmonySearch(), "OffspringCount::One"),
     (lambda: sezgi.HarrisHawks(), "internal evaluation"),
+    (lambda: sezgi.SimulatedAnnealing(), "fixed population of 1"),
     (lambda: sezgi.DifferentialEvolution(variant="jde"), "blackboard state"),
 ])
 def test_ineligible_presets_raise_with_why_on_mixed_space(make, needle):

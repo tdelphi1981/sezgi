@@ -1,3 +1,16 @@
+# sezgi 0.1.4
+
+* Mixed-space hybrid auto-dispatch widened to 13 presets: `AntLion` and
+  `EvolutionStrategy` join the 0.1.3 list (float blocks keep the preset's
+  own generator, GA variation on discrete blocks; a space with no float
+  block is all GA). `SimulatedAnnealing` stays ineligible: its fixed
+  population of 1 cannot host the GA discrete sub-generators.
+* Engine: the post-adapter genotype shape sweep now runs only for stages
+  that have an adapter.
+* New R guard tests for `.sz_hybrid_wrap_stages` (malformed preset specs).
+* The ineligible-preset error now lists the real preset names
+  (`cuckoo_search`, `alo`, `es_mu_plus_lambda`) instead of "cuckoo-search".
+
 # sezgi 0.1.3
 
 * `gen/compound` now accepts any registered sub-generator that is eligible

@@ -47,10 +47,11 @@ list[int])` (a `Categorical` block converts to indices, same as `Int`).
 `GeneticAlgorithm` auto-dispatches only over a SINGLE-kind space
 (all-Float, all-Binary, ...) — pointing it at a genuinely mixed space
 raises `NotImplementedError` before any run starts. Since 0.1.3, however,
-11 presets (`DifferentialEvolution` rand1/best1, `GreyWolfOptimizer`,
+13 presets (`DifferentialEvolution` rand1/best1, `GreyWolfOptimizer`,
 `WhaleOptimization`, `SineCosineAlgorithm`, `JAYA`,
 `GrasshopperOptimization`, `SalpSwarm`, `FireflyAlgorithm`,
-`FlowerPollination`, `TLBO`, `CuckooSearch`) run on a mixed space directly
+`FlowerPollination`, `TLBO`, `CuckooSearch`, plus `AntLion` and
+`EvolutionStrategy` since 0.1.4) run on a mixed space directly
 as a **hybrid** through `gen/compound`: the preset's own generator varies
 the float blocks, and GA variation (`gen/ga-bin` / `gen/ga-int` /
 `gen/ga-cat` / `gen/ga-perm`, default parameters) varies every other block;

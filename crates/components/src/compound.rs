@@ -613,6 +613,45 @@ mod tests {
         }
     }
 
+    fn float_bin_accept_and_generate(float_kind: &str) -> Result<(), String> {
+        let spec = serde_json::json!({"blocks": [{"kind": float_kind}, {"kind": "gen/ga-bin"}]});
+        let g = CompoundGenerator::from_params(&spec).map_err(|e| e.to_string())?;
+        let space = SearchSpace::new(vec![
+            Block::Float { lo: -5.0, hi: 5.0, n: 3 },
+            Block::Binary { n: 6 },
+        ])
+        .unwrap();
+        g.validate_against_space(&space).map_err(|e| e.to_string())?;
+        let pop = Population {
+            individuals: (0..8)
+                .map(|i| Genotype {
+                    blocks: vec![
+                        BlockValues::Float((0..3).map(|j| ((i + j) % 5) as f64 - 2.0).collect()),
+                        BlockValues::Bin((0..6).map(|j| (i + j) % 2 == 0).collect()),
+                    ],
+                })
+                .collect(),
+            fitness: (0..8).map(|i| (8 - i) as f64).collect(),
+        };
+        let off = run_generate(&g, &space, &pop, 3);
+        assert_eq!(off.len(), 8);
+        for o in &off {
+            assert!(matches!(&o.blocks[0], BlockValues::Float(v) if v.len() == 3));
+            assert!(matches!(&o.blocks[1], BlockValues::Bin(v) if v.len() == 6));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn sweep_alo_with_ga_bin_acceptance() {
+        float_bin_accept_and_generate("gen/alo").unwrap();
+    }
+
+    #[test]
+    fn sweep_step_with_ga_bin_acceptance() {
+        float_bin_accept_and_generate("gen/step").unwrap();
+    }
+
     #[test]
     fn gwo_on_float_with_ga_int_generates_valid_shapes() {
         let g = CompoundGenerator::from_params(&serde_json::json!({

@@ -42,9 +42,11 @@ ELIGIBLE = [
     sezgi.FlowerPollination,
     sezgi.TLBO,
     sezgi.CuckooSearch,
+    sezgi.AntLion,
+    sezgi.EvolutionStrategy,
 ]
 IDS = ["de-rand1", "de-best1", "gwo", "woa", "sca", "jaya", "goa", "ssa",
-       "fa", "fpa", "tlbo", "cuckoo"]
+       "fa", "fpa", "tlbo", "cuckoo", "alo", "es"]
 
 
 @pytest.fixture(scope="module")
@@ -71,14 +73,16 @@ def test_hybrid_keeps_block_structure(make):
 
 def test_docstrings_state_hybrid():
     for cls in (sezgi.GreyWolfOptimizer, sezgi.TLBO, sezgi.CuckooSearch,
-                sezgi.DifferentialEvolution):
+                sezgi.DifferentialEvolution, sezgi.AntLion,
+                sezgi.EvolutionStrategy):
         assert "HYBRID" in cls.__doc__
         assert "gen/ga-bin" in cls.__doc__
 
 
 def test_docstrings_warn_no_float_block_means_pure_ga():
     for cls in (sezgi.GreyWolfOptimizer, sezgi.TLBO, sezgi.CuckooSearch,
-                sezgi.DifferentialEvolution):
+                sezgi.DifferentialEvolution, sezgi.AntLion,
+                sezgi.EvolutionStrategy):
         assert "NO float block" in cls.__doc__
 
 
