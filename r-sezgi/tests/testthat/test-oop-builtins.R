@@ -479,7 +479,9 @@ for (case in list(
   list(name = "de rand_1", make = function() DifferentialEvolution$new()),
   list(name = "de best_1", make = function() DifferentialEvolution$new(variant = "best_1")),
   list(name = "gwo", make = function() GreyWolfOptimizer$new()),
-  list(name = "tlbo", make = function() TLBO$new())
+  list(name = "tlbo", make = function() TLBO$new()),
+  list(name = "alo", make = function() AntLion$new()),
+  list(name = "es", make = function() EvolutionStrategy$new())
 )) {
   local({
     case <- case
@@ -510,4 +512,26 @@ test_that("ineligible presets raise an honest error naming WHY on a mixed space"
     HarmonySearch$new()$run(hybrid_problem(), budget = 200, seed = 1),
     "OffspringCount::One"
   )
+  expect_error(
+    SimulatedAnnealing$new()$run(hybrid_problem(), budget = 200, seed = 1),
+    "fixed population of 1"
+  )
+})
+
+test_that(".sz_hybrid_wrap_stages guards malformed preset specs", {
+  wrap <- sezgi:::.sz_hybrid_wrap_stages
+  kinds <- c("float", "binary")
+  expect_error(wrap('{"stages": []}', kinds), "no generator object")
+  expect_error(wrap('{"stages": "not-a-list"}', kinds), "no generator object")
+  expect_error(wrap('{"stages": [{"replacer": {"kind": "a"}}]}', kinds), "no generator object")
+  expect_error(wrap("not json at all", kinds), "no generator object")
+  expect_error(wrap("", kinds), "no generator object")
+  expect_error(wrap('{"generator": {"kind": "a"', kinds), "unbalanced")
+  two <- paste0(
+    '{"stages": [{"generator": {"kind": "a"}}, ',
+    '{"generator": {"kind": "b"}}]}'
+  )
+  ok <- wrap(two, kinds)
+  expect_equal(lengths(regmatches(ok, gregexpr("gen/compound", ok, fixed = TRUE))), 2L)
+  expect_match(ok, "gen/ga-bin", fixed = TRUE)
 })
