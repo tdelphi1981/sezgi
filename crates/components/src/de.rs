@@ -135,6 +135,29 @@ impl Generator for JdeGenerator {
         // Lazily initialize on first call; re-initialize if the population
         // size changed underneath us (e.g. a restart resized the pop).
         let needs_init = ctx.bb.get::<Vec<f64>>("jde_f").map(|v| v.len() != n).unwrap_or(true);
+        if !needs_init {
+            // Since 0.1.6 the survival rollback lives here (it used to run in
+            // `adapter/jde-commit` at the end of the previous iteration): an
+            // individual whose fitness is unchanged from the pre-generation
+            // snapshot kept its parent, so its F/CR revert to the pre-update
+            // values. RNG-free.
+            let prev = (
+                ctx.bb.get::<Vec<f64>>("jde_fit_prev").cloned(),
+                ctx.bb.get::<Vec<f64>>("jde_f_prev").cloned(),
+                ctx.bb.get::<Vec<f64>>("jde_cr_prev").cloned(),
+            );
+            if let (Some(fit_prev), Some(f_prev), Some(cr_prev)) = prev {
+                let m = n.min(fit_prev.len()).min(f_prev.len()).min(cr_prev.len());
+                let survived = |i: usize| pop.fitness[i].total_cmp(&fit_prev[i])
+                    == std::cmp::Ordering::Equal;
+                if let Some(f) = ctx.bb.get_mut::<Vec<f64>>("jde_f") {
+                    for i in 0..m { if survived(i) { f[i] = f_prev[i]; } }
+                }
+                if let Some(cr) = ctx.bb.get_mut::<Vec<f64>>("jde_cr") {
+                    for i in 0..m { if survived(i) { cr[i] = cr_prev[i]; } }
+                }
+            }
+        }
         if needs_init {
             ctx.bb.insert("jde_f", vec![0.5f64; n]);
             ctx.bb.insert("jde_cr", vec![0.9f64; n]);
@@ -206,52 +229,18 @@ impl Generator for JdeGenerator {
     }
 }
 
-/// Companion adapter for `gen/de-jde` (see the doc comment there for the
-/// full survival-coupling rationale). Runs after the stage's replacer: for
-/// each individual whose fitness is unchanged from the pre-generation
-/// snapshot (`jde_fit_prev`) — i.e. the parent survived — rolls
-/// `jde_f[i]`/`jde_cr[i]` back to the pre-update `jde_f_prev[i]`/`jde_cr_prev[i]`.
-/// RNG-free.
+/// Companion adapter for `gen/de-jde`.
+///
+/// Since 0.1.6 the survival-coupled F/CR rollback lives in `gen/de-jde` (it
+/// runs at the top of the next `generate()` call, comparing the committed
+/// population's fitness against `jde_fit_prev`); this component is kept for
+/// spec compatibility and is a total no-op.
 pub struct JdeCommitAdapter;
 
 impl Adapter for JdeCommitAdapter {
-    fn adapt(&self, pop: &mut Population, ctx: &mut Ctx) {
-        let (fit_prev, f_prev, cr_prev) = {
-            let fit_prev = ctx.bb.get::<Vec<f64>>("jde_fit_prev");
-            let f_prev = ctx.bb.get::<Vec<f64>>("jde_f_prev");
-            let cr_prev = ctx.bb.get::<Vec<f64>>("jde_cr_prev");
-            match (fit_prev, f_prev, cr_prev) {
-                (Some(a), Some(b), Some(c)) => (a.clone(), b.clone(), c.clone()),
-                // Nothing to roll back if the generator hasn't run yet.
-                _ => return,
-            }
-        };
-        let n = pop.fitness.len().min(fit_prev.len()).min(f_prev.len()).min(cr_prev.len());
-
-        if let Some(f) = ctx.bb.get_mut::<Vec<f64>>("jde_f") {
-            for i in 0..n.min(f.len()) {
-                if pop.fitness[i].total_cmp(&fit_prev[i]) == std::cmp::Ordering::Equal {
-                    f[i] = f_prev[i];
-                }
-            }
-        }
-        if let Some(cr) = ctx.bb.get_mut::<Vec<f64>>("jde_cr") {
-            for i in 0..n.min(cr.len()) {
-                if pop.fitness[i].total_cmp(&fit_prev[i]) == std::cmp::Ordering::Equal {
-                    cr[i] = cr_prev[i];
-                }
-            }
-        }
-    }
+    fn adapt(&self, _pop: &mut Population, _ctx: &mut Ctx) {}
     fn meta(&self) -> ComponentMeta {
         ComponentMeta::new("adapter/jde-commit", SupportedBlocks::All)
-            .with_requires(vec![
-                StateReq::of::<Vec<f64>>("jde_f"),
-                StateReq::of::<Vec<f64>>("jde_cr"),
-                StateReq::of::<Vec<f64>>("jde_f_prev"),
-                StateReq::of::<Vec<f64>>("jde_cr_prev"),
-                StateReq::of::<Vec<f64>>("jde_fit_prev"),
-            ])
     }
 }
 
@@ -358,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn jde_commit_rolls_back_on_parent_survival() {
+    fn jde_generate_rolls_back_on_parent_survival() {
         use sezgi_core::problem::Population;
 
         let p = SphereShifted::new(vec![0.0; 2], -5.0, 5.0);
@@ -384,9 +373,15 @@ mod tests {
         bb.insert("jde_fit_prev", jde_fit_prev);
 
         let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
-        let adapter = JdeCommitAdapter;
-        adapter.adapt(&mut pop, &mut ctx);
+        // The companion adapter is a total no-op since 0.1.6.
+        JdeCommitAdapter.adapt(&mut pop, &mut ctx);
+        assert_eq!(ctx.bb.get::<Vec<f64>>("jde_f").unwrap(), &vec![0.9, 0.9, 0.9, 0.9]);
 
+        // The rollback now happens at the top of generate(). tau1 = tau2 = 0
+        // so no F/CR resampling occurs; the snapshots written at the end of
+        // generate() are the post-rollback values.
+        let gen = JdeGenerator { f_lower: 0.1, f_upper: 0.9, tau1: 0.0, tau2: 0.0 };
+        let _ = gen.generate(&pop, &mut ctx);
         let f = ctx.bb.get::<Vec<f64>>("jde_f").unwrap();
         let cr = ctx.bb.get::<Vec<f64>>("jde_cr").unwrap();
         // Rolled back exactly at 0 and 2 (survived); kept the new values at 1 and 3 (won).

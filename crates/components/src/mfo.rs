@@ -236,16 +236,27 @@ impl Generator for MfoGenerator {
         let n = pop.len();
         let dim = floats(&pop.individuals[0]).len();
 
-        // Bootstrap (generation 0 only): no adapter has run yet, so seed the
-        // flame memory from the initial (sorted) population -- see the
-        // module doc's "Bootstrap exception" note.
+        let pop_positions: Vec<Vec<f64>> =
+            pop.individuals.iter().map(|g| floats(g).clone()).collect();
         if !ctx.bb.contains("mfo/flames") {
-            let pop_positions: Vec<Vec<f64>> =
-                pop.individuals.iter().map(|g| floats(g).clone()).collect();
+            // Bootstrap (first call only): seed the flame memory from the
+            // initial (sorted) population -- see the module doc's
+            // "Bootstrap exception" note.
             let (flame_fitness, flames) =
                 mfo_merge_and_truncate(&pop.fitness, &pop_positions, &[], &[]);
             ctx.bb.insert("mfo/flames", flames);
             ctx.bb.insert("mfo/flame_fitness", flame_fitness);
+        } else {
+            // Since 0.1.6 the flame merge lives here (it used to run in
+            // `adapter/mfo-flame-update` after the previous iteration's
+            // replacer): merge the previous flames with the current (just
+            // evaluated) moths, sort and truncate. RNG-free.
+            let old_flames = ctx.bb.get::<Vec<Vec<f64>>>("mfo/flames").unwrap().clone();
+            let old_flame_fitness = ctx.bb.get::<Vec<f64>>("mfo/flame_fitness").unwrap().clone();
+            let (new_flame_fitness, new_flames) = mfo_merge_and_truncate(
+                &pop.fitness, &pop_positions, &old_flame_fitness, &old_flames);
+            ctx.bb.insert("mfo/flames", new_flames);
+            ctx.bb.insert("mfo/flame_fitness", new_flame_fitness);
         }
 
         let flames = ctx.bb.get::<Vec<Vec<f64>>>("mfo/flames").unwrap().clone();
@@ -270,7 +281,7 @@ impl Generator for MfoGenerator {
 
     fn meta(&self) -> ComponentMeta {
         ComponentMeta::new("gen/mfo", SupportedBlocks::Only(vec!["float"]))
-            .with_requires(vec![
+            .with_provides(vec![
                 StateReq::of::<Vec<Vec<f64>>>("mfo/flames"),
                 StateReq::of::<Vec<f64>>("mfo/flame_fitness"),
             ])
@@ -278,43 +289,19 @@ impl Generator for MfoGenerator {
     }
 }
 
-/// Companion adapter for `gen/mfo`: the flame-memory merge-sort-truncate
-/// (see the module doc's "Flame update" extraction), run once per
-/// generation AFTER `replace/generational` has installed the freshly-moved
-/// moths into `pop`. Reads the PREVIOUS flames (this generation's move
-/// target) out of the blackboard, merges them against the just-replaced
-/// `pop` (this generation's freshly-evaluated moths) via
-/// [`mfo_merge_and_truncate`], and writes the truncated result back as the
-/// NEXT generation's flames -- exactly `MFO.m`'s `double_population =
-/// [previous_population; best_flames]` step, with `previous_population` ==
-/// this stage's just-evaluated `pop` and `best_flames` == the flames this
-/// same generation's `gen/mfo` call just consumed.
+/// Companion adapter for `gen/mfo`.
+///
+/// Since 0.1.6 the flame-memory merge-sort-truncate (`MFO.m`'s
+/// `double_population = [previous_population; best_flames]` step) lives in
+/// `gen/mfo`, run at the top of each `generate()` call after the first; this
+/// component is kept for spec compatibility and is a total no-op.
 pub struct MfoFlameAdapter;
 
 impl Adapter for MfoFlameAdapter {
-    fn adapt(&self, pop: &mut Population, ctx: &mut Ctx) {
-        let pop_positions: Vec<Vec<f64>> =
-            pop.individuals.iter().map(|g| floats(g).clone()).collect();
-        let old_flames = ctx.bb.get::<Vec<Vec<f64>>>("mfo/flames").unwrap().clone();
-        let old_flame_fitness = ctx.bb.get::<Vec<f64>>("mfo/flame_fitness").unwrap().clone();
-
-        let (new_flame_fitness, new_flames) =
-            mfo_merge_and_truncate(&pop.fitness, &pop_positions, &old_flame_fitness, &old_flames);
-
-        ctx.bb.insert("mfo/flames", new_flames);
-        ctx.bb.insert("mfo/flame_fitness", new_flame_fitness);
-    }
+    fn adapt(&self, _pop: &mut Population, _ctx: &mut Ctx) {}
 
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta::new("adapter/mfo-flame-update", SupportedBlocks::Only(vec!["float"]))
-            .with_requires(vec![
-                StateReq::of::<Vec<Vec<f64>>>("mfo/flames"),
-                StateReq::of::<Vec<f64>>("mfo/flame_fitness"),
-            ])
-            .with_provides(vec![
-                StateReq::of::<Vec<Vec<f64>>>("mfo/flames"),
-                StateReq::of::<Vec<f64>>("mfo/flame_fitness"),
-            ])
+        ComponentMeta::new("adapter/mfo-flame-update", SupportedBlocks::All)
     }
 }
 
@@ -582,10 +569,10 @@ mod tests {
         assert!(result.is_err(), "gen/mfo must reject pop_size < 2 at runtime as a backstop");
     }
 
-    // ---- MfoFlameAdapter ----
+    // ---- Flame merge (generator-owned since 0.1.6) ----
 
     #[test]
-    fn adapter_updates_flames_via_merge_and_truncate() {
+    fn generate_merges_flames_via_merge_and_truncate() {
         let dim = 1;
         let p = SphereShifted::new(vec![0.0; dim], -5.0, 5.0);
         let space = p.space();
@@ -601,7 +588,10 @@ mod tests {
         };
 
         let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
+        // The companion adapter is a total no-op since 0.1.6.
         MfoFlameAdapter.adapt(&mut pop, &mut ctx);
+        assert_eq!(ctx.bb.get::<Vec<f64>>("mfo/flame_fitness").unwrap(), &vec![3.0, 10.0]);
+        let _ = MfoGenerator.generate(&pop, &mut ctx);
 
         // Same numbers as merge_and_truncate_matches_hand_built_mechanism_bit_exact:
         // combined sorted -> [1.0(moth1,10.0), 3.0(flame0,30.0), 5.0(moth0,50.0), 10.0(flame1,100.0)]
@@ -612,7 +602,7 @@ mod tests {
         assert_eq!(new_flames, &vec![vec![10.0], vec![30.0]]);
     }
 
-    // ---- End-to-end: two hand-traced generations (generator + replace/generational + adapter) ----
+    // ---- End-to-end: two hand-traced generations (generator + replace/generational) ----
 
     #[test]
     fn two_generations_flame_evolution_hand_traced() {
@@ -645,10 +635,12 @@ mod tests {
         pop.individuals = off0;
         pop.fitness = off0_fitness.clone();
 
-        // adapter/mfo-flame-update: merge pop (fitness [7.0, 0.5]) against
-        // the flames generation 0's generate() just used ([5.0]@1.0, [0.0]@10.0).
-        let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 0 };
-        MfoFlameAdapter.adapt(&mut pop, &mut ctx);
+        // Generation 1: generate() first merges pop (fitness [7.0, 0.5])
+        // against the flames generation 0 just used ([5.0]@1.0, [0.0]@10.0),
+        // then moves the moths against the merged flames (no re-bootstrap).
+        let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 1 };
+        let off1 = MfoGenerator.generate(&pop, &mut ctx);
+        assert_eq!(off1.len(), n);
 
         // Combined: (7.0, off0[0]), (0.5, off0[1]), (1.0, [5.0]), (10.0, [0.0])
         // sorted ascending by fitness: 0.5(off0[1]), 1.0([5.0]), 7.0(off0[0]), 10.0([0.0])
@@ -657,14 +649,5 @@ mod tests {
         let flame_fitness = ctx.bb.get::<Vec<f64>>("mfo/flame_fitness").unwrap();
         assert_eq!(flame_fitness, &vec![0.5, 1.0]);
         assert_eq!(flames[1], vec![5.0], "the second flame must be the OLD flame [5.0] (fitness 1.0), still beating off0[0]'s 7.0");
-
-        // Generation 1: generate() must now read these merged flames (not
-        // re-bootstrap -- mfo/flames already present).
-        let mut ctx = Ctx { space, rng: &mut rng, eval: &mut evaluator, bb: &mut bb, iteration: 1 };
-        let off1 = MfoGenerator.generate(&pop, &mut ctx);
-        assert_eq!(off1.len(), n);
-        let flames_unchanged = ctx.bb.get::<Vec<Vec<f64>>>("mfo/flames").unwrap();
-        assert_eq!(flames_unchanged, &vec![flames_unchanged[0].clone(), vec![5.0]],
-            "generate() at generation 1 must NOT modify or re-bootstrap the existing flame memory");
     }
 }

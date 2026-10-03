@@ -51,11 +51,13 @@ fn pso_converges_on_shifted_sphere_5d() {
 }
 
 #[test]
-fn pso_commit_without_generator_is_rejected() {
+fn pso_commit_without_generator_is_accepted_since_016() {
+    // Since 0.1.6 replace/pso-commit keeps no blackboard state (the pbest
+    // fold lives in gen/pso), so it requires nothing and validates anywhere.
     let p = SphereShifted::new(vec![1.0], -5.0, 5.0);
     let mut spec = presets::de_rand_1(10, 100);
     spec.stages[0].replacer.kind = "replace/pso-commit".into();
-    assert!(Engine::from_spec(&spec, &registry(), p.space()).is_err());
+    assert!(Engine::from_spec(&spec, &registry(), p.space()).is_ok());
 }
 
 #[test]
