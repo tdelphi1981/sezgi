@@ -73,18 +73,18 @@ is N" convention, where stated):
 `sz_preset_es_mu_plus_lambda()` unchanged, via `...`) -- the ONLY table
 row whose preset takes kwargs beyond `pop_size`/`budget`.
 
-Mixed spaces (0.1.3, widened in 0.1.4 and 0.1.5): `AntLion`, `BatAlgorithm`,
+Mixed spaces (0.1.3, widened in 0.1.4, 0.1.5 and 0.1.6): `AntLion`, `BatAlgorithm`,
 `CuckooSearch`, `EvolutionStrategy`, `FireflyAlgorithm`,
 `FlowerPollination`, `GrasshopperOptimization`, `GravitationalSearch`,
-`GreyWolfOptimizer`, `JAYA`, `SalpSwarm`, `SineCosineAlgorithm`, `TLBO` and
-`WhaleOptimization` (plus [DifferentialEvolution] `rand_1`/`best_1`)
+`GreyWolfOptimizer`, `JAYA`, `MothFlameOptimization`, `ParticleSwarm`, `SalpSwarm`, `SineCosineAlgorithm`, `TLBO` and
+`WhaleOptimization` (plus [DifferentialEvolution] `rand_1`/`best_1`/`jde`)
 auto-dispatch on a mixed or non-float space to a HYBRID via
 `gen/compound`: the preset's own generator on float blocks, GA variation
 (`gen/ga-bin`/`gen/ga-int`/`gen/ga-cat`/`gen/ga-perm`, default params) on
 every other block; parent selection and replacement follow the preset's
 own pipeline. A space with NO float block gets zero preset-specific
 variation (all variation is GA). Stateful, one-offspring and
-internal-evaluation presets (e.g. `ParticleSwarm`, `CMAES`, `SHADE`,
+internal-evaluation presets (e.g. `CMAES`, `SHADE`,
 `HarmonySearch`, `HarrisHawks`), and `SimulatedAnnealing` (fixed
 population of 1), raise an error naming the reason. The
 eligible list mirrors py-sezgi's `builtins.py` (the source of truth).

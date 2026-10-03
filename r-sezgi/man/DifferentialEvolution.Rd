@@ -15,8 +15,8 @@ via `gen/compound` -- DE on continuous (float) blocks, GA variation
 (`gen/ga-bin`/`gen/ga-int`/`gen/ga-cat`/`gen/ga-perm`, default params) on
 discrete blocks; parent selection and replacement follow the DE
 pipeline. A space with NO float block gets zero DE-specific variation
-(all variation is GA). `variant = "jde"` is stateful and errors on
-mixed spaces.
+(all variation is GA). `variant = "jde"` (self-adaptive F/CR,
+generator-owned state) also auto-dispatches to the hybrid since 0.1.6.
 
 See [sz_preset_classes]'s own doc for the problem-form support matrix
 and result shape (identical here).

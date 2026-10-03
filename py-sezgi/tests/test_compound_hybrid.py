@@ -46,9 +46,12 @@ ELIGIBLE = [
     sezgi.EvolutionStrategy,
     sezgi.GravitationalSearch,
     sezgi.BatAlgorithm,
+    sezgi.ParticleSwarm,
+    sezgi.MothFlameOptimization,
+    lambda **kw: sezgi.DifferentialEvolution(variant="jde", **kw),
 ]
 IDS = ["de-rand1", "de-best1", "gwo", "woa", "sca", "jaya", "goa", "ssa",
-       "fa", "fpa", "tlbo", "cuckoo", "alo", "es", "gsa", "bat"]
+       "fa", "fpa", "tlbo", "cuckoo", "alo", "es", "gsa", "bat", "pso", "mfo", "de-jde"]
 
 
 @pytest.fixture(scope="module")
@@ -77,7 +80,8 @@ def test_docstrings_state_hybrid():
     for cls in (sezgi.GreyWolfOptimizer, sezgi.TLBO, sezgi.CuckooSearch,
                 sezgi.DifferentialEvolution, sezgi.AntLion,
                 sezgi.EvolutionStrategy, sezgi.GravitationalSearch,
-                sezgi.BatAlgorithm):
+                sezgi.BatAlgorithm, sezgi.ParticleSwarm,
+                sezgi.MothFlameOptimization):
         assert "HYBRID" in cls.__doc__
         assert "gen/ga-bin" in cls.__doc__
 
@@ -86,7 +90,8 @@ def test_docstrings_warn_no_float_block_means_pure_ga():
     for cls in (sezgi.GreyWolfOptimizer, sezgi.TLBO, sezgi.CuckooSearch,
                 sezgi.DifferentialEvolution, sezgi.AntLion,
                 sezgi.EvolutionStrategy, sezgi.GravitationalSearch,
-                sezgi.BatAlgorithm):
+                sezgi.BatAlgorithm, sezgi.ParticleSwarm,
+                sezgi.MothFlameOptimization):
         assert "NO float block" in cls.__doc__
 
 

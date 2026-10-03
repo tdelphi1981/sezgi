@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "py-sezgi"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "numpy",
  "pyo3",
@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "sezgi-bench"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "rayon",
  "serde",
@@ -460,7 +460,7 @@ dependencies = [
 
 [[package]]
 name = "sezgi-bias"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "sezgi-components",
  "sezgi-core",
@@ -471,7 +471,7 @@ dependencies = [
 
 [[package]]
 name = "sezgi-components"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -483,7 +483,7 @@ dependencies = [
 
 [[package]]
 name = "sezgi-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -493,7 +493,7 @@ dependencies = [
 
 [[package]]
 name = "sezgi-problems"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "serde_json",
  "sezgi-components",
@@ -503,7 +503,7 @@ dependencies = [
 
 [[package]]
 name = "sezgi-stats"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "sezgi-core",
  "thiserror",

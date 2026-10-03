@@ -84,7 +84,7 @@ impl Replacer for PsoCommit {
         pop.fitness = of;
     }
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta::new("replace/pso-commit", SupportedBlocks::Only(vec!["float"]))
+        ComponentMeta::new("replace/pso-commit", SupportedBlocks::All)
     }
 }
 

@@ -442,19 +442,18 @@ def test_ga_presets_single_stage_single_generator_no_braces(name):
 # ---------------------------------------------------------------------
 
 @pytest.mark.parametrize("make,needle", [
-    (lambda: sezgi.ParticleSwarm(), "blackboard state"),
     (lambda: sezgi.CMAES(), "blackboard state"),
     (lambda: sezgi.SHADE(), "blackboard state"),
-    (lambda: sezgi.MothFlameOptimization(), "blackboard state"),
     (lambda: sezgi.ArtificialBeeColony(), "blackboard state"),
     (lambda: sezgi.NelderMead(), "OffspringCount::One"),
     (lambda: sezgi.HarmonySearch(), "OffspringCount::One"),
     (lambda: sezgi.HarrisHawks(), "internal evaluation"),
     (lambda: sezgi.SimulatedAnnealing(), "fixed population of 1"),
-    (lambda: sezgi.DifferentialEvolution(variant="jde"), "blackboard state"),
 ])
 def test_ineligible_presets_raise_with_why_on_mixed_space(make, needle):
     mixed = sezgi.problems.mixed_diagnostic(2, 2, 3, 2, 2)
     with pytest.raises(NotImplementedError, match="mixed") as ei:
         make().run(mixed, budget=60, seed=1)
     assert needle in str(ei.value)
+    # hint list names the final eligible set (0.1.6: pso, mfo, de-jde in)
+    assert "pso, mfo" in str(ei.value) and "variant='jde'" in str(ei.value)
