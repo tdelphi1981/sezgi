@@ -434,3 +434,28 @@ def test_ga_presets_single_stage_single_generator_no_braces(name):
 
     for s in strings(spec):
         assert "{" not in s and "}" not in s, s
+
+
+# ---------------------------------------------------------------------
+# 0.1.3: presets WITHOUT mixed-space hybrid auto-dispatch raise an honest
+# NotImplementedError naming WHY (stateful / one-out / internal-eval).
+# ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("make,needle", [
+    (lambda: sezgi.ParticleSwarm(), "blackboard state"),
+    (lambda: sezgi.CMAES(), "blackboard state"),
+    (lambda: sezgi.SHADE(), "blackboard state"),
+    (lambda: sezgi.BatAlgorithm(), "blackboard state"),
+    (lambda: sezgi.GravitationalSearch(), "blackboard state"),
+    (lambda: sezgi.MothFlameOptimization(), "blackboard state"),
+    (lambda: sezgi.ArtificialBeeColony(), "blackboard state"),
+    (lambda: sezgi.NelderMead(), "OffspringCount::One"),
+    (lambda: sezgi.HarmonySearch(), "OffspringCount::One"),
+    (lambda: sezgi.HarrisHawks(), "internal evaluation"),
+    (lambda: sezgi.DifferentialEvolution(variant="jde"), "blackboard state"),
+])
+def test_ineligible_presets_raise_with_why_on_mixed_space(make, needle):
+    mixed = sezgi.problems.mixed_diagnostic(2, 2, 3, 2, 2)
+    with pytest.raises(NotImplementedError, match="mixed") as ei:
+        make().run(mixed, budget=60, seed=1)
+    assert needle in str(ei.value)
