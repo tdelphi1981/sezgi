@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "sezgi"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "savvy",
  "serde_json",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "sezgi-bench"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "rayon",
  "serde",
@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "sezgi-bias"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "sezgi-components",
  "sezgi-core",
@@ -258,7 +258,7 @@ dependencies = [
 
 [[package]]
 name = "sezgi-components"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "sezgi-core"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -278,7 +278,7 @@ dependencies = [
 
 [[package]]
 name = "sezgi-problems"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "sezgi-core",
  "thiserror",
@@ -286,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "sezgi-stats"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "sezgi-core",
  "thiserror",

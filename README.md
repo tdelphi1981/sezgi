@@ -262,7 +262,8 @@ algorithm):
 auto-dispatched via `gen/compound` (one generator copy per block); a
 genuinely **Mixed space is rejected** with a
 `NotImplementedError` naming `gen/compound`; since 0.1.3 (13 since 0.1.4: `AntLion` and
-`EvolutionStrategy` joined) the compound-eligible
+`EvolutionStrategy` joined; 15 since 0.1.5: `GravitationalSearch` and
+`BatAlgorithm` joined) the compound-eligible
 presets (`DifferentialEvolution` rand1/best1, `GreyWolfOptimizer`,
 `WhaleOptimization`, `SineCosineAlgorithm`, `JAYA`, `GrasshopperOptimization`,
 `SalpSwarm`, `FireflyAlgorithm`, `FlowerPollination`, `TLBO`, `CuckooSearch`)
@@ -710,7 +711,7 @@ skipped and zero orphans — live-verified (`length(sezgi:::.sz_preset_table)
 == 26`, `getNamespaceExports("sezgi")` filtered to `sz_preset_*` == 34).
 `GeneticAlgorithm` auto-dispatches on the problem's space kind
 (Float/Permutation/Binary/Int/Categorical); a genuinely **Mixed space is
-rejected** with a clear error naming the limitation; since 0.1.3 (13 since 0.1.4) the
+rejected** with a clear error naming the limitation; since 0.1.3 (13 since 0.1.4, 15 since 0.1.5) the
 compound-eligible presets (same list as the Python frontend) auto-dispatch on
 a mixed space to a hybrid (preset generator on float blocks, GA variation on
 the rest) —
@@ -1636,7 +1637,7 @@ full walkthroughs.
 
 ## Status
 
-sezgi is at version 0.1.4. The library ships 29 built-in algorithm
+sezgi is at version 0.1.5. The library ships 29 built-in algorithm
 classes over one deterministic Rust engine, Python and R frontends that
 are bit-exact against each other for shared algorithms, BBOB/CEC
 2014/2017/2022 benchmark suites, NSGA-II multi-objective optimization

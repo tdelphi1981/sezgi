@@ -445,8 +445,6 @@ def test_ga_presets_single_stage_single_generator_no_braces(name):
     (lambda: sezgi.ParticleSwarm(), "blackboard state"),
     (lambda: sezgi.CMAES(), "blackboard state"),
     (lambda: sezgi.SHADE(), "blackboard state"),
-    (lambda: sezgi.BatAlgorithm(), "blackboard state"),
-    (lambda: sezgi.GravitationalSearch(), "blackboard state"),
     (lambda: sezgi.MothFlameOptimization(), "blackboard state"),
     (lambda: sezgi.ArtificialBeeColony(), "blackboard state"),
     (lambda: sezgi.NelderMead(), "OffspringCount::One"),

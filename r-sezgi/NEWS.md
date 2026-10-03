@@ -1,3 +1,16 @@
+# sezgi 0.1.5
+
+* Mixed-space hybrid auto-dispatch widened to 15 presets:
+  `GravitationalSearch` and `BatAlgorithm` join the list (float blocks keep
+  the preset's own generator, GA variation on discrete blocks; a space with
+  no float block is all GA).
+* Engine (`gen/compound`): every block now owns a nested blackboard stored in
+  the parent blackboard under `cmp{i}/bb`, so self-contained stateful
+  generators keep per-block state. An allow-list
+  (`SELF_CONTAINED_COMPOUND_KINDS`: `gen/gsa`, `gen/ba`) admits them;
+  other stateful generators (PSO, CMA-ES, SHADE, ...) stay rejected.
+  Existing stateless compound specs are bit-identical.
+
 # sezgi 0.1.4
 
 * Mixed-space hybrid auto-dispatch widened to 13 presets: `AntLion` and

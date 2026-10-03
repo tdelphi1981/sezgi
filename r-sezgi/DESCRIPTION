@@ -1,6 +1,6 @@
 Package: sezgi
 Title: Metaheuristic Optimization with a 'Rust' Core
-Version: 0.1.4
+Version: 0.1.5
 Authors@R: c(
     person("Tolga", "Berber", email = "tolga.berber@fen.ktu.edu.tr",
            role = c("aut", "cre"),

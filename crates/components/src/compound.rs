@@ -87,10 +87,13 @@
 //!
 //! 1. it is not `gen/compound` itself ("gen/compound cannot nest inside
 //!    itself");
-//! 2. its `ComponentMeta::requires` and `provides` are both empty -- a
-//!    generator that keeps engine-level blackboard state (PSO, CMA-ES,
-//!    SHADE, jDE, ...) needs its paired replacer/adapter, which gen/compound
-//!    cannot route per block;
+//! 2. its `ComponentMeta::requires` and `provides` are both empty, OR its
+//!    kind is listed in [`SELF_CONTAINED_COMPOUND_KINDS`] (`gen/gsa`,
+//!    `gen/ba`: generators that bootstrap, read and write only their own
+//!    blackboard keys inside `generate`). A generator that keeps
+//!    engine-level blackboard state paired with a replacer/adapter (PSO,
+//!    CMA-ES, SHADE, jDE, ...) is rejected, since gen/compound cannot route
+//!    that pairing per block;
 //! 3. its `ComponentMeta::offspring` is `OffspringCount::PopLen` (rejects
 //!    `gen/hs`, `gen/nelder-mead`, which emit one offspring per call);
 //! 4. its `ComponentMeta::internal_eval` is false (rejects `gen/hho`, which
@@ -98,9 +101,32 @@
 //!    `generate()`).
 //!
 //! Block-type support (e.g. `gen/de` on a Binary block) is still checked per
-//! block index in [`CompoundGenerator::validate_against_space`]. Because gate
-//! 2 admits only stateless subs, the compound's own merged meta has empty
-//! requires/provides by construction; `min_pop` is the max over the subs.
+//! block index in [`CompoundGenerator::validate_against_space`]. The
+//! compound's own merged meta has empty requires/provides by construction
+//! (an allow-listed sub's state lives in its nested blackboard, below, not
+//! on the engine's blackboard); `min_pop` is the max over the subs.
+//!
+//! ## Nested per-block blackboards (0.1.5)
+//!
+//! Each block `i` gets its OWN [`Blackboard`], stored as a slot of the
+//! parent blackboard under the key `"cmp{i}/bb"`. Before calling sub `i`,
+//! `generate` takes that slot out (`take_raw`), downcasts it (or starts from
+//! an empty default), hands `&mut` of it to the sub's `Ctx`, and inserts it
+//! back afterwards. Every sub's keys are therefore isolated: two
+//! `gen/gsa` Float blocks of different sizes no longer share
+//! `gsa/velocity`. The swap consumes no RNG, so all-stateless specs are
+//! bit-identical to the pre-0.1.5 behavior. The engine's restart wipe drops
+//! the parent slots, so allow-listed subs re-bootstrap after a restart.
+//!
+//! ## Index-alignment caveat (velocity-style subs)
+//!
+//! `gen/gsa`/`gen/ba` keep a velocity matrix aligned by row to population
+//! index (`velocity[i]` <-> `pop[i]`). That is only correct under
+//! index-preserving stage replacers: generational, one-to-one, or
+//! bat-loudness-greedy. A mu+lambda-style replacer that reorders survivors
+//! breaks the alignment. The Python and R hybrid wraps always use the host
+//! preset's own replacer, so gsa/ba stay aligned and are never mixed with a
+//! reordering one.
 //!
 //! The standalone crossover-only / mutation-only typed operators
 //! (`gen/bin-2pt`, `gen/bit-flip`, `gen/int-sbx`, `gen/int-pm`, `gen/cat-ux`,
@@ -192,6 +218,7 @@ use sezgi_core::component::*;
 use sezgi_core::problem::Population;
 use sezgi_core::space::{Block, Genotype, SearchSpace};
 use sezgi_core::spec::ComponentSpec;
+use sezgi_core::state::Blackboard;
 
 /// Local counterpart to `sezgi_core::spec`'s private `block_tag` -- same
 /// tag strings (`"float"`/`"int"`/`"categorical"`/`"permutation"`/
@@ -209,6 +236,20 @@ fn block_tag(b: &Block) -> &'static str {
         Block::Binary { .. } => "binary",
     }
 }
+
+/// Stateful generator kinds admitted as `gen/compound` subs. The list is
+/// MANUAL on purpose: `ComponentMeta` cannot see engine-level pairing (e.g.
+/// `gen/pso` provides keys that `replace/pso-commit` maintains outside
+/// `generate`), so requires/provides alone cannot distinguish self-contained
+/// state from paired state. A kind qualifies only if its generator
+/// bootstraps, reads and writes ONLY its own keys inside `generate`, and its
+/// preset replacer is stateless, `SupportedBlocks::All`, index-preserving,
+/// and needs no adapter. State lives in the per-block nested blackboard.
+///
+/// Invariant: allow-listed stateful kinds must come from SINGLE-STAGE
+/// presets -- the nested-bb key "cmp{i}/bb" is per block, not per stage, so a
+/// multi-stage spec with stateful subs would share state across stages.
+const SELF_CONTAINED_COMPOUND_KINDS: &[&str] = &["gen/gsa", "gen/ba"];
 
 /// Builds one sub-generator from its `ComponentSpec` through a builtins
 /// registry (R-A) and applies the eligibility gates (R-B). `index` is the
@@ -238,7 +279,9 @@ fn build_sub_generator(
         Err(e) => return Err(e),
     };
     let meta = sub.meta();
-    if !meta.requires.is_empty() || !meta.provides.is_empty() {
+    if (!meta.requires.is_empty() || !meta.provides.is_empty())
+        && !SELF_CONTAINED_COMPOUND_KINDS.contains(&kind)
+    {
         return Err(err(format!(
             "sub-generator `{kind}` at block {index} is not eligible: it keeps engine-level \
              blackboard state and needs its paired replacer/adapter, which gen/compound cannot \
@@ -382,14 +425,28 @@ impl Generator for CompoundGenerator {
                     .collect(),
                 fitness: pop.fitness.clone(),
             };
-            let mut sub_ctx = Ctx {
-                space: &sub_space,
-                rng: &mut *ctx.rng,
-                bb: &mut *ctx.bb,
-                eval: &mut *ctx.eval,
-                iteration: ctx.iteration,
+            // R-A: per-block nested blackboard, parent slot `cmp{i}/bb`.
+            let bb_key = format!("cmp{i}/bb");
+            let mut sub_bb: Blackboard = match ctx.bb.take_raw(&bb_key) {
+                Some(raw) => {
+                    let down = raw.downcast::<Blackboard>();
+                    // Only this compound writes `cmp{i}/bb`, always as a Blackboard.
+                    debug_assert!(down.is_ok(), "gen/compound: `{bb_key}` slot is not a Blackboard");
+                    down.map(|b| *b).unwrap_or_default()
+                }
+                None => Blackboard::default(),
             };
-            let off = sub.generate(&sub_pop, &mut sub_ctx);
+            let off = {
+                let mut sub_ctx = Ctx {
+                    space: &sub_space,
+                    rng: &mut *ctx.rng,
+                    bb: &mut sub_bb,
+                    eval: &mut *ctx.eval,
+                    iteration: ctx.iteration,
+                };
+                sub.generate(&sub_pop, &mut sub_ctx)
+            };
+            ctx.bb.insert(&bb_key, sub_bb);
             assert_eq!(
                 off.len(),
                 pop.len(),
@@ -422,7 +479,6 @@ mod tests {
     use sezgi_core::problem::{Evaluator, Problem};
     use sezgi_core::rng::RngStream;
     use sezgi_core::space::BlockValues;
-    use sezgi_core::state::Blackboard;
 
     // A minimal mixed-space `Problem` (Float + Int + Categorical + Binary,
     // in that block order) used only to construct a valid
@@ -1218,5 +1274,174 @@ mod tests {
         //    order, nothing more.
         assert_eq!(compound_rng.next_f64(), twin_rng.next_f64(),
             "gen/compound must consume exactly the four sub-generators' own draws, in block order, no more no less");
+    }
+
+    // ==================================================================
+    // 0.1.5: self-contained stateful subs + nested per-block blackboards
+    // ==================================================================
+
+    struct ZeroProblem { space: SearchSpace }
+    impl Problem for ZeroProblem {
+        fn space(&self) -> &SearchSpace { &self.space }
+        fn evaluate_batch(&self, pop: &[Genotype]) -> Vec<f64> { pop.iter().map(|_| 0.0).collect() }
+    }
+
+    fn float_bin_space(d: usize, nb: usize) -> SearchSpace {
+        SearchSpace::new(vec![Block::Float { lo: -5.0, hi: 5.0, n: d }, Block::Binary { n: nb }]).unwrap()
+    }
+
+    fn float_bin_pop(n: usize, d: usize, nb: usize) -> Population {
+        Population {
+            individuals: (0..n)
+                .map(|i| Genotype {
+                    blocks: vec![
+                        BlockValues::Float((0..d).map(|j| ((i + j) % 4) as f64 - 1.5).collect()),
+                        BlockValues::Bin((0..nb).map(|j| (i + j) % 2 == 0).collect()),
+                    ],
+                })
+                .collect(),
+            fitness: (0..n).map(|i| (n - i) as f64).collect(),
+        }
+    }
+
+    fn two_float_space(d0: usize, d1: usize) -> SearchSpace {
+        SearchSpace::new(vec![
+            Block::Float { lo: -5.0, hi: 5.0, n: d0 },
+            Block::Float { lo: -5.0, hi: 5.0, n: d1 },
+        ])
+        .unwrap()
+    }
+
+    fn two_float_pop(n: usize, d0: usize, d1: usize) -> Population {
+        Population {
+            individuals: (0..n)
+                .map(|i| Genotype {
+                    blocks: vec![
+                        BlockValues::Float((0..d0).map(|j| ((i + j) % 7) as f64 - 3.0).collect()),
+                        BlockValues::Float((0..d1).map(|j| ((i * 2 + j) % 5) as f64 - 2.0).collect()),
+                    ],
+                })
+                .collect(),
+            fitness: (0..n).map(|i| (n - i) as f64).collect(),
+        }
+    }
+
+    /// `gens` successive generate calls on one shared blackboard (each
+    /// call's offspring becomes the next population; fitness is reused).
+    fn run_gens(
+        g: &CompoundGenerator,
+        space: &SearchSpace,
+        mut pop: Population,
+        seed: u64,
+        gens: usize,
+    ) -> (Vec<Genotype>, Blackboard) {
+        let p = ZeroProblem { space: space.clone() };
+        let mut eval = Evaluator::new(&p, 100_000);
+        let mut rng = RngStream::from_master(seed, &[]);
+        let mut bb = Blackboard::new();
+        let mut last = Vec::new();
+        for it in 0..gens {
+            let mut ctx = Ctx { space, rng: &mut rng, bb: &mut bb, eval: &mut eval, iteration: it as u64 };
+            last = g.generate(&pop, &mut ctx);
+            pop = Population { individuals: last.clone(), fitness: pop.fitness.clone() };
+        }
+        (last, bb)
+    }
+
+    fn nested_vel(bb: &Blackboard, idx: usize, key: &str) -> Vec<Vec<f64>> {
+        bb.get::<Blackboard>(&format!("cmp{idx}/bb"))
+            .expect("parent nested slot present")
+            .get::<Vec<Vec<f64>>>(key)
+            .expect("sub velocity present")
+            .clone()
+    }
+
+    #[test]
+    fn gsa_plus_ga_bin_accepted_and_generates_valid_shapes() {
+        let g = CompoundGenerator::from_params(&serde_json::json!({
+            "blocks": [{"kind": "gen/gsa"}, {"kind": "gen/ga-bin"}]
+        }))
+        .expect("gen/gsa is on the self-contained allow-list");
+        let space = float_bin_space(3, 5);
+        let (off, bb) = run_gens(&g, &space, float_bin_pop(6, 3, 5), 11, 1);
+        assert_eq!(off.len(), 6);
+        for o in &off {
+            assert!(matches!(&o.blocks[0], BlockValues::Float(x) if x.len() == 3));
+            assert!(matches!(&o.blocks[1], BlockValues::Bin(x) if x.len() == 5));
+            // gsa/ba emit unclamped positions (engine repair handles bounds), so
+            // only shapes are asserted here, not box validity.
+        }
+        assert!(bb.contains("cmp0/bb") && bb.contains("cmp1/bb"));
+        assert!(!bb.contains("gsa/velocity"), "sub state must not leak into the parent blackboard");
+        assert_eq!(nested_vel(&bb, 0, "gsa/velocity").len(), 6);
+    }
+
+    #[test]
+    fn ba_plus_ga_bin_accepted_and_generates_valid_shapes() {
+        let g = CompoundGenerator::from_params(&serde_json::json!({
+            "blocks": [{"kind": "gen/ba"}, {"kind": "gen/ga-bin"}]
+        }))
+        .expect("gen/ba is on the self-contained allow-list");
+        let space = float_bin_space(4, 6);
+        let (off, bb) = run_gens(&g, &space, float_bin_pop(6, 4, 6), 12, 2);
+        assert_eq!(off.len(), 6);
+        for o in &off {
+            assert!(matches!(&o.blocks[0], BlockValues::Float(x) if x.len() == 4));
+            assert!(matches!(&o.blocks[1], BlockValues::Bin(x) if x.len() == 6));
+        }
+        assert!(nested_vel(&bb, 0, "ba/velocity").iter().all(|r| r.len() == 4));
+    }
+
+    #[test]
+    fn pso_cma_shade_still_rejected_with_blackboard_message() {
+        for kind in ["gen/pso", "gen/cma", "gen/de-shade"] {
+            let r = err_reason(serde_json::json!({"blocks": [{"kind": "gen/ga-bin"}, {"kind": kind}]}));
+            assert!(r.contains(kind), "{r}");
+            assert!(r.contains("block 1"), "{r}");
+            assert!(r.contains("blackboard state"), "{kind}: {r}");
+        }
+    }
+
+    #[test]
+    fn two_gsa_float_blocks_of_different_dims_do_not_collide() {
+        // R-C. Under the pre-0.1.5 shared blackboard both blocks would share
+        // one `gsa/velocity` slot: block 1 (dim 5) would read block 0's
+        // (dim 2) matrix and mis-size/index out of range. Nested per-block
+        // blackboards keep one velocity matrix per block.
+        let g = CompoundGenerator::from_params(&serde_json::json!({
+            "blocks": [{"kind": "gen/gsa"}, {"kind": "gen/gsa"}]
+        }))
+        .unwrap();
+        let (d0, d1) = (2usize, 5usize);
+        let space = two_float_space(d0, d1);
+        let run = || run_gens(&g, &space, two_float_pop(6, d0, d1), 21, 4);
+        let (off_a, bb_a) = run();
+        let (off_b, _) = run();
+        assert_eq!(off_a, off_b, "deterministic across identical runs");
+        assert!(bb_a.contains("cmp0/bb") && bb_a.contains("cmp1/bb"));
+        let v0 = nested_vel(&bb_a, 0, "gsa/velocity");
+        let v1 = nested_vel(&bb_a, 1, "gsa/velocity");
+        assert_eq!((v0.len(), v1.len()), (6, 6));
+        assert!(v0.iter().all(|r| r.len() == d0), "block 0 velocity rows must be dim {d0}");
+        assert!(v1.iter().all(|r| r.len() == d1), "block 1 velocity rows must be dim {d1}");
+    }
+
+    #[test]
+    fn nested_state_persists_and_evolves_across_generate_calls() {
+        let g = CompoundGenerator::from_params(&serde_json::json!({
+            "blocks": [{"kind": "gen/gsa"}, {"kind": "gen/ga-bin"}]
+        }))
+        .unwrap();
+        let space = float_bin_space(3, 4);
+        let (_, bb1) = run_gens(&g, &space, float_bin_pop(6, 3, 4), 5, 1);
+        let (_, bb3) = run_gens(&g, &space, float_bin_pop(6, 3, 4), 5, 3);
+        let (_, bb3b) = run_gens(&g, &space, float_bin_pop(6, 3, 4), 5, 3);
+        assert!(bb3.contains("cmp0/bb"));
+        assert_ne!(
+            nested_vel(&bb1, 0, "gsa/velocity"),
+            nested_vel(&bb3, 0, "gsa/velocity"),
+            "velocity must evolve between generations, not reset"
+        );
+        assert_eq!(nested_vel(&bb3, 0, "gsa/velocity"), nested_vel(&bb3b, 0, "gsa/velocity"));
     }
 }
