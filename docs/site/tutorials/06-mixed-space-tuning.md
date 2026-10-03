@@ -42,15 +42,40 @@ multi-block space hands `evaluate`/`objective` a tuple of per-block
 values, in `space()`'s declared order — here, `(list[float], list[int],
 list[int])` (a `Categorical` block converts to indices, same as `Int`).
 
-## Why `GeneticAlgorithm` cannot run this one
+## Running a mixed space: hybrid presets
 
 `GeneticAlgorithm` auto-dispatches only over a SINGLE-kind space
 (all-Float, all-Binary, ...) — pointing it at a genuinely mixed space
-raises `NotImplementedError` before any run starts. A mixed space needs
-either a hand-built `gen/compound` spec passed to `sezgi.solve()` (the
-compat-internals path — see the README's "Mixed spaces" section), or a
-hand-authored `sezgi.Algorithm` that itself knows how to vary all three
-sub-blocks. This tutorial takes the second, class-first path:
+raises `NotImplementedError` before any run starts. Since 0.1.3, however,
+11 presets (`DifferentialEvolution` rand1/best1, `GreyWolfOptimizer`,
+`WhaleOptimization`, `SineCosineAlgorithm`, `JAYA`,
+`GrasshopperOptimization`, `SalpSwarm`, `FireflyAlgorithm`,
+`FlowerPollination`, `TLBO`, `CuckooSearch`) run on a mixed space directly
+as a **hybrid** through `gen/compound`: the preset's own generator varies
+the float blocks, and GA variation (`gen/ga-bin` / `gen/ga-int` /
+`gen/ga-cat` / `gen/ga-perm`, default parameters) varies every other block;
+parent selection and replacement follow the preset's own pipeline. A space
+with no float block gets zero preset-specific variation (all variation is
+GA). Stateful presets (PSO, CMA-ES, SHADE, ...) still raise
+`NotImplementedError` naming why.
+
+```python
+import sezgi
+from sezgi.recipes import MixedTuning
+
+# Float block + Binary block: DE on the floats, GA variation on the bits.
+space = sezgi.Space(sezgi.Float(-5.0, 5.0, 3), sezgi.Binary(6))
+problem = MixedTuning(
+    space,
+    lambda x: sum(v * v for v in x[0]) + sum(1 for b in x[1] if not b),
+)
+result = sezgi.DifferentialEvolution().run(problem, budget=2000, seed=7)
+print(f"hybrid DE best_f={result.best_f:.4g}")
+```
+
+Alternatively, a hand-authored `sezgi.Algorithm` can vary all three
+sub-blocks of the tuning problem above with fully custom logic. This
+tutorial takes that class-first path:
 
 ```python exec="true" source="above"
 import sezgi

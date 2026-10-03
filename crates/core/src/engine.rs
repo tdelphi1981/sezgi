@@ -64,7 +64,7 @@ pub enum EngineError {
     /// initializer's population was the offender (this covers both the
     /// initial population and restart re-initialization). `detail` names
     /// expected vs got.
-    #[error("genotype shape mismatch at {}: {detail}; a multi-block space needs a gen/compound generator (flat generators are single-block)", stage_label(*stage))]
+    #[error("genotype shape mismatch at {}: {detail}; a multi-block space needs a gen/compound generator (flat generators are single-block; eligible non-GA generators can ride inside gen/compound)", stage_label(*stage))]
     GenotypeShapeMismatch { stage: usize, detail: String },
 }
 
@@ -205,10 +205,13 @@ impl Engine {
                                         eval: &mut eval, iteration: iterations };
                     adapter.adapt(&mut pop, &mut ctx);
                 }
-                // Residual gap (documented, not guarded): an adapter that
-                // evaluates new individuals via `ctx.eval` and writes them
-                // into `pop` bypasses the shape guard above; the invariant
-                // currently relies on adapters being shape-correct.
+                // Post-adapter shape sweep: an adapter may write new
+                // individuals straight into `pop` (bypassing the generator
+                // guard above), so re-check the whole population here.
+                for g in &pop.individuals {
+                    space.validate_genotype(g).map_err(|e| EngineError::GenotypeShapeMismatch {
+                        stage: si, detail: e.to_string() })?;
+                }
                 //
                 // An adapter above may have evaluated brand-new individuals
                 // via `ctx.eval.evaluate(..)` and written them straight into
@@ -1019,6 +1022,46 @@ mod tests {
         let p = TwoBlock::new();
         let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
         e.run(&p, RunConfig { master_seed: 1, run_id: 0 }, None)
+    }
+
+    struct CorruptingAdapter;
+    impl Adapter for CorruptingAdapter {
+        fn adapt(&self, pop: &mut Population, _c: &mut Ctx) {
+            // Shape-corrupt one individual without evaluating anything.
+            pop.individuals[0] = Genotype { blocks: vec![BlockValues::Float(vec![1.0])] };
+        }
+        fn meta(&self) -> ComponentMeta { ComponentMeta::new("corrupt", SupportedBlocks::All) }
+    }
+
+    #[test]
+    fn adapter_corrupting_shape_fails_fast() {
+        let mut reg = Registry::new();
+        reg.register_initializer("fixed-init", |_| Ok(Box::new(FixedShape(good_two_block()))));
+        reg.register_generator("fixed-gen", |_| Ok(Box::new(FixedShape(good_two_block()))));
+        reg.register_replacer("greedy", |_| Ok(Box::new(Greedy)));
+        reg.register_boundary("no-b", |_| Ok(Box::new(NoB)));
+        reg.register_adapter("corrupt", |_| Ok(Box::new(CorruptingAdapter) as Box<dyn Adapter>));
+        let spec = AlgorithmSpec {
+            name: "shape".into(), pop_size: 4,
+            init: ComponentSpec { kind: "fixed-init".into(), params: serde_json::json!({}) },
+            boundary: ComponentSpec { kind: "no-b".into(), params: serde_json::json!({}) },
+            stages: vec![StageSpec {
+                generator: ComponentSpec { kind: "fixed-gen".into(), params: serde_json::json!({}) },
+                replacer: ComponentSpec { kind: "greedy".into(), params: serde_json::json!({}) },
+                adapter: Some(ComponentSpec { kind: "corrupt".into(), params: serde_json::json!({}) }),
+            }],
+            termination: TerminationSpec { budget: 400, target: None },
+            restart: None,
+        };
+        let p = TwoBlock::new();
+        let e = Engine::from_spec(&spec, &reg, p.space()).unwrap();
+        match e.run(&p, RunConfig { master_seed: 1, run_id: 0 }, None) {
+            Err(EngineError::GenotypeShapeMismatch { stage, detail }) => {
+                assert_eq!(stage, 0);
+                assert!(detail.contains("expected 2") && detail.contains("got 1"), "{detail}");
+            }
+            other => panic!("expected GenotypeShapeMismatch, got {other:?}"),
+        }
     }
 
     #[test]

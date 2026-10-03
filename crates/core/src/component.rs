@@ -18,6 +18,16 @@ pub enum SupportedBlocks {
     Only(Vec<&'static str>),
 }
 
+/// How many offspring a generator emits per `generate` call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OffspringCount {
+    /// One offspring per population member (`pop.len()`), the common case.
+    PopLen,
+    /// A fixed single offspring regardless of population size (e.g. gen/hs,
+    /// gen/nelder-mead); such a generator cannot be composed per block.
+    One,
+}
+
 #[derive(Debug, Clone)]
 pub struct ComponentMeta {
     pub kind: &'static str,
@@ -30,6 +40,11 @@ pub struct ComponentMeta {
     /// requirements — e.g. Nelder-Mead's `pop_size >= dim + 1` — depend on
     /// the search space and can't be expressed as a fixed constant here).
     pub min_pop: usize,
+    /// Offspring count per `generate` call. Default [`OffspringCount::PopLen`].
+    pub offspring: OffspringCount,
+    /// True when the component calls `ctx.eval.evaluate(..)` on its own
+    /// (single-block) candidates inside `generate`. Default false.
+    pub internal_eval: bool,
 }
 
 impl ComponentMeta {
@@ -43,6 +58,8 @@ impl ComponentMeta {
             requires: vec![],
             provides: vec![],
             min_pop: 1,
+            offspring: OffspringCount::PopLen,
+            internal_eval: false,
         }
     }
 
@@ -58,6 +75,18 @@ impl ComponentMeta {
 
     pub fn with_min_pop(mut self, min_pop: usize) -> Self {
         self.min_pop = min_pop;
+        self
+    }
+
+    /// Mark the generator as emitting a single offspring per call.
+    pub fn with_offspring_one(mut self) -> Self {
+        self.offspring = OffspringCount::One;
+        self
+    }
+
+    /// Mark the component as evaluating candidates internally via `ctx.eval`.
+    pub fn with_internal_eval(mut self) -> Self {
+        self.internal_eval = true;
         self
     }
 
@@ -203,6 +232,16 @@ impl Registry {
 mod tests {
     use super::*;
     use crate::space::{BlockValues, Genotype};
+
+    #[test]
+    fn meta_defaults_and_builders_for_offspring_and_internal_eval() {
+        let m = ComponentMeta::new("x", SupportedBlocks::All);
+        assert_eq!(m.offspring, OffspringCount::PopLen);
+        assert!(!m.internal_eval);
+        let m = m.with_offspring_one().with_internal_eval();
+        assert_eq!(m.offspring, OffspringCount::One);
+        assert!(m.internal_eval);
+    }
 
     struct DummyInit;
     impl Initializer for DummyInit {

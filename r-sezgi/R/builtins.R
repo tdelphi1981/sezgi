@@ -147,6 +147,157 @@ NULL
   as.double(sum(vapply(blocks, function(b) b$n, integer(1))))
 }
 
+# ---- mixed-space hybrid auto-dispatch (0.1.3 compound generalization) ------
+#
+# Mirrors py-sezgi/python/sezgi/builtins.py (_HYBRID_PRESETS,
+# _HYBRID_INELIGIBLE, _compound_wrap_stages) -- THAT FILE IS THE SOURCE OF
+# TRUTH for the eligible list; keep this one literally in sync with it.
+#
+# gen/compound (crates/components/src/compound.rs) accepts any ELIGIBLE
+# registered sub-generator per block: stateless, pop-to-pop, no internal
+# evaluation, no nesting. HYBRID semantics: float blocks keep the preset's
+# OWN generator (same kind and params as single-block); every non-float
+# block gets the fused GA variation default (gen/ga-bin, gen/ga-int,
+# gen/ga-cat, gen/ga-perm, registered default params). Parent selection and
+# replacement follow the host preset's pipeline. A space with NO float
+# block therefore gets zero preset-specific variation (all variation is GA).
+
+.sz_hybrid_discrete_gen <- c(
+  binary = "gen/ga-bin", int = "gen/ga-int",
+  categorical = "gen/ga-cat", permutation = "gen/ga-perm"
+)
+
+# Eligible presets (R preset names; de = de_rand_1/de_best_1, tlbo = two
+# stages, each stage's generator wrapped in its own compound entry).
+.sz_hybrid_presets <- c(
+  "de_rand_1", "de_best_1", "gwo", "woa", "sca", "jaya", "goa", "ssa",
+  "firefly", "fpa", "tlbo", "cuckoo_search"
+)
+
+.sz_why_stateful <- function(what) {
+  sprintf(paste0(
+    "it keeps engine-level blackboard state (%s) and needs its paired ",
+    "replacer/adapter, which gen/compound cannot route per block"
+  ), what)
+}
+
+# preset name -> reason the preset has no mixed-space auto-dispatch.
+.sz_hybrid_ineligible <- list(
+  harmony_search = paste0(
+    "gen/hs emits ONE offspring per generation (OffspringCount::One), ",
+    "but gen/compound requires every sub-generator to produce ",
+    "pop.len() offspring"
+  ),
+  nelder_mead = paste0(
+    "gen/nelder-mead emits ONE offspring per generation ",
+    "(OffspringCount::One) and is stateful: ", .sz_why_stateful("the simplex")
+  ),
+  hho = paste0(
+    "gen/hho evaluates single-block genotypes against the full problem ",
+    "inside generate() (internal evaluation), which is unsound on a block slice"
+  ),
+  pso = paste0("gen/pso is stateful: ", .sz_why_stateful("velocity/pbest")),
+  cmaes = paste0("gen/cma is stateful: ", .sz_why_stateful("CMA distribution")),
+  cmaes_ipop = paste0("gen/cma is stateful: ", .sz_why_stateful("CMA distribution")),
+  shade = paste0("gen/de-shade is stateful: ", .sz_why_stateful("success history")),
+  lshade = paste0("gen/de-shade is stateful: ", .sz_why_stateful("success history")),
+  jde = paste0("gen/de-jde is stateful: ", .sz_why_stateful("per-individual jde_f/jde_cr")),
+  bat = paste0("gen/ba is stateful: ", .sz_why_stateful("ba/velocity")),
+  gsa = paste0("gen/gsa is stateful: ", .sz_why_stateful("gsa/velocity")),
+  mfo = paste0("gen/mfo is stateful: ", .sz_why_stateful("flame memory")),
+  abc = paste0("gen/abc-employed is stateful: ", .sz_why_stateful("abc/trials"))
+)
+
+#' Block kinds of `problem` (`"float"` for a built-in BBOB descriptor).
+#' @noRd
+.sz_block_kinds <- function(problem) {
+  if (inherits(problem, "sz_builtin_bbob")) {
+    return("float")
+  }
+  blocks <- .sz_space_to_blocks(sz_as_problem(problem)$space())
+  vapply(blocks, function(b) b$type, character(1))
+}
+
+.sz_needs_compound <- function(kinds) {
+  length(kinds) > 1L || any(kinds != "float")
+}
+
+#' Rewrites EVERY `"generator": {...}` object of a preset spec (one per
+#' stage) into its own `gen/compound` entry with one sub-generator per
+#' block: the stage's own generator on float blocks, the fused GA default on
+#' every other block. Textual (the package has no JSON dependency); preset
+#' generators are flat objects whose strings contain no braces.
+#' @noRd
+.sz_hybrid_wrap_stages <- function(spec_json, kinds) {
+  key <- gregexpr('"generator"\\s*:\\s*\\{', spec_json)[[1]]
+  if (key[[1]] < 0L) {
+    stop("hybrid dispatch: preset spec has no generator object")
+  }
+  for (j in rev(seq_along(key))) {
+    start <- key[[j]] + attr(key, "match.length")[[j]] - 1L
+    chars <- strsplit(substring(spec_json, start), "")[[1]]
+    depth <- 0L
+    end <- NA_integer_
+    for (i in seq_along(chars)) {
+      if (chars[[i]] == "{") {
+        depth <- depth + 1L
+      } else if (chars[[i]] == "}") {
+        depth <- depth - 1L
+        if (depth == 0L) {
+          end <- start + i - 1L
+          break
+        }
+      }
+    }
+    if (is.na(end)) {
+      stop("hybrid dispatch: malformed preset spec (unbalanced generator object)")
+    }
+    gen <- substr(spec_json, start, end)
+    entries <- vapply(kinds, function(k) {
+      if (k == "float") gen else sprintf('{"kind": "%s"}', .sz_hybrid_discrete_gen[[k]])
+    }, character(1))
+    wrapped <- sprintf('{"kind": "gen/compound", "blocks": [%s]}', paste(entries, collapse = ", "))
+    spec_json <- paste0(substr(spec_json, 1L, start - 1L), wrapped, substring(spec_json, end + 1L))
+  }
+  spec_json
+}
+
+#' Errors (naming WHY) when an ineligible preset is asked to run on a
+#' mixed or non-float space; no-op otherwise.
+#' @noRd
+.sz_check_hybrid_ineligible <- function(class_name, preset_name, problem) {
+  reason <- .sz_hybrid_ineligible[[preset_name]]
+  if (is.null(reason)) {
+    return(invisible(NULL))
+  }
+  kinds <- .sz_block_kinds(problem)
+  if (.sz_needs_compound(kinds)) {
+    stop(sprintf(
+      paste0(
+        "%s cannot run on a mixed or non-float space (block kinds %s): %s. ",
+        "Only compound-eligible presets auto-dispatch (de, gwo, woa, sca, ",
+        "jaya, goa, ssa, firefly, fpa, tlbo, cuckoo-search; see gen/compound ",
+        "in crates/components/src/compound.rs)."
+      ),
+      class_name, paste0("[", paste(kinds, collapse = ", "), "]"), reason
+    ), call. = FALSE)
+  }
+  invisible(NULL)
+}
+
+#' Hybrid-wraps `spec_json` when `preset_name` is eligible and `problem`'s
+#' space is mixed or non-float; returns it unchanged otherwise.
+#' @noRd
+.sz_maybe_hybrid_wrap <- function(spec_json, preset_name, problem) {
+  if (preset_name %in% .sz_hybrid_presets) {
+    kinds <- .sz_block_kinds(problem)
+    if (.sz_needs_compound(kinds)) {
+      spec_json <- .sz_hybrid_wrap_stages(spec_json, kinds)
+    }
+  }
+  spec_json
+}
+
 # ---- table-driven preset classes -------------------------------------------
 
 #' Generates one uniformly-shaped preset wrapper R6 class from a
@@ -224,6 +375,7 @@ NULL
   }
 
   run_fn <- function(problem, budget, seed = 0, run_id = 0) {
+    .sz_check_hybrid_ineligible(class_name, preset_name, problem)
     preset_fn <- .sz_preset_fn(preset_name)
     spec_json <- if (identical(mode, "pop_budget")) {
       do.call(preset_fn, c(list(self$pop_size, budget), self$preset_kwargs))
@@ -232,6 +384,7 @@ NULL
     } else {
       do.call(preset_fn, c(list(.sz_problem_dim(problem), budget), self$preset_kwargs))
     }
+    spec_json <- .sz_maybe_hybrid_wrap(spec_json, preset_name, problem)
     .sz_preset_run(spec_json, problem, budget, seed, run_id, tolower(class_name))
   }
 
@@ -328,6 +481,20 @@ NULL
 #' `loc=`/`scale=`/`alpha=`/`nu=` at `$new()` (flowing through to
 #' `sz_preset_es_mu_plus_lambda()` unchanged, via `...`) -- the ONLY table
 #' row whose preset takes kwargs beyond `pop_size`/`budget`.
+#'
+#' Mixed spaces (0.1.3): `CuckooSearch`, `FireflyAlgorithm`,
+#' `FlowerPollination`, `GrasshopperOptimization`, `GreyWolfOptimizer`,
+#' `JAYA`, `SalpSwarm`, `SineCosineAlgorithm`, `TLBO` and
+#' `WhaleOptimization` (plus [DifferentialEvolution] `rand_1`/`best_1`)
+#' auto-dispatch on a mixed or non-float space to a HYBRID via
+#' `gen/compound`: the preset's own generator on float blocks, GA variation
+#' (`gen/ga-bin`/`gen/ga-int`/`gen/ga-cat`/`gen/ga-perm`, default params) on
+#' every other block; parent selection and replacement follow the preset's
+#' own pipeline. A space with NO float block gets zero preset-specific
+#' variation (all variation is GA). Stateful, one-offspring and
+#' internal-evaluation presets (e.g. `ParticleSwarm`, `CMAES`, `SHADE`,
+#' `HarmonySearch`, `HarrisHawks`) raise an error naming the reason. The
+#' eligible list mirrors py-sezgi's `builtins.py` (the source of truth).
 #'
 #' Problem-form support matrix (identical for every class in this
 #' family, and for [GeneticAlgorithm]/[DifferentialEvolution]): `problem`
@@ -471,9 +638,12 @@ rm(.sz_preset_row)
 #' wrap applies when `representation` is forced.
 #'
 #' A space MIXING block kinds (e.g. Float + Int together) has no `ga_*`
-#' preset in this milestone -- `$run()` raises a clear error naming the
-#' limitation (mirrors py-sezgi's `GeneticAlgorithm`'s own identical
-#' `NotImplementedError`, M4-1 Task 5 deferral (d)).
+#' preset -- `$run()` raises a clear error naming the limitation (mirrors
+#' py-sezgi's `GeneticAlgorithm`'s own identical `NotImplementedError`).
+#' For mixed spaces use an eligible preset class instead ([DifferentialEvolution],
+#' `GreyWolfOptimizer`, `TLBO`, ...): they auto-dispatch to a hybrid
+#' (preset generator on float blocks, GA variation on discrete blocks) via
+#' `gen/compound`.
 #'
 #' `representation` (a constructor kwarg, one of `"real"`/`"perm"`/
 #' `"bin"`/`"int"`/`"cat"`) OVERRIDES auto-dispatch entirely -- block-kind
@@ -543,6 +713,14 @@ GeneticAlgorithm <- R6::R6Class("GeneticAlgorithm",
 #' only dispatch axis -- no problem introspection needed (unlike
 #' [GeneticAlgorithm]'s space-driven auto-dispatch).
 #'
+#' Mixed spaces: `variant = "rand_1"`/`"best_1"` auto-dispatch to a HYBRID
+#' via `gen/compound` -- DE on continuous (float) blocks, GA variation
+#' (`gen/ga-bin`/`gen/ga-int`/`gen/ga-cat`/`gen/ga-perm`, default params) on
+#' discrete blocks; parent selection and replacement follow the DE
+#' pipeline. A space with NO float block gets zero DE-specific variation
+#' (all variation is GA). `variant = "jde"` is stateful and errors on
+#' mixed spaces.
+#'
 #' See [sz_preset_classes]'s own doc for the problem-form support matrix
 #' and result shape (identical here).
 #'
@@ -567,8 +745,13 @@ DifferentialEvolution <- R6::R6Class("DifferentialEvolution",
     },
 
     run = function(problem, budget, seed = 0, run_id = 0) {
-      preset_fn <- .sz_preset_fn(.sz_de_variant_to_preset[[self$variant]])
+      preset_name <- .sz_de_variant_to_preset[[self$variant]]
+      .sz_check_hybrid_ineligible(
+        sprintf("DifferentialEvolution(variant='%s')", self$variant), preset_name, problem
+      )
+      preset_fn <- .sz_preset_fn(preset_name)
       spec_json <- do.call(preset_fn, c(list(self$pop_size, budget), self$preset_kwargs))
+      spec_json <- .sz_maybe_hybrid_wrap(spec_json, preset_name, problem)
       .sz_preset_run(spec_json, problem, budget, seed, run_id, "differentialevolution")
     }
   )

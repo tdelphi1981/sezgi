@@ -10,6 +10,14 @@ share the identical `(pop_size, budget)` signature, so `variant` is the
 only dispatch axis -- no problem introspection needed (unlike
 [GeneticAlgorithm]'s space-driven auto-dispatch).}
 \description{
+Mixed spaces: `variant = "rand_1"`/`"best_1"` auto-dispatch to a HYBRID
+via `gen/compound` -- DE on continuous (float) blocks, GA variation
+(`gen/ga-bin`/`gen/ga-int`/`gen/ga-cat`/`gen/ga-perm`, default params) on
+discrete blocks; parent selection and replacement follow the DE
+pipeline. A space with NO float block gets zero DE-specific variation
+(all variation is GA). `variant = "jde"` is stateful and errors on
+mixed spaces.
+
 See [sz_preset_classes]'s own doc for the problem-form support matrix
 and result shape (identical here).
 }

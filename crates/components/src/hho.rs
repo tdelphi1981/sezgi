@@ -630,7 +630,9 @@ impl Generator for HhoGenerator {
     }
 
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta::new("gen/hho", SupportedBlocks::Only(vec!["float"])).with_min_pop(2)
+        ComponentMeta::new("gen/hho", SupportedBlocks::Only(vec!["float"]))
+            .with_min_pop(2)
+            .with_internal_eval()
     }
 }
 
@@ -642,6 +644,13 @@ pub fn register(reg: &mut Registry) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hho_meta_reports_internal_eval() {
+        let m = HhoGenerator::from_params(&serde_json::json!({})).unwrap().meta();
+        assert_eq!(m.kind, "gen/hho");
+        assert!(m.internal_eval); assert_eq!(m.offspring, OffspringCount::PopLen);
+    }
     use sezgi_core::engine::{Engine, RunConfig};
     use sezgi_core::problem::{Problem, SphereShifted, Evaluator};
     use sezgi_core::rng::RngStream;

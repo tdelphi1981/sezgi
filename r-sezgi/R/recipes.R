@@ -153,11 +153,13 @@ FeatureSelection <- R6::R6Class("FeatureSelection",
 #' (`py-sezgi/python/sezgi/recipes.py`) exactly.
 #'
 #' Note [GeneticAlgorithm] auto-dispatches only over a SINGLE-kind space
-#' (all-Float, all-Binary, ...) -- it raises a clear error naming the
-#' limitation on a genuinely Mixed space (see its own doc); a mixed-space
-#' `MixedTuning` instance is instead run via a hand-built `gen/compound`
-#' algorithm spec passed to `sezgi:::sz_solve_r_problem()` directly (see
-#' `tests/testthat/test-oop-recipes.R`'s own worked example), or
+#' (all-Float, all-Binary, ...) -- it raises a clear error on a genuinely
+#' Mixed space (see its own doc). Since 0.1.3 a mixed-space `MixedTuning`
+#' instance runs directly with any compound-eligible preset class
+#' ([DifferentialEvolution] `rand_1`/`best_1`, `GreyWolfOptimizer`, `TLBO`,
+#' ... -- see [sz_preset_classes]): a HYBRID of the preset's own generator
+#' on float blocks and GA variation on every other block (a space with no
+#' float block gets zero preset-specific variation). It can also be
 #' `evaluate()`d directly for a non-engine use (grid search, a script
 #' sanity check, ...). A single-kind `MixedTuning` space (e.g. Float-only,
 #' tuning several continuous hyperparameters at once) runs through

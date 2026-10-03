@@ -88,6 +88,14 @@ impl<'a> Evaluator<'a> {
         if self.used + req > self.budget {
             return Err(BudgetExhausted { used: self.used, budget: self.budget, requested: req });
         }
+        // O(blocks) shape guard: block count and per-block kind only (not
+        // value length, which would be O(genome)).
+        let space = self.problem.space();
+        for g in pop {
+            if let Err(detail) = shape_check(space, g) {
+                panic!("genotype shape mismatch: {detail}");
+            }
+        }
         let fs = self.problem.evaluate_batch(pop);
         assert_eq!(fs.len(), pop.len(),
             "Problem::evaluate_batch returned wrong length: {} != {}", fs.len(), pop.len());
@@ -103,6 +111,41 @@ impl<'a> Evaluator<'a> {
         }
         Ok(fs)
     }
+}
+
+fn block_kind(b: &Block) -> &'static str {
+    match b {
+        Block::Float { .. } => "Float",
+        Block::Int { .. } => "Int",
+        Block::Categorical { .. } => "Categorical",
+        Block::Permutation { .. } => "Permutation",
+        Block::Binary { .. } => "Binary",
+    }
+}
+
+fn values_kind(v: &BlockValues) -> &'static str {
+    match v {
+        BlockValues::Float(_) => "Float",
+        BlockValues::Int(_) => "Int",
+        BlockValues::Cat(_) => "Categorical",
+        BlockValues::Perm(_) => "Permutation",
+        BlockValues::Bin(_) => "Binary",
+    }
+}
+
+/// Block count and per-block kind check, naming expected vs got.
+fn shape_check(space: &SearchSpace, g: &Genotype) -> Result<(), String> {
+    if g.blocks.len() != space.blocks().len() {
+        return Err(format!("expected {} block(s), got {}",
+                           space.blocks().len(), g.blocks.len()));
+    }
+    for (i, (b, v)) in space.blocks().iter().zip(&g.blocks).enumerate() {
+        let (want, got) = (block_kind(b), values_kind(v));
+        if want != got {
+            return Err(format!("block {i}: expected kind {want}, got {got}"));
+        }
+    }
+    Ok(())
 }
 
 /// Test/diagnostic problem: the optimum is at the `shift` point (not the center).
@@ -153,6 +196,25 @@ mod tests {
         ev.evaluate(&[g(&[0.0, 0.0]), g(&[1.0, -2.0])]).unwrap();
         assert_eq!(ev.used(), 2);
         assert_eq!(ev.best_so_far(), Some(0.0));
+    }
+
+    #[test]
+    #[should_panic(expected = "genotype shape mismatch: expected 1 block(s), got 2")]
+    fn evaluator_rejects_block_count_mismatch() {
+        let p = sphere();
+        let mut ev = Evaluator::new(&p, 10);
+        let bad = Genotype { blocks: vec![
+            BlockValues::Float(vec![0.0, 0.0]), BlockValues::Bin(vec![true])] };
+        let _ = ev.evaluate(&[bad]);
+    }
+
+    #[test]
+    #[should_panic(expected = "genotype shape mismatch: block 0: expected kind Float, got Binary")]
+    fn evaluator_rejects_block_kind_mismatch() {
+        let p = sphere();
+        let mut ev = Evaluator::new(&p, 10);
+        let bad = Genotype { blocks: vec![BlockValues::Bin(vec![true, false])] };
+        let _ = ev.evaluate(&[bad]);
     }
 
     #[test]

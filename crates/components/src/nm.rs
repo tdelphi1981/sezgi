@@ -197,6 +197,7 @@ impl Generator for NmGenerator {
     /// runtime assert in `generate` (see `nm_asserts_simplex_size` below).
     fn meta(&self) -> ComponentMeta {
         ComponentMeta::new("gen/nelder-mead", SupportedBlocks::Only(vec!["float"]))
+            .with_offspring_one()
             .with_provides(vec![
                 StateReq::of::<u8>("nm_phase"),
                 StateReq::of::<Vec<f64>>("nm_centroid"),
@@ -364,6 +365,13 @@ pub fn register(reg: &mut Registry) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nm_meta_reports_single_offspring() {
+        let m = NmGenerator.meta();
+        assert_eq!(m.kind, "gen/nelder-mead");
+        assert_eq!(m.offspring, OffspringCount::One); assert!(!m.internal_eval);
+    }
     use sezgi_core::problem::{Evaluator, Problem, SphereShifted};
     use sezgi_core::rng::RngStream;
     use sezgi_core::state::Blackboard;

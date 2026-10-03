@@ -47,6 +47,126 @@ def _run_spec(class_name, spec, native, budget, seed, run_id, log_dir):
 
 
 # ---------------------------------------------------------------------------
+# Mixed-space hybrid auto-dispatch (0.1.3 compound generalization).
+#
+# gen/compound (crates/components/src/compound.rs) accepts any ELIGIBLE
+# registered sub-generator per block: stateless (empty requires/provides),
+# pop-to-pop (OffspringCount::PopLen), no internal evaluation, no nesting.
+# A preset therefore auto-dispatches on a mixed (or non-float) space iff
+# every stage's generator is eligible AND every stage's replacer/adapter is
+# SupportedBlocks::All and stateless (verified per preset against
+# crates/components/src/presets.rs; citations in the 0.1.3 task report).
+#
+# HYBRID semantics: float blocks keep the preset's OWN float generator
+# (same kind and params the preset uses single-block); every non-float
+# block gets the fused GA variation default (gen/ga-bin, gen/ga-int,
+# gen/ga-cat, gen/ga-perm, registered default params). Parent selection
+# and replacement still follow the host preset's pipeline.
+
+_HYBRID_DISCRETE_GEN = {
+    "binary": "gen/ga-bin",
+    "int": "gen/ga-int",
+    "categorical": "gen/ga-cat",
+    "permutation": "gen/ga-perm",
+}
+
+# preset_attr -> short label used in docstrings.
+_HYBRID_PRESETS = {
+    "de_rand_1": "DE", "de_best_1": "DE", "gwo": "GWO", "woa": "WOA",
+    "sca": "SCA", "jaya": "JAYA", "goa": "GOA", "ssa": "SSA",
+    "firefly": "FA", "fpa": "FPA", "tlbo": "TLBO",
+    "cuckoo_search": "Cuckoo Search",
+}
+
+_WHY_STATEFUL = (
+    "it keeps engine-level blackboard state ({what}) and needs its paired "
+    "replacer/adapter, which gen/compound cannot route per block")
+
+# preset_attr -> reason the preset has no mixed-space auto-dispatch.
+_HYBRID_INELIGIBLE = {
+    "harmony_search": (
+        "gen/hs emits ONE offspring per generation (OffspringCount::One), "
+        "but gen/compound requires every sub-generator to produce "
+        "pop.len() offspring"),
+    "nelder_mead": (
+        "gen/nelder-mead emits ONE offspring per generation "
+        "(OffspringCount::One) and is stateful: " + _WHY_STATEFUL.format(
+            what="the simplex")),
+    "hho": (
+        "gen/hho evaluates single-block genotypes against the full "
+        "problem inside generate() (internal evaluation), which is "
+        "unsound on a block slice"),
+    "pso": "gen/pso is stateful: " + _WHY_STATEFUL.format(what="velocity/pbest"),
+    "cmaes": "gen/cma is stateful: " + _WHY_STATEFUL.format(what="CMA distribution"),
+    "cmaes_ipop": "gen/cma is stateful: " + _WHY_STATEFUL.format(what="CMA distribution"),
+    "shade": "gen/de-shade is stateful: " + _WHY_STATEFUL.format(what="success history"),
+    "lshade": "gen/de-shade is stateful: " + _WHY_STATEFUL.format(what="success history"),
+    "bat": "gen/ba is stateful: " + _WHY_STATEFUL.format(what="ba/velocity"),
+    "gsa": "gen/gsa is stateful: " + _WHY_STATEFUL.format(what="gsa/velocity"),
+    "mfo": "gen/mfo is stateful: " + _WHY_STATEFUL.format(what="flame memory"),
+    "abc": "gen/abc-employed is stateful: " + _WHY_STATEFUL.format(what="abc/trials"),
+}
+
+_HYBRID_DOC = (
+    "\n\nMixed spaces: auto-dispatches to a HYBRID via gen/compound -- "
+    "{label} on continuous (float) blocks, GA variation (gen/ga-bin / "
+    "gen/ga-int / gen/ga-cat / gen/ga-perm, default params) on "
+    "binary/int/categorical/permutation blocks; parent selection and "
+    "replacement follow the {label} pipeline. A space with NO float block "
+    "gets zero {label}-specific variation (all variation is GA).")
+
+
+def _block_kinds(native):
+    return [b["kind"] for b in native.blocks()]
+
+
+def _needs_compound(kinds):
+    return len(kinds) > 1 or any(k != "float" for k in kinds)
+
+
+def _check_hybrid_ineligible(class_name, preset_attr, native):
+    """Raises NotImplementedError naming WHY when an ineligible preset is
+    asked to run on a mixed/non-float space (no-op for float-only spaces)."""
+    reason = _HYBRID_INELIGIBLE.get(preset_attr)
+    if reason is None:
+        return
+    kinds = _block_kinds(native)
+    if _needs_compound(kinds):
+        raise NotImplementedError(
+            f"{class_name} cannot run on a mixed or non-float space "
+            f"(block kinds {kinds}): {reason}. Only compound-eligible "
+            "presets auto-dispatch (sezgi.presets: de, gwo, woa, sca, "
+            "jaya, goa, ssa, firefly, fpa, tlbo, cuckoo-search; see "
+            "gen/compound in crates/components/src/compound.rs).")
+
+
+def _compound_wrap_stages(spec, kinds, hybrid):
+    """Wraps EVERY stage's generator in its own gen/compound entry with one
+    sub-generator per block. hybrid=False copies the stage's generator onto
+    every block (GeneticAlgorithm's same-kind multi-block wrap); hybrid=True
+    keeps it only on float blocks and uses the fused GA default
+    (_HYBRID_DISCRETE_GEN) on every other block."""
+    for stage in spec["stages"]:
+        gen = stage["generator"]
+        blocks = []
+        for k in kinds:
+            if hybrid and k != "float":
+                blocks.append({"kind": _HYBRID_DISCRETE_GEN[k]})
+            else:
+                blocks.append(dict(gen))
+        stage["generator"] = {"kind": "gen/compound", "blocks": blocks}
+    return spec
+
+
+def _maybe_hybrid_wrap(spec, preset_attr, native):
+    if preset_attr in _HYBRID_PRESETS:
+        kinds = _block_kinds(native)
+        if _needs_compound(kinds):
+            _compound_wrap_stages(spec, kinds, hybrid=True)
+    return spec
+
+
+# ---------------------------------------------------------------------------
 # Table-driven generation for every UNIFORMLY-shaped preset wrapper (i.e.
 # every preset except the 5 ga_* variants folded into GeneticAlgorithm's own
 # auto-dispatch, and the 3 de_*/jde variants folded into
@@ -287,6 +407,7 @@ def _make_preset_class(class_name, preset_attr, mode, default_pop_size,
 
     def run(self, problem, budget, seed=0, run_id=0, log_dir=None):
         native = as_native_problem(problem)
+        _check_hybrid_ineligible(class_name, preset_attr, native)
         preset_fn = getattr(sezgi.presets, preset_attr)
         if mode == "pop_budget":
             spec = preset_fn(self.pop_size, budget, **self.preset_kwargs)
@@ -294,6 +415,7 @@ def _make_preset_class(class_name, preset_attr, mode, default_pop_size,
             spec = preset_fn(budget, **self.preset_kwargs)
         else:  # dim_budget
             spec = preset_fn(native.dim(), budget, **self.preset_kwargs)
+        _maybe_hybrid_wrap(spec, preset_attr, native)
         return _run_spec(class_name, spec, native, budget, seed, run_id, log_dir)
 
     run.__doc__ = (
@@ -305,6 +427,11 @@ def _make_preset_class(class_name, preset_attr, mode, default_pop_size,
         f"{citation}\n\n"
         f"Delegates to sezgi.presets.{preset_attr} "
         f"(crates/components/src/{source}).")
+    if preset_attr in _HYBRID_PRESETS:
+        doc += _HYBRID_DOC.format(label=_HYBRID_PRESETS[preset_attr])
+    elif preset_attr in _HYBRID_INELIGIBLE:
+        doc += ("\n\nMixed spaces: NOT supported -- "
+                + _HYBRID_INELIGIBLE[preset_attr] + ".")
 
     return type(class_name, (object,), {
         "__init__": __init__,
@@ -456,11 +583,8 @@ class GeneticAlgorithm(object):
                 raise RuntimeError(
                     "GeneticAlgorithm: expected a single-stage ga_* preset "
                     f"spec, got {len(stages)} stages")
-            gen = stages[0]["generator"]
-            stages[0]["generator"] = {
-                "kind": "gen/compound",
-                "blocks": [dict(gen) for _ in range(n_blocks)],
-            }
+            _compound_wrap_stages(
+                spec, [b["kind"] for b in native.blocks()], hybrid=False)
         return _run_spec("GeneticAlgorithm", spec, native, budget, seed,
                           run_id, log_dir)
 
@@ -484,7 +608,15 @@ class DifferentialEvolution(object):
     by `variant=` ("rand1" | "best1" | "jde") at construction time. All
     three presets share the identical (pop_size, budget) signature, so
     variant= is the only dispatch axis -- no problem introspection needed
-    (unlike GeneticAlgorithm's space-driven auto-dispatch)."""
+    (unlike GeneticAlgorithm's space-driven auto-dispatch).
+
+    Mixed spaces: variant="rand1"/"best1" auto-dispatch to a HYBRID via
+    gen/compound -- DE on continuous (float) blocks, GA variation
+    (gen/ga-bin / gen/ga-int / gen/ga-cat / gen/ga-perm, default params) on
+    discrete blocks; parent selection and replacement follow the DE
+    pipeline. A space with NO float block gets zero DE-specific variation
+    (all variation is GA). variant="jde" is stateful and raises NotImplementedError on
+    mixed spaces."""
 
     def __init__(self, pop_size=20, variant="rand1", **preset_kwargs):
         """pop_size: population size, forwarded to whichever de_*/jde preset
@@ -510,7 +642,17 @@ class DifferentialEvolution(object):
         native = as_native_problem(problem)
         preset_attr = _DE_VARIANT_TO_PRESET[self.variant]
         preset_fn = getattr(sezgi.presets, preset_attr)
+        if self.variant == "jde":
+            kinds = _block_kinds(native)
+            if _needs_compound(kinds):
+                raise NotImplementedError(
+                    "DifferentialEvolution(variant='jde') cannot run on a "
+                    f"mixed or non-float space (block kinds {kinds}): "
+                    "gen/de-jde is stateful: " + _WHY_STATEFUL.format(
+                        what="per-individual jde_f/jde_cr") + ". Use "
+                    "variant='rand1' or 'best1' for the compound hybrid.")
         spec = preset_fn(self.pop_size, budget, **self.preset_kwargs)
+        _maybe_hybrid_wrap(spec, preset_attr, native)
         return _run_spec("DifferentialEvolution", spec, native, budget,
                           seed, run_id, log_dir)
 

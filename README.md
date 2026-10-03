@@ -201,8 +201,9 @@ enumeration in `py-sezgi/tests/test_oop_recipes.py`).
 `sezgi.recipes.MixedTuning(space, objective)` is the general-purpose
 sibling — a one-line `Problem` binding an arbitrary objective over an
 arbitrary declared space (the "tune anything" door); a genuinely Mixed
-space through it still needs the `gen/compound` hand-spec workaround
-`GeneticAlgorithm` itself needs (see "Built-in algorithm classes" below).
+space through it runs with any compound-eligible preset (`DifferentialEvolution`,
+`GreyWolfOptimizer`, `TLBO`, ... -- a hybrid, see "Built-in algorithm classes"
+below); `GeneticAlgorithm` itself still needs a single-kind space.
 
 ## Define your own problem: Problem subclassing
 
@@ -260,8 +261,13 @@ algorithm):
 `ga_int`/`ga_cat`); a multi-block space whose blocks share one kind is
 auto-dispatched via `gen/compound` (one generator copy per block); a
 genuinely **Mixed space is rejected** with a
-`NotImplementedError` naming `gen/compound` (the hand-spec workaround, see
-"Typed operators, mixed spaces, and diagnostic problems" above) —
+`NotImplementedError` naming `gen/compound`; since 0.1.3 the 11 compound-eligible
+presets (`DifferentialEvolution` rand1/best1, `GreyWolfOptimizer`,
+`WhaleOptimization`, `SineCosineAlgorithm`, `JAYA`, `GrasshopperOptimization`,
+`SalpSwarm`, `FireflyAlgorithm`, `FlowerPollination`, `TLBO`, `CuckooSearch`)
+instead auto-dispatch on a mixed space to a **hybrid** (the preset's own
+generator on float blocks, GA variation on every other block; a space with no
+float block gets zero preset-specific variation) —
 `representation=` forces a single-kind preset instead of introspecting the
 space. `NSGA2(pop_size=..., **nsga2_kwargs).run(problem, dim, budget, m=,
 k=, l=, ...)` mirrors `mo.nsga2`'s own contract exactly and returns
@@ -703,7 +709,10 @@ skipped and zero orphans — live-verified (`length(sezgi:::.sz_preset_table)
 == 26`, `getNamespaceExports("sezgi")` filtered to `sz_preset_*` == 34).
 `GeneticAlgorithm` auto-dispatches on the problem's space kind
 (Float/Permutation/Binary/Int/Categorical); a genuinely **Mixed space is
-rejected** with a clear error naming the limitation —
+rejected** with a clear error naming the limitation; since 0.1.3 the 11
+compound-eligible presets (same list as the Python frontend) auto-dispatch on
+a mixed space to a hybrid (preset generator on float blocks, GA variation on
+the rest) —
 `representation=` forces a single-kind preset instead of introspecting the
 space. `NSGA2$new(pop_size = ..., ...)$run(problem, dim, budget, m = ...,
 k = ..., l = ..., ...)` delegates to `sz_nsga2()` VERBATIM and returns
@@ -1158,8 +1167,10 @@ per-surface choice, not an inconsistency to fix.
 **Mixed spaces: `gen/compound` and mixed NSGA-II.** A search space
 combining several block kinds is served by `gen/compound`, the design
 spec §3's own "per block (compound operator)" mechanism: an ordered list
-of one FUSED sub-generator per block (`gen/ga-real`, `gen/ga-int`,
-`gen/ga-cat`, `gen/ga-bin`, or `gen/ga-perm`), each dispatched against its
+of one sub-generator per block (the fused `gen/ga-real`, `gen/ga-int`,
+`gen/ga-cat`, `gen/ga-bin`, `gen/ga-perm`, or since 0.1.3 any other
+registered generator that is stateless, pop-to-pop and free of internal
+evaluation, e.g. `gen/de`, `gen/gwo`), each dispatched against its
 own block's single-block view and stitched back into one offspring
 genotype — composition adds nothing beyond routing (verified by an
 exactness test replaying every sub-generator standalone against the same
@@ -1624,7 +1635,7 @@ full walkthroughs.
 
 ## Status
 
-sezgi is at version 0.1.2. The library ships 29 built-in algorithm
+sezgi is at version 0.1.3. The library ships 29 built-in algorithm
 classes over one deterministic Rust engine, Python and R frontends that
 are bit-exact against each other for shared algorithms, BBOB/CEC
 2014/2017/2022 benchmark suites, NSGA-II multi-objective optimization
