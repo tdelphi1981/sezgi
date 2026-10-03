@@ -204,13 +204,16 @@ impl Engine {
                     let mut ctx = Ctx { space, rng: &mut adapter_rngs[si], bb: &mut bb,
                                         eval: &mut eval, iteration: iterations };
                     adapter.adapt(&mut pop, &mut ctx);
-                }
-                // Post-adapter shape sweep: an adapter may write new
-                // individuals straight into `pop` (bypassing the generator
-                // guard above), so re-check the whole population here.
-                for g in &pop.individuals {
-                    space.validate_genotype(g).map_err(|e| EngineError::GenotypeShapeMismatch {
-                        stage: si, detail: e.to_string() })?;
+                    // Post-adapter shape sweep: an adapter may write new
+                    // individuals straight into `pop` (bypassing the generator
+                    // guard above), so re-check the whole population here.
+                    // Adapter-conditional: without an adapter nothing mutates
+                    // genotypes after the pre-eval guard, so the sweep would be
+                    // redundant work.
+                    for g in &pop.individuals {
+                        space.validate_genotype(g).map_err(|e| EngineError::GenotypeShapeMismatch {
+                            stage: si, detail: e.to_string() })?;
+                    }
                 }
                 //
                 // An adapter above may have evaluated brand-new individuals

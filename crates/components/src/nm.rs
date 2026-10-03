@@ -366,15 +366,17 @@ pub fn register(reg: &mut Registry) {
 mod tests {
     use super::*;
 
+    use sezgi_core::problem::{Evaluator, Problem, SphereShifted};
+    use sezgi_core::rng::RngStream;
+    use sezgi_core::state::Blackboard;
+
     #[test]
     fn nm_meta_reports_single_offspring() {
         let m = NmGenerator.meta();
         assert_eq!(m.kind, "gen/nelder-mead");
-        assert_eq!(m.offspring, OffspringCount::One); assert!(!m.internal_eval);
+        assert_eq!(m.offspring, OffspringCount::One);
+        assert!(!m.internal_eval);
     }
-    use sezgi_core::problem::{Evaluator, Problem, SphereShifted};
-    use sezgi_core::rng::RngStream;
-    use sezgi_core::state::Blackboard;
 
     fn g(xs: &[f64]) -> Genotype { Genotype { blocks: vec![BlockValues::Float(xs.to_vec())] } }
     fn sq(xs: &[f64]) -> f64 { xs.iter().map(|x| x * x).sum() }

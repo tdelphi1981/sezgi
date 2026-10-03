@@ -153,14 +153,16 @@ pub fn register(reg: &mut Registry) {
 mod tests {
     use super::*;
 
+    use sezgi_core::problem::{Problem, SphereShifted, Evaluator};
+    use sezgi_core::state::Blackboard;
+
     #[test]
     fn hs_meta_reports_single_offspring() {
         let m = HsGenerator::from_params(&serde_json::json!({})).unwrap().meta();
         assert_eq!(m.kind, "gen/hs");
-        assert_eq!(m.offspring, OffspringCount::One); assert!(!m.internal_eval);
+        assert_eq!(m.offspring, OffspringCount::One);
+        assert!(!m.internal_eval);
     }
-    use sezgi_core::problem::{Problem, SphereShifted, Evaluator};
-    use sezgi_core::state::Blackboard;
 
     fn g(xs: Vec<f64>) -> Genotype { Genotype { blocks: vec![BlockValues::Float(xs)] } }
 
