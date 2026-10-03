@@ -124,7 +124,7 @@
 //! index (`velocity[i]` <-> `pop[i]`). That is only correct under
 //! index-preserving stage replacers: generational, one-to-one, or
 //! bat-loudness-greedy. A mu+lambda-style replacer that reorders survivors
-//! breaks the alignment. The Python hybrid wrap always uses the host
+//! breaks the alignment. The Python and R hybrid wraps always use the host
 //! preset's own replacer, so gsa/ba stay aligned and are never mixed with a
 //! reordering one.
 //!
@@ -245,6 +245,10 @@ fn block_tag(b: &Block) -> &'static str {
 /// bootstraps, reads and writes ONLY its own keys inside `generate`, and its
 /// preset replacer is stateless, `SupportedBlocks::All`, index-preserving,
 /// and needs no adapter. State lives in the per-block nested blackboard.
+///
+/// Invariant: allow-listed stateful kinds must come from SINGLE-STAGE
+/// presets -- the nested-bb key "cmp{i}/bb" is per block, not per stage, so a
+/// multi-stage spec with stateful subs would share state across stages.
 const SELF_CONTAINED_COMPOUND_KINDS: &[&str] = &["gen/gsa", "gen/ba"];
 
 /// Builds one sub-generator from its `ComponentSpec` through a builtins

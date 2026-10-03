@@ -51,7 +51,9 @@ def _run_spec(class_name, spec, native, budget, seed, run_id, log_dir):
 #
 # gen/compound (crates/components/src/compound.rs) accepts any ELIGIBLE
 # registered sub-generator per block: stateless (empty requires/provides),
-# pop-to-pop (OffspringCount::PopLen), no internal evaluation, no nesting.
+# pop-to-pop (OffspringCount::PopLen), no internal evaluation, no nesting --
+# plus an explicit allow-list of self-contained stateful generators
+# (currently gen/gsa and gen/ba, since 0.1.5).
 # A preset therefore auto-dispatches on a mixed (or non-float) space iff
 # every stage's generator is eligible AND every stage's replacer/adapter is
 # SupportedBlocks::All and stateless (verified per preset against
@@ -141,7 +143,7 @@ def _check_hybrid_ineligible(class_name, preset_attr, native):
             f"(block kinds {kinds}): {reason}. Only compound-eligible "
             "presets auto-dispatch (sezgi.presets: de, gwo, woa, sca, "
             "jaya, goa, ssa, firefly, fpa, tlbo, cuckoo_search, alo, "
-            "es_mu_plus_lambda; see "
+            "es_mu_plus_lambda, gsa, bat; see "
             "gen/compound in crates/components/src/compound.rs).")
 
 

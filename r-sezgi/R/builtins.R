@@ -155,7 +155,8 @@ NULL
 #
 # gen/compound (crates/components/src/compound.rs) accepts any ELIGIBLE
 # registered sub-generator per block: stateless, pop-to-pop, no internal
-# evaluation, no nesting. HYBRID semantics: float blocks keep the preset's
+# evaluation, no nesting -- plus an explicit allow-list of self-contained
+# stateful generators (currently gen/gsa and gen/ba, since 0.1.5). HYBRID semantics: float blocks keep the preset's
 # OWN generator (same kind and params as single-block); every non-float
 # block gets the fused GA variation default (gen/ga-bin, gen/ga-int,
 # gen/ga-cat, gen/ga-perm, registered default params). Parent selection and
@@ -280,7 +281,7 @@ NULL
       paste0(
         "%s cannot run on a mixed or non-float space (block kinds %s): %s. ",
         "Only compound-eligible presets auto-dispatch (de, gwo, woa, sca, ",
-        "jaya, goa, ssa, firefly, fpa, tlbo, cuckoo_search, alo, es_mu_plus_lambda; see gen/compound ",
+        "jaya, goa, ssa, firefly, fpa, tlbo, cuckoo_search, alo, es_mu_plus_lambda, gsa, bat; see gen/compound ",
         "in crates/components/src/compound.rs)."
       ),
       class_name, paste0("[", paste(kinds, collapse = ", "), "]"), reason
