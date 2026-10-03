@@ -76,23 +76,38 @@
 //! `CompoundGenerator`'s, not
 //! any other component's) ever receives the target `SearchSpace`.
 //!
-//! ## Sub-generator dispatch table (per Task 5's "Registered generator
-//! components... consume, do not re-implement" context)
+//! ## Sub-generator eligibility (registry-driven dispatch)
 //!
-//! `blocks[i].kind` must be one of the five FUSED (crossover+mutation in one
-//! `Generator`) typed presets this milestone already registered --
-//! `gen/ga-bin` ([`crate::bin_ops::GaBinGenerator`], `Block::Binary`),
-//! `gen/ga-int` ([`crate::int_ops::GaIntGenerator`], `Block::Int`),
-//! `gen/ga-cat` ([`crate::cat_ops::GaCatGenerator`], `Block::Categorical`),
-//! `gen/ga-real` ([`crate::ga::GaRealGenerator`], `Block::Float`), `gen/ga-perm`
-//! ([`crate::perm::GaPermGenerator`], `Block::Permutation`) -- chosen because
-//! each is already a complete, standalone, `pop.len()`-in/`pop.len()`-out
-//! generator for exactly one block type (the standalone crossover-only/
-//! mutation-only halves, e.g. `gen/bin-2pt`/`gen/bit-flip`, are NOT valid
-//! `gen/compound` sub-generators: composing them would need a second,
-//! per-block mutation stage, which is a different `[[stages]]`-shaped
-//! algorithm, not what `gen/compound` is for). Any other `kind` string is a
-//! build-time [`ComponentError::InvalidParams`] naming the unsupported kind.
+//! `blocks[i].kind` may be ANY registered `gen/*` kind that passes the
+//! eligibility gates below. Sub-generators are built through a fresh
+//! builtins `Registry` (`register_builtins`) constructed inside `from_params`
+//! (registration is cheap and non-recursive), so every registered
+//! generator's own `from_params` runs unmodified. A sub is rejected, with an
+//! error naming its kind, the block index and the reason, unless:
+//!
+//! 1. it is not `gen/compound` itself ("gen/compound cannot nest inside
+//!    itself");
+//! 2. its `ComponentMeta::requires` and `provides` are both empty -- a
+//!    generator that keeps engine-level blackboard state (PSO, CMA-ES,
+//!    SHADE, jDE, ...) needs its paired replacer/adapter, which gen/compound
+//!    cannot route per block;
+//! 3. its `ComponentMeta::offspring` is `OffspringCount::PopLen` (rejects
+//!    `gen/hs`, `gen/nelder-mead`, which emit one offspring per call);
+//! 4. its `ComponentMeta::internal_eval` is false (rejects `gen/hho`, which
+//!    evaluates single-block genotypes against the full problem inside
+//!    `generate()`).
+//!
+//! Block-type support (e.g. `gen/de` on a Binary block) is still checked per
+//! block index in [`CompoundGenerator::validate_against_space`]. Because gate
+//! 2 admits only stateless subs, the compound's own merged meta has empty
+//! requires/provides by construction; `min_pop` is the max over the subs.
+//!
+//! The standalone crossover-only / mutation-only typed operators
+//! (`gen/bin-2pt`, `gen/bit-flip`, `gen/int-sbx`, `gen/int-pm`, `gen/cat-ux`,
+//! `gen/cat-reset`, `gen/ox`, `gen/perm-swap`) pass the gates and are
+//! therefore admitted, but each is only half of a variation step; the fused
+//! presets (`gen/ga-bin`, `gen/ga-int`, `gen/ga-cat`, `gen/ga-real`,
+//! `gen/ga-perm`) remain the recommended choices for discrete blocks.
 //!
 //! ## Config schema (spec.rs's `ComponentSpec` shape, reused directly)
 //!
@@ -195,27 +210,55 @@ fn block_tag(b: &Block) -> &'static str {
     }
 }
 
-/// Builds one sub-generator from its `ComponentSpec` (module doc: the
-/// fixed, five-entry dispatch table). Errors carry `gen/compound` as the
-/// reporting component (`ComponentError::InvalidParams { kind: "gen/compound",
-/// .. }`) -- distinct from a sub-generator's OWN `from_params` errors
-/// (which still surface as-is, via `?`, carrying THEIR kind, e.g.
-/// `"gen/ga-bin"` for an out-of-range `p_c`).
-fn build_sub_generator(spec: &ComponentSpec) -> Result<Box<dyn Generator>, ComponentError> {
-    match spec.kind.as_str() {
-        "gen/ga-bin" => Ok(Box::new(crate::bin_ops::GaBinGenerator::from_params(&spec.params)?)),
-        "gen/ga-int" => Ok(Box::new(crate::int_ops::GaIntGenerator::from_params(&spec.params)?)),
-        "gen/ga-cat" => Ok(Box::new(crate::cat_ops::GaCatGenerator::from_params(&spec.params)?)),
-        "gen/ga-real" => Ok(Box::new(crate::ga::GaRealGenerator::from_params(&spec.params)?)),
-        "gen/ga-perm" => Ok(Box::new(crate::perm::GaPermGenerator::from_params(&spec.params)?)),
-        other => Err(ComponentError::InvalidParams {
-            kind: "gen/compound".into(),
-            reason: format!(
-                "unsupported sub-generator kind `{other}` (gen/compound accepts only the fused \
-                 typed presets: gen/ga-bin, gen/ga-int, gen/ga-cat, gen/ga-real, gen/ga-perm)"
-            ),
-        }),
+/// Builds one sub-generator from its `ComponentSpec` through a builtins
+/// registry (R-A) and applies the eligibility gates (R-B). `index` is the
+/// position in the `blocks` list, which IS the target block index. Errors
+/// carry `gen/compound` as the reporting component (`InvalidParams { kind:
+/// "gen/compound", .. }`) for registry misses and eligibility rejections --
+/// distinct from a sub-generator's OWN `from_params` errors (which still
+/// surface as-is, carrying THEIR kind, e.g. `"gen/ga-bin"` for an
+/// out-of-range `p_c`).
+fn build_sub_generator(
+    reg: &Registry,
+    index: usize,
+    spec: &ComponentSpec,
+) -> Result<Box<dyn Generator>, ComponentError> {
+    let err = |reason: String| ComponentError::InvalidParams { kind: "gen/compound".into(), reason };
+    let kind = spec.kind.as_str();
+    if kind == "gen/compound" {
+        return Err(err(format!("block {index}: gen/compound cannot nest inside itself")));
     }
+    let sub = match reg.build_generator(kind, &spec.params) {
+        Ok(g) => g,
+        Err(ComponentError::UnknownKind(k)) => {
+            return Err(err(format!(
+                "unsupported sub-generator kind `{k}` at block {index} (not a registered generator)"
+            )))
+        }
+        Err(e) => return Err(e),
+    };
+    let meta = sub.meta();
+    if !meta.requires.is_empty() || !meta.provides.is_empty() {
+        return Err(err(format!(
+            "sub-generator `{kind}` at block {index} is not eligible: it keeps engine-level \
+             blackboard state and needs its paired replacer/adapter, which gen/compound cannot \
+             route per block"
+        )));
+    }
+    if meta.offspring != OffspringCount::PopLen {
+        return Err(err(format!(
+            "sub-generator `{kind}` at block {index} is not eligible: it does not produce \
+             pop.len() offspring per call (gen/compound stitches pop.len() offspring per block)"
+        )));
+    }
+    if meta.internal_eval {
+        return Err(err(format!(
+            "sub-generator `{kind}` at block {index} is not eligible: it evaluates genotypes \
+             internally inside generate(), which breaks on the single-block view gen/compound \
+             hands each sub-generator"
+        )));
+    }
+    Ok(sub)
 }
 
 /// `gen/compound` -- see module doc for the full design (schema, single-
@@ -234,7 +277,7 @@ pub struct CompoundGenerator {
 impl CompoundGenerator {
     /// Parses `{"blocks": [{...sub-generator spec...}, ...]}` (module doc's
     /// pinned schema) and builds every sub-generator via
-    /// [`build_sub_generator`]. Does NOT (cannot -- see module doc) check
+    /// [`build_sub_generator`] (registry-driven, eligibility-gated). Does NOT (cannot -- see module doc) check
     /// sub-generator `i`'s block-type support against a real
     /// `SearchSpace`'s block `i` here; call
     /// [`CompoundGenerator::validate_against_space`] once the target space
@@ -250,7 +293,14 @@ impl CompoundGenerator {
         if specs.is_empty() {
             return Err(err("`blocks` must contain at least one sub-generator spec".into()));
         }
-        let subs: Vec<Box<dyn Generator>> = specs.iter().map(build_sub_generator).collect::<Result<_, _>>()?;
+        // R-A: fresh builtins registry; registration is cheap and non-recursive.
+        let mut reg = Registry::new();
+        crate::register_builtins(&mut reg);
+        let subs: Vec<Box<dyn Generator>> = specs
+            .iter()
+            .enumerate()
+            .map(|(i, spec)| build_sub_generator(&reg, i, spec))
+            .collect::<Result<_, _>>()?;
         let min_pop = subs.iter().map(|s| s.meta().min_pop).max().unwrap_or(1);
         Ok(Self { subs, min_pop })
     }
@@ -512,6 +562,194 @@ mod tests {
         assert!(g.meta().supports_block("binary"));
         assert!(g.meta().supports_block("permutation"));
         assert_eq!(g.meta().kind, "gen/compound");
+    }
+
+    // ==================================================================
+    // registry-driven dispatch + eligibility gates (R-A / R-B / R-D)
+    // ==================================================================
+
+    fn err_reason(spec: serde_json::Value) -> String {
+        match CompoundGenerator::from_params(&spec) {
+            Err(ComponentError::InvalidParams { kind, reason }) => {
+                assert_eq!(kind, "gen/compound");
+                reason
+            }
+            Err(e) => panic!("unexpected error variant: {e}"),
+            Ok(_) => panic!("expected rejection"),
+        }
+    }
+
+    fn run_generate(g: &CompoundGenerator, space: &SearchSpace, pop: &Population, seed: u64) -> Vec<Genotype> {
+        let p = MixedProblem::new(1, 1, 3, 1, 1);
+        let mut eval = Evaluator::new(&p, 100);
+        let mut rng = RngStream::from_master(seed, &[]);
+        let mut bb = Blackboard::new();
+        let mut ctx = Ctx { space, rng: &mut rng, bb: &mut bb, eval: &mut eval, iteration: 0 };
+        g.generate(pop, &mut ctx)
+    }
+
+    #[test]
+    fn de_on_float_with_typed_ga_on_discrete_blocks_generates_valid_shapes() {
+        let g = CompoundGenerator::from_params(&serde_json::json!({
+            "blocks": [
+                {"kind": "gen/de", "strategy": "rand1"},
+                {"kind": "gen/ga-int"},
+                {"kind": "gen/ga-cat"},
+                {"kind": "gen/ga-bin"},
+            ]
+        }))
+        .unwrap();
+        let p = MixedProblem::new(4, 3, 3, 2, 6);
+        g.validate_against_space(p.space()).unwrap();
+        let pop = mixed_pop(8, 4, 3, 2, 6);
+        let off = run_generate(&g, p.space(), &pop, 11);
+        assert_eq!(off.len(), 8);
+        for o in &off {
+            assert_eq!(o.blocks.len(), 4);
+            assert!(matches!(&o.blocks[0], BlockValues::Float(v) if v.len() == 4));
+            assert!(matches!(&o.blocks[1], BlockValues::Int(v) if v.len() == 3));
+            assert!(matches!(&o.blocks[2], BlockValues::Cat(v) if v.len() == 2));
+            assert!(matches!(&o.blocks[3], BlockValues::Bin(v) if v.len() == 6));
+        }
+    }
+
+    #[test]
+    fn gwo_on_float_with_ga_int_generates_valid_shapes() {
+        let g = CompoundGenerator::from_params(&serde_json::json!({
+            "blocks": [{"kind": "gen/gwo"}, {"kind": "gen/ga-int"}]
+        }))
+        .unwrap();
+        let space = SearchSpace::new(vec![
+            Block::Float { lo: -5.0, hi: 5.0, n: 3 },
+            Block::Int { lo: -5, hi: 5, n: 4 },
+        ])
+        .unwrap();
+        g.validate_against_space(&space).unwrap();
+        let pop = Population {
+            individuals: (0..8)
+                .map(|i| Genotype {
+                    blocks: vec![
+                        BlockValues::Float((0..3).map(|j| ((i + j) % 5) as f64 - 2.0).collect()),
+                        BlockValues::Int((0..4).map(|j| ((i + j) % 5) as i64 - 2).collect()),
+                    ],
+                })
+                .collect(),
+            fitness: (0..8).map(|i| (8 - i) as f64).collect(),
+        };
+        let off = run_generate(&g, &space, &pop, 5);
+        assert_eq!(off.len(), 8);
+        for o in &off {
+            assert!(matches!(&o.blocks[0], BlockValues::Float(v) if v.len() == 3));
+            assert!(matches!(&o.blocks[1], BlockValues::Int(v) if v.len() == 4));
+        }
+    }
+
+    #[test]
+    fn rejects_nested_compound() {
+        let r = err_reason(serde_json::json!({
+            "blocks": [{"kind": "gen/compound", "blocks": [{"kind": "gen/ga-bin"}]}]
+        }));
+        assert!(r.contains("cannot nest inside itself"), "{r}");
+    }
+
+    #[test]
+    fn rejects_stateful_generator_with_blackboard_reason() {
+        let r = err_reason(serde_json::json!({
+            "blocks": [{"kind": "gen/ga-bin"}, {"kind": "gen/pso"}]
+        }));
+        assert!(r.contains("gen/pso"), "{r}");
+        assert!(r.contains("block 1"), "{r}");
+        assert!(r.contains("blackboard state"), "{r}");
+        assert!(r.contains("paired replacer/adapter"), "{r}");
+    }
+
+    #[test]
+    fn rejects_single_offspring_generators() {
+        let r = err_reason(serde_json::json!({"blocks": [{"kind": "gen/hs"}]}));
+        assert!(r.contains("gen/hs") && r.contains("block 0"), "{r}");
+        assert!(r.contains("pop.len() offspring"), "{r}");
+        // gen/nelder-mead is also offspring-One but keeps blackboard state,
+        // so the earlier (stateful) gate fires first; it is rejected either way.
+        let r = err_reason(serde_json::json!({"blocks": [{"kind": "gen/nelder-mead"}]}));
+        assert!(r.contains("gen/nelder-mead") && r.contains("block 0"), "{r}");
+    }
+
+    #[test]
+    fn rejects_internal_eval_generator() {
+        let r = err_reason(serde_json::json!({"blocks": [{"kind": "gen/hho"}]}));
+        assert!(r.contains("gen/hho") && r.contains("block 0"), "{r}");
+        assert!(r.contains("internally"), "{r}");
+    }
+
+    #[test]
+    fn rejects_unknown_kind_naming_it() {
+        let r = err_reason(serde_json::json!({"blocks": [{"kind": "gen/does-not-exist"}]}));
+        assert!(r.contains("gen/does-not-exist"), "{r}");
+    }
+
+    #[test]
+    fn de_on_binary_block_fails_block_support_validation() {
+        let g = CompoundGenerator::from_params(&serde_json::json!({
+            "blocks": [{"kind": "gen/de"}]
+        }))
+        .unwrap();
+        let space = SearchSpace::new(vec![Block::Binary { n: 4 }]).unwrap();
+        match g.validate_against_space(&space) {
+            Err(ComponentError::InvalidParams { reason, .. }) => {
+                assert!(reason.contains("gen/de") && reason.contains("binary"), "{reason}");
+            }
+            other => panic!("expected InvalidParams, got ok={}", other.is_ok()),
+        }
+    }
+
+    #[test]
+    fn compound_meta_stays_stateless_for_mixed_eligible_subs() {
+        let g = CompoundGenerator::from_params(&serde_json::json!({
+            "blocks": [
+                {"kind": "gen/de"},
+                {"kind": "gen/ga-int"},
+                {"kind": "gen/ga-cat"},
+                {"kind": "gen/ga-bin"},
+                {"kind": "gen/gwo"},
+            ]
+        }))
+        .unwrap();
+        let m = g.meta();
+        assert!(m.requires.is_empty());
+        assert!(m.provides.is_empty());
+        let max_sub = ["gen/de", "gen/ga-int", "gen/ga-cat", "gen/ga-bin", "gen/gwo"]
+            .iter()
+            .map(|k| {
+                let mut reg = Registry::new();
+                crate::register_builtins(&mut reg);
+                reg.build_generator(k, &serde_json::json!({})).unwrap().meta().min_pop
+            })
+            .max()
+            .unwrap();
+        assert_eq!(m.min_pop, max_sub);
+    }
+
+    #[test]
+    fn de_plus_ga_bin_is_deterministic_for_same_seed() {
+        let g = CompoundGenerator::from_params(&serde_json::json!({
+            "blocks": [{"kind": "gen/de"}, {"kind": "gen/ga-bin"}]
+        }))
+        .unwrap();
+        let space = SearchSpace::new(vec![Block::Float { lo: -5.0, hi: 5.0, n: 3 }, Block::Binary { n: 6 }]).unwrap();
+        let pop = Population {
+            individuals: (0..8)
+                .map(|i| Genotype {
+                    blocks: vec![
+                        BlockValues::Float((0..3).map(|j| ((i + j) % 5) as f64 - 2.0).collect()),
+                        BlockValues::Bin((0..6).map(|j| (i + j) % 2 == 0).collect()),
+                    ],
+                })
+                .collect(),
+            fitness: (0..8).map(|i| (8 - i) as f64).collect(),
+        };
+        let a = run_generate(&g, &space, &pop, 7);
+        let b = run_generate(&g, &space, &pop, 7);
+        assert_eq!(a, b);
     }
 
     // ==================================================================
