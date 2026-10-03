@@ -464,3 +464,50 @@ test_that(".sz_ga_wrap_compound guards malformed preset specs", {
   ok <- wrap('{"stages": [{"generator": {"kind": "a"}}]}', 2L)
   expect_match(ok, "gen/compound", fixed = TRUE)
 })
+
+
+# ---- 0.1.3 hybrid mixed-space auto-dispatch ----------------------------------
+
+hybrid_problem <- function() {
+  R6::R6Class("HybridProblem", inherit = Problem, public = list(
+    space = function() sz_space(sz_float(-5, 5, 4), sz_binary(6), sz_int(0, 9, 3)),
+    evaluate = function(x) sum(x[[1]]^2) + sum(!x[[2]]) + sum(abs(x[[3]] - 5))
+  ))$new()
+}
+
+for (case in list(
+  list(name = "de rand_1", make = function() DifferentialEvolution$new()),
+  list(name = "de best_1", make = function() DifferentialEvolution$new(variant = "best_1")),
+  list(name = "gwo", make = function() GreyWolfOptimizer$new()),
+  list(name = "tlbo", make = function() TLBO$new())
+)) {
+  local({
+    case <- case
+    test_that(sprintf("%s hybrid-dispatches on a Float+Binary+Int space, deterministic, beats random search", case$name), {
+      a <- case$make()$run(hybrid_problem(), budget = 4000, seed = 7)
+      b <- case$make()$run(hybrid_problem(), budget = 4000, seed = 7)
+      expect_identical(a$best_f, b$best_f)
+      expect_identical(a$best_x, b$best_x)
+      expect_equal(length(a$best_x[[1]]), 4L)
+      expect_equal(length(a$best_x[[2]]), 6L)
+      expect_equal(length(a$best_x[[3]]), 3L)
+      rs <- RandomSearch$new()$run(hybrid_problem(), budget = 4000, seed = 7)
+      expect_lt(a$best_f, rs$best_f)
+    })
+  })
+}
+
+test_that("ineligible presets raise an honest error naming WHY on a mixed space", {
+  expect_error(
+    ParticleSwarm$new()$run(hybrid_problem(), budget = 200, seed = 1),
+    "stateful"
+  )
+  expect_error(
+    DifferentialEvolution$new(variant = "jde")$run(hybrid_problem(), budget = 200, seed = 1),
+    "gen/de-jde is stateful"
+  )
+  expect_error(
+    HarmonySearch$new()$run(hybrid_problem(), budget = 200, seed = 1),
+    "OffspringCount::One"
+  )
+})

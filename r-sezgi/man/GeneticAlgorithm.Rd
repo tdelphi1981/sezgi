@@ -22,9 +22,12 @@ the preset's own), so every block is recombined independently. The same
 wrap applies when `representation` is forced.
 
 A space MIXING block kinds (e.g. Float + Int together) has no `ga_*`
-preset in this milestone -- `$run()` raises a clear error naming the
-limitation (mirrors py-sezgi's `GeneticAlgorithm`'s own identical
-`NotImplementedError`, M4-1 Task 5 deferral (d)).
+preset -- `$run()` raises a clear error naming the limitation (mirrors
+py-sezgi's `GeneticAlgorithm`'s own identical `NotImplementedError`).
+For mixed spaces use an eligible preset class instead ([DifferentialEvolution],
+`GreyWolfOptimizer`, `TLBO`, ...): they auto-dispatch to a hybrid
+(preset generator on float blocks, GA variation on discrete blocks) via
+`gen/compound`.
 
 `representation` (a constructor kwarg, one of `"real"`/`"perm"`/
 `"bin"`/`"int"`/`"cat"`) OVERRIDES auto-dispatch entirely -- block-kind

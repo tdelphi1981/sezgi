@@ -74,3 +74,39 @@ def test_docstrings_state_hybrid():
                 sezgi.DifferentialEvolution):
         assert "HYBRID" in cls.__doc__
         assert "gen/ga-bin" in cls.__doc__
+
+
+def test_docstrings_warn_no_float_block_means_pure_ga():
+    for cls in (sezgi.GreyWolfOptimizer, sezgi.TLBO, sezgi.CuckooSearch,
+                sezgi.DifferentialEvolution):
+        assert "NO float block" in cls.__doc__
+
+
+class _Discrete(sezgi.Problem):
+    def space(self):
+        return sezgi.Space(sezgi.Binary(10))
+
+    def evaluate(self, x):
+        return float(sum(1 for v in x if not v))
+
+
+class _TwoFloat(sezgi.Problem):
+    def space(self):
+        return sezgi.Space(sezgi.Float(-5.0, 5.0, 3), sezgi.Float(-5.0, 5.0, 2))
+
+    def evaluate(self, x):
+        return sum(v * v for blk in x for v in blk)
+
+
+def test_pure_discrete_space_runs_deterministically():
+    a = sezgi.GreyWolfOptimizer().run(_Discrete(), budget=600, seed=SEED)
+    b = sezgi.GreyWolfOptimizer().run(_Discrete(), budget=600, seed=SEED)
+    assert a.best_f == b.best_f and a.best_x == b.best_x
+    assert len(a.best_x) == 10
+
+
+def test_multi_float_only_space_runs_deterministically():
+    a = sezgi.DifferentialEvolution().run(_TwoFloat(), budget=1000, seed=SEED)
+    b = sezgi.DifferentialEvolution().run(_TwoFloat(), budget=1000, seed=SEED)
+    assert a.best_f == b.best_f and a.best_x == b.best_x
+    assert len(a.best_x[0]) == 3 and len(a.best_x[1]) == 2

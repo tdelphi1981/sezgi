@@ -112,7 +112,8 @@ _HYBRID_DOC = (
     "{label} on continuous (float) blocks, GA variation (gen/ga-bin / "
     "gen/ga-int / gen/ga-cat / gen/ga-perm, default params) on "
     "binary/int/categorical/permutation blocks; parent selection and "
-    "replacement follow the {label} pipeline.")
+    "replacement follow the {label} pipeline. A space with NO float block "
+    "gets zero {label}-specific variation (all variation is GA).")
 
 
 def _block_kinds(native):
@@ -613,7 +614,8 @@ class DifferentialEvolution(object):
     gen/compound -- DE on continuous (float) blocks, GA variation
     (gen/ga-bin / gen/ga-int / gen/ga-cat / gen/ga-perm, default params) on
     discrete blocks; parent selection and replacement follow the DE
-    pipeline. variant="jde" is stateful and raises NotImplementedError on
+    pipeline. A space with NO float block gets zero DE-specific variation
+    (all variation is GA). variant="jde" is stateful and raises NotImplementedError on
     mixed spaces."""
 
     def __init__(self, pop_size=20, variant="rand1", **preset_kwargs):

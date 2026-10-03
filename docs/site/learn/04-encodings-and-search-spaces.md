@@ -65,9 +65,33 @@ that makes sense on a permutation (order-preserving, no repeated city) is
 meaningless applied to an independent-bit binary string, and vice versa. A
 multi-block space whose blocks all share one kind auto-dispatches through
 `gen/compound` inside `GeneticAlgorithm` (one generator copy per block).
-A space that **mixes** block kinds has no single `ga_*` preset in sezgi
-today; it must be built by hand around `gen/compound`
-(`crates/components/src/compound.rs`).
+A space that **mixes** block kinds has no single `ga_*` preset, so
+`GeneticAlgorithm` rejects it. Since 0.1.3 `gen/compound`
+(`crates/components/src/compound.rs`) accepts any registered generator that
+is stateless, pop-to-pop and free of internal evaluation, and 11 presets
+(`DifferentialEvolution` rand1/best1, `GreyWolfOptimizer`,
+`WhaleOptimization`, `SineCosineAlgorithm`, `JAYA`,
+`GrasshopperOptimization`, `SalpSwarm`, `FireflyAlgorithm`,
+`FlowerPollination`, `TLBO`, `CuckooSearch`) auto-dispatch on a mixed
+space to a **hybrid**: the preset's own generator on float blocks, GA
+variation on binary/int/categorical/permutation blocks, with parent
+selection and replacement following the preset's own pipeline. A space with
+no float block gets zero preset-specific variation (all variation is GA).
+
+```python
+import sezgi
+
+class Mixed(sezgi.Problem):
+    def space(self):
+        return sezgi.Space(sezgi.Float(-5.0, 5.0, 4), sezgi.Binary(6))
+
+    def evaluate(self, x):
+        floats, bits = x
+        return sum(v * v for v in floats) + sum(1 for b in bits if not b)
+
+# DE varies the float block, GA variation (gen/ga-bin) the binary block.
+result = sezgi.DifferentialEvolution().run(Mixed(), budget=2000, seed=7)
+```
 
 ## Three block kinds, sampled
 
