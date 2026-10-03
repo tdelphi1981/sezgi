@@ -139,7 +139,9 @@ impl Generator for HsGenerator {
     }
 
     fn meta(&self) -> ComponentMeta {
-        ComponentMeta::new("gen/hs", SupportedBlocks::Only(vec!["float"])).with_min_pop(1)
+        ComponentMeta::new("gen/hs", SupportedBlocks::Only(vec!["float"]))
+            .with_min_pop(1)
+            .with_offspring_one()
     }
 }
 
@@ -150,6 +152,13 @@ pub fn register(reg: &mut Registry) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hs_meta_reports_single_offspring() {
+        let m = HsGenerator::from_params(&serde_json::json!({})).unwrap().meta();
+        assert_eq!(m.kind, "gen/hs");
+        assert_eq!(m.offspring, OffspringCount::One); assert!(!m.internal_eval);
+    }
     use sezgi_core::problem::{Problem, SphereShifted, Evaluator};
     use sezgi_core::state::Blackboard;
 
