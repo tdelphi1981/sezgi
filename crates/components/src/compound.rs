@@ -237,14 +237,6 @@ fn block_tag(b: &Block) -> &'static str {
     }
 }
 
-/// Builds one sub-generator from its `ComponentSpec` through a builtins
-/// registry (R-A) and applies the eligibility gates (R-B). `index` is the
-/// position in the `blocks` list, which IS the target block index. Errors
-/// carry `gen/compound` as the reporting component (`InvalidParams { kind:
-/// "gen/compound", .. }`) for registry misses and eligibility rejections --
-/// distinct from a sub-generator's OWN `from_params` errors (which still
-/// surface as-is, carrying THEIR kind, e.g. `"gen/ga-bin"` for an
-/// out-of-range `p_c`).
 /// Stateful generator kinds admitted as `gen/compound` subs. The list is
 /// MANUAL on purpose: `ComponentMeta` cannot see engine-level pairing (e.g.
 /// `gen/pso` provides keys that `replace/pso-commit` maintains outside
@@ -255,6 +247,14 @@ fn block_tag(b: &Block) -> &'static str {
 /// and needs no adapter. State lives in the per-block nested blackboard.
 const SELF_CONTAINED_COMPOUND_KINDS: &[&str] = &["gen/gsa", "gen/ba"];
 
+/// Builds one sub-generator from its `ComponentSpec` through a builtins
+/// registry (R-A) and applies the eligibility gates (R-B). `index` is the
+/// position in the `blocks` list, which IS the target block index. Errors
+/// carry `gen/compound` as the reporting component (`InvalidParams { kind:
+/// "gen/compound", .. }`) for registry misses and eligibility rejections --
+/// distinct from a sub-generator's OWN `from_params` errors (which still
+/// surface as-is, carrying THEIR kind, e.g. `"gen/ga-bin"` for an
+/// out-of-range `p_c`).
 fn build_sub_generator(
     reg: &Registry,
     index: usize,
@@ -424,7 +424,12 @@ impl Generator for CompoundGenerator {
             // R-A: per-block nested blackboard, parent slot `cmp{i}/bb`.
             let bb_key = format!("cmp{i}/bb");
             let mut sub_bb: Blackboard = match ctx.bb.take_raw(&bb_key) {
-                Some(raw) => raw.downcast::<Blackboard>().map(|b| *b).unwrap_or_default(),
+                Some(raw) => {
+                    let down = raw.downcast::<Blackboard>();
+                    // Only this compound writes `cmp{i}/bb`, always as a Blackboard.
+                    debug_assert!(down.is_ok(), "gen/compound: `{bb_key}` slot is not a Blackboard");
+                    down.map(|b| *b).unwrap_or_default()
+                }
                 None => Blackboard::default(),
             };
             let off = {

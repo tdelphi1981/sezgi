@@ -77,6 +77,7 @@ _HYBRID_PRESETS = {
     "firefly": "FA", "fpa": "FPA", "tlbo": "TLBO",
     "cuckoo_search": "Cuckoo Search",
     "alo": "ALO", "es_mu_plus_lambda": "ES",
+    "gsa": "GSA", "bat": "BA",
 }
 
 _WHY_STATEFUL = (
@@ -106,8 +107,6 @@ _HYBRID_INELIGIBLE = {
     "cmaes_ipop": "gen/cma is stateful: " + _WHY_STATEFUL.format(what="CMA distribution"),
     "shade": "gen/de-shade is stateful: " + _WHY_STATEFUL.format(what="success history"),
     "lshade": "gen/de-shade is stateful: " + _WHY_STATEFUL.format(what="success history"),
-    "bat": "gen/ba is stateful: " + _WHY_STATEFUL.format(what="ba/velocity"),
-    "gsa": "gen/gsa is stateful: " + _WHY_STATEFUL.format(what="gsa/velocity"),
     "mfo": "gen/mfo is stateful: " + _WHY_STATEFUL.format(what="flame memory"),
     "abc": "gen/abc-employed is stateful: " + _WHY_STATEFUL.format(what="abc/trials"),
 }

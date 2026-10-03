@@ -481,7 +481,9 @@ for (case in list(
   list(name = "gwo", make = function() GreyWolfOptimizer$new()),
   list(name = "tlbo", make = function() TLBO$new()),
   list(name = "alo", make = function() AntLion$new()),
-  list(name = "es", make = function() EvolutionStrategy$new())
+  list(name = "es", make = function() EvolutionStrategy$new()),
+  list(name = "gsa", make = function() GravitationalSearch$new()),
+  list(name = "bat", make = function() BatAlgorithm$new())
 )) {
   local({
     case <- case

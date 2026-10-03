@@ -171,7 +171,8 @@ NULL
 # stages, each stage's generator wrapped in its own compound entry).
 .sz_hybrid_presets <- c(
   "de_rand_1", "de_best_1", "gwo", "woa", "sca", "jaya", "goa", "ssa",
-  "firefly", "fpa", "tlbo", "cuckoo_search", "alo", "es_mu_plus_lambda"
+  "firefly", "fpa", "tlbo", "cuckoo_search", "alo", "es_mu_plus_lambda",
+  "gsa", "bat"
 )
 
 .sz_why_stateful <- function(what) {
@@ -207,8 +208,6 @@ NULL
   shade = paste0("gen/de-shade is stateful: ", .sz_why_stateful("success history")),
   lshade = paste0("gen/de-shade is stateful: ", .sz_why_stateful("success history")),
   jde = paste0("gen/de-jde is stateful: ", .sz_why_stateful("per-individual jde_f/jde_cr")),
-  bat = paste0("gen/ba is stateful: ", .sz_why_stateful("ba/velocity")),
-  gsa = paste0("gen/gsa is stateful: ", .sz_why_stateful("gsa/velocity")),
   mfo = paste0("gen/mfo is stateful: ", .sz_why_stateful("flame memory")),
   abc = paste0("gen/abc-employed is stateful: ", .sz_why_stateful("abc/trials"))
 )
@@ -487,10 +486,10 @@ NULL
 #' `sz_preset_es_mu_plus_lambda()` unchanged, via `...`) -- the ONLY table
 #' row whose preset takes kwargs beyond `pop_size`/`budget`.
 #'
-#' Mixed spaces (0.1.3, widened in 0.1.4): `AntLion`, `CuckooSearch`,
-#' `EvolutionStrategy`, `FireflyAlgorithm`,
-#' `FlowerPollination`, `GrasshopperOptimization`, `GreyWolfOptimizer`,
-#' `JAYA`, `SalpSwarm`, `SineCosineAlgorithm`, `TLBO` and
+#' Mixed spaces (0.1.3, widened in 0.1.4 and 0.1.5): `AntLion`, `BatAlgorithm`,
+#' `CuckooSearch`, `EvolutionStrategy`, `FireflyAlgorithm`,
+#' `FlowerPollination`, `GrasshopperOptimization`, `GravitationalSearch`,
+#' `GreyWolfOptimizer`, `JAYA`, `SalpSwarm`, `SineCosineAlgorithm`, `TLBO` and
 #' `WhaleOptimization` (plus [DifferentialEvolution] `rand_1`/`best_1`)
 #' auto-dispatch on a mixed or non-float space to a HYBRID via
 #' `gen/compound`: the preset's own generator on float blocks, GA variation

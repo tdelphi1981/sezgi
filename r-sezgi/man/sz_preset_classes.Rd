@@ -73,10 +73,10 @@ is N" convention, where stated):
 `sz_preset_es_mu_plus_lambda()` unchanged, via `...`) -- the ONLY table
 row whose preset takes kwargs beyond `pop_size`/`budget`.
 
-Mixed spaces (0.1.3, widened in 0.1.4): `AntLion`, `CuckooSearch`,
-`EvolutionStrategy`, `FireflyAlgorithm`,
-`FlowerPollination`, `GrasshopperOptimization`, `GreyWolfOptimizer`,
-`JAYA`, `SalpSwarm`, `SineCosineAlgorithm`, `TLBO` and
+Mixed spaces (0.1.3, widened in 0.1.4 and 0.1.5): `AntLion`, `BatAlgorithm`,
+`CuckooSearch`, `EvolutionStrategy`, `FireflyAlgorithm`,
+`FlowerPollination`, `GrasshopperOptimization`, `GravitationalSearch`,
+`GreyWolfOptimizer`, `JAYA`, `SalpSwarm`, `SineCosineAlgorithm`, `TLBO` and
 `WhaleOptimization` (plus [DifferentialEvolution] `rand_1`/`best_1`)
 auto-dispatch on a mixed or non-float space to a HYBRID via
 `gen/compound`: the preset's own generator on float blocks, GA variation
